@@ -386,7 +386,7 @@ def test_per_instance_fast_model_overrides_default():
 
         # Mock DefaultLLM to capture which model is used
         with mock_patch("holmes.core.transformers.llm_summarize.DefaultLLM") as mock_llm:
-            instance = LLMSummarizeTransformer(fast_model="claude-haiku")
+            LLMSummarizeTransformer(fast_model="claude-haiku")
             # Should use per-instance fast_model, not the class default
             mock_llm.assert_called_once_with("claude-haiku", None)
     finally:

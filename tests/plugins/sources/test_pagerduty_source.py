@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from holmes.plugins.sources.pagerduty import PagerDutySource
 
 SAMPLE_INCIDENT = {

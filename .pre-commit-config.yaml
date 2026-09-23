@@ -1,5 +1,5 @@
 default_language_version:
-  python: python3.11
+  python: python3
 
 repos:
   - repo: https://github.com/python-poetry/poetry
@@ -8,7 +8,7 @@ repos:
       - id: poetry-check
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.7.2
+    rev: v0.7.4
     hooks:
       - id: ruff
         entry: ruff check --fix

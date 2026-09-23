@@ -3,7 +3,6 @@ import os
 import re
 import shutil
 import tempfile
-import threading
 import time
 import unittest
 from io import StringIO
@@ -1081,7 +1080,7 @@ class TestRendererEndToEnd(unittest.TestCase):
         display_text = self._render_to_text(renderer)
 
         # The data panel border should be ~50 chars (50% of 100)
-        data_lines = [l for l in display_text.split("\n") if "Data" in l]
+        data_lines = [line for line in display_text.split("\n") if "Data" in line]
         assert data_lines, f"No Data header line found:\n{display_text}"
         data_header = data_lines[0]
         # With ratio=1:1, data pane should be close to 50 chars, not shrunk
@@ -1217,7 +1216,7 @@ class TestRendererEndToEnd(unittest.TestCase):
         assert len(renderer._tool_history) == 1
         assert renderer._tool_history[0][1] == "do something useful"
         assert len(renderer._data_lines) > 0, "Data buffer should have content"
-        assert any("line 1" in l for l in renderer._data_lines)
+        assert any("line 1" in line for line in renderer._data_lines)
 
     def test_ai_message_keeps_live_active(self):
         """AI_MESSAGE should keep Live running so the data pane survives for subsequent tools."""
@@ -1332,7 +1331,7 @@ class TestRendererEndToEnd(unittest.TestCase):
         # TodoWrite should NOT appear in tool history
         assert len(renderer._tool_history) == 0, "TodoWrite should not be in tool history"
         # TodoWrite should NOT be in data buffer
-        assert not any("TodoWrite" in l for l in renderer._data_lines), "TodoWrite in data buffer"
+        assert not any("TodoWrite" in line for line in renderer._data_lines), "TodoWrite in data buffer"
 
     def test_approval_pending_shows_paused_status(self):
         """When approval is pending, status line should show static paused text."""
@@ -1730,14 +1729,14 @@ class TestDataPaneScrollAndWidth(unittest.TestCase):
         long_line = "x" * (line_max + 50)
         r._ingest_output("tool1", long_line)
         # Find the data line (skip header)
-        data_lines = [l for l in r._data_lines if not l.startswith(r._TOOL_HEADER_PREFIX)]
+        data_lines = [line for line in r._data_lines if not line.startswith(r._TOOL_HEADER_PREFIX)]
         self.assertEqual(len(data_lines), 1)
         self.assertEqual(len(data_lines[0]), line_max)
         self.assertTrue(data_lines[0].endswith("…"))
 
     def test_layout_data_pane_wider_than_left(self):
         """Data pane column should be wider than the left pane on wide terminals."""
-        r = self._make_renderer(width=120)
+        self._make_renderer(width=120)
         tw = 120
         left_width = min(52, tw // 2)
         right_width = max(tw - left_width - 3, 40)
@@ -1758,8 +1757,6 @@ class TestInlineMenu(unittest.TestCase):
             pipe_input.send_text(keys)
             # Patch prompt_toolkit to use our pipe input/output
             with patch("holmes.interactive.Application") as MockApp:
-                captured_result = [None]
-
                 def fake_run(self_app):
                     from prompt_toolkit.application import Application as RealApp
                     real_app = RealApp(

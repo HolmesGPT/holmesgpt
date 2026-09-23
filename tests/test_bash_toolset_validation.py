@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset, RunBashCommand
+from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,

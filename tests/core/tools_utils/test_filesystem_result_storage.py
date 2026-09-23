@@ -1,7 +1,5 @@
 import base64
 
-import pytest
-
 from holmes.core.tools_utils.filesystem_result_storage import save_images, save_large_result
 
 

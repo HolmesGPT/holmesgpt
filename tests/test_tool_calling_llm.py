@@ -15,7 +15,7 @@ Mocking strategy:
 
 import json
 import threading
-from typing import Any, Dict, List, Optional
+from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest

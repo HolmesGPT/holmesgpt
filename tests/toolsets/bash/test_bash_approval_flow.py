@@ -14,7 +14,6 @@ from holmes.core.llm import LLM
 from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
 from holmes.plugins.toolsets.bash.bash_toolset import (
     BashExecutorToolset,
-    RunBashCommand,
 )
 from holmes.plugins.toolsets.bash.common.config import BashExecutorConfig
 

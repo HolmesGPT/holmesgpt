@@ -10,7 +10,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from holmes.core.otel_tracing import OTelSpan
-from holmes.core.tracing import DummySpan, DummyTracer, SpanType, TracingFactory
+from holmes.core.tracing import DummyTracer, TracingFactory
 
 
 @pytest.fixture()

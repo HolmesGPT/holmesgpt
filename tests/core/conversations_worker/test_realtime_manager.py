@@ -1,7 +1,6 @@
 """Unit tests for RealtimeWorker's testable (non-async) surface."""
 import asyncio
 import logging
-import os
 import ssl as _ssl
 import time
 from unittest.mock import AsyncMock, MagicMock

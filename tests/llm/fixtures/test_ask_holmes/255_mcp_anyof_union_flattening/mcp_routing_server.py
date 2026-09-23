@@ -15,7 +15,6 @@ The verification code ONCALL-EVAL-9r4w7z is ONLY returned by Shape B.
 """
 
 import asyncio
-import json
 from typing import Any
 
 from mcp.server import Server

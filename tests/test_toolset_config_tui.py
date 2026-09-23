@@ -1,11 +1,9 @@
 """Tests for holmes.toolset_config_tui module."""
 
-import os
-import tempfile
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Type
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import yaml  # type: ignore
@@ -28,7 +26,6 @@ from holmes.toolset_config_tui import (
     _resolve_primitive_type,
     _select_config_class,
     build_tree_from_schema,
-    run_toolset_config_tui,
     save_config_to_file,
     select_toolset,
     run_config_test,
@@ -775,7 +772,7 @@ class TestRealConfigSchemas:
         assert stdio_nodes[0].key == "mode"
 
     def test_stdio_mcp_config_tree(self) -> None:
-        from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig, MCPMode
+        from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig
 
         values = {"mode": "stdio", "command": "uvx", "args": ["mcp-atlassian"]}
         nodes = build_tree_from_schema(StdioMCPConfig, values)
@@ -912,7 +909,7 @@ class TestSelectConfigClass:
         assert result is EnumConfig
 
     def test_mcp_config_classes(self) -> None:
-        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, StdioMCPConfig
+        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, StdioMCPConfig
 
         assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "stdio"}) is StdioMCPConfig
         assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "sse"}) is MCPConfig

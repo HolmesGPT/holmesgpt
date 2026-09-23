@@ -1,12 +1,11 @@
 """Tests for the smart auto-enable logic for toolsets."""
 
-from typing import ClassVar, Dict, List, Optional, Type
+from typing import List, Optional, Type
 from unittest.mock import patch
 
-import pytest
 from pydantic import BaseModel, Field
 
-from holmes.core.tools import Toolset, ToolsetStatusEnum, ToolsetTag
+from holmes.core.tools import Toolset, ToolsetTag
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.utils.pydantic_utils import ToolsetConfig
 

@@ -4,7 +4,7 @@ import string
 import subprocess
 
 import pytest
-from confluent_kafka import Consumer, Producer, TopicPartition
+from confluent_kafka import Consumer, Producer
 from confluent_kafka.admin import NewTopic, KafkaError
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolsetStatusEnum

@@ -125,7 +125,7 @@ class TestHealthCheck:
             assert "401" in msg
 
     def test_health_check_connection_error(self, toolset):
-        with responses.RequestsMock() as rsps:
+        with responses.RequestsMock():
             # No matching response means ConnectionError
             ok, msg = toolset.prerequisites_callable(
                 {"api_url": "http://nonexistent.invalid:9428"}

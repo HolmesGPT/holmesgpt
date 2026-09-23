@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from holmes.core.tools import (
     StructuredToolResultStatus,
 )
-from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig, GrafanaTempoLabelsConfig
+from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     FetchTracesSimpleComparison,
     GrafanaTempoToolset,

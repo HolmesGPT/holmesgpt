@@ -25,7 +25,6 @@ from typing import Any, Dict, Optional
 
 from holmes.core.tracing import (
     HOLMES_LANGFUSE_ATTRIBUTES,
-    DummySpan,
     SpanType,
     TracingFactory,
 )

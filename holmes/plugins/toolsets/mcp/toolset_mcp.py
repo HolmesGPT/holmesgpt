@@ -6,12 +6,10 @@ import logging
 import os
 import re
 import threading
-import time
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
-from urllib.parse import urlparse
 
 import httpx
 from mcp.client.session import ClientSession
@@ -19,13 +17,12 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCP_Tool
-from pydantic import AnyUrl, BaseModel, Field, model_validator
+from pydantic import AnyUrl, Field, model_validator
 
 from holmes.common.env_vars import MCP_TOOL_CALL_TIMEOUT_SEC, SSE_READ_TIMEOUT
 from holmes.core.oauth_config import (
     MCPOAuthConfig,
     OAuthEndpoints,
-    OAuthTokenExchangeError,
     _get_exchange_manager,
 )
 from holmes.core.oauth_utils import (
@@ -47,7 +44,6 @@ from holmes.core.tools import (
     Toolset,
     ToolsetType,
 )
-from holmes.plugins.toolsets.mcp.oauth_token_manager import _get_user_id
 from holmes.utils.header_rendering import render_header_templates
 from holmes.utils.pydantic_utils import ToolsetConfig
 
@@ -367,9 +363,6 @@ class RemoteMCPTool(Tool):
         if token:
             logger.info("OAuth MCP %s: token available via manager", self.toolset.name)
             return None
-
-        # No token found anywhere — need to authenticate
-        user_id = _get_user_id(context.request_context)
 
         # CLI mode: no request_context means the call came from the CLI, not the API server
         is_cli = context.request_context is None

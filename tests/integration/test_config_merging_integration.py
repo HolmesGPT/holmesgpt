@@ -40,7 +40,7 @@ class TestFastModelClassDefault:
         with patch(
             "holmes.core.transformers.llm_summarize.DefaultLLM"
         ) as mock_llm:
-            instance = LLMSummarizeTransformer(
+            LLMSummarizeTransformer(
                 input_threshold=1000, fast_model="claude-haiku"
             )
             mock_llm.assert_called_once_with("claude-haiku", None)

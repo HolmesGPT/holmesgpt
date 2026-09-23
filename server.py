@@ -15,7 +15,6 @@ import ssl
 import sys
 import threading
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,7 +22,7 @@ import colorlog
 import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
-from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
+from holmes.core.oauth_server_callbacks import process_oauth_callback
 from holmes.core.oauth_utils import _get_token_manager
 import sentry_sdk
 import uvicorn

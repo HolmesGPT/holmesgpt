@@ -3,8 +3,6 @@ import os
 from typing import Any, Dict
 from uuid import uuid4
 
-display_logger = logging.getLogger("holmes.display.core_investigation")
-
 from holmes.core.todo_tasks_formatter import format_tasks
 from holmes.core.tools import (
     StructuredToolResult,
@@ -16,6 +14,8 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
+
+display_logger = logging.getLogger("holmes.display.core_investigation")
 
 TODO_WRITE_TOOL_NAME = "TodoWrite"
 

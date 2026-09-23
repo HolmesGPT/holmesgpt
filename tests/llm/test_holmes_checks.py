@@ -176,7 +176,7 @@ def test_holmes_check(
 
     print(f"\n🧪 TEST: {test_case.id}")
     print("   CONFIGURATION:")
-    print(f"   • Mode: 🔥 LIVE")
+    print("   • Mode: 🔥 LIVE")
     print(f"   • Checks: {len(test_case.checks)} checks")
     print(f"   • Expected Results: {test_case.expected_results}")
 

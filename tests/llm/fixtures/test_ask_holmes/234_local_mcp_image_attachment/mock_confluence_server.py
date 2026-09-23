@@ -5,7 +5,6 @@ external Confluence credentials. Returns real ImageContent blocks so Holmes
 must use vision to read the code from the image.
 """
 
-import base64
 import os
 
 from mcp.server.fastmcp import FastMCP, Image

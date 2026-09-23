@@ -1,16 +1,11 @@
 import concurrent.futures
 import json
-from json import tool
 import logging
 import re
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
-
-# Named logger for user-facing display messages (tool progress, AI messages, etc.)
-# In interactive mode this logger is silenced; the CLI renders from stream events instead.
-display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
 import sentry_sdk
 from openai import APIError, BadRequestError
@@ -34,7 +29,7 @@ from holmes.core.models import (
     ToolApprovalDecision,
     ToolCallResult,
 )
-from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
+from holmes.core.oauth_config import _get_exchange_manager, parse_oauth_decision
 from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
@@ -84,6 +79,10 @@ from holmes.utils.stream import (
     build_stream_event_token_count,
 )
 from holmes.utils.tags import parse_messages_tags
+
+# Named logger for user-facing display messages (tool progress, AI messages, etc.)
+# In interactive mode this logger is silenced; the CLI renders from stream events instead.
+display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
 
 class LLMInterruptedError(Exception):

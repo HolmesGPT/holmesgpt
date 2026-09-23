@@ -1,11 +1,7 @@
 """Tests for the logging API, specifically the PodLoggingTool behavior."""
 
-import os
 from unittest.mock import MagicMock
 
-import pytest
-
-from holmes.core.llm import DefaultLLM
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset

@@ -3,7 +3,6 @@
 import logging
 import os
 import secrets
-import socket
 import threading
 import time
 import webbrowser
@@ -20,7 +19,6 @@ from mcp.client.auth.utils import (
 )
 
 from holmes.core.oauth_config import (
-    OAuthConfigLookupError,
     OAuthEndpoints,
     OAuthTokenExchangeError,
     exchange_code_for_tokens,

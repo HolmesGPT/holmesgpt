@@ -22,7 +22,6 @@ from holmes.core.llm import LLM
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
-    Toolset,
     ToolsetStatusEnum,
 )
 from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset

@@ -493,7 +493,7 @@ class TestPreSubtypeBackwardsCompat:
         assert cls is ConfluenceDataCenterBasicConfig
 
         # Should not raise — `extra="allow"` on ToolsetConfig.
-        cfg = cls(**config)
+        cls(**config)
         # cloud_id is not declared on DC variants, so accessing it as a
         # model attribute returns nothing (lands in model_extra).
         assert "cloud_id" not in cls.model_fields

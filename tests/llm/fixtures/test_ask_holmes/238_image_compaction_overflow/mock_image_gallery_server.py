@@ -7,8 +7,6 @@ should trigger compaction. The key test: compaction strips images before
 summarizing, so the compaction LLM call doesn't overflow.
 """
 
-import base64
-import os
 import struct
 import zlib
 

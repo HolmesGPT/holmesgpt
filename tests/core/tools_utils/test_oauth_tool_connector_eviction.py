@@ -73,7 +73,9 @@ def test_401_clears_stale_user_tools(patched_manager):
 
     connector = OAuthToolConnector()
     toolset = _make_toolset()
-    stale_tool = MagicMock(); stale_tool.name = "k8s_list_pods"; stale_tool.toolset = toolset
+    stale_tool = MagicMock()
+    stale_tool.name = "k8s_list_pods"
+    stale_tool.toolset = toolset
     connector.store_user_tools("u1", "k8s", [stale_tool])
 
     assert connector._user_tools["u1"]["k8s"] == [stale_tool]

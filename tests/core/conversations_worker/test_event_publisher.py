@@ -1,5 +1,5 @@
 """Unit tests for the ConversationEventPublisher."""
-from typing import Any, List, Optional
+from typing import List, Optional
 
 import pytest
 

@@ -3,8 +3,6 @@ import logging
 import os
 import threading
 import time
-
-display_logger = logging.getLogger("holmes.display.llm")
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
 
@@ -45,6 +43,8 @@ from holmes.utils.file_utils import load_yaml_file
 
 if TYPE_CHECKING:
     from holmes.config import Config
+
+display_logger = logging.getLogger("holmes.display.llm")
 
 MODEL_LIST_FILE_LOCATION = os.environ.get(
     "MODEL_LIST_FILE_LOCATION", "/etc/holmes/config/model_list.yaml"

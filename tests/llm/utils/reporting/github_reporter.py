@@ -247,9 +247,13 @@ def _render_metric_table(
         if bench is not None:
             bench_all.append(float(bench))
         if cur and mast:
-            cur_sum_m += float(cur); base_sum_m += float(mast); matched_m += 1
+            cur_sum_m += float(cur)
+            base_sum_m += float(mast)
+            matched_m += 1
         if cur and bench:
-            cur_sum_b += float(cur); base_sum_b += float(bench); matched_b += 1
+            cur_sum_b += float(cur)
+            base_sum_b += float(bench)
+            matched_b += 1
 
     # Total (all): each column averaged over its own non-null subset.
     # Δ cells stay empty — the subsets may differ, so a delta would compare
@@ -573,7 +577,6 @@ def generate_markdown_report(
 
     for result in sorted_results:
         test_case_name = result["test_case_name"]
-        model = result.get("model", "")
 
         braintrust_url = get_braintrust_url(
             result.get("braintrust_span_id"),

@@ -2313,7 +2313,12 @@ def run_interactive_loop(
     # default: interactive approval handler
     approval_callback: Optional[ApprovalCallback] = None
     if bash_always_allow:
-        approval_callback = lambda _: (True, None)
+        def approve_tool(
+            pending_approval: PendingToolApproval,
+        ) -> tuple[bool, Optional[str]]:
+            return True, None
+
+        approval_callback = approve_tool
     elif not bash_always_deny:
         def approval_handler(
             pending_approval: PendingToolApproval,

@@ -6,12 +6,9 @@ prose — far beyond the per-tool token limit (~25K tokens / ~19K for a 128K
 context window).
 """
 
-import hashlib
 import json
 import random
-import sys
 import textwrap
-import time
 
 VERIFICATION_CODE = "HOLMES-EVAL-vK7w3nR9pL"
 

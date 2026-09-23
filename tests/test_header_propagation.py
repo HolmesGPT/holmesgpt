@@ -9,8 +9,6 @@ with request_context and propagated to:
 5. ToolInvokeContext (pre-rendered headers)
 """
 
-import os
-from typing import Any, Dict, Optional, Tuple
 from unittest.mock import Mock, patch
 
 import pytest
@@ -203,7 +201,7 @@ class TestHttpToolsetHeaderPropagation:
     @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
     def test_extra_headers_merged_into_request(self, mock_request):
         """Verify that config-level extra_headers are merged into HTTP requests."""
-        from holmes.plugins.toolsets.http.http_toolset import HttpRequest, HttpToolset
+        from holmes.plugins.toolsets.http.http_toolset import HttpToolset
 
         # Create an HTTP toolset with extra_headers in config
         toolset = HttpToolset(
@@ -248,7 +246,7 @@ class TestHttpToolsetHeaderPropagation:
     @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
     def test_extra_headers_override_defaults(self, mock_request):
         """Verify that extra_headers override default headers."""
-        from holmes.plugins.toolsets.http.http_toolset import HttpRequest, HttpToolset
+        from holmes.plugins.toolsets.http.http_toolset import HttpToolset
 
         toolset = HttpToolset(
             name="test_http",
@@ -280,7 +278,7 @@ class TestHttpToolsetHeaderPropagation:
         ctx = Mock(spec=ToolInvokeContext)
         ctx.request_context = None
 
-        result = tool._invoke(
+        tool._invoke(
             {"url": "https://api.example.com/test"},
             ctx,
         )

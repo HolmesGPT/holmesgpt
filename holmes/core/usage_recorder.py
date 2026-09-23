@@ -24,7 +24,6 @@ from holmes.utils.stream import StreamEvents, StreamMessage
 
 if TYPE_CHECKING:
     from holmes.core.models import ChatRequest
-    from holmes.core.supabase_dal import SupabaseDal
     from holmes.core.tool_calling_llm import LLMResult
 
 
