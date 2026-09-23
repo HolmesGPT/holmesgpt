@@ -395,7 +395,7 @@ toolsets:
     tools:
       - name: get_item
         description: Get an item
-        command: "echo {{ item_id }} | jq -r '\\"{{ .name }} count=\\\\(.count)\\"'"
+        command: "echo {{ item_id }} | jq -r '\\"{{ .item_id }} \\\\(.)\\"'"
 """
     )
     toolsets = load_toolsets_from_file(str(toolsets_file), strict_check=False)
@@ -410,9 +410,9 @@ toolsets:
     tool_call = ChatCompletionMessageToolCall(
         id="call_1",
         type="function",
-        function=Function(name="get_item", arguments=json.dumps({"item_id": "1"})),
+        function=Function(name="get_item", arguments=json.dumps({"item_id": "7"})),
     )
 
     tool_call_result = tool_calling_llm._invoke_llm_tool_call(tool_call, previous_tool_calls=[])
 
-    assert tool_call_result.tool_name == "get_item"
+    assert tool_call_result.result.data.strip() == "{{ .item_id }} 7"
