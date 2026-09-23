@@ -386,16 +386,21 @@ redis-cache-abc123                 1/1     Running   0          1d"""
 
 
 def test_yaml_tool_with_literal_braces_does_not_abort_tool_call(tmp_path):
+    pods_file = tmp_path / "pods.json"
+    pods_file.write_text(
+        json.dumps({"items": [{"metadata": {"name": "web-1"}, "status": {"phase": "Running"}}]})
+    )
     toolsets_file = tmp_path / "toolsets.yaml"
     toolsets_file.write_text(
         """
 toolsets:
-  example_api:
-    description: Example API
+  pod_status:
+    description: List pods and their phase using jq
     tools:
-      - name: get_item
-        description: Get an item
-        command: "echo {{ item_id }} | jq -r '\\"{{ .item_id }} \\\\(.)\\"'"
+      - name: list_pod_phases
+        description: List each pod's name and phase
+        command: |
+          cat {{ pods_file }} | jq -r '.items[] | "{{ .name }}=\\(.metadata.name) phase=\\(.status.phase)"'
 """
     )
     toolsets = load_toolsets_from_file(str(toolsets_file), strict_check=False)
@@ -410,10 +415,14 @@ toolsets:
     tool_call = ChatCompletionMessageToolCall(
         id="call_1",
         type="function",
-        function=Function(name="get_item", arguments=json.dumps({"item_id": "7"})),
+        function=Function(
+            name="list_pod_phases", arguments=json.dumps({"pods_file": str(pods_file)})
+        ),
     )
 
     tool_call_result = tool_calling_llm._invoke_llm_tool_call(tool_call, previous_tool_calls=[])
 
-    assert tool_call_result.result.invocation == "echo 7 | jq -r '\"{{ .item_id }} \\(.)\"'"
-    assert tool_call_result.result.data.strip() == "{{ .item_id }} 7"
+    assert tool_call_result.result.invocation.strip() == (
+        f"cat {pods_file} | jq -r '.items[] | \"{{{{ .name }}}}=\\(.metadata.name) phase=\\(.status.phase)\"'"
+    )
+    assert tool_call_result.result.data.strip() == "{{ .name }}=web-1 phase=Running"
