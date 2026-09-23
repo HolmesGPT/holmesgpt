@@ -295,3 +295,33 @@ class TestMisparseGuards:
         result = validate_command(command, [], *_EXTENDED)
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
         assert result.prefixes_needing_approval == []
+
+
+class TestUnparseableFallback:
+    """Commands the parser refuses still get the deny checks on the raw text,
+    so a command that would be denied is never downgraded to approval."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "ls <> f",
+            "ls {fd}>f",
+            "echo `echo \\`x\\`` > out",
+            "case $x in a) find . -delete;; esac",
+            "[[ -f x ]] && sort -o out f",
+            "echo $((1+2)) > f",
+        ],
+    )
+    def test_denied(self, command):
+        with pytest.raises(ShellParseError):
+            parse_command(command)
+        result = validate_command(command, [], *_EXTENDED)
+        assert result.status == ValidationStatus.DENIED
+
+    @pytest.mark.parametrize(
+        "command",
+        ["[[ -f x ]] && cat x 2>/dev/null", "case $x in a) ls;; esac", "echo $((1+2)) 2>&1"],
+    )
+    def test_approval(self, command):
+        result = validate_command(command, [], *_EXTENDED)
+        assert result.status == ValidationStatus.APPROVAL_REQUIRED

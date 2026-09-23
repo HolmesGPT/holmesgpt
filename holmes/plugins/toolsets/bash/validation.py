@@ -8,6 +8,7 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 import logging
 import os
 import re
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
@@ -23,6 +24,7 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
 )
+from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
 from holmes.plugins.toolsets.bash.command_arg_rules import (
     dangerous_argv_reason,
     is_argv_checked_command,
@@ -141,6 +143,11 @@ def parse_command_segments(command: str) -> Tuple[List[str], bool]:
     return (parsed.segments, parsed.contains_compound_command)
 
 
+def _unsafe_args_approval_mode() -> bool:
+    # Unknown/empty values fail safe to the strict "deny" behaviour.
+    return os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower() == "approval"
+
+
 def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
     """Block an exec/write vector: DENIED by default, or (in approval mode)
     APPROVAL_REQUIRED so a human can allow it. Either way it never auto-executes."""
@@ -187,11 +194,7 @@ def check_dangerous_argv(parsed: ParsedCommand) -> Optional[ValidationResult]:
     Any other value falls back to "deny". This does NOT auto-run anything either
     way — it only chooses between blocking and prompting a human.
     """
-    # Unknown/empty values fail safe to the strict "deny" behaviour.
-    approval_mode = (
-        os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower()
-        == "approval"
-    )
+    approval_mode = _unsafe_args_approval_mode()
 
     # DENY (or, in approval mode, gate) checks first, across ALL segments, so a
     # hard block is never downgraded by an earlier segment that merely contains a
@@ -266,6 +269,74 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
     for pattern in blocked_list:
         if re.search(rf"\b{re.escape(pattern.lower())}\b", command_lower):
             return pattern
+    return None
+
+
+# Words that start a command without being its name (`do find ...`, `! find ...`).
+_RAW_LEADING_KEYWORDS = frozenset(
+    {"!", "{", "}", "do", "then", "else", "elif", "if", "while", "until", "time", "coproc"}
+)
+_RAW_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _raw_tokens(command: str) -> List[str]:
+    """Best-effort shell tokenization for commands shell_parser can't parse.
+    Lines that can't be tokenized (e.g. unbalanced quotes) are skipped."""
+    tokens: List[str] = []
+    for chunk in [command] + command.splitlines():
+        lexer = shlex.shlex(chunk, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        try:
+            chunk_tokens = list(lexer)
+        except ValueError:
+            continue
+        if chunk is command:
+            return chunk_tokens
+        tokens += chunk_tokens + [";"]
+    return tokens
+
+
+def check_unsafe_args_in_raw_command(command: str) -> Optional[str]:
+    """Coarse argv and write-redirect checks for commands shell_parser can't parse.
+
+    Keeps commands that would be denied for a dangerous argument (`find -exec`,
+    `sort -o`, ...) or a file write (`> file`) denied even when the full parser
+    gives up. It errs toward flagging.
+
+    Returns:
+        A reason if the command appears to use such a primitive, None otherwise
+    """
+    tokens = _raw_tokens(command)
+    argv: List[str] = []
+    argvs = [argv]
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        is_operator = bool(tok) and all(c in "();<>|&" for c in tok)
+        if is_operator and ">" in tok:
+            op = tok[tok.index(">") - 1 :] if tok.index(">") > 0 else tok
+            target = tokens[i + 1] if i + 1 < len(tokens) else ""
+            is_fd = ("&" in op or op.startswith("<")) and (target.isdigit() or target == "-")
+            if not is_fd and not is_benign_redirect_target(target):
+                return f"output redirection to '{target}' writes to the filesystem"
+            i += 2
+            continue
+        if is_operator:
+            if "<" in tok:
+                i += 2  # input redirect and its source
+                continue
+            argv = []
+            argvs.append(argv)
+        else:
+            word = tok.strip("`").lstrip("$")
+            if word and not (not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))):
+                argv.append(word)
+        i += 1
+    for argv in argvs:
+        reason = dangerous_argv_reason(argv)
+        if reason:
+            return reason
     return None
 
 
@@ -426,6 +497,9 @@ def validate_command(
                 deny_reason=DenyReason.DENY_LIST,
                 message=f"Command matches deny list pattern '{denied}'. This command is blocked by configuration.",
             )
+        unsafe = check_unsafe_args_in_raw_command(command)
+        if unsafe:
+            return _unsafe_arg_result(unsafe, _unsafe_args_approval_mode())
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Command contains complex syntax which requires approval.",
