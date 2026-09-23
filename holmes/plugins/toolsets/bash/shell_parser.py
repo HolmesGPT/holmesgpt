@@ -187,6 +187,11 @@ class _Visitor:
                 raise ShellParseError("line continuation inside a word")
             if x.type == "command_substitution" and raw[:1] == b"`" and b"\\" in raw:
                 raise ShellParseError("backslash inside backticks")
+            # tree-sitter merges adjacent substitutions (`a` `b`, `a``b`) into
+            # one node, so the second command is never extracted
+            if x.type == "command_substitution" and raw[:1] == b"`" and (
+                    len(raw) < 2 or raw[-1:] != b"`" or b"`" in raw[1:-1]):
+                raise ShellParseError("backtick inside backticks")
             if x.type in ("raw_string", "ansi_c_string", "string"):
                 self.check_quote_extent(x, raw)
         # tree-sitter can silently drop text (e.g. a standalone `\ `)

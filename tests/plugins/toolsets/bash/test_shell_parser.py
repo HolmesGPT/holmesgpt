@@ -241,6 +241,12 @@ class TestMisparseGuards:
             # escaped backticks inside backticks
             "echo `echo \\`kubectl delete pod x\\``",
             'echo "`find . \\"-exec\\" rm {} \\;`"',
+            # adjacent backticks merged into one substitution
+            "kubectl get pods `echo a` `kubectl delete pod x`",
+            "ls `ls -la` `find . -delete`",
+            "echo `echo x` `find / -exec sh -c id {} +`",
+            "echo `ls``find . -delete`",
+            'echo "`ls` `find . -delete`"',
             # backticks in an unquoted heredoc left as text
             "cat <<EOF\n`id`\nEOF",
             # words after a heredoc delimiter
@@ -289,6 +295,9 @@ class TestMisparseGuards:
             "ls\n\\\nrm -rf x",
             "echo $'\\\\' ; rm -rf x ; echo '",
             "echo `echo \\`kubectl delete pod x\\``",
+            "kubectl get pods `echo a` `kubectl delete pod x`",
+            "ls `ls -la` `find . -delete`",
+            "echo `echo x` `find / -exec sh -c id {} +`",
         ],
     )
     def test_refused_commands_are_not_auto_allowed(self, command):
