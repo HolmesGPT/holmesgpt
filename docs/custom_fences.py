@@ -40,10 +40,6 @@ def toolset_config_fence_format(source, language, css_class, options, md, **kwar
     # Escape HTML in the source to prevent XSS
     escaped_source = html.escape(source)
 
-    # Strip any leading/trailing whitespace
-    yaml_content = source.strip()
-
-
     # Build the tabbed HTML structure for CLI, Holmes Helm, and Robusta
     tabs_html = f"""
 <div class="tabbed-set" data-tabs="1:3">
@@ -82,10 +78,6 @@ def helm_tabs_fence_format(source, language, css_class, options, md, **kwargs):
 
     # Escape HTML in the source to prevent XSS
     escaped_source = html.escape(source)
-
-    # Strip any leading/trailing whitespace
-    yaml_content = source.strip()
-
 
     # Build the tabbed HTML structure
     tabs_html = f"""

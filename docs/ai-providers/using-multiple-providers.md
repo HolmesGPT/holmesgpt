@@ -209,6 +209,5 @@ If Holmes can't find pricing through any mechanism, it logs one `INFO` line at s
 ## See Also
 
 - [Environment Variables Reference](../reference/environment-variables.md)
-- [UI Installation](../installation/ui-installation.md)
 - [Helm Configuration](../reference/helm-configuration.md)
 - Individual provider documentation for specific configuration details
