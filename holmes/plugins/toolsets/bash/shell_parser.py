@@ -842,8 +842,13 @@ def scan_for_deny_checks(command: str) -> Tuple[List[List[str]], List[str]]:
                     targets.append(path)
         elif n.type == "command":
             redirects = [c for c in n.named_children if c.type.endswith("redirect")]
-            if n.parent is not None and n.parent.type == "redirected_statement":
-                redirects += [c for c in n.parent.named_children if c.type.endswith("redirect")]
+            # `a | b > f x`: redirects after a pipeline/list belong to its last command
+            owner = n
+            while owner.parent is not None and owner.parent.type in ("pipeline", "list", "negated_command") \
+                    and owner.parent.named_children and owner.parent.named_children[-1].id == owner.id:
+                owner = owner.parent
+            if owner.parent is not None and owner.parent.type == "redirected_statement":
+                redirects += [c for c in owner.parent.named_children if c.type.endswith("redirect")]
             words = [
                 c.named_children[0] if c.type == "command_name" and c.named_children else c
                 for c in n.named_children
