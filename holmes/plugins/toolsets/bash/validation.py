@@ -278,30 +278,84 @@ _RAW_LEADING_KEYWORDS = frozenset(
     {"!", "{", "}", "do", "then", "else", "elif", "if", "while", "until", "time", "coproc"}
 )
 _RAW_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_RAW_OPERATOR_CHARS = "();<>|&"
+# Escaped operator characters are hidden from shlex (which can't tell `\;` from
+# `;`) as private-use characters, and restored afterwards.
+_RAW_ESCAPED = {c: chr(0xE000 + ord(c)) for c in _RAW_OPERATOR_CHARS}
+_RAW_UNESCAPE = str.maketrans({v: k for k, v in _RAW_ESCAPED.items()})
 
 
 def _raw_tokens(command: str) -> List[str]:
     """Best-effort shell tokenization for commands shell_parser can't parse.
-    Lines that can't be tokenized (e.g. unbalanced quotes) are skipped."""
+    Lines that can't be tokenized (e.g. unbalanced quotes) are skipped. Escaped
+    operator characters stay hidden in the tokens (see _RAW_ESCAPED)."""
+    hidden = re.sub(r"\\([();<>|&])", lambda m: _RAW_ESCAPED[m.group(1)], command)
     tokens: List[str] = []
-    for chunk in [command] + command.splitlines():
-        lexer = shlex.shlex(chunk, posix=True, punctuation_chars=True)
+    for chunk in [hidden] + hidden.splitlines():
+        lexer = shlex.shlex(chunk, posix=True, punctuation_chars=_RAW_OPERATOR_CHARS)
         lexer.whitespace_split = True
         lexer.commenters = ""
         try:
             chunk_tokens = list(lexer)
         except ValueError:
             continue
-        if chunk is command:
-            return chunk_tokens
+        if chunk is hidden:
+            tokens = chunk_tokens
+            break
         tokens += chunk_tokens + [";"]
     return tokens
+
+
+def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
+    """(argvs, write redirect targets) from a shlex tokenization of the command."""
+    tokens = _raw_tokens(command)
+    argvs: List[List[str]] = [[]]
+    parents: List[List[str]] = []  # argvs enclosing an open $( / <( / >(
+    targets: List[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        argv = argvs[-1]
+        if tok.endswith("$") and nxt.startswith("(") or tok in ("<(", ">("):
+            # command / process substitution: a word here, a command inside
+            argv.append(tok.rstrip("$") + "$(...)")
+            parents.append(argv)
+            argvs.append([])
+            i += 1 if tok in ("<(", ">(") else 2
+            continue
+        if tok and all(c in _RAW_OPERATOR_CHARS for c in tok):
+            if ">" in tok:
+                op = tok[tok.index(">") - 1 :] if tok.index(">") > 0 else tok
+                is_fd = ("&" in op or op.startswith("<")) and (nxt.isdigit() or nxt == "-")
+                if not is_fd and not is_benign_redirect_target(nxt.translate(_RAW_UNESCAPE)):
+                    targets.append(nxt.translate(_RAW_UNESCAPE))
+                i += 2
+                continue
+            if "<" in tok:
+                i += 2  # input redirect and its source
+                continue
+            if tok.startswith(")") and parents:
+                argvs.append(parents.pop())
+            else:
+                argvs.append([])
+            i += 1
+            continue
+        if tok.isdigit() and nxt and nxt[0] in "<>":
+            i += 1  # fd number of a redirect, e.g. the `2` in `2>&1`
+            continue
+        word = tok.strip("`").lstrip("$").translate(_RAW_UNESCAPE)
+        if tok != "$" and not (not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))):
+            argv.append(word)
+        i += 1
+    return argvs, targets
 
 
 def check_unsafe_args_in_raw_command(command: str) -> Optional[str]:
     """Coarse argv and write-redirect checks for commands shell_parser can't parse.
 
-    Uses both tree-sitter's best-effort tree and a shlex tokenization. Keeps commands that would be denied for a dangerous argument (`find -exec`,
+    Uses both tree-sitter's best-effort tree and a shlex tokenization. Keeps
+    commands that would be denied for a dangerous argument (`find -exec`,
     `sort -o`, ...) or a file write (`> file`) denied even when the full parser
     gives up. It errs toward flagging.
 
@@ -312,35 +366,11 @@ def check_unsafe_args_in_raw_command(command: str) -> Optional[str]:
         tree_argvs, tree_targets = scan_for_deny_checks(command)
     except Exception:  # best effort only
         tree_argvs, tree_targets = [], []
-    if tree_targets:
-        return f"output redirection to '{tree_targets[0]}' writes to the filesystem"
-    tokens = _raw_tokens(command)
-    argv: List[str] = []
-    argvs = [argv]
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        is_operator = bool(tok) and all(c in "();<>|&" for c in tok)
-        if is_operator and ">" in tok:
-            op = tok[tok.index(">") - 1 :] if tok.index(">") > 0 else tok
-            target = tokens[i + 1] if i + 1 < len(tokens) else ""
-            is_fd = ("&" in op or op.startswith("<")) and (target.isdigit() or target == "-")
-            if not is_fd and not is_benign_redirect_target(target):
-                return f"output redirection to '{target}' writes to the filesystem"
-            i += 2
-            continue
-        if is_operator:
-            if "<" in tok:
-                i += 2  # input redirect and its source
-                continue
-            argv = []
-            argvs.append(argv)
-        else:
-            word = tok.strip("`").lstrip("$")
-            if word and not (not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))):
-                argv.append(word)
-        i += 1
-    for argv in tree_argvs + argvs:
+    raw_argvs, raw_targets = _raw_argvs(command)
+    targets = tree_targets + raw_targets
+    if targets:
+        return f"output redirection to '{targets[0]}' writes to the filesystem"
+    for argv in tree_argvs + raw_argvs:
         reason = dangerous_argv_reason(argv)
         if reason:
             return reason
