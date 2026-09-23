@@ -76,11 +76,12 @@ def _chat_request():
     )
 
 
-def _run(worker, ai, task=None, chat_request=None):
+def _run(worker, ai, task=None, chat_request=None, consume_side_effect=None):
     """Drive _run_chat_and_publish with all heavy collaborators mocked.
 
     Returns the captured (raw_stream, recorder_state, wrapped_stream) so
-    individual tests can assert on each.
+    individual tests can assert on each. `consume_side_effect` is what the
+    publisher raises while consuming the stream, for the failure branches.
     """
     raw_stream = iter(["raw-event-1", "raw-event-2"])
     wrapped_stream_sentinel = object()
@@ -94,7 +95,9 @@ def _run(worker, ai, task=None, chat_request=None):
     # consume returns ANSWER_END so the worker doesn't take the failed-conversation
     # branch and try to call _fail_conversation.
     from holmes.utils.stream import StreamEvents
-    publisher.consume = MagicMock(return_value=StreamEvents.ANSWER_END)
+    publisher.consume = MagicMock(
+        return_value=StreamEvents.ANSWER_END, side_effect=consume_side_effect
+    )
 
     captured = {}
     with patch(
@@ -609,3 +612,26 @@ def test_event_conversation_link_is_ignored():
     )
     assert cr is not None
     assert cr.conversation_link == "https://acme.slack.com/archives/C1/p123"
+
+
+def test_a_relay_refusal_fails_the_conversation_with_its_own_code():
+    """The platform refusing the call on a Robusta-hosted model surfaces while
+    the stream is consumed. The error event carries relay's sentence and the
+    refusal's code, so the client can tell it from a crash (ROB-1389)."""
+    from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
+
+    w, ai = _bare_worker()
+    ai.llm.is_robusta_model = True
+    message = "Robusta-hosted models are disabled for this account."
+
+    _run(w, ai, consume_side_effect=RelayRefusal(message, 403))
+
+    w.dal.post_conversation_events.assert_called_once()
+    event = w.dal.post_conversation_events.call_args[1]["events"][0]
+    assert event["event"] == "error"
+    assert event["data"]["error_code"] == RELAY_REFUSAL_ERROR_CODES[403]
+    assert event["data"]["description"] == message
+    assert event["data"]["raw_error"] == message
+    w.dal.update_conversation_status.assert_called_once_with(
+        conversation_id="c1", request_sequence=1, assignee="h-test", status="failed"
+    )
