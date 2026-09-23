@@ -266,7 +266,9 @@ def handle_console_output(sorted_results: List[dict], terminalreporter=None) -> 
         # Format total tokens (fall back to prompt + completion if total not provided)
         total_tokens = result.get("total_tokens", 0) or 0
         if total_tokens == 0:
-            total_tokens = (result.get("prompt_tokens", 0) or 0) + (result.get("completion_tokens", 0) or 0)
+            total_tokens = (result.get("prompt_tokens", 0) or 0) + (
+                result.get("completion_tokens", 0) or 0
+            )
         if total_tokens > 0:
             tokens_str = f"{total_tokens:,}"
         else:

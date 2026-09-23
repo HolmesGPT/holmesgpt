@@ -103,9 +103,7 @@ def test_is_blocked_ip_allows_private_when_opted_in():
 )
 def test_tcp_check_refuses_metadata_and_local_targets(host):
     tool = _build_tool()
-    result = tool.invoke(
-        {"host": host, "port": 80}, create_mock_tool_invoke_context()
-    )
+    result = tool.invoke({"host": host, "port": 80}, create_mock_tool_invoke_context())
     assert result.data["ok"] is False
     assert "Refusing to connect" in result.data["error"]
 
@@ -445,9 +443,7 @@ def test_allow_all_hosts_overrides_a_configured_allowlist(monkeypatch):
     at startup) rather than the allowlist silently half-applying."""
     _private_dns(monkeypatch, "192.168.4.4")
     probes = _stub_probe(monkeypatch)
-    tool = _build_tool(
-        {"allow_all_hosts": True, "allowed_hosts": ["10.96.0.0/12"]}
-    )
+    tool = _build_tool({"allow_all_hosts": True, "allowed_hosts": ["10.96.0.0/12"]})
     result = tool.invoke(
         {"host": "elsewhere.internal", "port": 9, "timeout": 0.1},
         create_mock_tool_invoke_context(),
@@ -502,9 +498,7 @@ def test_block_private_ips_overrides_allowlist(monkeypatch):
     """block_private_ips is the strictest setting: private is refused even when
     the operator named the destination."""
     _private_dns(monkeypatch, "10.0.0.5")
-    tool = _build_tool(
-        {"block_private_ips": True, "allowed_hosts": ["internal.svc"]}
-    )
+    tool = _build_tool({"block_private_ips": True, "allowed_hosts": ["internal.svc"]})
     result = tool.invoke(
         {"host": "internal.svc", "port": 8080}, create_mock_tool_invoke_context()
     )

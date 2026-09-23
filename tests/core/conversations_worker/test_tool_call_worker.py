@@ -28,7 +28,6 @@ from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
 from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 from holmes.version import get_version
 
-
 # ---- result serialization ----
 
 
@@ -200,7 +199,9 @@ def test_prometheus_single_instance_locality_narrows_exposure():
     heuristic in prerequisites: SaaS URL => not exposed; in-cluster => exposed."""
     saas = PrometheusToolset()
     with patch.object(PrometheusToolset, "_is_healthy", return_value=(True, "")):
-        saas.prerequisites_callable({"prometheus_url": "https://prometheus.grafana.net"})
+        saas.prerequisites_callable(
+            {"prometheus_url": "https://prometheus.grafana.net"}
+        )
         assert saas.expose_remotely is False
 
         local = PrometheusToolset()
@@ -267,7 +268,9 @@ def test_execute_safe_frees_slot_and_wakes_claim_loop(monkeypatch):
     worker._active_count = 1
     worker._notify_event.clear()
     worker.dal.post_remote_tool_call_result.return_value = True
-    with patch.object(ToolCallWorker, "_execute", lambda self, row: {"status": "SUCCESS"}):
+    with patch.object(
+        ToolCallWorker, "_execute", lambda self, row: {"status": "SUCCESS"}
+    ):
         worker._execute_safe({"id": "t1"})
     assert worker._active_count == 0
     assert worker._notify_event.is_set()
@@ -276,12 +279,12 @@ def test_execute_safe_frees_slot_and_wakes_claim_loop(monkeypatch):
 def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
     """Exact-accounting test: draining a 12-row backlog at capacity 5 must
 
-      * call claim exactly once per iteration that has free capacity,
-      * pass limit == free slots on every call (never more),
-      * dispatch exactly the rows it claimed — each tool call once, never
-        exceeding TOOL_CALLER_MAX_CONCURRENT — so no work is missed or
-        double-claimed,
-      * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
+    * call claim exactly once per iteration that has free capacity,
+    * pass limit == free slots on every call (never more),
+    * dispatch exactly the rows it claimed — each tool call once, never
+      exceeding TOOL_CALLER_MAX_CONCURRENT — so no work is missed or
+      double-claimed,
+    * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
     """
     worker = _claimable_worker(monkeypatch, max_concurrent=5)
 
@@ -374,9 +377,9 @@ def test_two_tool_workers_claim_disjoint_sets(monkeypatch):
             w._active_count = 0  # whole pool frees after each claim
 
     assert sorted(dispatched) == sorted(f"t{i}" for i in range(12))
-    assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
-        "backlog exceeded one pool, so both workers should have claimed some"
-    )
+    assert (
+        "w1" in dispatched.values() and "w2" in dispatched.values()
+    ), "backlog exceeded one pool, so both workers should have claimed some"
 
 
 def test_signal_arriving_during_claim_is_not_lost(monkeypatch):

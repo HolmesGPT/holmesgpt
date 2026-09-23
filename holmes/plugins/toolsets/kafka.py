@@ -9,13 +9,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml  # type: ignore
 from confluent_kafka import Consumer, KafkaException
-from confluent_kafka._model import Node, ConsumerGroupTopicPartitions
+from confluent_kafka._model import ConsumerGroupTopicPartitions, Node
 from confluent_kafka.admin import (
     AdminClient,
     BrokerMetadata,
     ClusterMetadata,
     ConfigResource,
-    ResourceType,
     ConsumerGroupDescription,
     GroupMember,
     GroupMetadata,
@@ -24,6 +23,7 @@ from confluent_kafka.admin import (
     MemberAssignment,
     MemberDescription,
     PartitionMetadata,
+    ResourceType,
     TopicMetadata,
 )
 from confluent_kafka.admin import _TopicPartition as TopicPartition
@@ -193,9 +193,7 @@ def _build_ssl_config(
         """Return file path: prefer explicit path, fall back to base64 temp file."""
         if path_val:
             if not os.path.isfile(path_val):
-                raise FileNotFoundError(
-                    f"Kafka SSL {label} file not found: {path_val}"
-                )
+                raise FileNotFoundError(f"Kafka SSL {label} file not found: {path_val}")
             return path_val
         if b64_val:
             try:
@@ -225,7 +223,9 @@ def _build_ssl_config(
                 pass
 
     try:
-        ca_path = _resolve_cert(cluster.ssl_ca_cert_path, cluster.ssl_ca_cert, "ca_cert")
+        ca_path = _resolve_cert(
+            cluster.ssl_ca_cert_path, cluster.ssl_ca_cert, "ca_cert"
+        )
         cert_path = _resolve_cert(
             cluster.ssl_client_cert_path, cluster.ssl_client_cert, "client_cert"
         )
@@ -361,6 +361,7 @@ class BaseKafkaTool(Tool):
 
 class ListKafkaConsumers(BaseKafkaTool):
     """Lists all Kafka consumer groups in a cluster."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="list_kafka_consumers",
@@ -428,6 +429,7 @@ class ListKafkaConsumers(BaseKafkaTool):
 
 class DescribeConsumerGroup(BaseKafkaTool):
     """Describes a Kafka consumer group and optionally includes offset information."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="describe_consumer_group",
@@ -456,7 +458,9 @@ class DescribeConsumerGroup(BaseKafkaTool):
         group_id = params["group_id"]
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
-            include_offsets = str(params.get("include_offsets", "false")).lower() == "true"
+            include_offsets = (
+                str(params.get("include_offsets", "false")).lower() == "true"
+            )
             client = self.get_kafka_client(kafka_cluster_name)
             if client is None:
                 return StructuredToolResult(
@@ -465,9 +469,7 @@ class DescribeConsumerGroup(BaseKafkaTool):
                     params=params,
                 )
 
-            futures = client.describe_consumer_groups(
-                [group_id], request_timeout=10
-            )
+            futures = client.describe_consumer_groups([group_id], request_timeout=10)
 
             if futures.get(group_id):
                 group_metadata = futures.get(group_id).result(timeout=15)
@@ -476,7 +478,9 @@ class DescribeConsumerGroup(BaseKafkaTool):
                 # Add offset and lag information if requested
                 if include_offsets:
                     try:
-                        bootstrap_servers = self.get_bootstrap_servers(kafka_cluster_name)
+                        bootstrap_servers = self.get_bootstrap_servers(
+                            kafka_cluster_name
+                        )
                         offsets_info = self._fetch_group_offsets_and_lag(
                             client, group_id, bootstrap_servers, kafka_cluster_name
                         )
@@ -510,10 +514,14 @@ class DescribeConsumerGroup(BaseKafkaTool):
             )
 
     def _fetch_group_offsets_and_lag(
-        self, client: AdminClient, group_id: str, bootstrap_servers: str, kafka_cluster_name: str
+        self,
+        client: AdminClient,
+        group_id: str,
+        bootstrap_servers: str,
+        kafka_cluster_name: str,
     ) -> List[Dict[str, Any]]:
         """Fetch committed offsets and calculate lag for a consumer group.
-        
+
         Only fetches offsets for topics/partitions the group has committed offsets for,
         not all topics in the cluster.
         """
@@ -536,15 +544,18 @@ class DescribeConsumerGroup(BaseKafkaTool):
             if not futures.get(group_id):
                 # Group not found
                 return []
-            
+
             group_metadata = futures.get(group_id).result(timeout=15)
-            
+
             # Build list of topic partitions from group members
             topic_partitions = []
             for member in group_metadata.members:
                 member_assignment = member.member_metadata.member_assignment
                 if member_assignment:
-                    for topic_name, partitions in member_assignment.topic_partitions.items():
+                    for (
+                        topic_name,
+                        partitions,
+                    ) in member_assignment.topic_partitions.items():
                         for partition_id in partitions:
                             tp = TopicPartition(topic_name, partition_id)
                             # Avoid duplicates
@@ -562,7 +573,9 @@ class DescribeConsumerGroup(BaseKafkaTool):
                         [group_request], request_timeout=10
                     )
                     if group_offsets_futures.get(group_id):
-                        group_offsets = group_offsets_futures.get(group_id).result(timeout=15)
+                        group_offsets = group_offsets_futures.get(group_id).result(
+                            timeout=15
+                        )
                         # Build TopicPartition from the returned offsets
                         for topic_partition in group_offsets.topic_partitions:
                             if topic_partition not in topic_partitions:
@@ -590,12 +603,14 @@ class DescribeConsumerGroup(BaseKafkaTool):
                     except Exception:
                         lag = -1
 
-                    offsets_info.append({
-                        "topic": tp.topic,
-                        "partition": tp.partition,
-                        "committed_offset": tp.offset,
-                        "lag": lag,
-                    })
+                    offsets_info.append(
+                        {
+                            "topic": tp.topic,
+                            "partition": tp.partition,
+                            "committed_offset": tp.offset,
+                            "lag": lag,
+                        }
+                    )
 
             return offsets_info
         finally:
@@ -610,6 +625,7 @@ class DescribeConsumerGroup(BaseKafkaTool):
 
 class ListTopics(BaseKafkaTool):
     """Lists all Kafka topics in a cluster."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="list_topics",
@@ -643,7 +659,9 @@ class ListTopics(BaseKafkaTool):
             )
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
-            error_msg = f"Failed to list topics on cluster '{kafka_cluster_name}': {str(e)}"
+            error_msg = (
+                f"Failed to list topics on cluster '{kafka_cluster_name}': {str(e)}"
+            )
             logging.error(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -658,6 +676,7 @@ class ListTopics(BaseKafkaTool):
 
 class DescribeTopic(BaseKafkaTool):
     """Describes a Kafka topic including partitions, replicas, and ISR information."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="describe_topic",
@@ -825,6 +844,7 @@ def group_has_topic(
 
 class FindConsumerGroupsByTopic(BaseKafkaTool):
     """Finds all consumer groups that are subscribed to a specific topic."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="find_consumer_groups_by_topic",
@@ -935,9 +955,7 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
             )
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
-            error_msg = (
-                f"Failed to find consumer groups for topic '{topic_name}' on cluster '{kafka_cluster_name}': {str(e)}"
-            )
+            error_msg = f"Failed to find consumer groups for topic '{topic_name}' on cluster '{kafka_cluster_name}': {str(e)}"
             logging.error(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -952,6 +970,7 @@ class FindConsumerGroupsByTopic(BaseKafkaTool):
 
 class ConsumeMessages(BaseKafkaTool):
     """Consumes messages from one or more Kafka topics."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="consume_messages",
@@ -981,7 +1000,7 @@ class ConsumeMessages(BaseKafkaTool):
         try:
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
             topics_str = get_param_or_raise(params, "topics")
-            
+
             # Parse and validate max_messages
             max_messages = params.get("max_messages", 10)
             try:
@@ -990,12 +1009,10 @@ class ConsumeMessages(BaseKafkaTool):
                 raise ValueError(
                     f"max_messages must be an integer, got: {max_messages}"
                 )
-            
+
             if max_messages <= 0:
-                raise ValueError(
-                    f"max_messages must be positive, got: {max_messages}"
-                )
-            
+                raise ValueError(f"max_messages must be positive, got: {max_messages}")
+
             # Reject if exceeds maximum to prevent unbounded data consumption
             if max_messages > MAX_MESSAGES_CAP:
                 raise ValueError(
@@ -1006,7 +1023,9 @@ class ConsumeMessages(BaseKafkaTool):
             bootstrap_servers = self.get_bootstrap_servers(kafka_cluster_name)
 
             # Use ephemeral group ID to avoid rebalances and concurrent group conflicts
-            ephemeral_group_id = f"holmes-consumer-{kafka_cluster_name}-{uuid.uuid4().hex[:8]}"
+            ephemeral_group_id = (
+                f"holmes-consumer-{kafka_cluster_name}-{uuid.uuid4().hex[:8]}"
+            )
 
             consumer_config = {
                 "bootstrap.servers": bootstrap_servers,
@@ -1036,23 +1055,29 @@ class ConsumeMessages(BaseKafkaTool):
                             # No more messages available
                             break
                         continue
-                    
+
                     consecutive_empty_polls = 0  # Reset on successful message
-                    
+
                     if msg.error():
                         if msg.error().code() == KafkaError._PARTITION_EOF:
                             continue
                         else:
                             raise KafkaException(msg.error())
 
-                    messages.append({
-                        "topic": msg.topic(),
-                        "partition": msg.partition(),
-                        "offset": msg.offset(),
-                        "key": msg.key().decode("utf-8", errors="replace") if msg.key() else None,
-                        "value": msg.value().decode("utf-8", errors="replace") if msg.value() else None,
-                        "timestamp": msg.timestamp()[1],
-                    })
+                    messages.append(
+                        {
+                            "topic": msg.topic(),
+                            "partition": msg.partition(),
+                            "offset": msg.offset(),
+                            "key": msg.key().decode("utf-8", errors="replace")
+                            if msg.key()
+                            else None,
+                            "value": msg.value().decode("utf-8", errors="replace")
+                            if msg.value()
+                            else None,
+                            "timestamp": msg.timestamp()[1],
+                        }
+                    )
                     msg_count += 1
 
                 return StructuredToolResult(
@@ -1082,6 +1107,7 @@ class ConsumeMessages(BaseKafkaTool):
 
 class ListBrokers(BaseKafkaTool):
     """Lists all brokers in a Kafka cluster with their metadata."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="list_brokers",
@@ -1111,11 +1137,13 @@ class ListBrokers(BaseKafkaTool):
             brokers = []
 
             for broker_id, broker_metadata in cluster_metadata.brokers.items():
-                brokers.append({
-                    "id": broker_id,
-                    "host": broker_metadata.host,
-                    "port": broker_metadata.port,
-                })
+                brokers.append(
+                    {
+                        "id": broker_id,
+                        "host": broker_metadata.host,
+                        "port": broker_metadata.port,
+                    }
+                )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -1124,7 +1152,9 @@ class ListBrokers(BaseKafkaTool):
             )
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
-            error_msg = f"Failed to list brokers on cluster '{kafka_cluster_name}': {str(e)}"
+            error_msg = (
+                f"Failed to list brokers on cluster '{kafka_cluster_name}': {str(e)}"
+            )
             logging.error(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -1134,11 +1164,14 @@ class ListBrokers(BaseKafkaTool):
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
         cluster = params.get("kafka_cluster_name", "")
-        return f"{toolset_name_for_one_liner(self.toolset.name)}: List Brokers ({cluster})"
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: List Brokers ({cluster})"
+        )
 
 
 class DescribeConfigs(BaseKafkaTool):
     """Retrieves configuration settings for topics or brokers."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="describe_configs",
@@ -1168,7 +1201,7 @@ class DescribeConfigs(BaseKafkaTool):
         kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
         resource_type = params.get("resource_type", "unknown")
         resource_name = params.get("resource_name", "unknown")
-        
+
         try:
             # Validate required parameters
             kafka_cluster_name = get_param_or_raise(params, "kafka_cluster_name")
@@ -1203,14 +1236,16 @@ class DescribeConfigs(BaseKafkaTool):
 
             # configs_result is a ConfigResource with a dict of config entries
             for config_name, config_entry in configs_result.items():
-                configs.append({
-                    "name": config_name,
-                    "value": config_entry.value,
-                    "is_default": config_entry.is_default,
-                    "is_read_only": config_entry.is_read_only,
-                    "is_sensitive": config_entry.is_sensitive,
-                    "source": str(config_entry.source),
-                })
+                configs.append(
+                    {
+                        "name": config_name,
+                        "value": config_entry.value,
+                        "is_default": config_entry.is_default,
+                        "is_read_only": config_entry.is_read_only,
+                        "is_sensitive": config_entry.is_sensitive,
+                        "source": str(config_entry.source),
+                    }
+                )
 
             result = {
                 "resource_type": resource_type,
@@ -1243,6 +1278,7 @@ class DescribeConfigs(BaseKafkaTool):
 
 class ClusterOverview(BaseKafkaTool):
     """Provides comprehensive health metrics and status of a Kafka cluster."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="cluster_overview",
@@ -1278,7 +1314,10 @@ class ClusterOverview(BaseKafkaTool):
             offline_broker_ids = set()
 
             for topic_name, topic_metadata in cluster_metadata.topics.items():
-                for partition_id, partition_metadata in topic_metadata.partitions.items():
+                for (
+                    partition_id,
+                    partition_metadata,
+                ) in topic_metadata.partitions.items():
                     partition_count += 1
 
                     # Check if partition is under-replicated
@@ -1292,7 +1331,7 @@ class ClusterOverview(BaseKafkaTool):
             # Identify offline brokers (brokers that are not in the live broker list)
             live_broker_ids = set(cluster_metadata.brokers.keys())
             offline_broker_ids = set()
-            
+
             # Check for brokers that have replicas but are not in the live broker list
             for topic_metadata in cluster_metadata.topics.values():
                 for partition_metadata in topic_metadata.partitions.values():
@@ -1318,7 +1357,9 @@ class ClusterOverview(BaseKafkaTool):
             )
         except Exception as e:
             kafka_cluster_name = params.get("kafka_cluster_name", "unknown")
-            error_msg = f"Failed to get cluster overview for '{kafka_cluster_name}': {str(e)}"
+            error_msg = (
+                f"Failed to get cluster overview for '{kafka_cluster_name}': {str(e)}"
+            )
             logging.error(error_msg, exc_info=True)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -1333,6 +1374,7 @@ class ClusterOverview(BaseKafkaTool):
 
 class ListKafkaClusters(BaseKafkaTool):
     """Lists all configured Kafka clusters."""
+
     def __init__(self, toolset: "KafkaToolset"):
         super().__init__(
             name="list_kafka_clusters",

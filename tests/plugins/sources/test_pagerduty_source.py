@@ -136,9 +136,7 @@ class TestFetchIssues:
         """Backward compatibility: fetch_issues (plural) sets description from incident data."""
         response = MagicMock()
         response.status_code = 200
-        response.json.return_value = {
-            "incidents": [SAMPLE_INCIDENT]
-        }
+        response.json.return_value = {"incidents": [SAMPLE_INCIDENT]}
 
         mock_get.return_value = response
 

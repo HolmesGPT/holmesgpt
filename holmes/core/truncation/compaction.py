@@ -67,7 +67,9 @@ def _count_image_tokens_in_messages(messages: list[dict], llm: LLM) -> int:
         if not isinstance(content, list):
             continue
         # Count tokens for a synthetic message containing only image blocks
-        image_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "image_url"]
+        image_blocks = [
+            b for b in content if isinstance(b, dict) and b.get("type") == "image_url"
+        ]
         if image_blocks:
             synthetic = {"role": "user", "content": image_blocks}
             total += llm.count_tokens(messages=[synthetic]).total_tokens
@@ -90,10 +92,12 @@ def _strip_images_for_compaction(messages: list[dict]) -> list[dict]:
             else:
                 new_content.append(block)
         if image_count > 0:
-            new_content.append({
-                "type": "text",
-                "text": f"[{image_count} image(s) were present but stripped from compaction]",
-            })
+            new_content.append(
+                {
+                    "type": "text",
+                    "text": f"[{image_count} image(s) were present but stripped from compaction]",
+                }
+            )
         new_msg = dict(msg)
         new_msg["content"] = new_content
         new_msg.pop("token_count", None)
@@ -236,10 +240,15 @@ def compact_conversation_history(
     instruction_tokens = llm.count_tokens(
         messages=[{"role": "user", "content": compaction_instructions}]
     ).total_tokens
-    total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
+    total_tokens = llm.count_tokens(
+        messages=conversation_history, tools=tools
+    ).total_tokens  # type: ignore
     image_tokens = _count_image_tokens_in_messages(conversation_history, llm)
 
-    if image_tokens > 0 and (total_tokens + instruction_tokens + maximum_output_token) <= context_window:
+    if (
+        image_tokens > 0
+        and (total_tokens + instruction_tokens + maximum_output_token) <= context_window
+    ):
         logging.info(
             f"Compaction: keeping {image_tokens} image tokens "
             f"(conversation fits in context window: {total_tokens} + {instruction_tokens} + {maximum_output_token} <= {context_window})"

@@ -31,21 +31,20 @@ from holmes.core.tracing import (
 
 try:
     from opentelemetry import context as otel_context
-    from opentelemetry import trace
-    from opentelemetry import metrics
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry import metrics, trace
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.metrics.view import View
-    from opentelemetry.trace import StatusCode
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk.trace.sampling import (
         ALWAYS_ON,
         Decision,
         Sampler,
         SamplingResult,
     )
+    from opentelemetry.trace import StatusCode
 
     OTEL_AVAILABLE = True
 except ImportError:
@@ -55,11 +54,11 @@ except ImportError:
 # is imported independently and selected at runtime based on
 # OTEL_EXPORTER_OTLP_PROTOCOL (see _create_exporters).
 try:
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-        OTLPSpanExporter as GRPCSpanExporter,
-    )
     from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
         OTLPMetricExporter as GRPCMetricExporter,
+    )
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+        OTLPSpanExporter as GRPCSpanExporter,
     )
 
     GRPC_EXPORTER_AVAILABLE = True
@@ -67,11 +66,11 @@ except ImportError:
     GRPC_EXPORTER_AVAILABLE = False
 
 try:
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-        OTLPSpanExporter as HTTPSpanExporter,
-    )
     from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
         OTLPMetricExporter as HTTPMetricExporter,
+    )
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+        OTLPSpanExporter as HTTPSpanExporter,
     )
 
     HTTP_EXPORTER_AVAILABLE = True
@@ -102,7 +101,15 @@ def _to_attr_str(value: Any) -> str:
 
 # HTTP method names used by the httpx auto-instrumentation as span names.
 _HTTP_METHOD_SPAN_NAMES = {
-    "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE",
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "HEAD",
+    "OPTIONS",
+    "CONNECT",
+    "TRACE",
 }
 
 if OTEL_AVAILABLE:
@@ -118,8 +125,14 @@ if OTEL_AVAILABLE:
             self._delegate = delegate
 
         def should_sample(
-            self, parent_context, trace_id, name, kind=None,
-            attributes=None, links=None, trace_state=None,
+            self,
+            parent_context,
+            trace_id,
+            name,
+            kind=None,
+            attributes=None,
+            links=None,
+            trace_state=None,
         ) -> "SamplingResult":
             parent_span = trace.get_current_span(parent_context)
             parent_ctx = parent_span.get_span_context() if parent_span else None
@@ -132,6 +145,7 @@ if OTEL_AVAILABLE:
 
         def get_description(self) -> str:
             return f"DropOrphanHttp({self._delegate.get_description()})"
+
 
 # ---------------------------------------------------------------------------
 # OTel GenAI semantic convention — span attribute names (dot-delimited)
@@ -255,7 +269,9 @@ class OTelSpan:
         # Token from context.attach() — needed to detach on end/exit
         self._token = token
 
-    def start_span(self, name: Optional[str] = None, span_type: Optional[SpanType] = None, **kwargs) -> "OTelSpan":
+    def start_span(
+        self, name: Optional[str] = None, span_type: Optional[SpanType] = None, **kwargs
+    ) -> "OTelSpan":
         """Create a child span and activate it in the current context."""
         span_name = name or kwargs.get("type", "unknown")
         if span_type and not name:
@@ -332,7 +348,12 @@ class OTelSpan:
         else:
             logger.debug("Context detach skipped (cross-context span lifecycle)")
 
-    def set_attributes(self, name: Optional[str] = None, span_type: Optional[str] = None, span_attributes: Optional[Dict[str, Any]] = None) -> None:
+    def set_attributes(
+        self,
+        name: Optional[str] = None,
+        span_type: Optional[str] = None,
+        span_attributes: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Update the span's name and/or set additional attributes.
 
         Args:
@@ -395,7 +416,9 @@ class OpenTelemetryTracer:
 
         protocol = _get_otlp_protocol()
         default_endpoint = (
-            DEFAULT_HTTP_ENDPOINT if protocol == "http/protobuf" else DEFAULT_GRPC_ENDPOINT
+            DEFAULT_HTTP_ENDPOINT
+            if protocol == "http/protobuf"
+            else DEFAULT_GRPC_ENDPOINT
         )
         endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", default_endpoint)
         metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
@@ -439,7 +462,11 @@ class OpenTelemetryTracer:
             ),
             View(
                 instrument_name="gen_ai.client.token.usage",
-                attribute_keys=[DIM_GEN_AI_REQUEST_MODEL, DIM_GEN_AI_SYSTEM, DIM_GEN_AI_TOKEN_TYPE],
+                attribute_keys=[
+                    DIM_GEN_AI_REQUEST_MODEL,
+                    DIM_GEN_AI_SYSTEM,
+                    DIM_GEN_AI_TOKEN_TYPE,
+                ],
             ),
             View(
                 instrument_name="gen_ai.client.operation.duration",
@@ -458,12 +485,16 @@ class OpenTelemetryTracer:
                 attribute_keys=[DIM_GEN_AI_REQUEST_MODEL],
             ),
         ]
-        meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader], views=views)
+        meter_provider = MeterProvider(
+            resource=resource, metric_readers=[metric_reader], views=views
+        )
         metrics.set_meter_provider(meter_provider)
         self._meter_provider = meter_provider
         meter = metrics.get_meter("holmesgpt", "0.1.0")
         TracingFactory.set_metrics(OTelMetrics(meter))
-        logger.info("OTel metrics initialized with %d views, export interval=30s", len(views))
+        logger.info(
+            "OTel metrics initialized with %d views, export interval=30s", len(views)
+        )
 
         # Auto-instrument httpx for MCP trace context propagation.
         # Must happen AFTER set_tracer_provider so httpx spans use our provider.
@@ -477,7 +508,11 @@ class OpenTelemetryTracer:
                 "opentelemetry-instrumentation-httpx not installed; MCP HTTP calls won't propagate trace context"
             )
 
-    def start_experiment(self, experiment_name: Optional[str] = None, additional_metadata: Optional[dict] = None) -> None:
+    def start_experiment(
+        self,
+        experiment_name: Optional[str] = None,
+        additional_metadata: Optional[dict] = None,
+    ) -> None:
         """No-op — experiments are a Braintrust concept not used by OTel."""
         return None
 
@@ -581,7 +616,9 @@ def _create_exporters(
         )
         return (
             HTTPSpanExporter(endpoint=traces_endpoint, headers=headers or None),
-            HTTPMetricExporter(endpoint=resolved_metrics_endpoint, headers=headers or None),
+            HTTPMetricExporter(
+                endpoint=resolved_metrics_endpoint, headers=headers or None
+            ),
         )
 
     if not GRPC_EXPORTER_AVAILABLE:
@@ -600,7 +637,9 @@ def _create_exporters(
     return (
         GRPCSpanExporter(endpoint=endpoint, insecure=insecure, headers=headers or None),
         GRPCMetricExporter(
-            endpoint=resolved_metrics_endpoint, insecure=insecure, headers=headers or None
+            endpoint=resolved_metrics_endpoint,
+            insecure=insecure,
+            headers=headers or None,
         ),
     )
 

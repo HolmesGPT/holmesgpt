@@ -74,7 +74,9 @@ def test_values_default_to_the_restrictive_diagnostic_target_policy():
     cfg = _values()["config"]
     assert cfg["diagnosticTargetPolicyEnabled"] is True
     assert cfg["diagnosticAllowExternalTargets"] is False
-    assert cfg["diagnosticInternalDnsSuffixes"] == ".svc,.svc.cluster.local,.cluster.local"
+    assert (
+        cfg["diagnosticInternalDnsSuffixes"] == ".svc,.svc.cluster.local,.cluster.local"
+    )
 
 
 def test_rbac_template_is_scoped_not_cluster_admin():
@@ -84,7 +86,9 @@ def test_rbac_template_is_scoped_not_cluster_admin():
     assert "secrets" not in text
     # gated on create AND empty clusterRole
     assert "serviceAccount.create" in text
-    assert "not .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole" in text
+    assert (
+        "not .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole" in text
+    )
     # representative scoped rules
     assert "pods/eviction" in text
     assert "deployments/scale" in text
@@ -147,7 +151,9 @@ def test_gpu_diagnostics_chart_wiring():
     assert _values()["config"]["gpuDiagnosticsEnabled"] is False  # opt-in
     assert _values()["config"]["dcgmEnabled"] is False
     text = (TEMPLATE_DIR / "deployment.yaml").read_text()
-    assert text.count("GPU_DIAG_ENABLED") >= 2, "not wired through both ConfigMap and env"
+    assert (
+        text.count("GPU_DIAG_ENABLED") >= 2
+    ), "not wired through both ConfigMap and env"
     assert text.count("DCGM_ENABLED") >= 2, "not wired through both ConfigMap and env"
     assert "GPU_DIAG_NAMESPACE: {{ .Release.Namespace | quote }}" in text
     rbac = (TEMPLATE_DIR / "rbac.yaml").read_text()
@@ -208,9 +214,11 @@ def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
     # Only approved peer kinds, and only approved CIDRs.
     for i, rule in enumerate(rules):
         for peer in rule["to"]:
-            assert set(peer) <= {"ipBlock", "namespaceSelector", "podSelector"}, (
-                f"egress rule {i} has an unexpected peer kind: {sorted(peer)}"
-            )
+            assert set(peer) <= {
+                "ipBlock",
+                "namespaceSelector",
+                "podSelector",
+            }, f"egress rule {i} has an unexpected peer kind: {sorted(peer)}"
 
     cidrs = [
         peer["ipBlock"]["cidr"]
@@ -223,9 +231,7 @@ def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
 
     # The DNS rule must be pinned to kube-dns rather than left open.
     dns_rules = [
-        r
-        for r in rules
-        if any(p.get("port") == 53 for p in r.get("ports", []))
+        r for r in rules if any(p.get("port") == 53 for p in r.get("ports", []))
     ]
     assert len(dns_rules) == 1, "expected exactly one port-53 egress rule"
     assert any(

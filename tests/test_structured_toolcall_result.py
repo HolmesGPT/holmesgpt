@@ -326,5 +326,3 @@ def test_to_llm_message_with_images():
     # Image block uses OpenAI vision format with data URI
     assert message["content"][1]["type"] == "image_url"
     assert message["content"][1]["image_url"]["url"] == "data:image/png;base64,AAAA"
-
-

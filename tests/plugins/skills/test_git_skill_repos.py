@@ -17,11 +17,9 @@ from holmes.plugins.skills.git_skill_repos import (
     parse_skill_repos_env,
 )
 from holmes.plugins.skills.skill_loader import load_filesystem_skills
-from tests.git_skill_repo_utils import (
-    commit_all as _commit_all,
-    make_skill_repo as _make_skill_repo,
-    write_skills as _write_skills,
-)
+from tests.git_skill_repo_utils import commit_all as _commit_all
+from tests.git_skill_repo_utils import make_skill_repo as _make_skill_repo
+from tests.git_skill_repo_utils import write_skills as _write_skills
 
 
 @pytest.fixture(autouse=True)

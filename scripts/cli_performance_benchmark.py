@@ -85,7 +85,9 @@ def get_git_info() -> tuple[str, str]:
     return sha, branch
 
 
-def run_command(cmd: list[str], benchmark_type: str, model: str = "", prompt: str = "") -> BenchmarkResult:
+def run_command(
+    cmd: list[str], benchmark_type: str, model: str = "", prompt: str = ""
+) -> BenchmarkResult:
     """Run a command and measure wall time."""
     start = time.perf_counter()
     result = subprocess.run(
@@ -121,12 +123,18 @@ def run_benchmark(
 
     for i in range(iterations):
         run_type = "cold" if i == 0 else "warm"
-        print(f"{benchmark_type.upper()} iteration {i + 1}/{iterations} ({run_type})...", file=sys.stderr)
+        print(
+            f"{benchmark_type.upper()} iteration {i + 1}/{iterations} ({run_type})...",
+            file=sys.stderr,
+        )
 
         result = run_command(cmd, benchmark_type, model, prompt)
 
         if result.exit_code != 0:
-            print(f"Warning: iteration {i + 1} failed with exit code {result.exit_code}", file=sys.stderr)
+            print(
+                f"Warning: iteration {i + 1} failed with exit code {result.exit_code}",
+                file=sys.stderr,
+            )
             if result.stderr:
                 print(f"STDERR:\n{result.stderr}", file=sys.stderr)
             if result.stdout:
@@ -177,7 +185,9 @@ def run_e2e_benchmark(
     cmd = ["poetry", "run", "holmes", "ask", prompt, "--no-interactive", "--no-echo"]
     if model:
         cmd.extend(["--model", model])
-    return run_benchmark(cmd, "e2e", iterations, model=model or "default", prompt=prompt)
+    return run_benchmark(
+        cmd, "e2e", iterations, model=model or "default", prompt=prompt
+    )
 
 
 def main():
@@ -231,11 +241,16 @@ def main():
 
     if args.startup_only:
         iterations = args.iterations or 5
-        print(f"Running startup-only benchmark ({iterations} iterations)...", file=sys.stderr)
+        print(
+            f"Running startup-only benchmark ({iterations} iterations)...",
+            file=sys.stderr,
+        )
         summary = run_startup_benchmark(iterations=iterations)
     elif args.e2e_only:
         iterations = args.iterations or 3
-        print(f"Running e2e-only benchmark ({iterations} iterations)...", file=sys.stderr)
+        print(
+            f"Running e2e-only benchmark ({iterations} iterations)...", file=sys.stderr
+        )
         summary = run_e2e_benchmark(
             prompt=args.prompt,
             iterations=iterations,
@@ -256,7 +271,10 @@ def main():
     print(f"{'=' * 50}", file=sys.stderr)
     print(f"🥶 Cold Start: {summary.cold_start_seconds:.2f}s", file=sys.stderr)
     print(f"🔥 Warm Start: {summary.warm_mean_seconds:.2f}s (mean)", file=sys.stderr)
-    print(f"   Min: {summary.warm_min_seconds:.2f}s | Max: {summary.warm_max_seconds:.2f}s", file=sys.stderr)
+    print(
+        f"   Min: {summary.warm_min_seconds:.2f}s | Max: {summary.warm_max_seconds:.2f}s",
+        file=sys.stderr,
+    )
 
     # Print JSON to stdout for piping
     print(json.dumps(result_dict, indent=2))

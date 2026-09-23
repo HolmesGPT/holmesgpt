@@ -86,7 +86,9 @@ class OAuthToolConnector:
     ) -> bool:
         """Exchange an OAuth authorization code for tokens. Returns True on success."""
         try:
-            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+            _get_exchange_manager().complete_exchange(
+                tool_call_id, oauth_code, request_context
+            )
             return True
         except Exception as e:
             logger.error("Failed to process OAuth decision: %s", e, exc_info=True)
@@ -115,26 +117,33 @@ class OAuthToolConnector:
                 self.store_user_tools(user_id, toolset.name, tools)
                 logger.info(
                     "Loaded %d OAuth tools for user %s on toolset %s",
-                    len(tools), user_id[:6] if user_id else user_id, toolset.name,
+                    len(tools),
+                    user_id[:6] if user_id else user_id,
+                    toolset.name,
                 )
             return tools
         except Exception as e:
             if self._is_auth_error(e):
                 logger.warning(
                     "OAuth credentials expired for user %s on toolset %s — removing cached token",
-                    user_id, toolset.name,
+                    user_id,
+                    toolset.name,
                 )
                 self._evict_expired_token(user_id, toolset)
                 self._clear_user_tools(user_id, toolset)
             else:
                 logger.warning(
                     "Failed to load OAuth tools for user %s on toolset %s: %s",
-                    user_id, toolset.name, self._extract_error_message(e),
+                    user_id,
+                    toolset.name,
+                    self._extract_error_message(e),
                 )
                 self._log_token_config_mismatch(user_id, toolset)
             return []
 
-    def store_user_tools(self, user_id: str, toolset_name: str, tools: List[Tool]) -> None:
+    def store_user_tools(
+        self, user_id: str, toolset_name: str, tools: List[Tool]
+    ) -> None:
         """Store discovered OAuth tools for a user and register in tool_to_toolset."""
         with self._lock:
             if user_id not in self._user_tools:
@@ -207,7 +216,6 @@ class OAuthToolConnector:
             return None
         return self._user_tool_to_toolset.get(user_id, {}).get(tool_name)
 
-
     # ── Error handling helpers ─────────────────────────────────────────
 
     @staticmethod
@@ -263,21 +271,29 @@ class OAuthToolConnector:
 
             mismatches = []
             if cfg_client_id and tok_client_id and cfg_client_id != tok_client_id:
-                mismatches.append(f"client_id: stored={tok_client_id} config={cfg_client_id}")
+                mismatches.append(
+                    f"client_id: stored={tok_client_id} config={cfg_client_id}"
+                )
             if cfg_token_url and tok_token_url and cfg_token_url != tok_token_url:
-                mismatches.append(f"token_url: stored={tok_token_url} config={cfg_token_url}")
+                mismatches.append(
+                    f"token_url: stored={tok_token_url} config={cfg_token_url}"
+                )
 
             if mismatches:
                 logger.warning(
                     "MCP token/config mismatch for user %s on toolset %s — %s. "
                     "The cached token was issued under a different OAuth config; re-authenticate.",
-                    user_id, toolset.name, "; ".join(mismatches),
+                    user_id,
+                    toolset.name,
+                    "; ".join(mismatches),
                 )
             elif tok_team:
                 logger.warning(
                     "MCP failure for user %s on toolset %s — token was issued in workspace %s. "
                     "If the server gates access per workspace, the user may have authenticated in the wrong one.",
-                    user_id, toolset.name, tok_team,
+                    user_id,
+                    toolset.name,
+                    tok_team,
                 )
         except Exception:
             logger.debug("Failed to log token/config mismatch", exc_info=True)
@@ -299,7 +315,9 @@ class OAuthToolConnector:
             provider_name = oauth_config.authorization_url or "unknown"
             mgr._store.delete_token(provider_name, user_id=user_id)
         except Exception:
-            logger.debug("Failed to evict expired token for user %s", user_id, exc_info=True)
+            logger.debug(
+                "Failed to evict expired token for user %s", user_id, exc_info=True
+            )
 
     def _clear_user_tools(self, user_id: str, toolset: Any) -> None:
         """Drop stale per-user tools for this toolset after a 401.
@@ -311,5 +329,7 @@ class OAuthToolConnector:
         with self._lock:
             self._user_tools.get(user_id, {}).pop(toolset.name, None)
             user_map = self._user_tool_to_toolset.get(user_id, {})
-            for tool_name in [n for n, ts in user_map.items() if ts.name == toolset.name]:
+            for tool_name in [
+                n for n, ts in user_map.items() if ts.name == toolset.name
+            ]:
                 user_map.pop(tool_name, None)

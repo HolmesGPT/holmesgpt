@@ -100,7 +100,9 @@ class TestLLMModelRegistryGetModelParams:
         assert model_params.model == "gpt-4o"
         assert model_params.name == "gpt4o"
 
-    def _robusta_registry(self, mock_config, mock_dal, monkeypatch, gpt4o, boot_catalog):
+    def _robusta_registry(
+        self, mock_config, mock_dal, monkeypatch, gpt4o, boot_catalog
+    ):
         """A registry booted with `gpt4o` plus whatever `boot_catalog` carries,
         wired so refresh_robusta_models() (the ROB-707 resync path) is able to
         actually run a fetch."""

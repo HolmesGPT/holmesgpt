@@ -45,7 +45,10 @@ def _make_png(width: int, height: int, seed: int = 0) -> bytes:
 
 
 # Pre-generate all images at import time
-_IMAGES = [_make_png(_IMG_WIDTH, _IMG_HEIGHT, seed=i) for i in range(_NUM_PAGES * _IMAGES_PER_PAGE)]
+_IMAGES = [
+    _make_png(_IMG_WIDTH, _IMG_HEIGHT, seed=i)
+    for i in range(_NUM_PAGES * _IMAGES_PER_PAGE)
+]
 
 
 @mcp.tool()

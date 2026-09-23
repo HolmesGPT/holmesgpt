@@ -10,7 +10,6 @@ from holmes.core.llm import (
     is_anthropic_model,
 )
 
-
 IMG_WIDTH = 100
 IMG_HEIGHT = 200
 
@@ -25,7 +24,11 @@ def _make_png_data_uri(width: int, height: int) -> str:
 
     def _chunk(chunk_type: bytes, data: bytes) -> bytes:
         raw = chunk_type + data
-        return struct.pack(">I", len(data)) + raw + struct.pack(">I", zlib.crc32(raw) & 0xFFFFFFFF)
+        return (
+            struct.pack(">I", len(data))
+            + raw
+            + struct.pack(">I", zlib.crc32(raw) & 0xFFFFFFFF)
+        )
 
     sig = b"\x89PNG\r\n\x1a\n"
     # color_type=2 (RGB), bit_depth=8
@@ -71,6 +74,7 @@ def _make_llm(model: str) -> DefaultLLM:
 
 # ---------- is_anthropic_model ----------
 
+
 @pytest.mark.parametrize(
     "model_name, expected",
     [
@@ -91,6 +95,7 @@ def test_is_anthropic_model(model_name: str, expected: bool):
 
 # ---------- _get_image_dimensions ----------
 
+
 @pytest.mark.parametrize(
     "url, expected_dims",
     [
@@ -107,16 +112,37 @@ def test_get_image_dimensions(url: str, expected_dims: tuple[int, int]):
 
 # ---------- count_tokens: single image ----------
 
+
 @pytest.mark.parametrize(
     "model, has_image, image_url, expected_image_tokens",
     [
-        ("anthropic/claude-sonnet-4-5-20250929", True, DATA_URI, _ANTHROPIC_DATA_URI_IMAGE_TOKENS),
-        ("anthropic/claude-sonnet-4-5-20250929", True, EXTERNAL_URL, _ANTHROPIC_EXTERNAL_IMAGE_TOKENS),
+        (
+            "anthropic/claude-sonnet-4-5-20250929",
+            True,
+            DATA_URI,
+            _ANTHROPIC_DATA_URI_IMAGE_TOKENS,
+        ),
+        (
+            "anthropic/claude-sonnet-4-5-20250929",
+            True,
+            EXTERNAL_URL,
+            _ANTHROPIC_EXTERNAL_IMAGE_TOKENS,
+        ),
         ("anthropic/claude-sonnet-4-5-20250929", False, None, 0),
         ("gpt-4.1", True, DATA_URI, 0),
         ("gpt-4.1", False, None, 0),
-        ("vertex_ai/claude-3-5-sonnet", True, DATA_URI, _ANTHROPIC_DATA_URI_IMAGE_TOKENS),
-        ("robusta/anthropic/claude-sonnet-4-5-20250929", True, DATA_URI, _ANTHROPIC_DATA_URI_IMAGE_TOKENS),
+        (
+            "vertex_ai/claude-3-5-sonnet",
+            True,
+            DATA_URI,
+            _ANTHROPIC_DATA_URI_IMAGE_TOKENS,
+        ),
+        (
+            "robusta/anthropic/claude-sonnet-4-5-20250929",
+            True,
+            DATA_URI,
+            _ANTHROPIC_DATA_URI_IMAGE_TOKENS,
+        ),
         ("robusta/openai/gpt-4.1", True, DATA_URI, 0),
     ],
     ids=[
@@ -156,7 +182,11 @@ def test_count_tokens_image_handling(
     assert message["token_count"] == text_tokens + expected_image_tokens
 
     # total_tokens includes the image correction delta for Anthropic
-    expected_total = text_tokens + expected_image_tokens if is_anthropic_model(model) else text_tokens
+    expected_total = (
+        text_tokens + expected_image_tokens
+        if is_anthropic_model(model)
+        else text_tokens
+    )
     assert result.total_tokens == expected_total
 
 
@@ -164,11 +194,13 @@ def test_count_tokens_image_handling(
 
 _MULTI_IMAGE_SIZES = [
     (IMG_WIDTH, IMG_HEIGHT),  # 100x200 → 26 tokens
-    (300, 400),               # → 160 tokens
-    (800, 600),               # → 640 tokens
+    (300, 400),  # → 160 tokens
+    (800, 600),  # → 640 tokens
 ]
 _MULTI_IMAGE_URIS = [DATA_URI, DATA_URI_300x400, DATA_URI_800x600]
-_MULTI_IMAGE_TOKENS = [_anthropic_image_token_count(w, h) for w, h in _MULTI_IMAGE_SIZES]
+_MULTI_IMAGE_TOKENS = [
+    _anthropic_image_token_count(w, h) for w, h in _MULTI_IMAGE_SIZES
+]
 
 # Each size must produce a unique count, none matching litellm's default
 assert len(set(_MULTI_IMAGE_TOKENS)) == len(_MULTI_IMAGE_TOKENS)
@@ -201,5 +233,9 @@ def test_count_tokens_multi_image_conversation(
     assert img_msg["token_count"] == text_tokens + expected_total_image_tokens
 
     # total_tokens = litellm bulk (on stripped msgs) + image tokens
-    expected_total = text_tokens + expected_total_image_tokens if is_anthropic_model(model) else text_tokens
+    expected_total = (
+        text_tokens + expected_total_image_tokens
+        if is_anthropic_model(model)
+        else text_tokens
+    )
     assert result.total_tokens == expected_total

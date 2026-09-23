@@ -128,9 +128,15 @@ class TestCheckOomAndAppendHint:
         ]
         # Add many goroutine stack lines to simulate a real crash
         for i in range(200):
-            goroutine_lines.append(f"goroutine {i+2} gp=0x{i:08x} m=nil [GC worker (idle)]:")
-            goroutine_lines.append(f"runtime.gopark(0x{i:08x}?, 0x0?, 0x0?, 0x0?, 0x0?)")
-            goroutine_lines.append(f"\truntime/proc.go:435 +0xce fp=0x{i:08x} sp=0x{i:08x}")
+            goroutine_lines.append(
+                f"goroutine {i+2} gp=0x{i:08x} m=nil [GC worker (idle)]:"
+            )
+            goroutine_lines.append(
+                f"runtime.gopark(0x{i:08x}?, 0x0?, 0x0?, 0x0?, 0x0?)"
+            )
+            goroutine_lines.append(
+                f"\truntime/proc.go:435 +0xce fp=0x{i:08x} sp=0x{i:08x}"
+            )
 
         output = "\n".join(goroutine_lines)
         result = check_oom_and_append_hint(output, 2)
@@ -177,6 +183,8 @@ class TestTruncateOomOutput:
         result_lines = result.splitlines()
         assert len(result_lines) == OOM_OUTPUT_MAX_LINES + 1  # +1 for omission marker
         assert result_lines[0] == "line 0"
-        assert result_lines[OOM_OUTPUT_MAX_LINES - 1] == f"line {OOM_OUTPUT_MAX_LINES - 1}"
+        assert (
+            result_lines[OOM_OUTPUT_MAX_LINES - 1] == f"line {OOM_OUTPUT_MAX_LINES - 1}"
+        )
         omitted = total_lines - OOM_OUTPUT_MAX_LINES
         assert f"[... {omitted} lines of stack trace omitted ...]" in result_lines[-1]

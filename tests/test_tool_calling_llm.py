@@ -21,8 +21,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from holmes.core.llm import LLM, ContextWindowUsage
-from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
 from holmes.core.llm_usage import RequestStats
+from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
 from holmes.core.tool_calling_llm import LLMInterruptedError, ToolCallingLLM
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -81,7 +81,9 @@ def _make_mock_tool_call(tool_call_id="tc_1", tool_name="kubectl_get", arguments
     return tc
 
 
-def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20):
+def _make_llm_response(
+    content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20
+):
     """Create a mock LLM response matching litellm ModelResponse shape."""
     resp = MagicMock()
     resp.choices = [MagicMock()]
@@ -124,7 +126,9 @@ def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_token
     return resp
 
 
-def _make_tool_call_result(tool_call_id="tc_1", tool_name="kubectl_get", data="pod1 Running"):
+def _make_tool_call_result(
+    tool_call_id="tc_1", tool_name="kubectl_get", data="pod1 Running"
+):
     return ToolCallResult(
         tool_call_id=tool_call_id,
         tool_name=tool_name,
@@ -137,7 +141,9 @@ def _make_tool_call_result(tool_call_id="tc_1", tool_name="kubectl_get", data="p
     )
 
 
-def _make_tool_call_result_error(tool_call_id="tc_1", tool_name="kubectl_get", error="command not found"):
+def _make_tool_call_result_error(
+    tool_call_id="tc_1", tool_name="kubectl_get", error="command not found"
+):
     return ToolCallResult(
         tool_call_id=tool_call_id,
         tool_name=tool_name,
@@ -150,8 +156,9 @@ def _make_tool_call_result_error(tool_call_id="tc_1", tool_name="kubectl_get", e
     )
 
 
-def _make_tool_call_result_approval(tool_call_id="tc_1", tool_name="kubectl_delete",
-                                     invocation="kubectl delete pod foo"):
+def _make_tool_call_result_approval(
+    tool_call_id="tc_1", tool_name="kubectl_delete", invocation="kubectl delete pod foo"
+):
     return ToolCallResult(
         tool_call_id=tool_call_id,
         tool_name=tool_name,
@@ -159,7 +166,10 @@ def _make_tool_call_result_approval(tool_call_id="tc_1", tool_name="kubectl_dele
         result=StructuredToolResult(
             status=StructuredToolResultStatus.APPROVAL_REQUIRED,
             invocation=invocation,
-            params={"command": "kubectl delete pod foo", "suggested_prefixes": ["kubectl delete"]},
+            params={
+                "command": "kubectl delete pod foo",
+                "suggested_prefixes": ["kubectl delete"],
+            },
         ),
     )
 
@@ -192,6 +202,7 @@ def mock_tool_executor():
 @pytest.fixture
 def make_ai(mock_llm, mock_tool_executor):
     """Factory that returns a ToolCallingLLM with default mocks."""
+
     def _make(max_steps=10):
         ai = ToolCallingLLM(
             tool_executor=mock_tool_executor,
@@ -200,6 +211,7 @@ def make_ai(mock_llm, mock_tool_executor):
             tool_results_dir=None,
         )
         return ai
+
     return _make
 
 
@@ -210,7 +222,9 @@ def _collect_stream_events(stream) -> List[StreamMessage]:
     return list(stream)
 
 
-def _events_of_type(events: List[StreamMessage], event_type: StreamEvents) -> List[StreamMessage]:
+def _events_of_type(
+    events: List[StreamMessage], event_type: StreamEvents
+) -> List[StreamMessage]:
     return [e for e in events if e.event == event_type]
 
 
@@ -333,7 +347,9 @@ class TestApprovalCallbackFlow:
         # Final result includes the approved tool, deduplicated
         assert result.result == "Pod deleted"
         tool_call_ids = [tc.tool_call_id for tc in result.tool_calls]
-        assert len(tool_call_ids) == len(set(tool_call_ids)), "Duplicate tool_call_id in result"
+        assert len(tool_call_ids) == len(
+            set(tool_call_ids)
+        ), "Duplicate tool_call_id in result"
         assert "tc_del" in tool_call_ids
         assert len(result.tool_calls) == 1
 
@@ -346,7 +362,9 @@ class TestApprovalCallbackFlow:
         # Round 2: _execute_tool_decisions adds denial error, LLM gives final answer
         mock_llm.completion.side_effect = [resp_with_tool, resp_final]
 
-        callback = MagicMock(return_value=(False, "try using namespace kube-system instead"))
+        callback = MagicMock(
+            return_value=(False, "try using namespace kube-system instead")
+        )
         ai = make_ai()
 
         approval_result = _make_tool_call_result_approval(
@@ -440,9 +458,27 @@ class TestCostAccumulation:
         tc1 = _make_mock_tool_call(tool_call_id="tc_1")
         tc2 = _make_mock_tool_call(tool_call_id="tc_2")
 
-        resp1 = _make_llm_response(content="step 1", tool_calls=[tc1], cost=0.01, prompt_tokens=100, completion_tokens=50)
-        resp2 = _make_llm_response(content="step 2", tool_calls=[tc2], cost=0.02, prompt_tokens=200, completion_tokens=80)
-        resp3 = _make_llm_response(content="final answer", tool_calls=None, cost=0.03, prompt_tokens=300, completion_tokens=100)
+        resp1 = _make_llm_response(
+            content="step 1",
+            tool_calls=[tc1],
+            cost=0.01,
+            prompt_tokens=100,
+            completion_tokens=50,
+        )
+        resp2 = _make_llm_response(
+            content="step 2",
+            tool_calls=[tc2],
+            cost=0.02,
+            prompt_tokens=200,
+            completion_tokens=80,
+        )
+        resp3 = _make_llm_response(
+            content="final answer",
+            tool_calls=None,
+            cost=0.03,
+            prompt_tokens=300,
+            completion_tokens=100,
+        )
         mock_llm.completion.side_effect = [resp1, resp2, resp3]
 
         ai = make_ai()
@@ -545,7 +581,9 @@ class TestToolError:
     def test_call_continues_after_tool_error(self, _mock_limit, make_ai, mock_llm):
         tc = _make_mock_tool_call()
         resp_with_tool = _make_llm_response(content="checking", tool_calls=[tc])
-        resp_final = _make_llm_response(content="The command failed, here is why...", tool_calls=None)
+        resp_final = _make_llm_response(
+            content="The command failed, here is why...", tool_calls=None
+        )
         mock_llm.completion.side_effect = [resp_with_tool, resp_final]
 
         ai = make_ai()
@@ -649,7 +687,10 @@ class TestResponseFormatPassthrough:
 
         # Verify response_format was passed through
         call_kwargs = mock_llm.completion.call_args
-        assert call_kwargs.kwargs.get("response_format") == fmt or call_kwargs[1].get("response_format") == fmt
+        assert (
+            call_kwargs.kwargs.get("response_format") == fmt
+            or call_kwargs[1].get("response_format") == fmt
+        )
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_call_stream_passes_response_format(self, _mock_limit, make_ai, mock_llm):
@@ -659,11 +700,16 @@ class TestResponseFormatPassthrough:
         ai = make_ai()
         fmt = {"type": "json_object"}
         events = _collect_stream_events(
-            ai.call_stream(msgs=[{"role": "user", "content": "give me json"}], response_format=fmt)
+            ai.call_stream(
+                msgs=[{"role": "user", "content": "give me json"}], response_format=fmt
+            )
         )
 
         call_kwargs = mock_llm.completion.call_args
-        assert call_kwargs.kwargs.get("response_format") == fmt or call_kwargs[1].get("response_format") == fmt
+        assert (
+            call_kwargs.kwargs.get("response_format") == fmt
+            or call_kwargs[1].get("response_format") == fmt
+        )
 
         # Should still get ANSWER_END
         answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
@@ -722,19 +768,31 @@ class TestParallelToolExecution:
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_call_parallel_tools(self, _mock_limit, make_ai, mock_llm):
-        tc1 = _make_mock_tool_call(tool_call_id="tc_a", tool_name="kubectl_get",
-                                    arguments={"command": "kubectl get pods"})
-        tc2 = _make_mock_tool_call(tool_call_id="tc_b", tool_name="kubectl_get",
-                                    arguments={"command": "kubectl get services"})
+        tc1 = _make_mock_tool_call(
+            tool_call_id="tc_a",
+            tool_name="kubectl_get",
+            arguments={"command": "kubectl get pods"},
+        )
+        tc2 = _make_mock_tool_call(
+            tool_call_id="tc_b",
+            tool_name="kubectl_get",
+            arguments={"command": "kubectl get services"},
+        )
 
-        resp_with_tools = _make_llm_response(content="Checking both", tool_calls=[tc1, tc2])
-        resp_final = _make_llm_response(content="Found 2 pods and 3 services", tool_calls=None)
+        resp_with_tools = _make_llm_response(
+            content="Checking both", tool_calls=[tc1, tc2]
+        )
+        resp_final = _make_llm_response(
+            content="Found 2 pods and 3 services", tool_calls=None
+        )
         mock_llm.completion.side_effect = [resp_with_tools, resp_final]
 
         ai = make_ai()
         ai._invoke_llm_tool_call = MagicMock(
             side_effect=[
-                _make_tool_call_result(tool_call_id="tc_a", data="pod1 Running\npod2 Running"),
+                _make_tool_call_result(
+                    tool_call_id="tc_a", data="pod1 Running\npod2 Running"
+                ),
                 _make_tool_call_result(tool_call_id="tc_b", data="svc1\nsvc2\nsvc3"),
             ]
         )
@@ -803,14 +861,18 @@ class TestStreamApprovalFlow:
         approval_events = _events_of_type(events, StreamEvents.APPROVAL_REQUIRED)
         assert len(approval_events) == 1
         assert len(approval_events[0].data["pending_approvals"]) == 1
-        assert approval_events[0].data["pending_approvals"][0]["tool_call_id"] == "tc_del"
+        assert (
+            approval_events[0].data["pending_approvals"][0]["tool_call_id"] == "tc_del"
+        )
 
         # Stream should NOT have ANSWER_END since it stopped for approval
         answer_ends = _events_of_type(events, StreamEvents.ANSWER_END)
         assert len(answer_ends) == 0
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_stream_approval_disabled_converts_to_error(self, _mock_limit, make_ai, mock_llm):
+    def test_stream_approval_disabled_converts_to_error(
+        self, _mock_limit, make_ai, mock_llm
+    ):
         """When enable_tool_approval=False (default), APPROVAL_REQUIRED becomes ERROR."""
         tc = _make_mock_tool_call(tool_call_id="tc_del", tool_name="kubectl_delete")
         resp_with_tool = _make_llm_response(content="Deleting", tool_calls=[tc])
@@ -877,16 +939,29 @@ class TestCompactionCosts:
         )
 
         tc = _make_mock_tool_call()
-        resp1 = _make_llm_response(content="step", tool_calls=[tc], cost=0.01,
-                                    prompt_tokens=100, completion_tokens=50)
-        resp2 = _make_llm_response(content="done", tool_calls=None, cost=0.02,
-                                    prompt_tokens=200, completion_tokens=80)
+        resp1 = _make_llm_response(
+            content="step",
+            tool_calls=[tc],
+            cost=0.01,
+            prompt_tokens=100,
+            completion_tokens=50,
+        )
+        resp2 = _make_llm_response(
+            content="done",
+            tool_calls=None,
+            cost=0.02,
+            prompt_tokens=200,
+            completion_tokens=80,
+        )
         mock_llm.completion.side_effect = [resp1, resp2]
 
         ai = make_ai()
         ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
 
-        with patch(LIMIT_PATCH, side_effect=[limiter_output_with_compaction, limiter_output_normal]):
+        with patch(
+            LIMIT_PATCH,
+            side_effect=[limiter_output_with_compaction, limiter_output_normal],
+        ):
             result = ai.call([{"role": "user", "content": "analyze"}])
 
         # Costs = compaction(0.005) + LLM1(0.01) + LLM2(0.02) = 0.035
@@ -906,8 +981,13 @@ class TestStreamCostsInMetadata:
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_stream_metadata_has_costs(self, _mock_limit, make_ai, mock_llm):
-        resp = _make_llm_response(content="answer", tool_calls=None, cost=0.01,
-                                   prompt_tokens=100, completion_tokens=50)
+        resp = _make_llm_response(
+            content="answer",
+            tool_calls=None,
+            cost=0.01,
+            prompt_tokens=100,
+            completion_tokens=50,
+        )
         mock_llm.completion.return_value = resp
 
         ai = make_ai()
@@ -922,7 +1002,9 @@ class TestStreamCostsInMetadata:
         tc_data = token_counts[0].data
         assert "metadata" in tc_data
         assert "costs" in tc_data["metadata"]
-        assert tc_data["metadata"]["costs"]["total_cost"] == pytest.approx(0.01, abs=1e-6)
+        assert tc_data["metadata"]["costs"]["total_cost"] == pytest.approx(
+            0.01, abs=1e-6
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1028,8 +1110,20 @@ class TestEquivalence:
 
         def _make_responses():
             """Generate fresh response mocks (each can only be consumed once)."""
-            resp_tool = _make_llm_response(content="checking", tool_calls=[tc], cost=0.01, prompt_tokens=100, completion_tokens=50)
-            resp_final = _make_llm_response(content="All good", tool_calls=None, cost=0.02, prompt_tokens=200, completion_tokens=80)
+            resp_tool = _make_llm_response(
+                content="checking",
+                tool_calls=[tc],
+                cost=0.01,
+                prompt_tokens=100,
+                completion_tokens=50,
+            )
+            resp_final = _make_llm_response(
+                content="All good",
+                tool_calls=None,
+                cost=0.02,
+                prompt_tokens=200,
+                completion_tokens=80,
+            )
             return [resp_tool, resp_final]
 
         tool_result = _make_tool_call_result()
@@ -1063,7 +1157,9 @@ class TestEquivalence:
 
         # Compare costs
         stream_costs = answer_end["costs"]
-        assert call_result.total_cost == pytest.approx(stream_costs["total_cost"], abs=1e-9)
+        assert call_result.total_cost == pytest.approx(
+            stream_costs["total_cost"], abs=1e-9
+        )
         assert call_result.prompt_tokens == stream_costs["prompt_tokens"]
         assert call_result.completion_tokens == stream_costs["completion_tokens"]
 
@@ -1129,7 +1225,9 @@ class TestApprovalViaReinvocation:
         tc_ok = _make_mock_tool_call(tool_call_id="tc_ok", tool_name="kubectl_get")
         tc_del = _make_mock_tool_call(tool_call_id="tc_del", tool_name="kubectl_delete")
 
-        resp_with_tools = _make_llm_response(content="Running both", tool_calls=[tc_ok, tc_del])
+        resp_with_tools = _make_llm_response(
+            content="Running both", tool_calls=[tc_ok, tc_del]
+        )
         resp_final = _make_llm_response(content="Done", tool_calls=None)
         mock_llm.completion.side_effect = [resp_with_tools, resp_final]
 
@@ -1160,12 +1258,17 @@ class TestApprovalViaReinvocation:
         ai._invoke_llm_tool_call = MagicMock(side_effect=_route_tool_call)
         ai._is_tool_call_already_approved = MagicMock(return_value=False)
 
-        result = ai.call([{"role": "user", "content": "Get pods and delete one"}], approval_callback=callback)
+        result = ai.call(
+            [{"role": "user", "content": "Get pods and delete one"}],
+            approval_callback=callback,
+        )
 
         assert result.result == "Done"
         # Both tools should appear exactly once (deduplicated)
         tool_call_ids = [tc.tool_call_id for tc in result.tool_calls]
-        assert len(tool_call_ids) == len(set(tool_call_ids)), "Duplicate tool_call_id in result"
+        assert len(tool_call_ids) == len(
+            set(tool_call_ids)
+        ), "Duplicate tool_call_id in result"
         assert set(tool_call_ids) == {"tc_ok", "tc_del"}
         tool_names = [tc.tool_name for tc in result.tool_calls]
         assert "kubectl_get" in tool_names
@@ -1177,21 +1280,43 @@ class TestApprovalViaReinvocation:
 # ---------------------------------------------------------------------------
 
 EXPECTED_COSTS_KEYS = {
-    "total_cost", "total_tokens", "prompt_tokens", "completion_tokens",
-    "cached_tokens", "cache_creation_tokens", "reasoning_tokens",
-    "max_completion_tokens_per_call", "max_prompt_tokens_per_call",
+    "total_cost",
+    "total_tokens",
+    "prompt_tokens",
+    "completion_tokens",
+    "cached_tokens",
+    "cache_creation_tokens",
+    "reasoning_tokens",
+    "max_completion_tokens_per_call",
+    "max_prompt_tokens_per_call",
     "num_compactions",
 }
 
-EXPECTED_TOKEN_COUNT_METADATA_KEYS = {"costs", "usage", "tokens", "max_tokens", "max_output_tokens"}
+EXPECTED_TOKEN_COUNT_METADATA_KEYS = {
+    "costs",
+    "usage",
+    "tokens",
+    "max_tokens",
+    "max_output_tokens",
+}
 
 EXPECTED_ANSWER_END_KEYS = {
-    "content", "messages", "metadata", "tool_calls", "num_llm_calls", "prompt", "costs",
+    "content",
+    "messages",
+    "metadata",
+    "tool_calls",
+    "num_llm_calls",
+    "prompt",
+    "costs",
 }
 
 EXPECTED_APPROVAL_REQUIRED_KEYS = {
-    "content", "messages", "pending_approvals",
-    "pending_frontend_tool_calls", "num_llm_calls", "costs",
+    "content",
+    "messages",
+    "pending_approvals",
+    "pending_frontend_tool_calls",
+    "num_llm_calls",
+    "costs",
 }
 
 
@@ -1229,9 +1354,9 @@ class TestSSEEventShapes:
                 f"TOKEN_COUNT metadata missing keys: "
                 f"{EXPECTED_TOKEN_COUNT_METADATA_KEYS - set(meta.keys())}"
             )
-            assert set(meta["costs"].keys()) == EXPECTED_COSTS_KEYS, (
-                f"costs keys mismatch: got {set(meta['costs'].keys())}"
-            )
+            assert (
+                set(meta["costs"].keys()) == EXPECTED_COSTS_KEYS
+            ), f"costs keys mismatch: got {set(meta['costs'].keys())}"
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_answer_end_event_shape(self, _mock_limit, make_ai, mock_llm):
@@ -1254,9 +1379,9 @@ class TestSSEEventShapes:
         assert len(answer_ends) == 1
         data = answer_ends[0].data
 
-        assert set(data.keys()) == EXPECTED_ANSWER_END_KEYS, (
-            f"ANSWER_END keys mismatch: got {set(data.keys())}"
-        )
+        assert (
+            set(data.keys()) == EXPECTED_ANSWER_END_KEYS
+        ), f"ANSWER_END keys mismatch: got {set(data.keys())}"
         assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
         assert isinstance(data["messages"], list)
         assert isinstance(data["tool_calls"], list)
@@ -1285,9 +1410,9 @@ class TestSSEEventShapes:
         assert len(approval_events) == 1
         data = approval_events[0].data
 
-        assert set(data.keys()) == EXPECTED_APPROVAL_REQUIRED_KEYS, (
-            f"APPROVAL_REQUIRED keys mismatch: got {set(data.keys())}"
-        )
+        assert (
+            set(data.keys()) == EXPECTED_APPROVAL_REQUIRED_KEYS
+        ), f"APPROVAL_REQUIRED keys mismatch: got {set(data.keys())}"
         assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
         assert isinstance(data["pending_approvals"], list)
         assert isinstance(data["pending_frontend_tool_calls"], list)
@@ -1309,13 +1434,19 @@ def _make_ai_with_frontend_tools(make_ai_fn, mock_tool_executor, tool_names=None
     from holmes.core.tools_utils.tool_executor import ToolExecutor
 
     if tool_names is None:
-        tool_names = [("show_chart", "Display a chart to the user", {
-            "type": "object",
-            "properties": {
-                "chart_type": {"type": "string"},
-                "data_source": {"type": "string"},
-            },
-        })]
+        tool_names = [
+            (
+                "show_chart",
+                "Display a chart to the user",
+                {
+                    "type": "object",
+                    "properties": {
+                        "chart_type": {"type": "string"},
+                        "data_source": {"type": "string"},
+                    },
+                },
+            )
+        ]
 
     frontend_tools = [
         build_frontend_pause_tool(name=name, description=desc, parameters=params)
@@ -1358,14 +1489,19 @@ class TestFrontendToolPauseFlow:
     """
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_frontend_tool_pauses_stream(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_frontend_tool_pauses_stream(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """When LLM calls a frontend tool, stream emits approval_required with
         pending_frontend_tool_calls and stops (no ANSWER_END)."""
         ft_call = _make_mock_tool_call(
-            tool_call_id="ft_1", tool_name="show_chart",
+            tool_call_id="ft_1",
+            tool_name="show_chart",
             arguments={"chart_type": "line", "data_source": "cpu_usage"},
         )
-        resp = _make_llm_response(content="Let me show you a chart", tool_calls=[ft_call])
+        resp = _make_llm_response(
+            content="Let me show you a chart", tool_calls=[ft_call]
+        )
         mock_llm.completion.return_value = resp
 
         ai = _make_ai_with_frontend_tools(make_ai, mock_tool_executor)
@@ -1395,16 +1531,22 @@ class TestFrontendToolPauseFlow:
         assert len(answer_ends) == 0
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_frontend_tool_mixed_with_backend(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_frontend_tool_mixed_with_backend(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """When LLM calls both backend and frontend tools in same iteration,
         backend tools execute and frontend tools cause a pause."""
-        backend_call = _make_mock_tool_call(tool_call_id="bt_1", tool_name="kubectl_get")
+        backend_call = _make_mock_tool_call(
+            tool_call_id="bt_1", tool_name="kubectl_get"
+        )
         frontend_call = _make_mock_tool_call(
-            tool_call_id="ft_1", tool_name="show_chart",
+            tool_call_id="ft_1",
+            tool_name="show_chart",
             arguments={"chart_type": "bar", "data_source": "memory"},
         )
         resp = _make_llm_response(
-            content="checking", tool_calls=[backend_call, frontend_call],
+            content="checking",
+            tool_calls=[backend_call, frontend_call],
         )
         mock_llm.completion.return_value = resp
 
@@ -1416,6 +1558,7 @@ class TestFrontendToolPauseFlow:
                 else ai._invoke_llm_tool_call.default_return_value
             )
         )
+
         # For the show_chart tool, _invoke_llm_tool_call will go through the real
         # FrontendPauseTool.invoke() path via _directly_invoke_tool_call, so we
         # need to let it work. But since we mock _invoke_llm_tool_call, we need
@@ -1482,7 +1625,9 @@ class TestFrontendToolPauseFlow:
         ]
 
         # LLM response after resume (final answer)
-        resp_final = _make_llm_response(content="Here is the chart analysis", tool_calls=None)
+        resp_final = _make_llm_response(
+            content="Here is the chart analysis", tool_calls=None
+        )
         mock_llm.completion.return_value = resp_final
 
         ai = make_ai()
@@ -1516,7 +1661,9 @@ class TestFrontendToolPauseFlow:
         assert answer_ends[0].data["content"] == "Here is the chart analysis"
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_frontend_tool_definitions_added_to_tools(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_frontend_tool_definitions_added_to_tools(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """Frontend tool definitions are included in the tools list sent to LLM."""
         resp = _make_llm_response(content="No tools needed", tool_calls=None)
         mock_llm.completion.return_value = resp
@@ -1536,10 +1683,13 @@ class TestFrontendToolPauseFlow:
         assert "show_chart" in tool_names, "Frontend tool should be included"
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_approval_required_event_shape_with_frontend_tools(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_approval_required_event_shape_with_frontend_tools(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """APPROVAL_REQUIRED event has the exact expected key set when triggered by frontend tools."""
         ft_call = _make_mock_tool_call(
-            tool_call_id="ft_shape", tool_name="show_chart",
+            tool_call_id="ft_shape",
+            tool_name="show_chart",
             arguments={"chart_type": "pie"},
         )
         resp = _make_llm_response(content="charting", tool_calls=[ft_call])
@@ -1566,11 +1716,14 @@ class TestFrontendToolPauseFlow:
         assert set(data["costs"].keys()) == EXPECTED_COSTS_KEYS
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_pending_frontend_marked_in_messages(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_pending_frontend_marked_in_messages(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """After frontend tool pause, the conversation messages contain
         the pending_frontend flag on the tool call."""
         ft_call = _make_mock_tool_call(
-            tool_call_id="ft_mark", tool_name="show_chart",
+            tool_call_id="ft_mark",
+            tool_name="show_chart",
             arguments={"chart_type": "line"},
         )
         resp = _make_llm_response(content="charting", tool_calls=[ft_call])
@@ -1609,15 +1762,24 @@ def _make_ai_with_noop_tools(make_ai_fn, mock_tool_executor, tool_names=None):
     from holmes.core.tools_utils.tool_executor import ToolExecutor
 
     if tool_names is None:
-        tool_names = [("navigate_to_page", "Navigate user to a page", {
-            "type": "object",
-            "properties": {
-                "page": {"type": "string"},
-            },
-        }, None)]
+        tool_names = [
+            (
+                "navigate_to_page",
+                "Navigate user to a page",
+                {
+                    "type": "object",
+                    "properties": {
+                        "page": {"type": "string"},
+                    },
+                },
+                None,
+            )
+        ]
 
     noop_tools = [
-        build_frontend_noop_tool(name=name, description=desc, parameters=params, canned_response=resp)
+        build_frontend_noop_tool(
+            name=name, description=desc, parameters=params, canned_response=resp
+        )
         for name, desc, params, resp in tool_names
     ]
 
@@ -1650,17 +1812,24 @@ class TestFrontendNoopToolFlow:
     response immediately, stream continues without pausing."""
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_noop_tool_does_not_pause(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_noop_tool_does_not_pause(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """When LLM calls a noop tool, stream does NOT emit approval_required
         and instead continues to ai_answer_end."""
         noop_call = _make_mock_tool_call(
-            tool_call_id="noop_1", tool_name="navigate_to_page",
+            tool_call_id="noop_1",
+            tool_name="navigate_to_page",
             arguments={"page": "/dashboards/cpu"},
         )
         # LLM iteration 1: calls the noop tool
-        resp1 = _make_llm_response(content="Let me navigate you", tool_calls=[noop_call])
+        resp1 = _make_llm_response(
+            content="Let me navigate you", tool_calls=[noop_call]
+        )
         # LLM iteration 2: final answer after seeing the canned response
-        resp2 = _make_llm_response(content="Done, you're on the CPU dashboard", tool_calls=None)
+        resp2 = _make_llm_response(
+            content="Done, you're on the CPU dashboard", tool_calls=None
+        )
         mock_llm.completion.side_effect = [resp1, resp2]
 
         ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor)
@@ -1688,20 +1857,35 @@ class TestFrontendNoopToolFlow:
         assert answer_ends[0].data["content"] == "Done, you're on the CPU dashboard"
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_noop_tool_custom_response(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_noop_tool_custom_response(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """Noop tool with custom canned_response returns that response."""
         custom = "Chart rendered at /charts/overview.png"
         noop_call = _make_mock_tool_call(
-            tool_call_id="noop_custom", tool_name="render_chart_noop",
+            tool_call_id="noop_custom",
+            tool_name="render_chart_noop",
             arguments={"chart_type": "line"},
         )
         resp1 = _make_llm_response(content="Rendering", tool_calls=[noop_call])
         resp2 = _make_llm_response(content="Chart is ready", tool_calls=None)
         mock_llm.completion.side_effect = [resp1, resp2]
 
-        ai = _make_ai_with_noop_tools(make_ai, mock_tool_executor, tool_names=[
-            ("render_chart_noop", "Render a chart", {"type": "object", "properties": {"chart_type": {"type": "string"}}}, custom),
-        ])
+        ai = _make_ai_with_noop_tools(
+            make_ai,
+            mock_tool_executor,
+            tool_names=[
+                (
+                    "render_chart_noop",
+                    "Render a chart",
+                    {
+                        "type": "object",
+                        "properties": {"chart_type": {"type": "string"}},
+                    },
+                    custom,
+                ),
+            ],
+        )
         events = _collect_stream_events(
             ai.call_stream(
                 msgs=[{"role": "user", "content": "Show chart"}],
@@ -1713,10 +1897,13 @@ class TestFrontendNoopToolFlow:
         assert tool_results[0].data["result"]["data"] == custom
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_noop_tool_visible_in_sse_events(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_noop_tool_visible_in_sse_events(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """Client sees start_tool_calling and tool_calling_result for noop tools."""
         noop_call = _make_mock_tool_call(
-            tool_call_id="noop_vis", tool_name="navigate_to_page",
+            tool_call_id="noop_vis",
+            tool_name="navigate_to_page",
             arguments={"page": "/alerts"},
         )
         resp1 = _make_llm_response(content="Navigating", tool_calls=[noop_call])
@@ -1742,7 +1929,9 @@ class TestFrontendNoopToolFlow:
         assert tool_results[0].data["tool_call_id"] == "noop_vis"
 
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
-    def test_noop_tool_included_in_tools_list(self, _mock_limit, make_ai, mock_llm, mock_tool_executor):
+    def test_noop_tool_included_in_tools_list(
+        self, _mock_limit, make_ai, mock_llm, mock_tool_executor
+    ):
         """Noop tool definitions are included in the tools list sent to LLM."""
         resp = _make_llm_response(content="No tools needed", tool_calls=None)
         mock_llm.completion.return_value = resp

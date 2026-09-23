@@ -15,7 +15,11 @@ class ToolCallResult(BaseModel):
     size: Optional[int] = None
     toolset_name: Optional[str] = None
 
-    def to_llm_message(self, extra_metadata: Optional[Dict[str, Any]] = None, supports_vision: bool = True):
+    def to_llm_message(
+        self,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+        supports_vision: bool = True,
+    ):
         text_content = format_tool_result_data(
             tool_result=self.result,
             tool_call_id=self.tool_call_id,
@@ -122,18 +126,26 @@ class ToolApprovalDecision(BaseModel):
     approved: bool
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
     feedback: Optional[str] = None  # User or holmes feedback when denying a tool call
-    decision: Optional[Dict[str, Any]] = None  # Structured decision data (e.g. OAuth callback)
-    verified: bool = True # False only when Holmes itself rejected the approval (e.g. JWT token failed)
+    decision: Optional[Dict[str, Any]] = (
+        None  # Structured decision data (e.g. OAuth callback)
+    )
+    verified: bool = True  # False only when Holmes itself rejected the approval (e.g. JWT token failed)
 
 
 class OAuthCallbackRequest(BaseModel):
     toolset_name: str
     code: str
-    code_verifier: Optional[str] = None  # Optional: frontend provides when it generated PKCE, Holmes provides when it generated PKCE
+    code_verifier: Optional[str] = (
+        None  # Optional: frontend provides when it generated PKCE, Holmes provides when it generated PKCE
+    )
     redirect_uri: str
     client_id: Optional[str] = None
-    client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
-    resource: Optional[str] = None  # RFC 8707 resource indicator (canonical MCP server URL)
+    client_secret: Optional[str] = (
+        None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    )
+    resource: Optional[str] = (
+        None  # RFC 8707 resource indicator (canonical MCP server URL)
+    )
     user_id: Optional[str] = None
 
 
@@ -213,7 +225,9 @@ class ChatRequestBaseModel(BaseModel):
         None  # Optional span for tracing and heartbeat callbacks
     )
     user_id: Optional[str] = None  # User ID from relay session token validation
-    user_email: Optional[str] = None  # User email supplied by the frontend (source of truth for usage analytics)
+    user_email: Optional[str] = (
+        None  # User email supplied by the frontend (source of truth for usage analytics)
+    )
 
     # ── AI usage tracking fields (HolmesUsageEvents). All optional / additive;
     # old clients that don't supply them keep working unchanged. ──

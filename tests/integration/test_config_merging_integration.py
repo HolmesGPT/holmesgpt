@@ -26,9 +26,7 @@ class TestFastModelClassDefault:
         """Transformer instances without fast_model use the class default."""
         LLMSummarizeTransformer.set_default_fast_model("gpt-4o-mini")
 
-        with patch(
-            "holmes.core.transformers.llm_summarize.DefaultLLM"
-        ) as mock_llm:
+        with patch("holmes.core.transformers.llm_summarize.DefaultLLM") as mock_llm:
             instance = LLMSummarizeTransformer(input_threshold=1000)
             mock_llm.assert_called_once_with("gpt-4o-mini", None)
             assert instance._fast_llm is not None
@@ -37,21 +35,15 @@ class TestFastModelClassDefault:
         """Per-instance fast_model takes precedence over class default."""
         LLMSummarizeTransformer.set_default_fast_model("gpt-4o-mini")
 
-        with patch(
-            "holmes.core.transformers.llm_summarize.DefaultLLM"
-        ) as mock_llm:
-            LLMSummarizeTransformer(
-                input_threshold=1000, fast_model="claude-haiku"
-            )
+        with patch("holmes.core.transformers.llm_summarize.DefaultLLM") as mock_llm:
+            LLMSummarizeTransformer(input_threshold=1000, fast_model="claude-haiku")
             mock_llm.assert_called_once_with("claude-haiku", None)
 
     def test_no_class_default_no_instance_fast_model(self):
         """Without class default or instance fast_model, no LLM is created."""
         LLMSummarizeTransformer._default_fast_model = None
 
-        with patch(
-            "holmes.core.transformers.llm_summarize.DefaultLLM"
-        ) as mock_llm:
+        with patch("holmes.core.transformers.llm_summarize.DefaultLLM") as mock_llm:
             instance = LLMSummarizeTransformer(input_threshold=1000)
             mock_llm.assert_not_called()
             assert instance._fast_llm is None
@@ -99,9 +91,7 @@ class TestToolsetManagerWithoutFastModelInjection:
             name="simple_toolset",
             tags=[ToolsetTag.CORE],
             description="Simple toolset without transformers",
-            tools=[
-                YAMLTool(name="simple_tool", description="Simple", command="echo")
-            ],
+            tools=[YAMLTool(name="simple_tool", description="Simple", command="echo")],
         )
 
         with patch("holmes.core.toolset_manager.load_builtin_toolsets") as mock_load:

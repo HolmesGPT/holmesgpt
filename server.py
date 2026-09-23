@@ -65,7 +65,12 @@ from holmes.core.models import (
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tool_calling_llm import RelayRefusal
-from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
+from holmes.core.tools import (
+    PrerequisiteCacheMode,
+    ToolsetStatusEnum,
+    ToolsetTag,
+    ToolsetType,
+)
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
@@ -118,7 +123,9 @@ def init_logging():
         handler.setFormatter(build_json_formatter())
         logging.basicConfig(handlers=[handler], level=logging_level, force=True)
     else:
-        logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
+        logging_format = (
+            "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
+        )
         logging_datefmt = "%Y-%m-%d %H:%M:%S"
 
         colorlog.basicConfig(
@@ -140,7 +147,9 @@ def init_logging():
 init_logging()
 
 # Initialize tracer — auto-detects OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set
-server_tracer = TracingFactory.create_tracer(trace_type=os.environ.get("HOLMES_TRACE_BACKEND"))
+server_tracer = TracingFactory.create_tracer(
+    trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
+)
 
 # Opt-in: let API callers route a request's trace spans into a named tracing
 # experiment via the `X-Braintrust-Experiment` header. Off by default so
@@ -178,6 +187,7 @@ def open_experiment_from_request(http_request: Request) -> None:
             server_tracer.start_experiment(experiment_name=name)
             _request_experiment_name = name
 
+
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
 
@@ -191,7 +201,10 @@ def init_config():
         tuple: (config, dal) - The initialized Config object and its DAL instance
     """
     default_config_path = Path(DEFAULT_CONFIG_LOCATION)
-    if default_config_path.exists() and os.environ.get("LOAD_CONFIG_FROM_ENV", "false").lower() == "false":
+    if (
+        default_config_path.exists()
+        and os.environ.get("LOAD_CONFIG_FROM_ENV", "false").lower() == "false"
+    ):
         logging.info(f"Loading config from file: {default_config_path}")
         config = Config.load_from_file(default_config_path)
     else:
@@ -338,9 +351,7 @@ def _toolset_status_refresh_loop():
                 )
                 refresh_platform_mcp_tools(executor)
             except Exception:
-                logging.error(
-                    "Failed to refresh platform-mcp tools", exc_info=True
-                )
+                logging.error("Failed to refresh platform-mcp tools", exc_info=True)
             try:
                 changes = config.refresh_tool_executor(
                     dal,
@@ -369,9 +380,7 @@ def _toolset_status_refresh_loop():
                 # MCP failure backoff do not multiply network git fetches.
                 config.skill_repo_manager.sync()
             except Exception:
-                logging.error(
-                    "Error during periodic skill repo sync", exc_info=True
-                )
+                logging.error("Error during periodic skill repo sync", exc_info=True)
             try:
                 # Re-read every cycle rather than gating on a change signal: a
                 # ConfigMap/Secret remount changes skills with no toolset status change to
@@ -437,12 +446,15 @@ if HOLMES_API_KEY:
         key = extract_api_key(request)
 
         if key != HOLMES_API_KEY:
-            logging.warning("Unauthorized request: %s %s", request.method, request.url.path)
+            logging.warning(
+                "Unauthorized request: %s %s", request.method, request.url.path
+            )
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing API key"},
             )
         return await call_next(request)
+
 
 if LOG_PERFORMANCE:
 
@@ -475,20 +487,34 @@ else:
 def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
     logging.info(
         "OAuth callback: toolset=%s client_id=%s client_secret_present=%s code_present=%s code_verifier_present=%s redirect_uri=%s",
-        request.toolset_name, request.client_id, bool(request.client_secret), bool(request.code),
-        bool(request.code_verifier), request.redirect_uri,
+        request.toolset_name,
+        request.client_id,
+        bool(request.client_secret),
+        bool(request.code),
+        bool(request.code_verifier),
+        request.redirect_uri,
     )
     try:
-        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
-        return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
+        executor = config.create_tool_executor(
+            dal=dal,
+            reuse_executor=True,
+            prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+        )
+        return process_oauth_callback(
+            request, executor.toolsets, _get_token_manager(), executor=executor
+        )
     except OAuthConfigLookupError as e:
         logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
         raise HTTPException(status_code=400, detail=e.detail)
     except OAuthTokenExchangeError as e:
-        logging.error("OAuth token exchange failed for '%s': %s", request.toolset_name, e)
+        logging.error(
+            "OAuth token exchange failed for '%s': %s", request.toolset_name, e
+        )
         raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
-        logging.error(f"OAuth callback failed for '{request.toolset_name}': {e}", exc_info=True)
+        logging.error(
+            f"OAuth callback failed for '{request.toolset_name}': {e}", exc_info=True
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -687,23 +713,30 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
-            trace_span.log(input=chat_request.ask, metadata={
-                "holmesgpt.investigation.question": chat_request.ask[:1024],
-                "holmesgpt.investigation.stream": True,
-                **langfuse_trace_attributes(
-                    chat_request.ask,
-                    user_id=chat_request.user_id,
-                    user_email=chat_request.user_email,
-                    account_id=dal.account_id,
-                    session_id=chat_request.conversation_id,
-                    cluster_id=config.cluster_name,
-                    model=chat_request.model or config.model,
-                    request_source=chat_request.request_source,
-                ),
-            })
+            trace_span.log(
+                input=chat_request.ask,
+                metadata={
+                    "holmesgpt.investigation.question": chat_request.ask[:1024],
+                    "holmesgpt.investigation.stream": True,
+                    **langfuse_trace_attributes(
+                        chat_request.ask,
+                        user_id=chat_request.user_id,
+                        user_email=chat_request.user_email,
+                        account_id=dal.account_id,
+                        session_id=chat_request.conversation_id,
+                        cluster_id=config.cluster_name,
+                        model=chat_request.model or config.model,
+                        request_source=chat_request.request_source,
+                    ),
+                },
+            )
             otel_metrics = TracingFactory.get_metrics()
             if otel_metrics:
-                inv_attrs = {"gen_ai_request_model": chat_request.model or config.model or "unknown"}
+                inv_attrs = {
+                    "gen_ai_request_model": chat_request.model
+                    or config.model
+                    or "unknown"
+                }
                 otel_metrics.investigation_count.add(1, inv_attrs)
 
             # Build the usage recorder state and wrap the raw stream BEFORE the
@@ -743,19 +776,22 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span = server_tracer.start_trace(
                         "holmesgpt.investigation",
                     )
-                    trace_span.log(input=chat_request.ask, metadata={
-                        "holmesgpt.investigation.question": chat_request.ask[:1024],
-                        **langfuse_trace_attributes(
-                            chat_request.ask,
-                            user_id=chat_request.user_id,
-                            user_email=chat_request.user_email,
-                            account_id=dal.account_id,
-                            session_id=chat_request.conversation_id,
-                            cluster_id=config.cluster_name,
-                            model=chat_request.model or config.model,
-                            request_source=chat_request.request_source,
-                        ),
-                    })
+                    trace_span.log(
+                        input=chat_request.ask,
+                        metadata={
+                            "holmesgpt.investigation.question": chat_request.ask[:1024],
+                            **langfuse_trace_attributes(
+                                chat_request.ask,
+                                user_id=chat_request.user_id,
+                                user_email=chat_request.user_email,
+                                account_id=dal.account_id,
+                                session_id=chat_request.conversation_id,
+                                cluster_id=config.cluster_name,
+                                model=chat_request.model or config.model,
+                                request_source=chat_request.request_source,
+                            ),
+                        },
+                    )
 
                 _inv_start = time.time()
                 llm_call = request_ai.call(
@@ -788,11 +824,19 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 # Record investigation metrics
                 otel_metrics = TracingFactory.get_metrics()
                 if otel_metrics:
-                    inv_attrs = {"gen_ai_request_model": chat_request.model or config.model or "unknown"}
+                    inv_attrs = {
+                        "gen_ai_request_model": chat_request.model
+                        or config.model
+                        or "unknown"
+                    }
                     otel_metrics.investigation_count.add(1, inv_attrs)
-                    otel_metrics.investigation_duration.record(time.time() - _inv_start, inv_attrs)
+                    otel_metrics.investigation_duration.record(
+                        time.time() - _inv_start, inv_attrs
+                    )
                     if hasattr(llm_call, "num_llm_calls") and llm_call.num_llm_calls:
-                        otel_metrics.investigation_iterations.record(llm_call.num_llm_calls, inv_attrs)
+                        otel_metrics.investigation_iterations.record(
+                            llm_call.num_llm_calls, inv_attrs
+                        )
 
                 if TRACE_TOKEN_USAGE:
                     logging.info(
@@ -851,9 +895,7 @@ conversation_worker = None
 if ENABLE_CONVERSATION_WORKER:
     from holmes.core.conversations_worker import ConversationWorker
 
-    conversation_worker = ConversationWorker(
-        dal=dal, config=config, chat_function=chat
-    )
+    conversation_worker = ConversationWorker(dal=dal, config=config, chat_function=chat)
 
 
 @app.on_event("shutdown")
@@ -925,11 +967,15 @@ class InfoResponse(BaseModel):
 def get_info(detail: Optional[str] = None) -> InfoResponse:
     """Return server info. Use ?detail=full for per-toolset breakdown."""
     executor = config.create_tool_executor(
-        dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+        dal=dal,
+        reuse_executor=True,
+        prerequisite_cache=PrerequisiteCacheMode.DISABLED,
     )
     all_toolsets = executor.toolsets
 
-    enabled_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.ENABLED)
+    enabled_count = sum(
+        1 for t in all_toolsets if t.status == ToolsetStatusEnum.ENABLED
+    )
     failed_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.FAILED)
     total = len(all_toolsets)
     disabled_count = total - enabled_count - failed_count
@@ -955,7 +1001,9 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     )
 
     if detail == "full":
-        resp.config_path = str(config._config_file_path) if config._config_file_path else None
+        resp.config_path = (
+            str(config._config_file_path) if config._config_file_path else None
+        )
         resp.model_list_path = MODEL_LIST_FILE_LOCATION
         resp.toolsets = [
             ToolsetInfo(

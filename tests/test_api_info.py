@@ -12,7 +12,9 @@ def client():
     return TestClient(app)
 
 
-def _mock_toolset(name, enabled=True, status="enabled", ts_type="built-in", error=None, tool_count=2):
+def _mock_toolset(
+    name, enabled=True, status="enabled", ts_type="built-in", error=None, tool_count=2
+):
     """Build a mock Toolset with the fields the /api/info endpoint reads."""
     from holmes.core.tools import ToolsetStatusEnum, ToolsetType
 
@@ -41,7 +43,9 @@ class TestInfoDefault:
         """Default response includes version, uptime, models, toolsets_summary, runbooks_count."""
         toolsets = [
             _mock_toolset("prometheus/metrics"),
-            _mock_toolset("grafana/dashboards", status="failed", error="Connection refused"),
+            _mock_toolset(
+                "grafana/dashboards", status="failed", error="Connection refused"
+            ),
             _mock_toolset("kubernetes/logs", enabled=False, status="disabled"),
             _mock_runbook_toolset(["cpu_high.md", "oom_killer.md"]),
         ]
@@ -87,7 +91,12 @@ class TestInfoFull:
         """Full mode returns per-toolset details."""
         toolsets = [
             _mock_toolset("prometheus/metrics", tool_count=5),
-            _mock_toolset("grafana/dashboards", status="failed", error="Connection refused", tool_count=3),
+            _mock_toolset(
+                "grafana/dashboards",
+                status="failed",
+                error="Connection refused",
+                tool_count=3,
+            ),
         ]
         executor = MagicMock()
         executor.toolsets = toolsets

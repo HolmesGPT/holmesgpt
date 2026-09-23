@@ -1,6 +1,9 @@
 import base64
 
-from holmes.core.tools_utils.filesystem_result_storage import save_images, save_large_result
+from holmes.core.tools_utils.filesystem_result_storage import (
+    save_images,
+    save_large_result,
+)
 
 
 class TestSaveImages:

@@ -12,6 +12,7 @@ Run:
 Each test creates real Conversation rows in Supabase, waits for Holmes to
 process them, and asserts on the resulting ConversationEvents and status.
 """
+
 from __future__ import annotations
 
 import os
@@ -34,7 +35,6 @@ pytestmark = [pytest.mark.conversation_worker, pytest.mark.integration]
 # 1. Single-turn: simple question, no tools
 # ---------------------------------------------------------------------------
 class TestSingleTurn:
-
     def test_simple_question_completes(self, supabase_fx: SupabaseFixture):
         """A trivial question should complete with ai_answer_end."""
         conv = supabase_fx.create_conversation(
@@ -80,9 +80,7 @@ class TestSingleTurn:
         # Must have at least 2 rows (user_message row + ai_answer_end row)
         assert stats["total"] >= 2, f"Expected ≥2 event rows, got {stats['total']}"
         # All rows except the last (ai_answer_end) should be compacted
-        assert stats["compacted"] >= 1, (
-            f"Prior rows should be compacted; got {stats}"
-        )
+        assert stats["compacted"] >= 1, f"Prior rows should be compacted; got {stats}"
         # The highest seq should be non-compacted (it's the ai_answer_end row)
         max_seq = max(stats["non_compacted_seqs"])
         assert max_seq == max(
@@ -94,7 +92,6 @@ class TestSingleTurn:
 # 2. Multi-turn: follow-up conversation
 # ---------------------------------------------------------------------------
 class TestMultiTurn:
-
     def test_followup_preserves_history(self, supabase_fx: SupabaseFixture):
         """A follow-up question should see the prior turn's context."""
         # Turn 1
@@ -107,13 +104,13 @@ class TestMultiTurn:
 
         # After turn 1, the ai_answer_end row should have compacted all prior rows
         stats_t1 = supabase_fx.get_compaction_stats(cid)
-        assert stats_t1["compacted"] > 0, (
-            f"Turn 1 should compact prior events; got {stats_t1}"
-        )
+        assert (
+            stats_t1["compacted"] > 0
+        ), f"Turn 1 should compact prior events; got {stats_t1}"
         # The last row (ai_answer_end) should NOT be compacted
-        assert stats_t1["non_compacted"] >= 1, (
-            f"The terminal row should remain non-compacted; got {stats_t1}"
-        )
+        assert (
+            stats_t1["non_compacted"] >= 1
+        ), f"The terminal row should remain non-compacted; got {stats_t1}"
 
         # Turn 2 follow-up
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -149,7 +146,6 @@ class TestMultiTurn:
 # 3. Tool approval flow
 # ---------------------------------------------------------------------------
 class TestToolApproval:
-
     def test_approval_pause_and_resume(self, supabase_fx: SupabaseFixture):
         """Tool approval should pause with approval_required, then resume after approve."""
         # Turn 1: request bash with approval enabled
@@ -167,9 +163,9 @@ class TestToolApproval:
 
         terminal1 = supabase_fx.find_terminal_event(cid)
         assert terminal1 is not None
-        assert terminal1["event"] == "approval_required", (
-            f"Expected approval_required, got {terminal1['event']}"
-        )
+        assert (
+            terminal1["event"] == "approval_required"
+        ), f"Expected approval_required, got {terminal1['event']}"
 
         pending = terminal1["data"].get("pending_approvals") or []
         assert len(pending) > 0, "Must have at least one pending approval"
@@ -212,15 +208,15 @@ class TestToolApproval:
         # Verify compaction: approval_required (turn 1) compacts prior events,
         # then ai_answer_end (turn 2) compacts everything before it.
         stats = supabase_fx.get_compaction_stats(cid)
-        assert stats["compacted"] >= 2, (
-            f"Approval + answer should compact multiple prior rows; got {stats}"
-        )
+        assert (
+            stats["compacted"] >= 2
+        ), f"Approval + answer should compact multiple prior rows; got {stats}"
+
 
 # ---------------------------------------------------------------------------
 # 4. Stop conversation (ConversationReassignedError)
 # ---------------------------------------------------------------------------
 class TestStopConversation:
-
     def test_stop_mid_stream(self, supabase_fx: SupabaseFixture):
         """Stopping a running conversation should leave it in 'stopped' status.
 
@@ -253,8 +249,9 @@ class TestStopConversation:
 # 5. Error event posting
 # ---------------------------------------------------------------------------
 class TestErrorEvents:
-
-    def test_successful_conversation_has_no_error_event(self, supabase_fx: SupabaseFixture):
+    def test_successful_conversation_has_no_error_event(
+        self, supabase_fx: SupabaseFixture
+    ):
         """A completed conversation must not contain error events."""
         conv = supabase_fx.create_conversation(
             ask="What is 1+1?",
@@ -267,25 +264,24 @@ class TestErrorEvents:
         if result["status"] == "failed":
             # Transient LLM/infrastructure failure — verify the error path
             # produced an error event (which is what we actually care about).
-            assert "error" in event_types, (
-                f"Failed conversation must post an error event; got {event_types}"
-            )
+            assert (
+                "error" in event_types
+            ), f"Failed conversation must post an error event; got {event_types}"
             pytest.skip(
                 f"Upstream LLM/infrastructure failure (status=failed, "
                 f"events={event_types}) — error-event posting verified, but "
                 f"can't assert the no-error-on-success path."
             )
         assert result["status"] == "completed"
-        assert "error" not in event_types, (
-            "A successful conversation should not have error events"
-        )
+        assert (
+            "error" not in event_types
+        ), "A successful conversation should not have error events"
 
 
 # ---------------------------------------------------------------------------
 # 6. Stress test: queued state with concurrency limit
 # ---------------------------------------------------------------------------
 class TestStress:
-
     # Exceed the worker's max concurrent by at least 3 so some conversations
     # are guaranteed to queue.  Derived from the env-configurable value.
     _OVERFLOW = 3
@@ -411,9 +407,7 @@ class TestStress:
                 peak_running = running_count
                 peak_snapshot = dict(statuses)
 
-            all_terminal = all(
-                s in ("completed", "failed") for s in statuses.values()
-            )
+            all_terminal = all(s in ("completed", "failed") for s in statuses.values())
             if all_terminal:
                 break
             time.sleep(0.1)
@@ -461,9 +455,7 @@ class TestStress:
             time.sleep(0.2)
 
         # 1. 'queued' must never appear anywhere.
-        queued_offenders = {
-            cid: seq for cid, seq in history.items() if "queued" in seq
-        }
+        queued_offenders = {cid: seq for cid, seq in history.items() if "queued" in seq}
         assert not queued_offenders, (
             f"'queued' is deprecated and must never be observed, but these "
             f"conversations passed through it: {queued_offenders}"
@@ -471,11 +463,15 @@ class TestStress:
 
         # 2. At least one real pending -> running transition was captured.
         def saw_pending_then_running(seq: List[str]) -> bool:
-            return "pending" in seq and "running" in seq and (
-                seq.index("pending") < seq.index("running")
+            return (
+                "pending" in seq
+                and "running" in seq
+                and (seq.index("pending") < seq.index("running"))
             )
 
-        transitioned = [cid for cid, seq in history.items() if saw_pending_then_running(seq)]
+        transitioned = [
+            cid for cid, seq in history.items() if saw_pending_then_running(seq)
+        ]
         assert transitioned, (
             "Expected at least one conversation observed transitioning "
             f"pending -> running. Histories: {history}"
@@ -487,9 +483,9 @@ class TestStress:
         for cid in conv_ids:
             conv = supabase_fx.get_conversation(cid)
             finals[cid] = conv["status"]
-            assert set(history[cid]) <= allowed, (
-                f"Conversation {cid} passed through an unexpected status: {history[cid]}"
-            )
+            assert (
+                set(history[cid]) <= allowed
+            ), f"Conversation {cid} passed through an unexpected status: {history[cid]}"
         not_completed = {cid: s for cid, s in finals.items() if s != "completed"}
         assert not not_completed, (
             f"All {num} conversations should have completed; these did not: "
@@ -501,7 +497,6 @@ class TestStress:
 # 7. Status lifecycle
 # ---------------------------------------------------------------------------
 class TestStatusLifecycle:
-
     def test_conversation_status_transitions(self, supabase_fx: SupabaseFixture):
         """Verify the full status lifecycle: pending → running → completed."""
         conv = supabase_fx.create_conversation(
@@ -530,9 +525,7 @@ class TestRapidFollowups:
     """Drive many back-to-back follow-ups to stress the claim/dispatch
     cycle and verify no turns are lost."""
 
-    def test_rapid_followups_all_complete(
-        self, supabase_fx: SupabaseFixture
-    ):
+    def test_rapid_followups_all_complete(self, supabase_fx: SupabaseFixture):
         # More than 2 turns to increase the race-condition surface area.
         NUM_TURNS = 4
 
@@ -563,9 +556,9 @@ class TestRapidFollowups:
             result = supabase_fx.wait_for_terminal(
                 cid, request_sequence=turn, timeout=120
             )
-            assert result["status"] == "completed", (
-                f"Turn {turn} did not complete cleanly: {result['status']}"
-            )
+            assert (
+                result["status"] == "completed"
+            ), f"Turn {turn} did not complete cleanly: {result['status']}"
 
         # Every turn must have produced an ai_answer_end event — no turn
         # lost its final write because a stale leave clobbered the new join.
@@ -582,7 +575,6 @@ class TestRapidFollowups:
 
 
 class TestFrontendTools:
-
     def test_pause_mode_frontend_tool_pauses_conversation(
         self, supabase_fx: SupabaseFixture
     ):
@@ -669,7 +661,9 @@ class TestFrontendTools:
         terminal = supabase_fx.find_terminal_event(cid)
         assert terminal is not None and terminal["event"] == "ai_answer_end"
         content = str((terminal.get("data") or {}).get("content", ""))
-        assert canned in content, f"answer did not include canned response: {content[:300]}"
+        assert (
+            canned in content
+        ), f"answer did not include canned response: {content[:300]}"
 
     def test_frontend_tool_collision_fails_conversation(
         self, supabase_fx: SupabaseFixture
@@ -707,7 +701,6 @@ class TestFrontendTools:
 # 10. Remote tool calls: burst transitions pending -> running (never queued)
 # ---------------------------------------------------------------------------
 class TestRemoteToolCallStress:
-
     def test_burst_transitions_pending_to_running_never_queued(
         self, supabase_fx: SupabaseFixture
     ):
@@ -785,9 +778,9 @@ class TestRemoteToolCallStress:
         # 3. Every tool call completed, only via allowed states (never queued).
         allowed = {"pending", "running", "completed", "failed", "stopped", "timeout"}
         for tcid in tc_ids:
-            assert set(history[tcid]) <= allowed, (
-                f"Tool call {tcid} passed through an unexpected status: {history[tcid]}"
-            )
+            assert (
+                set(history[tcid]) <= allowed
+            ), f"Tool call {tcid} passed through an unexpected status: {history[tcid]}"
         finals = supabase_fx.get_remote_tool_call_statuses(tc_ids)
         not_completed = {tcid: s for tcid, s in finals.items() if s != "completed"}
         assert not not_completed, (
@@ -804,8 +797,9 @@ SPOOFED_USER_ID = "11111111-1111-4111-8111-111111111111"
 
 
 class TestIdentityBinding:
-
-    def _assert_rejected(self, supabase_fx: SupabaseFixture, cid: str, seq: int) -> None:
+    def _assert_rejected(
+        self, supabase_fx: SupabaseFixture, cid: str, seq: int
+    ) -> None:
         result = supabase_fx.wait_for_terminal(cid, request_sequence=seq, timeout=120)
         assert result["status"] == "failed", result
         assert result["user_id"] == supabase_fx.user_id
@@ -814,7 +808,7 @@ class TestIdentityBinding:
         assert terminal is not None and terminal["event"] == "error"
         assert "owner" in (terminal.get("data") or {}).get("description", "")
         types = supabase_fx.flat_event_types(cid)
-        after_last_ask = types[len(types) - types[::-1].index("user_message"):]
+        after_last_ask = types[len(types) - types[::-1].index("user_message") :]
         assert "ai_answer_end" not in after_last_ask, types
 
         if os.environ.get("STORE_USER") and os.environ.get("STORE_PASSWORD"):
@@ -827,7 +821,9 @@ class TestIdentityBinding:
             ).data or []
             assert not any(r["user_id"] == SPOOFED_USER_ID for r in rows), rows
 
-    def test_spoofed_user_id_on_first_turn_is_rejected(self, supabase_fx: SupabaseFixture):
+    def test_spoofed_user_id_on_first_turn_is_rejected(
+        self, supabase_fx: SupabaseFixture
+    ):
         conv = supabase_fx.create_conversation(
             ask="Reply with exactly: PONG",
             title="integ: spoofed user_id (first turn)",
@@ -835,7 +831,9 @@ class TestIdentityBinding:
         )
         self._assert_rejected(supabase_fx, conv["conversation_id"], seq=1)
 
-    def test_spoofed_user_id_on_followup_is_rejected(self, supabase_fx: SupabaseFixture):
+    def test_spoofed_user_id_on_followup_is_rejected(
+        self, supabase_fx: SupabaseFixture
+    ):
         conv = supabase_fx.create_conversation(
             ask="Reply with exactly: PONG",
             title="integ: spoofed user_id (follow-up)",
@@ -846,11 +844,16 @@ class TestIdentityBinding:
 
         supabase_fx.post_followup(
             cid,
-            events=[{
-                "event": "user_message",
-                "data": {"ask": "Reply with exactly: PONG", "user_id": SPOOFED_USER_ID},
-                "ts": datetime.now(timezone.utc).isoformat(),
-            }],
+            events=[
+                {
+                    "event": "user_message",
+                    "data": {
+                        "ask": "Reply with exactly: PONG",
+                        "user_id": SPOOFED_USER_ID,
+                    },
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                }
+            ],
         )
         self._assert_rejected(supabase_fx, cid, seq=2)
 

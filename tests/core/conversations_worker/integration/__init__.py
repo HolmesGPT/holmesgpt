@@ -10,6 +10,7 @@ and the following environment variables:
 Run with:
     poetry run pytest tests/core/conversations_worker/integration/ -m conversation_worker --no-cov -v
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 from realtime._async.client import AsyncRealtimeClient
-from supabase import create_client, Client
+from supabase import Client, create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 
 from holmes.core.conversations_worker.realtime_manager import (
@@ -84,19 +85,23 @@ class SupabaseFixture:
             user_msg_data["enable_tool_approval"] = True
         if extra_user_message_data:
             user_msg_data.update(extra_user_message_data)
-        conv = self.client.rpc(
-            "post_new_conversation",
-            {
-                "_account_id": self.account_id,
-                "_cluster_id": self.cluster_id,
-                "_origin": "chat",
-                "_user_id": self.user_id,
-                "_title": title,
-                "_initial_events": [
-                    {"event": "user_message", "data": user_msg_data, "ts": now_iso}
-                ],
-            },
-        ).execute().data
+        conv = (
+            self.client.rpc(
+                "post_new_conversation",
+                {
+                    "_account_id": self.account_id,
+                    "_cluster_id": self.cluster_id,
+                    "_origin": "chat",
+                    "_user_id": self.user_id,
+                    "_title": title,
+                    "_initial_events": [
+                        {"event": "user_message", "data": user_msg_data, "ts": now_iso}
+                    ],
+                },
+            )
+            .execute()
+            .data
+        )
         self._created_conversations.append(conv["conversation_id"])
         # In broadcast mode, the initiator must notify Holmes explicitly.
         if not self.use_pgchanges:
@@ -109,15 +114,19 @@ class SupabaseFixture:
         events: List[Dict[str, Any]],
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        result = self.client.rpc(
-            "post_conversation_followup",
-            {
-                "_account_id": self.account_id,
-                "_conversation_id": conversation_id,
-                "_events": events,
-                "_metadata": metadata or {},
-            },
-        ).execute().data
+        result = (
+            self.client.rpc(
+                "post_conversation_followup",
+                {
+                    "_account_id": self.account_id,
+                    "_conversation_id": conversation_id,
+                    "_events": events,
+                    "_metadata": metadata or {},
+                },
+            )
+            .execute()
+            .data
+        )
         # In broadcast mode, notify Holmes after the follow-up too —
         # followups re-pend the conversation just like initial creation.
         if not self.use_pgchanges:
@@ -140,9 +149,9 @@ class SupabaseFixture:
             async def _setup() -> None:
                 store_url = self._store_url.rstrip("/")
                 if store_url.startswith("https://"):
-                    ws_url = "wss://" + store_url[len("https://"):]
+                    ws_url = "wss://" + store_url[len("https://") :]
                 elif store_url.startswith("http://"):
-                    ws_url = "ws://" + store_url[len("http://"):]
+                    ws_url = "ws://" + store_url[len("http://") :]
                 else:
                     ws_url = store_url
                 # AsyncRealtimeClient appends "/websocket" itself.
@@ -258,17 +267,22 @@ class SupabaseFixture:
             "tool_call_id": str(uuid.uuid4()),
             "max_token_count": 1000,
         }
-        new_id = self._relay().rpc(
-            "post_remote_tool_call_request_and_broadcast",
-            {
-                "_account_id": self.account_id,
-                "_source_cluster": self.cluster_id,
-                "_target_cluster": self.cluster_id,
-                "_tool_request": tool_request,
-                "_user_id": self.user_id,
-                "_metadata": metadata or {},
-            },
-        ).execute().data
+        new_id = (
+            self._relay()
+            .rpc(
+                "post_remote_tool_call_request_and_broadcast",
+                {
+                    "_account_id": self.account_id,
+                    "_source_cluster": self.cluster_id,
+                    "_target_cluster": self.cluster_id,
+                    "_tool_request": tool_request,
+                    "_user_id": self.user_id,
+                    "_metadata": metadata or {},
+                },
+            )
+            .execute()
+            .data
+        )
         self._created_tool_calls.append(new_id)
         return new_id
 
@@ -401,9 +415,10 @@ class SupabaseFixture:
         start = time.time()
         while time.time() - start < timeout:
             conv = self.get_conversation(conversation_id)
-            if (
-                conv["request_sequence"] == request_sequence
-                and conv["status"] in ("completed", "failed", "stopped")
+            if conv["request_sequence"] == request_sequence and conv["status"] in (
+                "completed",
+                "failed",
+                "stopped",
             ):
                 return conv
             time.sleep(1.0)
@@ -457,7 +472,9 @@ def supabase_fx(request) -> SupabaseFixture:
     client.auth.set_session(res.session.access_token, res.session.refresh_token)
     client.postgrest.auth(res.session.access_token)
 
-    use_broadcast_str = os.environ.get("CONVERSATION_WORKER_USE_REALTIME_BROADCAST", "true")
+    use_broadcast_str = os.environ.get(
+        "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", "true"
+    )
     use_broadcast = use_broadcast_str.lower() in ("true", "1", "yes")
     use_pgchanges = not use_broadcast
 
@@ -497,9 +514,7 @@ def supabase_fx(request) -> SupabaseFixture:
             client.table("ConversationEvents").delete().eq(
                 "conversation_id", cid
             ).execute()
-            client.table("Conversations").delete().eq(
-                "conversation_id", cid
-            ).execute()
+            client.table("Conversations").delete().eq("conversation_id", cid).execute()
         except Exception:
             logging.warning(
                 "Failed to delete conversation %s during teardown",

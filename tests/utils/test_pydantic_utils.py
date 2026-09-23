@@ -35,4 +35,3 @@ def test_build_config_example_uses_default_default_factory_examples_nested_and_p
 
     # Nested recursion
     assert example["nested"] == {"region": "us-east-1", "enabled": True}
-

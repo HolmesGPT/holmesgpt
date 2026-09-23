@@ -20,10 +20,10 @@ from holmes.core.tools import (
 )
 from holmes.utils.header_rendering import render_header_templates
 
-
 # ---------------------------------------------------------------------------
 # Shared utility tests
 # ---------------------------------------------------------------------------
+
 
 class TestRenderTemplateHeaders:
     def test_static_value(self):
@@ -32,9 +32,7 @@ class TestRenderTemplateHeaders:
 
     def test_env_var(self, monkeypatch):
         monkeypatch.setenv("TEST_HEADER_VAR", "from-env")
-        result = render_header_templates(
-            {"X-Env": "{{ env.TEST_HEADER_VAR }}"}
-        )
+        result = render_header_templates({"X-Env": "{{ env.TEST_HEADER_VAR }}"})
         assert result == {"X-Env": "from-env"}
 
     def test_request_context_header(self):
@@ -90,6 +88,7 @@ class TestRenderTemplateHeaders:
 # YAML tool Jinja2 template context (request_context + env)
 # ---------------------------------------------------------------------------
 
+
 class TestYAMLToolTemplateContext:
     def test_command_renders_request_context_header(self):
         """request_context.headers is available in command Jinja2 templates."""
@@ -99,8 +98,12 @@ class TestYAMLToolTemplateContext:
             command="echo {{ request_context.headers['X-Tenant-Id'] }}",
         )
         ctx = ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
             request_context={"headers": {"X-Tenant-Id": "tenant-abc"}},
         )
         result = tool._invoke({}, ctx)
@@ -116,8 +119,12 @@ class TestYAMLToolTemplateContext:
             command="echo Bearer {{ env.MY_TOKEN }}",
         )
         ctx = ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
         )
         result = tool._invoke({}, ctx)
         assert result.status == StructuredToolResultStatus.SUCCESS
@@ -131,8 +138,12 @@ class TestYAMLToolTemplateContext:
             command="echo hello",
         )
         ctx = ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
         )
         result = tool._invoke({}, ctx)
         assert result.status == StructuredToolResultStatus.SUCCESS
@@ -146,8 +157,12 @@ class TestYAMLToolTemplateContext:
             script="#!/bin/bash\necho {{ request_context.headers['X-Auth'] }}",
         )
         ctx = ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
             request_context={"headers": {"X-Auth": "Bearer secret"}},
         )
         result = tool._invoke({}, ctx)
@@ -162,8 +177,12 @@ class TestYAMLToolTemplateContext:
             command="echo {{ request_context.headers['x-tenant-id'] }}",
         )
         ctx = ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
             request_context={"headers": {"X-Tenant-Id": "tenant-abc"}},
         )
         result = tool._invoke({}, ctx)
@@ -174,6 +193,7 @@ class TestYAMLToolTemplateContext:
 # ---------------------------------------------------------------------------
 # ToolInvokeContext tests
 # ---------------------------------------------------------------------------
+
 
 class TestToolInvokeContextHeaders:
     def test_model_dump_redacts_request_context_headers(self):
@@ -191,11 +211,10 @@ class TestToolInvokeContextHeaders:
         assert dumped["request_context"] == {"headers": "***REDACTED***"}
 
 
-
-
 # ---------------------------------------------------------------------------
 # HTTP toolset header propagation tests
 # ---------------------------------------------------------------------------
+
 
 class TestHttpToolsetHeaderPropagation:
     @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
@@ -208,18 +227,16 @@ class TestHttpToolsetHeaderPropagation:
             name="test_http",
             enabled=True,
             config={
-                "endpoints": [
-                    {"hosts": ["api.example.com"], "methods": ["GET"]}
-                ],
+                "endpoints": [{"hosts": ["api.example.com"], "methods": ["GET"]}],
                 "extra_headers": {"X-Custom": "static-val"},
             },
         )
-        ok, _ = toolset.prerequisites_callable({
-            "endpoints": [
-                {"hosts": ["api.example.com"], "methods": ["GET"]}
-            ],
-            "extra_headers": {"X-Custom": "static-val"},
-        })
+        ok, _ = toolset.prerequisites_callable(
+            {
+                "endpoints": [{"hosts": ["api.example.com"], "methods": ["GET"]}],
+                "extra_headers": {"X-Custom": "static-val"},
+            }
+        )
         assert ok
 
         mock_response = Mock()
@@ -252,20 +269,18 @@ class TestHttpToolsetHeaderPropagation:
             name="test_http",
             enabled=True,
             config={
-                "endpoints": [
-                    {"hosts": ["api.example.com"], "methods": ["GET"]}
-                ],
+                "endpoints": [{"hosts": ["api.example.com"], "methods": ["GET"]}],
                 "default_headers": {"X-Default": "original"},
                 "extra_headers": {"X-Default": "overridden"},
             },
         )
-        ok, _ = toolset.prerequisites_callable({
-            "endpoints": [
-                {"hosts": ["api.example.com"], "methods": ["GET"]}
-            ],
-            "default_headers": {"X-Default": "original"},
-            "extra_headers": {"X-Default": "overridden"},
-        })
+        ok, _ = toolset.prerequisites_callable(
+            {
+                "endpoints": [{"hosts": ["api.example.com"], "methods": ["GET"]}],
+                "default_headers": {"X-Default": "original"},
+                "extra_headers": {"X-Default": "overridden"},
+            }
+        )
         assert ok
 
         mock_response = Mock()
@@ -291,6 +306,7 @@ class TestHttpToolsetHeaderPropagation:
 # ---------------------------------------------------------------------------
 # MCP config-level extra_headers tests
 # ---------------------------------------------------------------------------
+
 
 class TestMCPConfigExtraHeaders:
     def test_config_level_extra_headers_rendered(self):
@@ -376,14 +392,19 @@ class TestMCPConfigExtraHeaders:
 # ROB-1104: propagated headers must not bypass shell sanitization
 # ---------------------------------------------------------------------------
 
+
 class TestRequestContextShellInjection:
     """request_context reaches the YAMLTool bash sink; its values must be
     shell-quoted like tool params so metacharacters are inert (ROB-1104)."""
 
     def _ctx(self, request_context):
         return ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
             request_context=request_context,
         )
 
@@ -394,12 +415,11 @@ class TestRequestContextShellInjection:
     def test_command_header_metacharacters_are_rejected(self, payload):
         """A header with shell metacharacters is refused, never executed."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo {{ request_context.headers['X-Tenant-Id'] }}",
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {"X-Tenant-Id": payload}})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Tenant-Id": payload}}))
         # The command is refused before it ever reaches bash, so `id` never runs.
         assert result.status == StructuredToolResultStatus.ERROR
         assert "metacharacter" in (result.error or "")
@@ -412,12 +432,11 @@ class TestRequestContextShellInjection:
     def test_script_header_metacharacters_are_rejected(self, payload):
         """Same protection on the separate temporary-script sink."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             script="#!/bin/bash\necho {{ request_context.headers['X-Auth'] }}",
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {"X-Auth": payload}})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Auth": payload}}))
         assert result.status == StructuredToolResultStatus.ERROR
         assert "metacharacter" in (result.error or "")
         assert "uid=" not in (result.error or "")
@@ -428,17 +447,15 @@ class TestRequestContextShellInjection:
         double quotes, where shlex.quote is not enough; the metacharacter reject
         makes a command-substitution payload inert regardless of quoting."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             # Mirrors docs/data-sources/header-propagation.md, but echo instead
             # of curl so the test needs no network.
             command=(
-                'echo "X-Auth-Token: '
-                "{{ request_context.headers['X-Auth-Token'] }}\""
+                'echo "X-Auth-Token: ' "{{ request_context.headers['X-Auth-Token'] }}\""
             ),
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {"X-Auth-Token": "$(id)"}})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Auth-Token": "$(id)"}}))
         assert result.status == StructuredToolResultStatus.ERROR
         assert "uid=" not in (result.error or "")
         assert "uid=" not in (result.data or "")
@@ -446,12 +463,11 @@ class TestRequestContextShellInjection:
     def test_top_level_request_context_value_is_rejected(self):
         """Non-header request_context scalars (e.g. user_id) are checked too."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo {{ request_context.user_id }}",
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {}, "user_id": "$(id)"})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {}, "user_id": "$(id)"}))
         assert result.status == StructuredToolResultStatus.ERROR
         assert "uid=" not in (result.error or "")
         assert "uid=" not in (result.data or "")
@@ -461,7 +477,8 @@ class TestRequestContextShellInjection:
         from holmes.core.tools import ShellInjectionError
 
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo {{ request_context.headers['X-Val'] }}",
         )
         with pytest.raises(ShellInjectionError):
@@ -472,7 +489,8 @@ class TestRequestContextShellInjection:
     def test_benign_header_with_whitespace_is_allowed(self):
         """A legitimate multi-word token (e.g. `Bearer <jwt>`) is permitted."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo {{ request_context.headers['X-Auth'] }}",
         )
         result = tool._invoke(
@@ -484,12 +502,11 @@ class TestRequestContextShellInjection:
     def test_benign_header_still_renders_unchanged(self):
         """A normal token passes through untouched (no regression)."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo {{ request_context.headers['X-Tenant-Id'] }}",
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {"X-Tenant-Id": "tenant-abc"}})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Tenant-Id": "tenant-abc"}}))
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "tenant-abc"
 
@@ -499,11 +516,16 @@ class TestRequestContextShellInjection:
 # These guard against the fix over-rejecting and breaking real users.
 # ---------------------------------------------------------------------------
 
+
 class TestLegitimateHeaderUseCases:
     def _ctx(self, request_context):
         return ToolInvokeContext.model_construct(
-            tool_number=1, user_approved=False, llm=Mock(),
-            max_token_count=1000, tool_call_id="c1", tool_name="t",
+            tool_number=1,
+            user_approved=False,
+            llm=Mock(),
+            max_token_count=1000,
+            tool_call_id="c1",
+            tool_name="t",
             request_context=request_context,
         )
 
@@ -511,10 +533,10 @@ class TestLegitimateHeaderUseCases:
         """The docs `-H "X-Auth-Token: {{...}}"` pattern renders a JWT verbatim
         (no injected quotes) for a legitimate token."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command=(
-                'echo "X-Auth-Token: '
-                "{{ request_context.headers['X-Auth-Token'] }}\""
+                'echo "X-Auth-Token: ' "{{ request_context.headers['X-Auth-Token'] }}\""
             ),
         )
         token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abc-DEF_123"
@@ -526,22 +548,22 @@ class TestLegitimateHeaderUseCases:
         """A `Bearer <token>` value (has a space) inside the double-quoted docs
         pattern is preserved exactly — no literal-quote corruption."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command=(
                 'echo "Authorization: '
                 "{{ request_context.headers['X-Downstream-Auth'] }}\""
             ),
         )
         value = "Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig"
-        result = tool._invoke(
-            {}, self._ctx({"headers": {"X-Downstream-Auth": value}})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Downstream-Auth": value}}))
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == f"Authorization: {value}"
 
     def test_tenant_id_header_bare_word(self):
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo tenant={{ request_context.headers['X-Tenant-Id'] }}",
         )
         result = tool._invoke(
@@ -553,7 +575,8 @@ class TestLegitimateHeaderUseCases:
     def test_base64_api_key_preserved(self):
         """Base64 padding/slash/plus characters are legal and pass through."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo {{ request_context.headers['X-Api-Key'] }}",
         )
         key = "YWxhZGRpbjpvcGVuc2VzYW1l+/=="
@@ -563,22 +586,32 @@ class TestLegitimateHeaderUseCases:
 
     def test_multiple_headers_in_one_command(self):
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command=(
                 "echo {{ request_context.headers['X-Tenant-Id'] }}"
                 " {{ request_context.headers['X-Request-Id'] }}"
             ),
         )
-        result = tool._invoke({}, self._ctx({"headers": {
-            "X-Tenant-Id": "acme", "X-Request-Id": "req-9f3c",
-        }}))
+        result = tool._invoke(
+            {},
+            self._ctx(
+                {
+                    "headers": {
+                        "X-Tenant-Id": "acme",
+                        "X-Request-Id": "req-9f3c",
+                    }
+                }
+            ),
+        )
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "acme req-9f3c"
 
     def test_env_var_and_header_together(self, monkeypatch):
         monkeypatch.setenv("INTERNAL_API_KEY", "sekret-key")
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command=(
                 "echo {{ env.INTERNAL_API_KEY }}"
                 " {{ request_context.headers['X-Correlation-Id'] }}"
@@ -592,19 +625,19 @@ class TestLegitimateHeaderUseCases:
 
     def test_top_level_user_id_renders(self):
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo user={{ request_context.user_id }}",
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {}, "user_id": "u-12345"})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {}, "user_id": "u-12345"}))
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "user=u-12345"
 
     def test_missing_header_renders_empty_and_succeeds(self):
         """Referencing an absent header renders empty (no crash) — unchanged."""
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             command="echo start{{ request_context.headers['X-Absent'] }}end",
         )
         result = tool._invoke({}, self._ctx({"headers": {}}))
@@ -613,11 +646,10 @@ class TestLegitimateHeaderUseCases:
 
     def test_script_path_with_real_token(self):
         tool = YAMLTool(
-            name="t", description="t",
+            name="t",
+            description="t",
             script="#!/bin/bash\necho token={{ request_context.headers['X-Token'] }}",
         )
-        result = tool._invoke(
-            {}, self._ctx({"headers": {"X-Token": "abc123DEF"}})
-        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Token": "abc123DEF"}}))
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "token=abc123DEF"

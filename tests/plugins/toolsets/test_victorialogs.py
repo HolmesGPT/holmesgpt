@@ -13,7 +13,6 @@ from holmes.plugins.toolsets.victorialogs.victorialogs import (
     VictoriaLogsToolset,
 )
 
-
 API_URL = "http://localhost:9428"
 
 
@@ -39,9 +38,7 @@ class TestVictoriaLogsConfig:
         assert config.timeout_seconds == 30
 
     def test_basic_auth_config(self):
-        config = VictoriaLogsConfig(
-            api_url=API_URL, username="user", password="pass"
-        )
+        config = VictoriaLogsConfig(api_url=API_URL, username="user", password="pass")
         assert config.username == "user"
         assert config.password == "pass"
 
@@ -340,9 +337,7 @@ class TestVictoriaLogsHits:
 
 class TestAuthHeaders:
     def test_basic_auth_sent(self, toolset):
-        toolset.config = VictoriaLogsConfig(
-            api_url=API_URL, username="u", password="p"
-        )
+        toolset.config = VictoriaLogsConfig(api_url=API_URL, username="u", password="p")
         with responses.RequestsMock() as rsps:
             rsps.add(
                 responses.POST,
@@ -356,9 +351,7 @@ class TestAuthHeaders:
             assert auth_header.startswith("Basic ")
 
     def test_bearer_token_sent(self, toolset):
-        toolset.config = VictoriaLogsConfig(
-            api_url=API_URL, bearer_token="my-token"
-        )
+        toolset.config = VictoriaLogsConfig(api_url=API_URL, bearer_token="my-token")
         with responses.RequestsMock() as rsps:
             rsps.add(
                 responses.POST,
@@ -368,9 +361,7 @@ class TestAuthHeaders:
             )
             tool = _tool(toolset, "victorialogs_query")
             tool._invoke({"query": "*"}, MagicMock())
-            assert (
-                rsps.calls[0].request.headers["Authorization"] == "Bearer my-token"
-            )
+            assert rsps.calls[0].request.headers["Authorization"] == "Bearer my-token"
 
     def test_extra_headers_sent(self, toolset):
         toolset.config = VictoriaLogsConfig(
@@ -430,8 +421,8 @@ class TestLiveVictoriaLogs:
 
     @pytest.fixture
     def live_toolset(self):
-        from datetime import datetime, timedelta, timezone
         import time
+        from datetime import datetime, timedelta, timezone
 
         ts = VictoriaLogsToolset()
         url = os.environ["VICTORIALOGS_URL"]
@@ -493,7 +484,7 @@ class TestLiveVictoriaLogs:
         tool = _tool(live_toolset, "victorialogs_streams")
         r = tool._invoke(
             {
-                "query": "{namespace=\"holmes-test\"}",
+                "query": '{namespace="holmes-test"}',
                 "start": live_toolset._test_start,
                 "end": live_toolset._test_end,
             },
@@ -507,7 +498,7 @@ class TestLiveVictoriaLogs:
         r = tool._invoke(
             {
                 "field": "level",
-                "query": "{namespace=\"holmes-test\"}",
+                "query": '{namespace="holmes-test"}',
                 "start": live_toolset._test_start,
                 "end": live_toolset._test_end,
             },

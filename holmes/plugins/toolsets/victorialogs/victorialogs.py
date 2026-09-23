@@ -261,9 +261,7 @@ class _BaseVictoriaLogsTool(Tool, ABC):
         super().__init__(*args, **kwargs)
         self._toolset = toolset
 
-    def _ensure_configured(
-        self, params: dict
-    ) -> Optional[StructuredToolResult]:
+    def _ensure_configured(self, params: dict) -> Optional[StructuredToolResult]:
         if self._toolset.config is None:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
@@ -323,9 +321,7 @@ def _parse_jsonl(text: str) -> List[Dict[str, Any]]:
     return results
 
 
-def _resolve_time_range(
-    start: Optional[str], end: Optional[str]
-) -> Tuple[str, str]:
+def _resolve_time_range(start: Optional[str], end: Optional[str]) -> Tuple[str, str]:
     return process_timestamps_to_rfc3339(
         start_timestamp=start,
         end_timestamp=end,
@@ -343,7 +339,7 @@ class VictoriaLogsQuery(_BaseVictoriaLogsTool):
             description=(
                 "Search VictoriaLogs using a LogsQL query. Returns matching log entries "
                 "as a list of JSON objects. Always include the most specific filters "
-                "you can (stream selectors like {namespace=\"foo\"}, word/phrase filters, "
+                'you can (stream selectors like {namespace="foo"}, word/phrase filters, '
                 "field filters such as level:error)."
             ),
             parameters={
@@ -351,8 +347,8 @@ class VictoriaLogsQuery(_BaseVictoriaLogsTool):
                     description=(
                         "LogsQL query string. Examples:\n"
                         " - 'error _time:1h'\n"
-                        " - '{namespace=\"app-1\",service=\"checkout\"} level:error'\n"
-                        " - '{app=\"nginx\"} ~\"5\\\\d\\\\d\"'\n"
+                        ' - \'{namespace="app-1",service="checkout"} level:error\'\n'
+                        ' - \'{app="nginx"} ~"5\\\\d\\\\d"\'\n'
                         "If you only want a basic match-everything query, use '*'."
                     ),
                     type="string",
@@ -440,7 +436,7 @@ class VictoriaLogsStreams(_BaseVictoriaLogsTool):
             name="victorialogs_streams",
             description=(
                 "List log streams matching a LogsQL query. Each stream is identified by its "
-                "stream label set, e.g. {namespace=\"app-1\",service=\"checkout\"}. "
+                'stream label set, e.g. {namespace="app-1",service="checkout"}. '
                 "Useful for discovering which apps/namespaces have logs in a time window."
             ),
             parameters={

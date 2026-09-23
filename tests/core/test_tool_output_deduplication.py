@@ -8,7 +8,6 @@ error and data causes duplication in the LLM message.
 from holmes.core.models import format_tool_result_data
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
-
 TOOL_CALL_ID = "call_test123"
 TOOL_NAME = "kubectl_get"
 

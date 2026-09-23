@@ -52,7 +52,11 @@ GROUP_MEMBERS = {
             {"name": "Dan Okonkwo", "role": "sre", "active": False},
         ],
         "active_only": [
-            {"name": "Alice Chen", "role": "senior-sre", "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z"},
+            {
+                "name": "Alice Chen",
+                "role": "senior-sre",
+                "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z",
+            },
         ],
     },
     "team-bravo": {
@@ -61,7 +65,11 @@ GROUP_MEMBERS = {
             {"name": "Frank Kim", "role": "sre", "active": True},
         ],
         "active_only": [
-            {"name": "Frank Kim", "role": "sre", "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z"},
+            {
+                "name": "Frank Kim",
+                "role": "sre",
+                "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z",
+            },
         ],
     },
     "team-charlie": {
@@ -69,7 +77,11 @@ GROUP_MEMBERS = {
             {"name": "Grace Patel", "role": "security-engineer", "active": True},
         ],
         "active_only": [
-            {"name": "Grace Patel", "role": "security-engineer", "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z"},
+            {
+                "name": "Grace Patel",
+                "role": "security-engineer",
+                "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z",
+            },
         ],
     },
     "team-delta": {
@@ -78,7 +90,11 @@ GROUP_MEMBERS = {
             {"name": "Iris Johansson", "role": "backend-dev", "active": False},
         ],
         "active_only": [
-            {"name": "Hiro Nakamura", "role": "backend-dev", "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z"},
+            {
+                "name": "Hiro Nakamura",
+                "role": "backend-dev",
+                "shift": "2026-03-24T00:00Z/2026-03-25T00:00Z",
+            },
         ],
     },
 }
@@ -124,7 +140,9 @@ def _handle_query_routing(arguments: dict) -> str:
         level = selector["level"]
         policy = LEVEL_POLICIES.get(level)
         if not policy:
-            return f"Error: unknown level '{level}'. Valid: {list(LEVEL_POLICIES.keys())}"
+            return (
+                f"Error: unknown level '{level}'. Valid: {list(LEVEL_POLICIES.keys())}"
+            )
 
         lines = [
             f"Level: {level}",
@@ -211,7 +229,9 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
 
 async def main():
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        await server.run(
+            read_stream, write_stream, server.create_initialization_options()
+        )
 
 
 if __name__ == "__main__":

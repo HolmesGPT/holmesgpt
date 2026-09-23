@@ -18,11 +18,11 @@ import yaml  # type: ignore
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.filters import Condition
 from prompt_toolkit.styles import Style as PTStyle
 from pydantic import BaseModel
 from rich.console import Console
@@ -151,7 +151,9 @@ class ConfigFieldNode:
     """One row in the config tree."""
 
     key: str
-    field_type: str  # "str" | "int" | "float" | "bool" | "enum" | "dict" | "list" | "model"
+    field_type: (
+        str  # "str" | "int" | "float" | "bool" | "enum" | "dict" | "list" | "model"
+    )
     value: Any = None
     title: str = ""
     description: str = ""
@@ -274,7 +276,8 @@ def tree_to_dict(nodes: List[ConfigFieldNode]) -> Dict[str, Any]:
                 result[node.key] = {
                     (c.dict_key if c.dict_key is not None else c.key): c.value
                     for c in node.children
-                    if c.dict_key is None or c.dict_key  # skip entries with empty dict_key
+                    if c.dict_key is None
+                    or c.dict_key  # skip entries with empty dict_key
                 }
             elif node.field_type == "list":
                 result[node.key] = [c.value for c in node.children]
@@ -342,7 +345,9 @@ def _select_config_class(
     best_count = 0
     for cls in config_classes:
         count = sum(
-            1 for k in config_values if k in cls.model_fields and k not in discriminator_fields
+            1
+            for k in config_values
+            if k in cls.model_fields and k not in discriminator_fields
         )
         if count > best_count:
             best_count = count
@@ -372,7 +377,9 @@ def set_mcp_config(
     config_dict: Dict[str, Any],
 ) -> None:
     """Set ``mcp_servers[toolset_name]["config"]``, preserving other keys."""
-    if toolset_name not in mcp_servers or not isinstance(mcp_servers.get(toolset_name), dict):
+    if toolset_name not in mcp_servers or not isinstance(
+        mcp_servers.get(toolset_name), dict
+    ):
         mcp_servers[toolset_name] = {}
     mcp_servers[toolset_name]["config"] = config_dict
 
@@ -622,7 +629,9 @@ def run_tree_editor(
         _class_config_cache[config_class] = dict(initial_config)
 
     # State
-    cursor = [len(flat_rows) if cursor_on_test_button else 0]  # index into (flat_rows + buttons)
+    cursor = [
+        len(flat_rows) if cursor_on_test_button else 0
+    ]  # index into (flat_rows + buttons)
     editing = [False]
     editing_dict_key = [False]  # True when editing the key portion of a dict entry
     edit_buf = [Buffer()]
@@ -676,14 +685,18 @@ def run_tree_editor(
                 groups[parent_id] = name_len
         return groups
 
-    def _value_pad(node: ConfigFieldNode, value_columns: Dict[Optional[int], int]) -> str:
+    def _value_pad(
+        node: ConfigFieldNode, value_columns: Dict[Optional[int], int]
+    ) -> str:
         """Return the padding between the colon and the value for *node*."""
         display_name = node.title if node.title else node.key
         parent_id = id(node.parent) if node.parent else None
         max_name_len = value_columns.get(parent_id, len(display_name))
         return " " * (max_name_len - len(display_name))
 
-    def _row_content_width(node: ConfigFieldNode, value_columns: Dict[Optional[int], int]) -> int:
+    def _row_content_width(
+        node: ConfigFieldNode, value_columns: Dict[Optional[int], int]
+    ) -> int:
         """Compute the visible width of a row's content (before comment/hints)."""
         indent = "  " * (node.depth + 1)
         prefix = "  "  # use non-selected width for alignment
@@ -696,7 +709,9 @@ def run_tree_editor(
         if node.is_header:
             count = len(node.children)
             type_bracket = "{}" if node.field_type == "dict" else "[]"
-            return len(f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}")
+            return len(
+                f"{indent}{prefix}{display_name}:{pad} {type_bracket[0]}{count} items{type_bracket[1]}"
+            )
 
         if node.field_type == "bool":
             val_display = str(node.value).lower() if node.value is not None else "null"
@@ -826,7 +841,11 @@ def run_tree_editor(
             row_parts.append(("", "\n"))
             return row_parts
 
-        is_placeholder = (is_list_entry and not node.value) or (node.value is None and not node.required) or node.value == ""
+        is_placeholder = (
+            (is_list_entry and not node.value)
+            or (node.value is None and not node.required)
+            or node.value == ""
+        )
         val_style = "class:dim" if is_placeholder else style
         row_parts.append((val_style, val_display))
 
@@ -852,7 +871,9 @@ def run_tree_editor(
         pad = _value_pad(node, value_columns)
 
         if node.is_header:
-            return _render_header_row(node, style, indent, prefix, display_name, pad, comment_col)
+            return _render_header_row(
+                node, style, indent, prefix, display_name, pad, comment_col
+            )
 
         row_idx = flat_rows.index(node) if node in flat_rows else -1
         is_editing_this = editing[0] and cursor[0] == row_idx
@@ -860,7 +881,9 @@ def run_tree_editor(
         if node.dict_key is not None:
             return _render_dict_child_row(node, style, indent, prefix, is_editing_this)
 
-        return _render_leaf_row(node, style, indent, prefix, display_name, pad, comment_col, is_editing_this)
+        return _render_leaf_row(
+            node, style, indent, prefix, display_name, pad, comment_col, is_editing_this
+        )
 
     def _get_display_text() -> List[Tuple[str, str]]:
         parts: List[Tuple[str, str]] = []
@@ -870,7 +893,14 @@ def run_tree_editor(
         value_columns = _compute_value_columns()
         comment_col = _compute_comment_column(value_columns)
         for i, node in enumerate(flat_rows):
-            parts.extend(_render_row(node, selected=(cursor[0] == i), comment_col=comment_col, value_columns=value_columns))
+            parts.extend(
+                _render_row(
+                    node,
+                    selected=(cursor[0] == i),
+                    comment_col=comment_col,
+                    value_columns=value_columns,
+                )
+            )
 
         # Separator
         parts.append(("", "\n"))
@@ -894,7 +924,12 @@ def run_tree_editor(
             parts.extend(status_lines)
 
         # Hint line
-        parts.append(("class:hint", "\n  Up/Down: navigate | Enter: edit/select | Backspace/Del: delete entry or set null | Esc: cancel edit\n"))
+        parts.append(
+            (
+                "class:hint",
+                "\n  Up/Down: navigate | Enter: edit/select | Backspace/Del: delete entry or set null | Esc: cancel edit\n",
+            )
+        )
         return parts
 
     # ── key bindings ──
@@ -959,8 +994,17 @@ def run_tree_editor(
 
         if editing[0]:
             buf = edit_buf[0]
-            is_collection_child = node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list")
-            if len(buf.text) == 0 and not node.required and not editing_dict_key[0] and not is_collection_child:
+            is_collection_child = (
+                node.parent
+                and node.parent.is_header
+                and node.parent.field_type in ("dict", "list")
+            )
+            if (
+                len(buf.text) == 0
+                and not node.required
+                and not editing_dict_key[0]
+                and not is_collection_child
+            ):
                 # Empty buffer + deletion key → set to <null>
                 node.value = None
                 node.explicitly_set = True
@@ -971,7 +1015,11 @@ def run_tree_editor(
                 buf.delete()
             return
 
-        if node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list"):
+        if (
+            node.parent
+            and node.parent.is_header
+            and node.parent.field_type in ("dict", "list")
+        ):
             node.parent.children.remove(node)
             for i, child in enumerate(node.parent.children):
                 child.key = str(i)
@@ -1003,11 +1051,19 @@ def run_tree_editor(
                 top_nodes.extend(build_tree_from_schema(config_class, {}))
                 _refresh_flat()
                 cursor[0] = 0
-                status_lines = [("class:status-ok", "  Configuration reset to defaults.\n")]
+                status_lines = [
+                    ("class:status-ok", "  Configuration reset to defaults.\n")
+                ]
                 return
             elif btn_idx == 2:  # Save
-                config_path = Path(config_file_path) if config_file_path else Path(DEFAULT_CONFIG_LOCATION)
-                ok, msg = save_config_to_file(config_path, toolset.name, config_dict, is_mcp=is_mcp)
+                config_path = (
+                    Path(config_file_path)
+                    if config_file_path
+                    else Path(DEFAULT_CONFIG_LOCATION)
+                )
+                ok, msg = save_config_to_file(
+                    config_path, toolset.name, config_dict, is_mcp=is_mcp
+                )
                 style_cls = "class:status-ok" if ok else "class:status-fail"
                 status_lines = [(style_cls, f"  {line}\n") for line in msg.splitlines()]
                 if ok:
@@ -1038,7 +1094,9 @@ def run_tree_editor(
                 try:
                     node.value = int(raw)
                 except ValueError:
-                    status_lines = [("class:status-fail", f"  Invalid integer: '{raw}'\n")]
+                    status_lines = [
+                        ("class:status-fail", f"  Invalid integer: '{raw}'\n")
+                    ]
                     editing[0] = False
                     editing_dict_key[0] = False
                     return
@@ -1046,7 +1104,9 @@ def run_tree_editor(
                 try:
                     node.value = float(raw)
                 except ValueError:
-                    status_lines = [("class:status-fail", f"  Invalid number: '{raw}'\n")]
+                    status_lines = [
+                        ("class:status-fail", f"  Invalid number: '{raw}'\n")
+                    ]
                     editing[0] = False
                     editing_dict_key[0] = False
                     return
@@ -1077,7 +1137,9 @@ def run_tree_editor(
             # If multiple config classes, check if we need to switch
             if len(toolset.config_classes) > 1:
                 new_config_dict = tree_to_dict(top_nodes)
-                new_class = _select_config_class(toolset.config_classes, new_config_dict)
+                new_class = _select_config_class(
+                    toolset.config_classes, new_config_dict
+                )
                 if new_class is not config_class:
                     _rebuild_for_class(new_class, node.key, new_value)
             return
@@ -1156,8 +1218,16 @@ def run_tree_editor(
                 idx = cursor[0]
                 if idx < len(flat_rows):
                     node = flat_rows[idx]
-                    is_collection_child = node.parent and node.parent.is_header and node.parent.field_type in ("dict", "list")
-                    if not node.required and not editing_dict_key[0] and not is_collection_child:
+                    is_collection_child = (
+                        node.parent
+                        and node.parent.is_header
+                        and node.parent.field_type in ("dict", "list")
+                    )
+                    if (
+                        not node.required
+                        and not editing_dict_key[0]
+                        and not is_collection_child
+                    ):
                         node.value = None
                         node.explicitly_set = True
                         editing[0] = False
@@ -1170,7 +1240,9 @@ def run_tree_editor(
     # ── run ──
 
     layout = Layout(
-        Window(FormattedTextControl(_get_display_text, show_cursor=False), wrap_lines=True)
+        Window(
+            FormattedTextControl(_get_display_text, show_cursor=False), wrap_lines=True
+        )
     )
     app: Application[Any] = Application(
         layout=layout,
@@ -1215,9 +1287,13 @@ def _refresh_toolset_from_file(
         with open(config_path, "r") as f:
             file_data = yaml.safe_load(f) or {}
         if toolset.type == ToolsetType.MCP:
-            saved_cfg = file_data.get("mcp_servers", {}).get(toolset.name, {}).get("config", {})
+            saved_cfg = (
+                file_data.get("mcp_servers", {}).get(toolset.name, {}).get("config", {})
+            )
         else:
-            saved_cfg = file_data.get("toolsets", {}).get(toolset.name, {}).get("config", {})
+            saved_cfg = (
+                file_data.get("toolsets", {}).get(toolset.name, {}).get("config", {})
+            )
     except Exception as e:
         logger.warning("Could not re-read config file for refresh: %s", e)
         return
@@ -1273,7 +1349,9 @@ def run_toolset_config_tui(
             return
 
         config_values = _get_existing_config(selected, config)
-        config_path = Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
+        config_path = (
+            Path(config_file) if config_file else Path(DEFAULT_CONFIG_LOCATION)
+        )
         test_status: Optional[List[Tuple[str, str]]] = None
         ever_saved = False
         cursor_on_test = False

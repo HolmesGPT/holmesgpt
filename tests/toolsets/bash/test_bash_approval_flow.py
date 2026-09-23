@@ -7,8 +7,9 @@ This test suite verifies that bash commands requiring approval:
 4. Work correctly in remote execution scenarios
 """
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from holmes.core.llm import LLM
 from holmes.core.tools import StructuredToolResultStatus, ToolInvokeContext
@@ -207,9 +208,7 @@ class TestBashApprovalWithSessionContext:
 
     def test_multiple_approved_prefixes_in_session(self, bash_tool):
         """Multiple session-approved prefixes should work together."""
-        context = _ctx(
-            session_approved_prefixes=["docker", "kubectl exec"]
-        )
+        context = _ctx(session_approved_prefixes=["docker", "kubectl exec"])
         result = bash_tool.requires_approval(
             params={
                 "command": "docker ps | grep error",

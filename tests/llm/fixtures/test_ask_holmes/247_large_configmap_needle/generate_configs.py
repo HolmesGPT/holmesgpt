@@ -8,51 +8,161 @@ that the LLM must discover by querying the ConfigMap with advanced jq operations
 import random
 import sys
 
-
 SEED = 212
 NEEDLE_SERVICE = "payment-gateway"
-NEEDLE_CONNECTION_STRING = "postgresql://admin@db-pmt-7k3m9x.internal.svc:5432/transactions_v2"
+NEEDLE_CONNECTION_STRING = (
+    "postgresql://admin@db-pmt-7k3m9x.internal.svc:5432/transactions_v2"
+)
 
 SERVICE_NAMES = [
-    "auth-provider", "billing-engine", "cart-service", "checkout-api",
-    "content-delivery", "coupon-manager", "customer-profile", "data-pipeline",
-    "delivery-tracker", "discount-engine", "email-dispatcher", "event-bus",
-    "feature-flags", "feedback-collector", "file-storage", "fraud-detector",
-    "geo-locator", "graph-resolver", "health-monitor", "identity-broker",
-    "image-processor", "import-service", "index-builder", "insight-engine",
-    "integration-hub", "inventory-manager", "invoice-generator", "job-scheduler",
-    "kafka-bridge", "key-manager", "label-service", "lead-tracker",
-    "license-manager", "link-shortener", "load-balancer", "log-aggregator",
-    "loyalty-program", "mail-queue", "marketplace-api", "media-encoder",
-    "membership-service", "message-broker", "metrics-collector", "migration-runner",
-    "ml-inference", "notification-hub", "oauth-gateway", "onboarding-flow",
-    "order-processor", "org-manager", "outbox-relay", "package-registry",
-    NEEDLE_SERVICE, "pdf-generator", "permission-service", "pipeline-orchestrator",
-    "platform-gateway", "plugin-loader", "policy-engine", "preference-store",
-    "price-calculator", "product-catalog", "promo-engine", "provisioner",
-    "pubsub-adapter", "query-optimizer", "queue-manager", "quota-service",
-    "rate-limiter", "recommendation-engine", "refund-processor", "registry-sync",
-    "reminder-service", "render-engine", "report-builder", "request-router",
-    "resource-allocator", "retry-handler", "review-moderator", "risk-analyzer",
-    "role-manager", "rule-engine", "sandbox-controller", "scheduler-api",
-    "schema-registry", "search-indexer", "secret-rotator", "session-manager",
-    "settlement-service", "shard-manager", "shipping-calculator", "sla-monitor",
-    "snapshot-service", "social-connector", "sse-gateway", "status-page",
-    "storage-gateway", "stream-processor", "subscription-manager", "support-ticket",
-    "sync-coordinator", "tag-service", "task-runner", "tax-calculator",
-    "telemetry-agent", "template-engine", "tenant-manager", "test-harness",
-    "theme-service", "throttle-controller", "timeline-service", "token-issuer",
-    "transaction-log", "transform-pipeline", "translation-service", "trial-manager",
-    "upload-handler", "usage-tracker", "user-directory", "validation-service",
-    "vault-proxy", "vendor-api", "version-control", "video-transcoder",
-    "virtual-network", "visitor-tracker", "webhook-relay", "workflow-engine",
-    "workspace-manager", "zipkin-collector",
+    "auth-provider",
+    "billing-engine",
+    "cart-service",
+    "checkout-api",
+    "content-delivery",
+    "coupon-manager",
+    "customer-profile",
+    "data-pipeline",
+    "delivery-tracker",
+    "discount-engine",
+    "email-dispatcher",
+    "event-bus",
+    "feature-flags",
+    "feedback-collector",
+    "file-storage",
+    "fraud-detector",
+    "geo-locator",
+    "graph-resolver",
+    "health-monitor",
+    "identity-broker",
+    "image-processor",
+    "import-service",
+    "index-builder",
+    "insight-engine",
+    "integration-hub",
+    "inventory-manager",
+    "invoice-generator",
+    "job-scheduler",
+    "kafka-bridge",
+    "key-manager",
+    "label-service",
+    "lead-tracker",
+    "license-manager",
+    "link-shortener",
+    "load-balancer",
+    "log-aggregator",
+    "loyalty-program",
+    "mail-queue",
+    "marketplace-api",
+    "media-encoder",
+    "membership-service",
+    "message-broker",
+    "metrics-collector",
+    "migration-runner",
+    "ml-inference",
+    "notification-hub",
+    "oauth-gateway",
+    "onboarding-flow",
+    "order-processor",
+    "org-manager",
+    "outbox-relay",
+    "package-registry",
+    NEEDLE_SERVICE,
+    "pdf-generator",
+    "permission-service",
+    "pipeline-orchestrator",
+    "platform-gateway",
+    "plugin-loader",
+    "policy-engine",
+    "preference-store",
+    "price-calculator",
+    "product-catalog",
+    "promo-engine",
+    "provisioner",
+    "pubsub-adapter",
+    "query-optimizer",
+    "queue-manager",
+    "quota-service",
+    "rate-limiter",
+    "recommendation-engine",
+    "refund-processor",
+    "registry-sync",
+    "reminder-service",
+    "render-engine",
+    "report-builder",
+    "request-router",
+    "resource-allocator",
+    "retry-handler",
+    "review-moderator",
+    "risk-analyzer",
+    "role-manager",
+    "rule-engine",
+    "sandbox-controller",
+    "scheduler-api",
+    "schema-registry",
+    "search-indexer",
+    "secret-rotator",
+    "session-manager",
+    "settlement-service",
+    "shard-manager",
+    "shipping-calculator",
+    "sla-monitor",
+    "snapshot-service",
+    "social-connector",
+    "sse-gateway",
+    "status-page",
+    "storage-gateway",
+    "stream-processor",
+    "subscription-manager",
+    "support-ticket",
+    "sync-coordinator",
+    "tag-service",
+    "task-runner",
+    "tax-calculator",
+    "telemetry-agent",
+    "template-engine",
+    "tenant-manager",
+    "test-harness",
+    "theme-service",
+    "throttle-controller",
+    "timeline-service",
+    "token-issuer",
+    "transaction-log",
+    "transform-pipeline",
+    "translation-service",
+    "trial-manager",
+    "upload-handler",
+    "usage-tracker",
+    "user-directory",
+    "validation-service",
+    "vault-proxy",
+    "vendor-api",
+    "version-control",
+    "video-transcoder",
+    "virtual-network",
+    "visitor-tracker",
+    "webhook-relay",
+    "workflow-engine",
+    "workspace-manager",
+    "zipkin-collector",
 ]
 
 TEAMS = [
-    "platform", "payments", "identity", "growth", "infrastructure",
-    "data", "commerce", "security", "observability", "devex",
-    "mobile", "frontend", "backend", "ml-ops", "sre",
+    "platform",
+    "payments",
+    "identity",
+    "growth",
+    "infrastructure",
+    "data",
+    "commerce",
+    "security",
+    "observability",
+    "devex",
+    "mobile",
+    "frontend",
+    "backend",
+    "ml-ops",
+    "sre",
 ]
 
 DB_ENGINES = ["postgresql", "mysql", "mongodb", "redis", "cassandra"]
@@ -131,7 +241,7 @@ def generate_service_config(rng, name, connection_string=None):
     lines = []
     lines.append(f"  {name}:")
     lines.append(f"    name: {name}")
-    lines.append(f"    version: \"{version}\"")
+    lines.append(f'    version: "{version}"')
     lines.append(f"    team: {team}")
     lines.append("    deployment:")
     lines.append(f"      region: {region}")
@@ -141,11 +251,11 @@ def generate_service_config(rng, name, connection_string=None):
     lines.append(f"      max_unavailable: {rng.choice(['0', '1', '25%'])}")
     lines.append("    resources:")
     lines.append("      requests:")
-    lines.append(f"        cpu: \"{cpu_req}\"")
-    lines.append(f"        memory: \"{mem_req}\"")
+    lines.append(f'        cpu: "{cpu_req}"')
+    lines.append(f'        memory: "{mem_req}"')
     lines.append("      limits:")
-    lines.append(f"        cpu: \"{cpu_limit}\"")
-    lines.append(f"        memory: \"{mem_limit}\"")
+    lines.append(f'        cpu: "{cpu_limit}"')
+    lines.append(f'        memory: "{mem_limit}"')
     lines.append("    networking:")
     lines.append(f"      protocol: {protocol}")
     lines.append(f"      port: {port}")
@@ -153,17 +263,19 @@ def generate_service_config(rng, name, connection_string=None):
     lines.append(f"      metrics_endpoint: {metrics_path}")
     lines.append(f"      timeout_ms: {timeout_ms}")
     lines.append("    database:")
-    lines.append(f"      connection_string: \"{connection_string}\"")
+    lines.append(f'      connection_string: "{connection_string}"')
     lines.append(f"      pool_size: {rng.randint(5, 50)}")
     lines.append(f"      max_idle: {rng.randint(2, 20)}")
     lines.append(f"      connection_timeout_ms: {rng.randint(1000, 10000)}")
     lines.append(f"      read_replicas: {rng.randint(0, 3)}")
     lines.append("    cache:")
     lines.append(f"      backend: {cache_backend}")
-    lines.append(f"      host: \"{cache_host}\"")
+    lines.append(f'      host: "{cache_host}"')
     lines.append(f"      port: {cache_port}")
     lines.append(f"      ttl_seconds: {rng.choice([60, 300, 600, 1800, 3600])}")
-    lines.append(f"      max_memory: \"{rng.choice(['64mb', '128mb', '256mb', '512mb'])}\"")
+    lines.append(
+        f"      max_memory: \"{rng.choice(['64mb', '128mb', '256mb', '512mb'])}\""
+    )
     lines.append("    logging:")
     lines.append(f"      level: {log_level}")
     lines.append(f"      output: {rng.choice(['stdout', 'file', 'both'])}")
@@ -171,7 +283,7 @@ def generate_service_config(rng, name, connection_string=None):
     lines.append(f"      structured: {rng.choice(['true', 'false'])}")
     lines.append("    monitoring:")
     lines.append(f"      alerts_enabled: {rng.choice(['true', 'false'])}")
-    lines.append(f"      slo_target: \"{round(rng.uniform(99.0, 99.99), 2)}%\"")
+    lines.append(f'      slo_target: "{round(rng.uniform(99.0, 99.99), 2)}%"')
     lines.append(f"      error_budget_burn_rate: {round(rng.uniform(1.0, 10.0), 1)}")
     lines.append(f"      pager_severity: {rng.choice(['P1', 'P2', 'P3', 'P4'])}")
     lines.append("    resilience:")
@@ -188,7 +300,7 @@ def generate_service_config(rng, name, connection_string=None):
     lines.append(f"      scale_down_stabilization_s: {rng.choice([60, 120, 300])}")
     lines.append("    environment:")
     for k, v in env_vars.items():
-        lines.append(f"      {k}: \"{v}\"")
+        lines.append(f'      {k}: "{v}"')
     lines.append("    dependencies:")
     for dep in deps:
         lines.append(f"      - {dep}")
@@ -209,7 +321,9 @@ def main():
 
     for name in SERVICE_NAMES:
         if name == NEEDLE_SERVICE:
-            section = generate_service_config(rng, name, connection_string=NEEDLE_CONNECTION_STRING)
+            section = generate_service_config(
+                rng, name, connection_string=NEEDLE_CONNECTION_STRING
+            )
         else:
             section = generate_service_config(rng, name)
         sections.append(section)
@@ -223,11 +337,17 @@ def main():
     size_tokens_approx = size_bytes // 4
 
     if NEEDLE_CONNECTION_STRING not in content:
-        print("ERROR: Needle connection string not found in generated content", file=sys.stderr)
+        print(
+            "ERROR: Needle connection string not found in generated content",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if "7k3m9x" not in content:
-        print("ERROR: Needle identifier 7k3m9x not found in generated content", file=sys.stderr)
+        print(
+            "ERROR: Needle identifier 7k3m9x not found in generated content",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     print(f"Generated {len(SERVICE_NAMES)} service configs")

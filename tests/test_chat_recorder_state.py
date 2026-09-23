@@ -143,9 +143,7 @@ class TestRecorderStateSmoke:
 
 
 # Sample of the prefix the Robusta runner's Slack handler prepends to `ask`.
-SLACK_ASK = (
-    "**@user_U0AKMP2CZ97** • 2026-05-04T05:10:04Z\n\nhigh cpu in pod alert"
-)
+SLACK_ASK = "**@user_U0AKMP2CZ97** • 2026-05-04T05:10:04Z\n\nhigh cpu in pod alert"
 
 
 class TestSlackAutoDetect:
@@ -222,9 +220,7 @@ class TestSlackAutoDetect:
 
     def test_partial_slack_prefix_does_not_match(self):
         # Just a markdown bold, no • or timestamp — must not falsely match.
-        req = _chat_request(
-            ask="**@user_U0AKMP2CZ97** asked: why is my pod down?"
-        )
+        req = _chat_request(ask="**@user_U0AKMP2CZ97** asked: why is my pod down?")
         state = build_chat_recorder_state(
             req, _make_request_ai(), dal=_dal(), is_streaming=False
         )

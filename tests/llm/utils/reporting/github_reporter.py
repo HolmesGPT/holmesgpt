@@ -20,7 +20,6 @@ from tests.llm.utils.braintrust_history import (
 from tests.llm.utils.test_env_vars import GITHUB_REF_NAME
 from tests.llm.utils.test_results import TestStatus
 
-
 _TEST_TYPE_TO_FIXTURE_DIR = {
     "ask": "test_ask_holmes",
     "investigate": "test_investigate",
@@ -66,9 +65,7 @@ def _fmt_tokens(value: Optional[int]) -> str:
     return "—"
 
 
-def _fmt_event_icons(
-    skills_written: int, skills_read: int, compactions: int
-) -> str:
+def _fmt_event_icons(skills_written: int, skills_read: int, compactions: int) -> str:
     """Compact event markers appended to the Status cell so rows with
     special events can be spotted while skimming, without scrolling right
     to the dedicated columns: ✍️ skill(s) written (SuggestSkills emitted),
@@ -113,7 +110,9 @@ def _format_diff_pct(diff: Optional[float]) -> str:
     return f"**{indicator}**" if bold else indicator
 
 
-def _calc_diff_pct(current: Optional[float], baseline: Optional[float]) -> Optional[float]:
+def _calc_diff_pct(
+    current: Optional[float], baseline: Optional[float]
+) -> Optional[float]:
     """Calculate percentage difference: positive = current is higher."""
     if not current or not baseline or baseline == 0:
         return None
@@ -298,6 +297,7 @@ def _format_age(created: Optional[str]) -> str:
         return ""
     try:
         from datetime import datetime, timezone
+
         dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
         delta = datetime.now(timezone.utc) - dt
         days = delta.total_seconds() / 86400
@@ -334,41 +334,85 @@ def _generate_comparison_tables(
         if source_url:
             display_name = f"{display_name} [📄]({source_url})"
 
-        rows.append({
-            "name": display_name,
-            "current_time": result.get("holmes_duration"),
-            "master_time": m.duration if m else None,
-            "benchmark_time": b.duration if b else None,
-            "current_cost": result.get("cost"),
-            "master_cost": m.cost if m else None,
-            "benchmark_cost": b.cost if b else None,
-            "current_total_tokens": result.get("total_tokens", 0) or 0,
-            "master_total_tokens": m.total_tokens if m else None,
-            "benchmark_total_tokens": b.total_tokens if b else None,
-            "current_cached_tokens": result.get("cached_tokens"),
-            "master_cached_tokens": m.cached_tokens if m else None,
-            "benchmark_cached_tokens": b.cached_tokens if b else None,
-            "current_turns": result.get("num_llm_calls"),
-            "master_turns": m.num_llm_calls if m else None,
-            "benchmark_turns": b.num_llm_calls if b else None,
-            "current_tool_calls": result.get("tool_call_count"),
-            "master_tool_calls": m.tool_call_count if m else None,
-            "benchmark_tool_calls": b.tool_call_count if b else None,
-        })
+        rows.append(
+            {
+                "name": display_name,
+                "current_time": result.get("holmes_duration"),
+                "master_time": m.duration if m else None,
+                "benchmark_time": b.duration if b else None,
+                "current_cost": result.get("cost"),
+                "master_cost": m.cost if m else None,
+                "benchmark_cost": b.cost if b else None,
+                "current_total_tokens": result.get("total_tokens", 0) or 0,
+                "master_total_tokens": m.total_tokens if m else None,
+                "benchmark_total_tokens": b.total_tokens if b else None,
+                "current_cached_tokens": result.get("cached_tokens"),
+                "master_cached_tokens": m.cached_tokens if m else None,
+                "benchmark_cached_tokens": b.cached_tokens if b else None,
+                "current_turns": result.get("num_llm_calls"),
+                "master_turns": m.num_llm_calls if m else None,
+                "benchmark_turns": b.num_llm_calls if b else None,
+                "current_tool_calls": result.get("tool_call_count"),
+                "master_tool_calls": m.tool_call_count if m else None,
+                "benchmark_tool_calls": b.tool_call_count if b else None,
+            }
+        )
 
     def render(title, ckey, mkey, bkey, fmt):
-        return _render_metric_table(title, rows, ckey, mkey, bkey, fmt, master_label, benchmark_label)
+        return _render_metric_table(
+            title, rows, ckey, mkey, bkey, fmt, master_label, benchmark_label
+        )
 
-    lines += render("Time comparison (seconds)", "current_time", "master_time", "benchmark_time", lambda v: f"{v:.1f}s")
-    lines += render("Cost comparison", "current_cost", "master_cost", "benchmark_cost", lambda v: f"${v:.4f}")
-    lines += render("Total tokens comparison", "current_total_tokens", "master_total_tokens", "benchmark_total_tokens", lambda v: f"{int(round(v)):,}")
-    lines += render("Cached tokens comparison", "current_cached_tokens", "master_cached_tokens", "benchmark_cached_tokens", lambda v: f"{int(round(v)):,}")
-    lines += render("Turns comparison", "current_turns", "master_turns", "benchmark_turns", lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)))
-    lines += render("Tool calls comparison", "current_tool_calls", "master_tool_calls", "benchmark_tool_calls", lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)))
+    lines += render(
+        "Time comparison (seconds)",
+        "current_time",
+        "master_time",
+        "benchmark_time",
+        lambda v: f"{v:.1f}s",
+    )
+    lines += render(
+        "Cost comparison",
+        "current_cost",
+        "master_cost",
+        "benchmark_cost",
+        lambda v: f"${v:.4f}",
+    )
+    lines += render(
+        "Total tokens comparison",
+        "current_total_tokens",
+        "master_total_tokens",
+        "benchmark_total_tokens",
+        lambda v: f"{int(round(v)):,}",
+    )
+    lines += render(
+        "Cached tokens comparison",
+        "current_cached_tokens",
+        "master_cached_tokens",
+        "benchmark_cached_tokens",
+        lambda v: f"{int(round(v)):,}",
+    )
+    lines += render(
+        "Turns comparison",
+        "current_turns",
+        "master_turns",
+        "benchmark_turns",
+        lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)),
+    )
+    lines += render(
+        "Tool calls comparison",
+        "current_tool_calls",
+        "master_tool_calls",
+        "benchmark_tool_calls",
+        lambda v: f"{v:.1f}" if isinstance(v, float) else str(int(v)),
+    )
 
     if not lines:
-        current_models = sorted({r.get("model", "") for r in sorted_results if r.get("model")})
-        all_baseline = {b.model for b in benchmark.values() if b.model} | {m.model for m in master.values() if m.model}
+        current_models = sorted(
+            {r.get("model", "") for r in sorted_results if r.get("model")}
+        )
+        all_baseline = {b.model for b in benchmark.values() if b.model} | {
+            m.model for m in master.values() if m.model
+        }
         overlap = set(current_models) & all_baseline
         lines.append("\n_No baseline data available for comparison._\n")
         if current_models and all_baseline and not overlap:
@@ -496,14 +540,18 @@ def generate_markdown_report(
         try:
             benchmark, benchmark_details = get_benchmark_baseline()
             if benchmark:
-                logging.info(f"Loaded benchmark baseline: {len(benchmark)} test/model combinations")
+                logging.info(
+                    f"Loaded benchmark baseline: {len(benchmark)} test/model combinations"
+                )
         except Exception as e:
             benchmark_details = HistoricalComparisonDetails(status=f"API error: {e}")
             logging.warning(f"Failed to fetch benchmark baseline: {e}")
         try:
             master, master_details = get_master_baseline()
             if master:
-                logging.info(f"Loaded master baseline: {len(master)} test/model combinations")
+                logging.info(
+                    f"Loaded master baseline: {len(master)} test/model combinations"
+                )
         except Exception as e:
             master_details = HistoricalComparisonDetails(status=f"API error: {e}")
             logging.warning(f"Failed to fetch master baseline: {e}")
@@ -675,7 +723,9 @@ def generate_markdown_report(
         input_str = _fmt_tokens(prompt_tokens)
         output_str = _fmt_tokens(completion_tokens)
         cached_tokens_str = f"{cached_tokens:,}" if cached_tokens is not None else "—"
-        non_cached_tokens_str = f"{non_cached_tokens:,}" if non_cached_tokens is not None else "—"
+        non_cached_tokens_str = (
+            f"{non_cached_tokens:,}" if non_cached_tokens is not None else "—"
+        )
         reasoning_str = _fmt_tokens(reasoning_tokens)
         max_completion_str = _fmt_tokens(max_completion)
         max_prompt_str = _fmt_tokens(max_prompt)
@@ -746,9 +796,7 @@ def generate_markdown_report(
             )
 
             r_duration = result.get("replay_duration")
-            r_time_str = (
-                f"{r_duration:.1f}s" if r_duration and r_duration > 0 else "—"
-            )
+            r_time_str = f"{r_duration:.1f}s" if r_duration and r_duration > 0 else "—"
             r_turns = result.get("replay_turns")
             r_turns_str = str(r_turns) if r_turns else "—"
             r_tools = result.get("replay_tool_calls_count")
@@ -760,9 +808,7 @@ def generate_markdown_report(
             r_completion_tokens = result.get("replay_completion_tokens") or 0
             r_cached_tokens = result.get("replay_cached_tokens")
             r_reasoning_tokens = result.get("replay_reasoning_tokens") or 0
-            r_max_completion = (
-                result.get("replay_max_completion_tokens_per_call") or 0
-            )
+            r_max_completion = result.get("replay_max_completion_tokens_per_call") or 0
             r_max_prompt = result.get("replay_max_prompt_tokens_per_call") or 0
             r_num_compactions = result.get("replay_num_compactions") or 0
             if r_total_tokens == 0:
@@ -778,21 +824,15 @@ def generate_markdown_report(
             r_cached_str = (
                 f"{r_cached_tokens:,}" if r_cached_tokens is not None else "—"
             )
-            r_non_cached_str = (
-                f"{r_non_cached:,}" if r_non_cached is not None else "—"
-            )
+            r_non_cached_str = f"{r_non_cached:,}" if r_non_cached is not None else "—"
             r_reasoning_str = _fmt_tokens(r_reasoning_tokens)
             r_max_completion_str = _fmt_tokens(r_max_completion)
             r_max_prompt_str = _fmt_tokens(r_max_prompt)
-            r_compactions_str = (
-                str(r_num_compactions) if r_num_compactions > 0 else "—"
-            )
+            r_compactions_str = str(r_num_compactions) if r_num_compactions > 0 else "—"
 
             # Replays never write skills (SuggestSkills isn't injected), so
             # only the read/compaction markers can apply.
-            replay_events = _fmt_event_icons(
-                0, r_skills_read_count, r_num_compactions
-            )
+            replay_events = _fmt_event_icons(0, r_skills_read_count, r_num_compactions)
 
             # Replay shares the parent row's Src link — same test_case.yaml.
             # Denied commands aren't tracked separately for replays.
@@ -821,20 +861,15 @@ def generate_markdown_report(
     max_prompt_max_str = _fmt_tokens(max_prompt_per_call_max)
     total_compactions_str = str(total_compactions) if total_compactions > 0 else "—"
     # Skills generated/read totals across primary + replay rows.
-    total_skill_generated = sum(
-        (r.get("memories_count") or 0) for r in sorted_results
-    )
+    total_skill_generated = sum((r.get("memories_count") or 0) for r in sorted_results)
     skill_generated_total_str = (
         f"**{total_skill_generated}**" if total_skill_generated else "—"
     )
     total_skills_read = sum(
-        (r.get("skills_read_count") or 0)
-        + (r.get("replay_skills_read_count") or 0)
+        (r.get("skills_read_count") or 0) + (r.get("replay_skills_read_count") or 0)
         for r in sorted_results
     )
-    skills_read_total_str = (
-        f"**{total_skills_read}**" if total_skills_read else "—"
-    )
+    skills_read_total_str = f"**{total_skills_read}**" if total_skills_read else "—"
     total_denied_str = str(total_denied_commands) if total_denied_commands > 0 else "—"
     markdown += f"| | **Total** | **{avg_time_str}** avg | **{avg_turns_str}** avg | **{avg_tools_str}** avg | **{total_cost_str}** | **{total_tokens_total_str}** | **{total_prompt_str}** | **{max_prompt_max_str}** | **{total_completion_str}** | **{max_completion_max_str}** | **{total_cached_tokens_str}** | **{total_non_cached_tokens_str}** | **{total_reasoning_str}** | {skill_generated_total_str} | {skills_read_total_str} | **{total_compactions_str}** | **{total_denied_str}** | |\n"
 
@@ -849,7 +884,9 @@ def generate_markdown_report(
         if master_details and master_details.status:
             msgs.append(f"master: {master_details.status}")
         if msgs:
-            markdown += f"\n_No baseline available for comparison ({'; '.join(msgs)})_\n"
+            markdown += (
+                f"\n_No baseline available for comparison ({'; '.join(msgs)})_\n"
+            )
 
     # Add collapsible details section with comparison tables
     if benchmark_details or master_details:

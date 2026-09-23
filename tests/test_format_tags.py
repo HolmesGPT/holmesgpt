@@ -56,9 +56,7 @@ def test_parse_message_tags_multimodal_with_tags():
         },
         {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
     ]
-    result = parse_messages_tags(
-        [{"role": "user", "content": original_content}]
-    )
+    result = parse_messages_tags([{"role": "user", "content": original_content}])
     expected_content = [
         {
             "type": "text",

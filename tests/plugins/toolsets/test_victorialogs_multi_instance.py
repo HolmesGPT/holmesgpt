@@ -71,9 +71,7 @@ class TestVictoriaLogsMultiInstance:
     def test_each_instance_calls_its_own_endpoint(self, instance, host, expect_auth):
         with responses.RequestsMock() as rsps:
             ts = self._build(rsps)
-            rsps.add(
-                responses.POST, f"{host}/select/logsql/query", body="", status=200
-            )
+            rsps.add(responses.POST, f"{host}/select/logsql/query", body="", status=200)
             query = next(t for t in ts.tools if t.name == "victorialogs_query")
             result = query.invoke(
                 {"query": "*", INSTANCE_PARAM_NAME: instance},

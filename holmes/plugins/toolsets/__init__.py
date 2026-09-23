@@ -25,7 +25,6 @@ from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
 from holmes.plugins.toolsets.coralogix.toolset_coralogix import CoralogixToolset
 from holmes.plugins.toolsets.database.database import DatabaseToolset
-from holmes.plugins.toolsets.mongodb.mongodb import MongoDBToolset
 from holmes.plugins.toolsets.datadog.toolset_datadog_general import (
     DatadogGeneralToolset,
 )
@@ -56,6 +55,7 @@ from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.plugins.toolsets.mongodb.mongodb import MongoDBToolset
 from holmes.plugins.toolsets.multi_instance import multi_instance
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
@@ -63,10 +63,10 @@ from holmes.plugins.toolsets.robusta.robusta import RobustaToolset
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     make_robusta_platform_mcp_toolset,
 )
-from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesToolset,
 )
+from holmes.plugins.toolsets.skills.skills_fetcher import SkillsToolset
 from holmes.plugins.toolsets.victorialogs.victorialogs import VictoriaLogsToolset
 
 THIS_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -210,9 +210,7 @@ def _make_invalid_toolset_placeholder(
         description=description,
         tools=[],
         enabled=True,  # must be True so check_prerequisites runs and keeps it FAILED
-        prerequisites=[
-            StaticPrerequisite(enabled=False, disabled_reason=error)
-        ],
+        prerequisites=[StaticPrerequisite(enabled=False, disabled_reason=error)],
     )
     # Set FAILED status + error up front so the sync layer sees them even if
     # check_prerequisites is skipped (e.g. on cached startup paths).

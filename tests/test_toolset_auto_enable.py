@@ -9,18 +9,19 @@ from holmes.core.tools import Toolset, ToolsetTag
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.utils.pydantic_utils import ToolsetConfig
 
-
 # --- Test config classes ---
 
 
 class AllOptionalConfig(ToolsetConfig):
     """Config where every field has a default."""
+
     url: Optional[str] = Field(default=None)
     timeout: int = Field(default=30)
 
 
 class RequiredFieldConfig(ToolsetConfig):
     """Config with a required field (no default)."""
+
     api_url: str = Field(title="API URL")
     api_key: Optional[str] = Field(default=None)
 

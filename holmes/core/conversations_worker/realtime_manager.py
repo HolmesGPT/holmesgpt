@@ -16,6 +16,7 @@ Communication with the sync ConversationWorker is via a callback that is
 invoked when a pending-conversation notification arrives. The callback MUST
 be thread-safe (the worker passes a threading.Event.set).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,7 @@ import ssl
 import threading
 import time
 import urllib.parse
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import jwt
 import realtime._async.client as rt_client
@@ -92,9 +93,8 @@ def _build_ssl_context() -> ssl.SSLContext:
     it into the WS handshake. Honor the env vars here so the realtime
     connection trusts the same bundle the rest of the app does.
     """
-    cafile = (
-        os.environ.get("REQUESTS_CA_BUNDLE")
-        or os.environ.get("WEBSOCKET_CLIENT_CA_BUNDLE")
+    cafile = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get(
+        "WEBSOCKET_CLIENT_CA_BUNDLE"
     )
     if cafile:
         if os.path.exists(cafile):
@@ -121,9 +121,8 @@ def _install_ssl_patch_if_needed() -> None:
 
     Idempotent.
     """
-    cafile = (
-        os.environ.get("REQUESTS_CA_BUNDLE")
-        or os.environ.get("WEBSOCKET_CLIENT_CA_BUNDLE")
+    cafile = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get(
+        "WEBSOCKET_CLIENT_CA_BUNDLE"
     )
     if not cafile:
         return
@@ -188,9 +187,7 @@ def _install_realtime_log_filter_if_needed() -> None:
     """
     for logger_name in ("realtime._async.channel", "realtime._async.client"):
         lg = logging.getLogger(logger_name)
-        if any(
-            isinstance(f, _RealtimeConnectivityWarningFilter) for f in lg.filters
-        ):
+        if any(isinstance(f, _RealtimeConnectivityWarningFilter) for f in lg.filters):
             continue
         lg.addFilter(_RealtimeConnectivityWarningFilter())
 
@@ -361,7 +358,7 @@ class RealtimeWorker:
                         )
                     except Exception:
                         reconnect_attempts += 1
-                        backoff = min(max_backoff, 2 ** reconnect_attempts)
+                        backoff = min(max_backoff, 2**reconnect_attempts)
                         # Log the full stacktrace (at error) on the first
                         # failure and then every 10th attempt; just a warning
                         # with the attempt number on the rest, to keep a long
@@ -411,9 +408,7 @@ class RealtimeWorker:
                 # immediately via call_soon_threadsafe instead of blocking
                 # for the full sleep interval.
                 try:
-                    await asyncio.wait_for(
-                        self._async_stop.wait(), timeout=sleep_for
-                    )
+                    await asyncio.wait_for(self._async_stop.wait(), timeout=sleep_for)
                     break  # _async_stop was set → exit loop
                 except asyncio.TimeoutError:
                     pass  # normal wake — re-check health and refresh
@@ -424,9 +419,7 @@ class RealtimeWorker:
             try:
                 await self._shutdown_async()
             except Exception:
-                logging.debug(
-                    "Error closing client during _run exit", exc_info=True
-                )
+                logging.debug("Error closing client during _run exit", exc_info=True)
             try:
                 self.on_new_pending()
             except Exception:
@@ -539,9 +532,9 @@ class RealtimeWorker:
         # Supabase Realtime URL
         store_url = self.dal.url.rstrip("/")
         if store_url.startswith("https://"):
-            ws_url = "wss://" + store_url[len("https://"):]
+            ws_url = "wss://" + store_url[len("https://") :]
         elif store_url.startswith("http://"):
-            ws_url = "ws://" + store_url[len("http://"):]
+            ws_url = "ws://" + store_url[len("http://") :]
         else:
             ws_url = store_url
         ws_url = f"{ws_url}/realtime/v1"
@@ -645,9 +638,7 @@ class RealtimeWorker:
                         "wake_all failed in pg subscribe",
                         exc_info=True,
                     )
-            elif any(
-                s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")
-            ):
+            elif any(s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")):
                 self._connected = False
                 subscribed.set()
                 try:
@@ -732,9 +723,7 @@ class RealtimeWorker:
                         "wake_all failed in broadcast subscribe",
                         exc_info=True,
                     )
-            elif any(
-                s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")
-            ):
+            elif any(s in status_str for s in ("CHANNEL_ERROR", "CLOSED", "TIMED_OUT")):
                 self._connected = False
                 subscribed.set()
                 try:

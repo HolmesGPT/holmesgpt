@@ -35,7 +35,11 @@ import textwrap
 
 import pytest
 
-from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus, ToolsetStatusEnum
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolsetStatusEnum,
+)
 from holmes.plugins.toolsets.kafka import (
     DescribeTopic,
     FindConsumerGroupsByTopic,
@@ -117,9 +121,7 @@ def test_mtls_list_consumers(mtls_toolset):
     assert isinstance(result, StructuredToolResult)
     assert result.status == StructuredToolResultStatus.SUCCESS
     # Either consumer groups found (YAML) or empty list
-    assert "consumer_groups:" in result.data, (
-        f"Unexpected response: {result.data}"
-    )
+    assert "consumer_groups:" in result.data, f"Unexpected response: {result.data}"
 
 
 def test_mtls_describe_nonexistent_topic(mtls_toolset):

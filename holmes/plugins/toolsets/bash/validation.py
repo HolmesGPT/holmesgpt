@@ -16,7 +16,11 @@ import bashlex
 from bashlex import ast
 
 from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH, load_bool
-
+from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
+from holmes.plugins.toolsets.bash.command_arg_rules import (
+    dangerous_argv_reason,
+    is_argv_checked_command,
+)
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -25,11 +29,6 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     CORE_ALLOW_LIST,
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
-)
-from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
-from holmes.plugins.toolsets.bash.command_arg_rules import (
-    dangerous_argv_reason,
-    is_argv_checked_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -167,7 +166,9 @@ class CommandSegmentExtractor(ast.nodevisitor):
         """Extract the command text for simple commands."""
         cmd_text = self.command[node.pos[0] : node.pos[1]].strip()
         self.segments.append(cmd_text)
-        word_parts = [part for part in node.parts if getattr(part, "kind", None) == "word"]
+        word_parts = [
+            part for part in node.parts if getattr(part, "kind", None) == "word"
+        ]
         if word_parts:
             self.command_argvs.append([part.word for part in word_parts])
             self.command_arg_dynamic.append(
@@ -245,7 +246,9 @@ def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
     )
 
 
-def check_dangerous_argv(extractor: CommandSegmentExtractor) -> Optional[ValidationResult]:
+def check_dangerous_argv(
+    extractor: CommandSegmentExtractor,
+) -> Optional[ValidationResult]:
     """Argv-level and redirection security checks that prefix matching cannot see.
 
     Returns:
@@ -330,7 +333,9 @@ def check_hardcoded_blocks(segment: str) -> Optional[str]:
     return None
 
 
-def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optional[str]:
+def check_blocked_in_raw_command(
+    command: str, blocked_list: List[str]
+) -> Optional[str]:
     """
     Check for blocked patterns anywhere in a raw command string using word boundaries.
 

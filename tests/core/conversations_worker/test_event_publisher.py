@@ -1,4 +1,5 @@
 """Unit tests for the ConversationEventPublisher."""
+
 from typing import List, Optional
 
 import pytest
@@ -58,7 +59,9 @@ def test_publisher_flushes_on_terminal_answer_end():
     terminal = pub.consume(
         _stream(
             [
-                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}),
+                StreamMessage(
+                    event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}
+                ),
                 StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "done"}),
             ]
         )
@@ -86,7 +89,9 @@ def test_publisher_flushes_on_approval_required():
     terminal = pub.consume(
         _stream(
             [
-                StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "bash"}),
+                StreamMessage(
+                    event=StreamEvents.START_TOOL, data={"tool_name": "bash"}
+                ),
                 StreamMessage(
                     event=StreamEvents.APPROVAL_REQUIRED,
                     data={"pending_approvals": [{"tool_call_id": "1"}]},
@@ -127,7 +132,9 @@ def test_publisher_compact_flag_on_compacted_event():
     )
     # Two flushes with compact=True: the compacted event AND the ai_answer_end.
     compact_calls = [c for c in dal.calls if c["compact"] is True]
-    assert len(compact_calls) == 2, f"expected 2 compact=True calls, got {len(compact_calls)}"
+    assert (
+        len(compact_calls) == 2
+    ), f"expected 2 compact=True calls, got {len(compact_calls)}"
     # First compact=True call must carry the compacted event.
     compact_event_types = [e["event"] for e in compact_calls[0]["events"]]
     assert "conversation_history_compacted" in compact_event_types
@@ -187,8 +194,12 @@ def test_publisher_only_terminal_compacts_without_compaction_events():
         _stream(
             [
                 StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t"}),
-                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "t"}),
-                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}),
+                StreamMessage(
+                    event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "t"}
+                ),
+                StreamMessage(
+                    event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}
+                ),
                 StreamMessage(event=StreamEvents.TOKEN_COUNT, data={}),
                 StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "final"}),
             ]
@@ -282,7 +293,9 @@ def test_publisher_batches_intermediate_events():
             [
                 StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t1"}),
                 StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "x"}),
-                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}),
+                StreamMessage(
+                    event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}
+                ),
                 StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "ok"}),
             ]
         )
@@ -309,11 +322,17 @@ def test_publisher_flushes_eagerly_on_token_count():
         _stream(
             [
                 # First LLM iteration: response + tool batch
-                StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}),
+                StreamMessage(
+                    event=StreamEvents.AI_MESSAGE, data={"content": "thinking"}
+                ),
                 StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"k": "post-llm"}),
                 StreamMessage(event=StreamEvents.START_TOOL, data={"tool_name": "t1"}),
-                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}),
-                StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "2"}),
+                StreamMessage(
+                    event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "1"}
+                ),
+                StreamMessage(
+                    event=StreamEvents.TOOL_RESULT, data={"tool_call_id": "2"}
+                ),
                 StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"k": "post-tools"}),
                 # Second LLM iteration: final answer
                 StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "ok"}),
@@ -380,9 +399,9 @@ def test_publisher_sticky_compact_across_none_retry():
     assert terminal == StreamEvents.ANSWER_END
     # The retry call must also have compact=True
     successful_calls = [c for c in dal.calls if c.get("compact") is True]
-    assert len(successful_calls) >= 1, (
-        f"Expected at least one compact=True call to succeed; calls={dal.calls}"
-    )
+    assert (
+        len(successful_calls) >= 1
+    ), f"Expected at least one compact=True call to succeed; calls={dal.calls}"
 
 
 def test_publisher_returns_none_when_events_unsaved():

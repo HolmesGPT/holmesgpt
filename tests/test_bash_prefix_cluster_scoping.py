@@ -41,7 +41,10 @@ def test_scope_key_remote_uses_agent_local_uses_sentinel():
     # remote tool without an agent falls back to the local sentinel (never leaks)
     assert _bash_prefix_scope(True, {}) == _LOCAL_BASH_PREFIX_SCOPE
     # a tool carrying agent_name but NOT flagged remote stays local-scoped
-    assert _bash_prefix_scope(False, {"agent_name": "cluster-a"}) == _LOCAL_BASH_PREFIX_SCOPE
+    assert (
+        _bash_prefix_scope(False, {"agent_name": "cluster-a"})
+        == _LOCAL_BASH_PREFIX_SCOPE
+    )
 
 
 def test_prefixes_are_bucketed_per_agent():

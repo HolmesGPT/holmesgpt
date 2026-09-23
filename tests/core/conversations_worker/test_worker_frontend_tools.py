@@ -1,4 +1,5 @@
 """Tests for ConversationWorker frontend-tool injection."""
+
 import threading
 from unittest.mock import MagicMock
 
@@ -148,7 +149,8 @@ def test_collision_with_backend_tool_fails_conversation():
     assert err["event"] == "error"
     assert "kubectl_get" in err["data"]["description"]
     failed_calls = [
-        c for c in worker.dal.update_conversation_status.call_args_list
+        c
+        for c in worker.dal.update_conversation_status.call_args_list
         if c.kwargs.get("status") == "failed"
     ]
     assert failed_calls

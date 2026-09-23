@@ -5,6 +5,7 @@ retry-resilience test builds a real in-process SupabaseDal via ``import
 server``). Override the unit-test autouse fixtures from the root conftest so
 they don't mock out the DAL / HTTP layer for this directory.
 """
+
 import pytest
 import responses as responses_
 

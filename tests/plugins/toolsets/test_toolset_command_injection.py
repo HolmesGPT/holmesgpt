@@ -51,10 +51,30 @@ YAML_FILES = sorted(
 # The list is validated to cover every external CLI actually invoked by a
 # built-in toolset command/script (coreutils are intentionally left real).
 STUB_BINS = [
-    "kubectl", "oc", "az", "gcloud", "aws", "vela", "ig", "helm", "curl",
-    "wget", "dig", "nslookup", "host", "tcpdump", "jq",
-    "docker", "nc", "ping", "psql", "mysql", "argocd",
-    "cilium", "hubble", "timeout",
+    "kubectl",
+    "oc",
+    "az",
+    "gcloud",
+    "aws",
+    "vela",
+    "ig",
+    "helm",
+    "curl",
+    "wget",
+    "dig",
+    "nslookup",
+    "host",
+    "tcpdump",
+    "jq",
+    "docker",
+    "nc",
+    "ping",
+    "psql",
+    "mysql",
+    "argocd",
+    "cilium",
+    "hubble",
+    "timeout",
 ]
 
 
@@ -88,6 +108,7 @@ def _template_of(tool):
 
 # --- 1. Static scan: no {{ param }} inside a quoted shell context ------------
 
+
 def _inside_quote_flags(text):
     """Whole-string bash-ish quote tracker (handles multi-line scripts).
     Returns a list[bool] marking indices that fall inside a '...' or "..."
@@ -117,9 +138,7 @@ def _inside_quote_flags(text):
     return inside
 
 
-@pytest.mark.parametrize(
-    "entry", ALL_TOOLS, ids=TOOL_IDS or ["none"]
-)
+@pytest.mark.parametrize("entry", ALL_TOOLS, ids=TOOL_IDS or ["none"])
 def test_no_param_interpolated_inside_quotes(entry):
     """No executed command/script may place a Jinja {{ expression }} inside a
     quoted shell context - that is the exact shape that defeats shlex.quote."""
@@ -129,17 +148,18 @@ def test_no_param_interpolated_inside_quotes(entry):
     bad = []
     for m in re.finditer(r"\{\{.*?\}\}", template, flags=re.DOTALL):
         if m.start() < len(inside) and inside[m.start()]:
-            snippet = template[max(0, m.start() - 30): m.end() + 5].replace("\n", " ")
+            snippet = template[max(0, m.start() - 30) : m.end() + 5].replace("\n", " ")
             bad.append(f"{m.group(0)}  (…{snippet}…)")
     assert not bad, (
         f"{fname} :: {tool.name}: parameter placeholder(s) sit inside a quoted "
         f"shell context - shlex.quote does NOT protect there. Assign to a shell "
-        f"variable in an unquoted slot and reference it as \"$VAR\" instead.\n"
+        f'variable in an unquoted slot and reference it as "$VAR" instead.\n'
         + "\n".join(bad)
     )
 
 
 # --- 2. Behavioural proof: nothing executes when a param carries a payload ---
+
 
 def _make_stub_bin(workdir):
     """Create a bin dir of no-op stubs for every external CLI in STUB_BINS,

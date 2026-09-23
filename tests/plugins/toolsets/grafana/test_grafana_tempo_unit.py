@@ -470,9 +470,7 @@ def test_build_k8s_filters_after_prerequisites_callable():
         "grafana_datasource_uid": "tempo_uid",
     }
 
-    with patch(
-        "holmes.plugins.toolsets.grafana.toolset_grafana_tempo.GrafanaTempoAPI"
-    ):
+    with patch("holmes.plugins.toolsets.grafana.toolset_grafana_tempo.GrafanaTempoAPI"):
         toolset.prerequisites_callable(config)
 
     # This is the call path that failed with:

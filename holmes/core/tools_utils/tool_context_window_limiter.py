@@ -14,9 +14,11 @@ from holmes.common.env_vars import load_bool
 from holmes.core.llm import LLM
 from holmes.core.models import ToolCallResult
 from holmes.core.tools import StructuredToolResultStatus
-from holmes.core.tools_utils.filesystem_result_storage import save_images, save_large_result
+from holmes.core.tools_utils.filesystem_result_storage import (
+    save_images,
+    save_large_result,
+)
 from holmes.utils import sentry_helper
-
 
 ERROR_INLINE_PREVIEW_CHARS = 500
 
@@ -48,7 +50,9 @@ def spill_oversized_tool_result(
     message = tool_call_result.to_llm_message()
     messages_token = llm.count_tokens(messages=[message]).total_tokens
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
-    logging.debug(f"spill_oversized_tool_result: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
+    logging.debug(
+        f"spill_oversized_tool_result: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)"
+    )
 
     if messages_token <= max_tokens_allowed:
         return messages_token
@@ -102,14 +106,10 @@ def spill_oversized_tool_result(
             f"`cat {file_path} | jq '.field'`, `cat {file_path} | grep -oP 'pattern'`, etc.\n"
         )
         if image_paths:
-            boilerplate += (
-                f"\nImages saved to disk ({len(image_paths)} file(s)):\n"
-            )
+            boilerplate += f"\nImages saved to disk ({len(image_paths)} file(s)):\n"
             for img_path in image_paths:
                 boilerplate += f"  - {img_path}\n"
-            boilerplate += (
-                "Use read_image_file to view any of these images.\n"
-            )
+            boilerplate += "Use read_image_file to view any of these images.\n"
         boilerplate += "\nPreview:\n"
         # Allocate remaining char budget to the preview so the final string fits the context window
         chars_per_token = 4

@@ -32,7 +32,6 @@ MIN_NUMBER_OF_CHARACTERS_TO_TRUNCATE: int = (
 )  # prevents the truncation algorithm from going too slow once the actual token count gets close to the expected limit
 
 
-
 class FetchPodLogsParams(BaseModel):
     namespace: str
     pod_name: str

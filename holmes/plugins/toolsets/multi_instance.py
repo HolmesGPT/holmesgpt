@@ -75,7 +75,9 @@ _ATOMIC_GROUPS: List[set] = [
 _IDENTIFYING_FIELDS = ("api_url", "url", "prometheus_url", "connection_url", "domain")
 
 
-def _merge_instance_config(globals_: Dict[str, Any], entry: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_instance_config(
+    globals_: Dict[str, Any], entry: Dict[str, Any]
+) -> Dict[str, Any]:
     """Merge top-level globals into one instance entry (entry wins per key).
 
     Atomic groups (auth, mTLS) are dropped from the inherited globals when the
@@ -105,7 +107,9 @@ def _parse_instances(config: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]
     out: List[Tuple[str, Dict[str, Any]]] = []
     for idx, entry in enumerate(raw):
         if not isinstance(entry, dict):
-            raise ValueError(f"`instances[{idx}]` must be a dict, got {type(entry).__name__}")
+            raise ValueError(
+                f"`instances[{idx}]` must be a dict, got {type(entry).__name__}"
+            )
         name = entry.get("name") or f"instance-{idx}"
         if name in seen:
             raise ValueError(f"Duplicate instance name: '{name}'")
@@ -126,7 +130,9 @@ class _RoutingTool(Tool):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def __init__(self, wrapper: "MultiInstanceToolset", template: Tool, add_instance_param: bool):
+    def __init__(
+        self, wrapper: "MultiInstanceToolset", template: Tool, add_instance_param: bool
+    ):
         params = dict(template.parameters)
         if add_instance_param:
             params.setdefault(INSTANCE_PARAM_NAME, INSTANCE_PARAM)
@@ -168,7 +174,10 @@ class _RoutingTool(Tool):
         # Record which instance answered so it's visible in the tool output.
         # Only when multi-instance, so a single/`default` toolset is unchanged.
         if self._add_instance_param:
-            result.params = {**(result.params or call_params), INSTANCE_PARAM_NAME: name}
+            result.params = {
+                **(result.params or call_params),
+                INSTANCE_PARAM_NAME: name,
+            }
         return result
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -358,7 +367,9 @@ class MultiInstanceToolset(Toolset):
         for name, child in self._children.items():
             if child.llm_instructions:
                 if multi:
-                    sections.append(f"### Instance `{name}`\n\n{child.llm_instructions}")
+                    sections.append(
+                        f"### Instance `{name}`\n\n{child.llm_instructions}"
+                    )
                 else:
                     sections.append(child.llm_instructions)
         # Keep the template-derived instructions when no child built any, so
@@ -375,7 +386,8 @@ class MultiInstanceToolset(Toolset):
     ) -> Tuple[bool, str]:
         """Run the child's own callable prerequisite (validation + health) on a flat config."""
         callable_prereq = next(
-            (p for p in child.prerequisites if isinstance(p, CallablePrerequisite)), None
+            (p for p in child.prerequisites if isinstance(p, CallablePrerequisite)),
+            None,
         )
         if callable_prereq is None:
             child.config = flat_config
@@ -399,7 +411,8 @@ class MultiInstanceToolset(Toolset):
             for tool in child.tools:
                 templates.setdefault(tool.name, tool)
         tools: List[Tool] = [
-            _RoutingTool(self, tmpl, add_instance_param=multi) for tmpl in templates.values()
+            _RoutingTool(self, tmpl, add_instance_param=multi)
+            for tmpl in templates.values()
         ]
         if multi:
             tools.append(ListInstancesTool(self))
@@ -408,7 +421,9 @@ class MultiInstanceToolset(Toolset):
     def _aggregate(self, failures: List[str], successes: List[str]) -> Tuple[bool, str]:
         """Tolerant: succeed if at least one instance is healthy; surface every failure."""
         if not successes:
-            return False, "\n".join(failures) or f"No instances configured for {self.name}"
+            return False, "\n".join(
+                failures
+            ) or f"No instances configured for {self.name}"
         if failures:
             total = len(failures) + len(successes)
             logger.warning(

@@ -1,4 +1,5 @@
 """Tests for OpenTelemetry tracing implementation."""
+
 import contextvars
 import os
 from unittest.mock import MagicMock, patch
@@ -288,7 +289,9 @@ class TestLangfuseTraceAttributes:
             )
         assert attrs["langfuse.user.id"] == "u123"  # user_id wins
         assert attrs["langfuse.session.id"] == "conv1"
-        assert attrs["langfuse.trace.name"] == "conv1"  # conversation id, not the prompt
+        assert (
+            attrs["langfuse.trace.name"] == "conv1"
+        )  # conversation id, not the prompt
         assert attrs["langfuse.trace.input"] == "why is my pod crashing?"
         # explicit identity metadata
         assert attrs["langfuse.trace.metadata.user_id"] == "u123"
@@ -395,16 +398,28 @@ class TestSpanHierarchy:
         by_name = {s.name: s for s in spans}
 
         # gen_ai.chat is child of investigation
-        assert by_name["gen_ai.chat"].parent.span_id == by_name["investigation"].context.span_id
+        assert (
+            by_name["gen_ai.chat"].parent.span_id
+            == by_name["investigation"].context.span_id
+        )
 
         # HTTP POST is child of gen_ai.chat (because chat_span was active in context)
-        assert by_name["HTTP POST"].parent.span_id == by_name["gen_ai.chat"].context.span_id
+        assert (
+            by_name["HTTP POST"].parent.span_id
+            == by_name["gen_ai.chat"].context.span_id
+        )
 
         # holmesgpt.tool.kubectl is child of investigation
-        assert by_name["holmesgpt.tool.kubectl"].parent.span_id == by_name["investigation"].context.span_id
+        assert (
+            by_name["holmesgpt.tool.kubectl"].parent.span_id
+            == by_name["investigation"].context.span_id
+        )
 
         # HTTP POST /mcp is child of tool span
-        assert by_name["HTTP POST /mcp"].parent.span_id == by_name["holmesgpt.tool.kubectl"].context.span_id
+        assert (
+            by_name["HTTP POST /mcp"].parent.span_id
+            == by_name["holmesgpt.tool.kubectl"].context.span_id
+        )
 
     def test_end_detaches_context(self, in_memory_exporter):
         """After end(), the span is no longer the active parent."""
@@ -441,9 +456,11 @@ class TestOpenTelemetryTracer:
 
     def test_tracer_start_trace_returns_otel_span(self):
         """start_trace() returns an OTelSpan wrapping a real OTel span."""
-        from holmes.core.otel_tracing import OTelSpan, OpenTelemetryTracer
+        from holmes.core.otel_tracing import OpenTelemetryTracer, OTelSpan
 
-        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+        with patch.dict(
+            os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}
+        ):
             tracer = OpenTelemetryTracer(service_name="test")
             span = tracer.start_trace("test_trace")
             assert isinstance(span, OTelSpan)
@@ -455,7 +472,9 @@ class TestOpenTelemetryTracer:
         """start_trace() activates the span so it's visible as current span."""
         from holmes.core.otel_tracing import OpenTelemetryTracer
 
-        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+        with patch.dict(
+            os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}
+        ):
             tracer = OpenTelemetryTracer(service_name="test")
             span = tracer.start_trace("test_trace")
 
@@ -470,7 +489,9 @@ class TestOpenTelemetryTracer:
         """wrap_llm() returns the module unchanged (no Braintrust wrapping)."""
         from holmes.core.otel_tracing import OpenTelemetryTracer
 
-        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+        with patch.dict(
+            os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}
+        ):
             tracer = OpenTelemetryTracer(service_name="test")
             mock_llm = MagicMock()
             result = tracer.wrap_llm(mock_llm)
@@ -481,7 +502,9 @@ class TestOpenTelemetryTracer:
         """start_experiment() returns None (OTel doesn't use experiments)."""
         from holmes.core.otel_tracing import OpenTelemetryTracer
 
-        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+        with patch.dict(
+            os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}
+        ):
             tracer = OpenTelemetryTracer(service_name="test")
             assert tracer.start_experiment() is None
             tracer.shutdown()
@@ -494,7 +517,9 @@ class TestTracingFactoryOTel:
         """TracingFactory creates OTel tracer when trace_type='otel'."""
         from holmes.core.otel_tracing import OpenTelemetryTracer
 
-        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+        with patch.dict(
+            os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}
+        ):
             tracer = TracingFactory.create_tracer("otel")
             assert isinstance(tracer, OpenTelemetryTracer)
             tracer.shutdown()
@@ -503,7 +528,11 @@ class TestTracingFactoryOTel:
         """TracingFactory auto-detects OTel when OTEL_EXPORTER_OTLP_ENDPOINT is set."""
         from holmes.core.otel_tracing import OpenTelemetryTracer
 
-        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"},
+            clear=False,
+        ):
             tracer = TracingFactory.create_tracer(None)
             assert isinstance(tracer, OpenTelemetryTracer)
             tracer.shutdown()
@@ -519,7 +548,6 @@ class TestTracingFactoryOTel:
 
 
 class TestOTLPProtocolSelection:
-    
     def test_grpc_exporters_by_default(self):
         """Without OTEL_EXPORTER_OTLP_PROTOCOL, the gRPC exporters are used."""
         from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
@@ -570,8 +598,13 @@ class TestOTLPProtocolSelection:
             metrics_endpoint=None,
             headers={},
         )
-        assert trace_exporter._endpoint == "http://langfuse:3000/api/public/otel/v1/traces"
-        assert metric_exporter._endpoint == "http://langfuse:3000/api/public/otel/v1/metrics"
+        assert (
+            trace_exporter._endpoint == "http://langfuse:3000/api/public/otel/v1/traces"
+        )
+        assert (
+            metric_exporter._endpoint
+            == "http://langfuse:3000/api/public/otel/v1/metrics"
+        )
 
     def test_http_does_not_double_append_signal_path(self):
         """An endpoint that already ends with /v1/traces is used as-is."""
@@ -595,7 +628,9 @@ class TestOTLPProtocolSelection:
             metrics_endpoint="http://other-collector:4318/custom/v1/metrics",
             headers={},
         )
-        assert metric_exporter._endpoint == "http://other-collector:4318/custom/v1/metrics"
+        assert (
+            metric_exporter._endpoint == "http://other-collector:4318/custom/v1/metrics"
+        )
 
     def test_invalid_protocol_raises(self):
         """Unsupported protocol values raise a clear error."""
@@ -692,6 +727,7 @@ class TestOTelMetrics:
     def test_metrics_none_when_not_initialized(self):
         """Metrics should be None when OTel is not initialized."""
         from holmes.core.tracing import TracingFactory
+
         # Before any tracer is created, metrics may or may not be set
         # depending on test ordering. Just verify the function is callable.
         result = TracingFactory.get_metrics()
@@ -699,8 +735,9 @@ class TestOTelMetrics:
 
     def test_otel_metrics_instruments_exist(self):
         """OTelMetrics should have all expected metric instruments."""
-        from holmes.core.otel_tracing import OTelMetrics
         from opentelemetry.sdk.metrics import MeterProvider
+
+        from holmes.core.otel_tracing import OTelMetrics
 
         meter_provider = MeterProvider()
         meter = meter_provider.get_meter("test", "0.1.0")
@@ -719,15 +756,18 @@ class TestOTelMetrics:
 
     def test_metrics_recording_does_not_raise(self):
         """Recording metrics should not raise exceptions."""
-        from holmes.core.otel_tracing import OTelMetrics
         from opentelemetry.sdk.metrics import MeterProvider
+
+        from holmes.core.otel_tracing import OTelMetrics
 
         meter_provider = MeterProvider()
         meter = meter_provider.get_meter("test", "0.1.0")
         m = OTelMetrics(meter)
 
         # These should not raise
-        m.token_usage.add(100, {"gen_ai_request_model": "test", "gen_ai_token_type": "input"})
+        m.token_usage.add(
+            100, {"gen_ai_request_model": "test", "gen_ai_token_type": "input"}
+        )
         m.investigation_count.add(1, {"gen_ai_request_model": "test"})
         m.investigation_duration.record(1.5, {"gen_ai_request_model": "test"})
         m.investigation_iterations.record(3, {"gen_ai_request_model": "test"})

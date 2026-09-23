@@ -66,9 +66,7 @@ class TestSupabaseDal(SupabaseDal):
                 logging.warning(f"Failed to read skill catalog fixture file: {e}")
         return None
 
-    def get_skill_content(
-        self, skill_id: str
-    ) -> Optional[RobustaSkillInstruction]:
+    def get_skill_content(self, skill_id: str) -> Optional[RobustaSkillInstruction]:
         file_path = self._get_fixture_file_path(f"runbook_content_{skill_id}")
         if file_path.exists():
             try:
@@ -90,11 +88,10 @@ class TestSupabaseDal(SupabaseDal):
                     data = json.load(f)
                     return Instructions(**data)
             except Exception as e:
-                logging.warning(
-                    f"Failed to read global instructions fixture file: {e}"
-                )
+                logging.warning(f"Failed to read global instructions fixture file: {e}")
 
         return None
+
 
 # Backwards-compatible aliases
 MockSupabaseDal = TestSupabaseDal

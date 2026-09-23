@@ -38,6 +38,7 @@ def _get_token_manager():
     global _token_manager
     if _token_manager is None:
         from holmes.plugins.toolsets.mcp.oauth_token_manager import OAuthTokenManager
+
         _token_manager = OAuthTokenManager()
     return _token_manager
 
@@ -73,7 +74,9 @@ def eager_load_oauth_tools(executor: Any) -> None:
         if not ts._mcp_config.oauth.authorization_url:
             continue
         for user_id in token_mgr.get_cached_user_ids(ts._mcp_config.oauth):
-            executor.oauth_connector.load_tools_for_user(user_id, ts, {"user_id": user_id})
+            executor.oauth_connector.load_tools_for_user(
+                user_id, ts, {"user_id": user_id}
+            )
 
 
 # exchange_code_for_tokens is re-exported from oauth_config (imported above)
@@ -119,9 +122,13 @@ def perform_dcr(
         )
         if response.status_code in (200, 201):
             client_id = response.json().get("client_id")
-            logger.info("CLI OAuth %s: DCR registered client_id=%s", server_name, client_id)
+            logger.info(
+                "CLI OAuth %s: DCR registered client_id=%s", server_name, client_id
+            )
             return client_id
-        logger.warning("CLI OAuth %s: DCR failed HTTP %d", server_name, response.status_code)
+        logger.warning(
+            "CLI OAuth %s: DCR failed HTTP %d", server_name, response.status_code
+        )
     except Exception:
         logger.warning("CLI OAuth %s: DCR request failed", server_name, exc_info=True)
     return None
@@ -129,10 +136,13 @@ def perform_dcr(
 
 class _ReusableHTTPServer(HTTPServer):
     """HTTPServer with SO_REUSEADDR set before binding (avoids TIME_WAIT conflicts)."""
+
     allow_reuse_address = True
 
 
-def start_oauth_callback_server(port: int = 0) -> Tuple[Any, Dict[str, Any], threading.Event, int]:
+def start_oauth_callback_server(
+    port: int = 0,
+) -> Tuple[Any, Dict[str, Any], threading.Event, int]:
     """Start a local HTTP server to receive the OAuth callback.
 
     If port=0, the OS picks a free port. Returns (server, result_dict, event, actual_port).
@@ -216,23 +226,35 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
     Returns the token data dict or None on failure.
     """
     if not oauth.authorization_url or not oauth.token_url:
-        logger.warning("CLI OAuth %s: missing authorization_url or token_url", server_name)
+        logger.warning(
+            "CLI OAuth %s: missing authorization_url or token_url", server_name
+        )
         return None
 
     if not oauth.client_id and not oauth.registration_endpoint:
-        logger.warning("CLI OAuth %s: no client_id and no registration_endpoint", server_name)
+        logger.warning(
+            "CLI OAuth %s: no client_id and no registration_endpoint", server_name
+        )
         return None
 
     # Determine callback port: env var or ephemeral (0)
     port = int(os.environ.get("HOLMES_OAUTH_CALLBACK_PORT", "0"))
     if port:
-        logger.info("CLI OAuth %s: using static callback port %d (from HOLMES_OAUTH_CALLBACK_PORT)", server_name, port)
+        logger.info(
+            "CLI OAuth %s: using static callback port %d (from HOLMES_OAUTH_CALLBACK_PORT)",
+            server_name,
+            port,
+        )
 
     # Start the callback server (port=0 → OS picks free port, no race condition)
     try:
-        server, result_dict, callback_event, callback_port = start_oauth_callback_server(port=port)
+        server, result_dict, callback_event, callback_port = (
+            start_oauth_callback_server(port=port)
+        )
     except OSError as e:
-        logger.warning("CLI OAuth %s: failed to start callback server: %s", server_name, e)
+        logger.warning(
+            "CLI OAuth %s: failed to start callback server: %s", server_name, e
+        )
         return None
 
     try:
@@ -240,7 +262,9 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
 
         # Perform DCR if needed (now that we know the redirect_uri)
         if oauth.registration_endpoint:
-            dcr_client_id = perform_dcr(oauth.registration_endpoint, redirect_uri, server_name)
+            dcr_client_id = perform_dcr(
+                oauth.registration_endpoint, redirect_uri, server_name
+            )
             if dcr_client_id:
                 oauth.client_id = dcr_client_id
             elif not oauth.client_id:
@@ -253,7 +277,12 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
         code_verifier, code_challenge = generate_pkce()
         state = secrets.token_urlsafe(32)
         auth_url = build_authorization_url(
-            oauth.authorization_url, oauth.client_id, redirect_uri, code_challenge, state, oauth.scopes,
+            oauth.authorization_url,
+            oauth.client_id,
+            redirect_uri,
+            code_challenge,
+            state,
+            oauth.scopes,
             resource=oauth.resource,
         )
 
@@ -269,13 +298,23 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
         server.server_close()
 
     if "error" in result:
-        logger.warning("CLI OAuth %s: OAuth error: %s - %s", server_name, result["error"], result.get("error_description", ""))
+        logger.warning(
+            "CLI OAuth %s: OAuth error: %s - %s",
+            server_name,
+            result["error"],
+            result.get("error_description", ""),
+        )
         return None
     if "code" not in result:
         logger.warning("CLI OAuth %s: no auth code received (timeout?)", server_name)
         return None
     if result.get("state") != state:
-        logger.warning("CLI OAuth %s: state mismatch (CSRF protection) — expected=%s, got=%s", server_name, state, result.get("state"))
+        logger.warning(
+            "CLI OAuth %s: state mismatch (CSRF protection) — expected=%s, got=%s",
+            server_name,
+            state,
+            result.get("state"),
+        )
         return None
 
     try:
@@ -325,7 +364,12 @@ def discover_auth_server_from_prm(
             auth_servers = prm.get("authorization_servers", [])
             if auth_servers:
                 scopes = prm.get("scopes_supported")
-                logging.debug("OAuth discovery %s: found auth server via PRM %s: %s", server_name, prm_url, auth_servers[0])
+                logging.debug(
+                    "OAuth discovery %s: found auth server via PRM %s: %s",
+                    server_name,
+                    prm_url,
+                    auth_servers[0],
+                )
                 return str(auth_servers[0]).rstrip("/"), scopes
         except Exception:
             continue
@@ -343,16 +387,22 @@ def fetch_oauth_metadata(
     Uses the MCP SDK's URL builder for discovery order.
     Returns the metadata dict, or None if all attempts fail.
     """
-    discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(auth_server_url, mcp_url)
+    discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+        auth_server_url, mcp_url
+    )
 
     for url in discovery_urls:
         try:
             resp = httpx.get(url, timeout=10, verify=verify_ssl)
             if resp.status_code == 200:
-                logging.debug("OAuth discovery %s: fetched metadata from %s", server_name, url)
+                logging.debug(
+                    "OAuth discovery %s: fetched metadata from %s", server_name, url
+                )
                 return resp.json()
         except Exception:
             continue
 
-    logging.warning("OAuth discovery %s: all metadata discovery attempts failed", server_name)
+    logging.warning(
+        "OAuth discovery %s: all metadata discovery attempts failed", server_name
+    )
     return None

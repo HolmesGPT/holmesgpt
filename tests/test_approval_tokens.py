@@ -35,11 +35,15 @@ def test_args_hash_normalizes_empty_inputs():
 
 
 def test_args_hash_is_stable_under_key_reorder_and_whitespace():
-    assert approval_tokens.args_hash('{"a":1,"b":2}') == approval_tokens.args_hash('{"b": 2, "a": 1}')
+    assert approval_tokens.args_hash('{"a":1,"b":2}') == approval_tokens.args_hash(
+        '{"b": 2, "a": 1}'
+    )
 
 
 def test_args_hash_distinguishes_different_values():
-    assert approval_tokens.args_hash('{"command":"ls"}') != approval_tokens.args_hash('{"command":"rm"}')
+    assert approval_tokens.args_hash('{"command":"ls"}') != approval_tokens.args_hash(
+        '{"command":"rm"}'
+    )
 
 
 # ---------- key loader (calls _load_signing_key directly) ----------
@@ -100,7 +104,9 @@ def test_verify_rejects_all_failure_modes_uniformly(token_arg, call_id, name, ar
         ("__valid__", "call_1", "bash", "{not json", "claim comparison raised"),
     ],
 )
-def test_verify_attaches_specific_reason_for_server_logs(token_arg, call_id, name, args, reason_substr):
+def test_verify_attaches_specific_reason_for_server_logs(
+    token_arg, call_id, name, args, reason_substr
+):
     """User message stays uniform (above); `reason` lets server logs say what
     actually failed without leaking it to the client."""
     valid = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
@@ -169,13 +175,17 @@ def test_user_message_links_to_docs():
 
 def test_prefix_token_round_trip():
     token = approval_tokens.mint_prefix_token(["kubectl get", "grep"], "")
-    assert approval_tokens.verify_prefix_token(token, ["kubectl get", "grep"], "") is True
+    assert (
+        approval_tokens.verify_prefix_token(token, ["kubectl get", "grep"], "") is True
+    )
 
 
 def test_prefix_token_verify_is_order_insensitive():
     """Prefixes are a set; mint sorts them so history order does not matter."""
     token = approval_tokens.mint_prefix_token(["grep", "kubectl get"], "")
-    assert approval_tokens.verify_prefix_token(token, ["kubectl get", "grep"], "") is True
+    assert (
+        approval_tokens.verify_prefix_token(token, ["kubectl get", "grep"], "") is True
+    )
 
 
 def test_prefix_token_binds_agent_scope():
@@ -272,4 +282,6 @@ def test_prefix_token_verify_is_total_on_malformed_prefixes(bad_prefixes):
 def test_prefix_token_verify_is_total_on_malformed_agent(bad_agent):
     """A malformed agent must fail closed, never raise."""
     valid = approval_tokens.mint_prefix_token(["kubectl get"], "cluster-a")
-    assert approval_tokens.verify_prefix_token(valid, ["kubectl get"], bad_agent) is False
+    assert (
+        approval_tokens.verify_prefix_token(valid, ["kubectl get"], bad_agent) is False
+    )

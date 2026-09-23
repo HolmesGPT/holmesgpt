@@ -3,6 +3,7 @@
 Verifies the RPC contract: parameter names, default values, and that the DAL
 just forwards the response from the RPC.
 """
+
 from typing import Any
 from unittest.mock import MagicMock
 

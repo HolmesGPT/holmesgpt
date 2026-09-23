@@ -14,7 +14,10 @@ from holmes.core.tracing import (
     BRAINTRUST_PROJECT,
     get_experiment_name,
 )
-from tests.llm.utils.test_case_utils import AskHolmesTestCase, HolmesTestCase  # type: ignore
+from tests.llm.utils.test_case_utils import (  # type: ignore
+    AskHolmesTestCase,
+    HolmesTestCase,
+)
 
 
 class CompactionResult(BaseModel):
@@ -84,8 +87,7 @@ def log_to_braintrust(
         ):
             # Find the first message with role "system"
             system_msg = next(
-                (m for m in result.messages if m.get("role") == "system"),
-                None
+                (m for m in result.messages if m.get("role") == "system"), None
             )
             prompt = system_msg["content"] if system_msg else "<NO SYSTEM PROMPT FOUND>"
 
@@ -208,7 +210,9 @@ def log_to_braintrust(
                             )
                         )
                     except Exception:
-                        logging.debug(f"Failed to create Braintrust attachment for {tc.tool_name} image {img_idx}")
+                        logging.debug(
+                            f"Failed to create Braintrust attachment for {tc.tool_name} image {img_idx}"
+                        )
 
     if tool_call_images:
         metadata["tool_call_images"] = tool_call_images

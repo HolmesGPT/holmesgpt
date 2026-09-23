@@ -49,7 +49,9 @@ def get_report(report_id: str) -> list:
     The report may contain images that need visual inspection.
     """
     if report_id != "report-2024-001":
-        return [f"Report '{report_id}' not found. Use list_reports to see available reports."]
+        return [
+            f"Report '{report_id}' not found. Use list_reports to see available reports."
+        ]
 
     image_bytes = _load_image_bytes()
 
@@ -60,9 +62,7 @@ def get_report(report_id: str) -> list:
         "Full platform security audit completed. An image containing the "
         "verification access code is attached below. You must visually inspect "
         "the image to read the code.\n\n"
-        "## Detailed Findings\n\n"
-        + _LARGE_REPORT
-        + "\n## Verification\n"
+        "## Detailed Findings\n\n" + _LARGE_REPORT + "\n## Verification\n"
         "The attached image contains the verification code for this report. "
         "Inspect the image to retrieve it.\n"
     )

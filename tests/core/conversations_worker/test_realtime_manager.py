@@ -1,4 +1,5 @@
 """Unit tests for RealtimeWorker's testable (non-async) surface."""
+
 import asyncio
 import logging
 import ssl as _ssl
@@ -47,8 +48,7 @@ def test_is_connected_reflects_connection_flag():
 def test_topic_helpers():
     assert pg_changes_topic("acc-1") == "holmes:pgchanges:acc-1"
     assert (
-        broadcast_submit_topic("acc-1", "cluster-1")
-        == "holmes:submit:acc-1:cluster-1"
+        broadcast_submit_topic("acc-1", "cluster-1") == "holmes:submit:acc-1:cluster-1"
     )
 
 
@@ -67,13 +67,9 @@ def test_install_ssl_patch_does_nothing_without_ca_bundle(monkeypatch):
     assert not getattr(rt_client, "_holmes_ssl_patched", False)
 
 
-def test_install_ssl_patch_does_nothing_when_ca_bundle_missing(
-    monkeypatch, tmp_path
-):
+def test_install_ssl_patch_does_nothing_when_ca_bundle_missing(monkeypatch, tmp_path):
     """CA env var pointing at a non-existent path is a no-op (don't crash)."""
-    monkeypatch.setenv(
-        "REQUESTS_CA_BUNDLE", str(tmp_path / "does-not-exist.pem")
-    )
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "does-not-exist.pem"))
     monkeypatch.delenv("WEBSOCKET_CLIENT_CA_BUNDLE", raising=False)
 
     rt_client._holmes_ssl_patched = False
@@ -132,9 +128,7 @@ def test_install_ssl_patch_does_not_clobber_existing_ssl(monkeypatch):
     try:
         _install_ssl_patch_if_needed()
         asyncio.run(
-            rt_client.connect(
-                "wss://realtime.example/realtime/v1", ssl=sentinel_ctx
-            )
+            rt_client.connect("wss://realtime.example/realtime/v1", ssl=sentinel_ctx)
         )
         assert captured_kwargs["ssl"] is sentinel_ctx
     finally:
@@ -293,9 +287,11 @@ def test_unhealthy_degrades_gracefully_when_internals_renamed():
     m = _make_manager()
     m._channel = MagicMock()
     m._channel.state = ChannelStates.JOINED
+
     # Bare object — no _listen_task / _heartbeat_task attributes at all.
     class _StubClient:
         is_connected = True
+
     m._client = _StubClient()
     # Should return a reason string, never raise.
     reason = m._channel_unhealthy()
@@ -306,6 +302,7 @@ def test_run_loop_triggers_reconnect_on_dead_listen_task():
     """When the listen task is done, _run must call _full_reconnect on the
     next health-tick wake instead of waiting for the auth-refresh interval.
     """
+
     async def _scenario():
         m = _make_healthy_manager()
         m._async_stop = asyncio.Event()
@@ -339,6 +336,7 @@ def test_run_loop_triggers_reconnect_on_dead_listen_task():
 
         # Force a short health tick so the test runs quickly.
         import holmes.core.conversations_worker.realtime_manager as _rm
+
         original_tick = _rm.CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS
         _rm.CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS = 0.05
         try:
@@ -380,7 +378,9 @@ def test_connectivity_filter_downgrades_known_errors_to_warning(msg):
 
 def test_connectivity_filter_leaves_unrelated_errors_alone():
     f = _RealtimeConnectivityWarningFilter()
-    rec = _make_record("realtime._async.client", logging.ERROR, "Unrecognized message format")
+    rec = _make_record(
+        "realtime._async.client", logging.ERROR, "Unrecognized message format"
+    )
     assert f.filter(rec) is True
     assert rec.levelno == logging.ERROR
     assert rec.levelname == "ERROR"
@@ -388,7 +388,9 @@ def test_connectivity_filter_leaves_unrelated_errors_alone():
 
 def test_connectivity_filter_leaves_non_error_levels_alone():
     f = _RealtimeConnectivityWarningFilter()
-    rec = _make_record("realtime._async.channel", logging.INFO, "join push timeout for channel x")
+    rec = _make_record(
+        "realtime._async.channel", logging.INFO, "join push timeout for channel x"
+    )
     assert f.filter(rec) is True
     # Filter only acts on ERROR records.
     assert rec.levelno == logging.INFO
@@ -398,13 +400,19 @@ def test_install_realtime_log_filter_is_idempotent():
     # Clear any pre-existing instance so the count check is deterministic.
     for name in ("realtime._async.channel", "realtime._async.client"):
         lg = logging.getLogger(name)
-        lg.filters = [f for f in lg.filters if not isinstance(f, _RealtimeConnectivityWarningFilter)]
+        lg.filters = [
+            f
+            for f in lg.filters
+            if not isinstance(f, _RealtimeConnectivityWarningFilter)
+        ]
 
     _install_realtime_log_filter_if_needed()
     _install_realtime_log_filter_if_needed()
     for name in ("realtime._async.channel", "realtime._async.client"):
         lg = logging.getLogger(name)
-        installed = [f for f in lg.filters if isinstance(f, _RealtimeConnectivityWarningFilter)]
+        installed = [
+            f for f in lg.filters if isinstance(f, _RealtimeConnectivityWarningFilter)
+        ]
         assert len(installed) == 1
 
 
@@ -414,12 +422,18 @@ def test_install_realtime_log_filter_downgrades_live_log_records(caplog):
     client_logger = logging.getLogger("realtime._async.client")
 
     with caplog.at_level(logging.DEBUG, logger="realtime._async.channel"):
-        channel_logger.error("join push timeout for channel realtime:holmes:submit:acc:cluster")
+        channel_logger.error(
+            "join push timeout for channel realtime:holmes:submit:acc:cluster"
+        )
     with caplog.at_level(logging.DEBUG, logger="realtime._async.client"):
         client_logger.error("WebSocket connection closed with code: 1006, reason: ")
 
-    join_record = next(r for r in caplog.records if "join push timeout" in r.getMessage())
-    ws_record = next(r for r in caplog.records if "WebSocket connection closed" in r.getMessage())
+    join_record = next(
+        r for r in caplog.records if "join push timeout" in r.getMessage()
+    )
+    ws_record = next(
+        r for r in caplog.records if "WebSocket connection closed" in r.getMessage()
+    )
     assert join_record.levelno == logging.WARNING
     assert ws_record.levelno == logging.WARNING
 
@@ -478,7 +492,9 @@ def test_full_reconnect_raises_subscribe_error(exc):
 
 
 def _token(expires_in: float) -> str:
-    return jwt.encode({"exp": int(time.time() + expires_in)}, "k" * 32, algorithm="HS256")
+    return jwt.encode(
+        {"exp": int(time.time() + expires_in)}, "k" * 32, algorithm="HS256"
+    )
 
 
 def _manager_with_session(token):
@@ -571,6 +587,7 @@ def test_first_reconnect_logs_info_and_repeat_logs_warning(caplog):
         m._full_reconnect = fake_reconnect  # type: ignore[method-assign]
 
         import holmes.core.conversations_worker.realtime_manager as _rm
+
         original = _rm.CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS
         _rm.CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = 0
         try:
@@ -581,7 +598,9 @@ def test_first_reconnect_logs_info_and_repeat_logs_warning(caplog):
     with caplog.at_level(logging.INFO):
         asyncio.run(_scenario())
 
-    unhealthy = [r for r in caplog.records if "Realtime channel unhealthy" in r.getMessage()]
+    unhealthy = [
+        r for r in caplog.records if "Realtime channel unhealthy" in r.getMessage()
+    ]
     assert len(unhealthy) >= 2
     assert unhealthy[0].levelno == logging.INFO
     assert unhealthy[1].levelno == logging.WARNING

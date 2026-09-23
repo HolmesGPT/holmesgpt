@@ -169,7 +169,9 @@ def agui_chat(input_data: RunAgentInput, request: Request):
             recorder_state = UsageRecorderState(
                 dal=dal,
                 request_type="agui_chat",
-                request_source=ctx.get("request_source") if isinstance(ctx, dict) else None,
+                request_source=ctx.get("request_source")
+                if isinstance(ctx, dict)
+                else None,
                 source_ref=ctx.get("source_ref") if isinstance(ctx, dict) else None,
                 conversation_id=getattr(input_data, "thread_id", None),
                 conversation_source=None,  # AG-UI doesn't write Conversations or ChatHistory

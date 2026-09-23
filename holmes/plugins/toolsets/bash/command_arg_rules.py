@@ -83,7 +83,9 @@ def _sort_reason(args: List[str]) -> Optional[str]:
     long_opts = [opt for opt in options if opt.startswith("--")]
     if any(abbreviates(opt, SORT_EXEC_LONG_OPTS) for opt in long_opts):
         return "'sort --compress-program' can execute an arbitrary program"
-    if "-o" in options or any(abbreviates(opt, SORT_WRITE_LONG_OPTS) for opt in long_opts):
+    if "-o" in options or any(
+        abbreviates(opt, SORT_WRITE_LONG_OPTS) for opt in long_opts
+    ):
         return "'sort' output-file option writes to the filesystem"
     return None
 

@@ -45,7 +45,9 @@ class TestGetAzureAdToken:
     def test_empty_env_var_falls_back_to_default_credential(self, monkeypatch):
         monkeypatch.setenv("AZURE_AD_TOKEN", "")
         with patch("holmes.core.azure_token.DefaultAzureCredential"):
-            with patch("holmes.core.azure_token.get_bearer_token_provider") as mock_provider:
+            with patch(
+                "holmes.core.azure_token.get_bearer_token_provider"
+            ) as mock_provider:
                 mock_provider.return_value = lambda: "fallback-token"
                 token = get_azure_ad_token()
                 assert token == "fallback-token"

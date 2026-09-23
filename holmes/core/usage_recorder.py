@@ -8,6 +8,7 @@ exactly one place to update if the recording shape changes.
 The recorder is fire-and-forget: each call spawns a daemon thread to do
 the DB write. Telemetry must never block or break the response path.
 """
+
 from __future__ import annotations
 
 import logging
@@ -82,6 +83,7 @@ def resolve_provider(model: Optional[str]) -> str:
         return "unknown"
     try:
         import litellm  # local import — keep usage_recorder cheap to import
+
         return litellm.get_llm_provider(model)[1] or "unknown"
     except Exception:
         return model.split("/")[0] if "/" in model else "unknown"
@@ -109,9 +111,7 @@ def build_chat_recorder_state(
         conversation_source = "chat_history"
 
     model_name = (
-        getattr(request_ai.llm, "model", None)
-        or chat_request.model
-        or "unknown"
+        getattr(request_ai.llm, "model", None) or chat_request.model or "unknown"
     )
 
     # Internal calls (title generation, classification, summarization, etc.)
@@ -422,9 +422,7 @@ class UsageRecorderState:
         if raw_iterations is not None:
             self.iterations = raw_iterations
         metadata = data.get("metadata") or {}
-        self.finish_reason = (
-            metadata.get("finish_reason") or self.finish_reason
-        )
+        self.finish_reason = metadata.get("finish_reason") or self.finish_reason
 
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.

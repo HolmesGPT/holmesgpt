@@ -3,10 +3,11 @@ import os
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
+from postgrest.exceptions import APIError as PGAPIError
 from starlette.requests import Request
 
 from holmes.common.env_vars import (
@@ -15,10 +16,11 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
     CONVERSATION_WORKER_REALTIME_ENABLED,
-    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
+    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
 )
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import build_chat_messages
 from holmes.core.conversations_worker.event_publisher import (
     ConversationEventPublisher,
@@ -32,10 +34,9 @@ from holmes.core.conversations_worker.models import (
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
-from holmes.core.conversation_links import resolve_conversation_link
-from holmes.core.supabase_dal import SupabaseDnsException
-from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
+from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
+from holmes.core.supabase_dal import SupabaseDnsException
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.filesystem_result_storage import (
     tool_result_storage,
@@ -50,11 +51,11 @@ from holmes.core.usage_recorder import (
     stream_with_usage_recording,
 )
 from holmes.utils.holmes_status import update_holmes_status_in_db
-from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 from holmes.utils.stream import StreamEvents
 
 if TYPE_CHECKING:
     from fastapi.responses import StreamingResponse
+
     from holmes.config import Config
     from holmes.core.models import ChatResponse
     from holmes.core.supabase_dal import SupabaseDal
@@ -199,9 +200,7 @@ class ConversationWorker:
 
     def start(self) -> None:
         if not self.dal.enabled:
-            logging.info(
-                "ConversationWorker not started - Supabase DAL not enabled"
-            )
+            logging.info("ConversationWorker not started - Supabase DAL not enabled")
             return
         if self._running:
             logging.warning("ConversationWorker is already running")
@@ -271,9 +270,7 @@ class ConversationWorker:
         self._claim_thread.start()
 
         try:
-            self._tool_call_worker.start(
-                realtime_connected_fn=self._realtime_connected
-            )
+            self._tool_call_worker.start(realtime_connected_fn=self._realtime_connected)
         except Exception:
             logging.exception("Failed to start ToolCallWorker", exc_info=True)
 
@@ -404,8 +401,7 @@ class ConversationWorker:
                     )
                 except Exception:
                     logging.exception(
-                        "Failed to update HolmesStatus after realtime "
-                        "verification",
+                        "Failed to update HolmesStatus after realtime " "verification",
                         exc_info=True,
                     )
                 # Spin up the executor, claim loop, and (if enabled)
@@ -870,7 +866,8 @@ class ConversationWorker:
         # A follow-up may carry only tool_decisions / frontend_tool_results
         # (no new user question). Holmes resumes the prior assistant turn.
         resume_only = bool(
-            not ask and (data.get("tool_decisions") or data.get("frontend_tool_results"))
+            not ask
+            and (data.get("tool_decisions") or data.get("frontend_tool_results"))
         )
         if resume_only:
             ask = self._extract_last_user_ask(task.conversation_history) or "Continue"
@@ -880,7 +877,9 @@ class ConversationWorker:
                 "Conversation %s has no user question, marking as failed",
                 task.conversation_id,
             )
-            self._fail_conversation(task, "No user question found in conversation events")
+            self._fail_conversation(
+                task, "No user question found in conversation events"
+            )
             return
 
         publisher = ConversationEventPublisher(
@@ -909,7 +908,8 @@ class ConversationWorker:
                 task.conversation_id,
             )
             self._fail_conversation(
-                task, "Conversation event identity does not match the conversation owner"
+                task,
+                "Conversation event identity does not match the conversation owner",
             )
             return
         resolved_user_id = task.user_id
@@ -923,6 +923,7 @@ class ConversationWorker:
         )
         if not oauth_enabled:
             resolved_user_id = None
+
         def from_event_or_conversation(key: str) -> Any:
             # Per-event presence wins, not truthiness — so an explicit empty
             # value from the FE (e.g. "" to deliberately clear a field) keeps
@@ -1019,7 +1020,7 @@ class ConversationWorker:
         if current_user_idx >= 0:
             already_answered = any(
                 ev.get("event") in terminal_events
-                for ev in events[current_user_idx + 1:]
+                for ev in events[current_user_idx + 1 :]
             )
             if not already_answered:
                 task.user_message_data = events[current_user_idx].get("data") or {}
@@ -1196,7 +1197,7 @@ class ConversationWorker:
                         model=chat_request.model,
                         request_source=chat_request.request_source,
                     ),
-                }
+                },
             )
 
             # Build request_context with user_id so per-user OAuth tools resolve

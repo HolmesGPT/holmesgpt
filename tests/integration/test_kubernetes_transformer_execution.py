@@ -193,8 +193,11 @@ prometheus-server-xyz                  monitoring    Running   node-2
             # Execute the tool
             context = create_mock_tool_invoke_context()
             result = kubernetes_tabular_query.invoke(
-                {"kind": "pods", "columns": "NAME:.metadata.name,NAMESPACE:.metadata.namespace,STATUS:.status.phase,NODE:.spec.nodeName"},
-                context
+                {
+                    "kind": "pods",
+                    "columns": "NAME:.metadata.name,NAMESPACE:.metadata.namespace,STATUS:.status.phase,NODE:.spec.nodeName",
+                },
+                context,
             )
 
             # Should have applied transformation (threshold is 10000)
@@ -283,7 +286,13 @@ toolsets:
         # Load the actual kubernetes_logs.yaml file
         current_dir = os.path.dirname(os.path.abspath(__file__))
         kubernetes_logs_yaml_path = os.path.join(
-            current_dir, "..", "..", "holmes", "plugins", "toolsets", "kubernetes_logs.yaml"
+            current_dir,
+            "..",
+            "..",
+            "holmes",
+            "plugins",
+            "toolsets",
+            "kubernetes_logs.yaml",
         )
 
         toolsets = load_toolsets_from_file(kubernetes_logs_yaml_path)
