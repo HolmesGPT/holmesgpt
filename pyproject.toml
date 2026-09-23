@@ -62,7 +62,8 @@ google-cloud-aiplatform = ">=1.133.0"
 slack-sdk = "^3.39.0"
 
 jq = "^1.10.0"
-bashlex = "^0.18"
+tree-sitter = "^0.25.2"
+tree-sitter-bash = "^0.25.1"
 kopf = "^1.37.0"
 apscheduler = "^3.10.4"
 

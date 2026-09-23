@@ -30,6 +30,7 @@ from holmes.plugins.toolsets.bash.validation import (
     validate_command,
     validate_segment,
 )
+from holmes.plugins.toolsets.bash.shell_parser import ShellParseError
 
 
 class TestMatchPrefix:
@@ -174,27 +175,18 @@ class TestParseCommandSegments:
 
     def test_invalid_pipe_syntax_raises(self):
         """Test that invalid pipe syntax raises a parsing error."""
-        import bashlex
-
-        with pytest.raises(bashlex.errors.ParsingError):
+        with pytest.raises(ShellParseError):
             parse_command_segments("  |  kubectl get pods  |  ")
 
-    def test_for_loop_extracts_inner_segments(self):
-        """For loop returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments('for i in 1 2 3; do echo "$i"; done')
-        assert has_compound
-        assert len(segments) > 0
-        assert any("echo" in s for s in segments)
-
-    def test_if_statement_extracts_inner_segments(self):
-        """If statement returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments("if [ -f file ]; then cat file; fi")
-        assert has_compound
-        assert len(segments) > 0
+    def test_compound_statements_raise(self):
+        """Loops and conditionals are not parsed; validate_command asks for approval."""
+        for command in ['for i in 1 2 3; do echo "$i"; done', "if [ -f file ]; then cat file; fi"]:
+            with pytest.raises(ShellParseError):
+                parse_command_segments(command)
 
     def test_case_statement_raises(self):
-        """Case statement (unsupported by bashlex) raises NotImplementedError."""
-        with pytest.raises(NotImplementedError):
+        """Case statement (unsupported syntax) raises ShellParseError."""
+        with pytest.raises(ShellParseError):
             parse_command_segments("case $x in 1) echo one;; 2) echo two;; esac")
 
 
@@ -784,7 +776,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == []
 
     def test_for_loop_with_command_requires_approval(self):
@@ -798,7 +790,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == []
 
     def test_while_loop_requires_approval(self):
@@ -812,7 +804,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == []
 
     def test_until_loop_requires_approval(self):
@@ -826,7 +818,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == []
 
     def test_if_statement_requires_approval(self):
@@ -840,7 +832,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == []
 
     def test_if_else_statement_requires_approval(self):
@@ -854,7 +846,7 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert result.message == "Command contains complex syntax which requires approval."
         assert result.prefixes_needing_approval == []
 
     def test_case_statement_requires_approval(self):
