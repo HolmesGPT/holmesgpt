@@ -151,6 +151,7 @@ GO_TEMPLATE_VARIABLE = re.compile(r"\{\{(\s*\.[^}]*)\}\}")
 
 
 def escape_go_template_variables(template: Optional[str]) -> Optional[str]:
+    """Queries like jq use {{ .field }}, which Jinja fails to parse; we prevent that here."""
     return template and GO_TEMPLATE_VARIABLE.sub(r"{% raw %}{{\1}}{% endraw %}", template)
 
 

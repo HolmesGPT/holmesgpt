@@ -415,4 +415,5 @@ toolsets:
 
     tool_call_result = tool_calling_llm._invoke_llm_tool_call(tool_call, previous_tool_calls=[])
 
+    assert tool_call_result.result.invocation == "echo 7 | jq -r '\"{{ .item_id }} \\(.)\"'"
     assert tool_call_result.result.data.strip() == "{{ .item_id }} 7"
