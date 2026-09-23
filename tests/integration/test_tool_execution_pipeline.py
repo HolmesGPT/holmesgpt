@@ -10,26 +10,33 @@ fails and outputs an error to stderr, which gets captured in output.
 These tests are skipped on such systems.
 """
 
+import json
 import subprocess
 import time
 from typing import Dict
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from litellm.types.utils import ChatCompletionMessageToolCall, Function
 
+from holmes.core.llm import LLM
+from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
     Tool,
     ToolInvokeContext,
+    ToolsetStatusEnum,
     YAMLTool,
 )
+from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.transformers import (
     BaseTransformer,
     Transformer,
     TransformerError,
     registry,
 )
+from holmes.plugins.toolsets import load_toolsets_from_file
 from tests.conftest import create_mock_tool_invoke_context
 
 
@@ -376,3 +383,36 @@ redis-cache-abc123                 1/1     Running   0          1d"""
         # Transformation applied but structure preserved
         assert "SUMMARIZED:" in result.data
         assert "Important debugging information" in result.data
+
+
+def test_yaml_tool_with_literal_braces_does_not_abort_tool_call(tmp_path):
+    toolsets_file = tmp_path / "toolsets.yaml"
+    toolsets_file.write_text(
+        """
+toolsets:
+  example_api:
+    description: Example API
+    tools:
+      - name: get_item
+        description: Get an item
+        command: "echo {{ item_id }} | jq -r '\\"{{ .name }} count=\\\\(.count)\\"'"
+"""
+    )
+    toolsets = load_toolsets_from_file(str(toolsets_file), strict_check=False)
+    for toolset in toolsets:
+        toolset.status = ToolsetStatusEnum.ENABLED
+    llm = MagicMock(spec=LLM)
+    llm.get_max_token_count_for_single_tool.return_value = 50000
+    llm.count_tokens.return_value = MagicMock(total_tokens=10)
+    tool_calling_llm = ToolCallingLLM(
+        tool_executor=ToolExecutor(toolsets), max_steps=5, llm=llm, tool_results_dir=None
+    )
+    tool_call = ChatCompletionMessageToolCall(
+        id="call_1",
+        type="function",
+        function=Function(name="get_item", arguments=json.dumps({"item_id": "1"})),
+    )
+
+    tool_call_result = tool_calling_llm._invoke_llm_tool_call(tool_call, previous_tool_calls=[])
+
+    assert tool_call_result.tool_name == "get_item"
