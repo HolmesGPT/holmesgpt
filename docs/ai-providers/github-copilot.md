@@ -65,23 +65,6 @@ Configure them via the `extra_headers` field in your model list configuration, o
       model: "copilot-claude"
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    # values.yaml
-    holmes:
-      modelList:
-        copilot-claude:
-          model: github_copilot/claude-sonnet-4.5
-          extra_headers:
-            Editor-Version: "vscode/1.85.1"
-            Editor-Plugin-Version: "copilot-chat/0.26.7"
-            Copilot-Integration-Id: "vscode-chat"
-            User-Agent: "GithubCopilot/1.155.0"
-
-      config:
-        model: "copilot-claude"
-    ```
 
 ## Additional Resources
 

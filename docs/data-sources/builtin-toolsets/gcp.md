@@ -165,34 +165,6 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gcp:
-          enabled: true
-          serviceAccount:
-            name: gcp-mcp-sa
-            annotations:
-              iam.gke.io/gcp-service-account: "holmes-gcp-mcp@PROJECT_ID.iam.gserviceaccount.com"
-          # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
-          config:
-            project: "your-primary-project"
-            region: "us-central1"
-          gcloud:
-            enabled: true
-          observability:
-            enabled: true
-          storage:
-            enabled: true
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ### Service Account Key
 
@@ -239,47 +211,6 @@ If you're not using GKE, or prefer not to use Workload Identity, you can authent
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create GCP Service Account**
-
-    ```bash
-    git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
-    cd holmes-mcp-integrations/servers/gcp
-
-    ./setup-gcp-service-account.sh \
-      --project your-project-id \
-      --k8s-namespace robusta
-    ```
-
-    The script creates a service account with ~50 read-only IAM roles, generates a key, and creates a Kubernetes secret (`gcp-sa-key`).
-
-    **Step 2: Configure and Deploy**
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gcp:
-          enabled: true
-          serviceAccountKey:
-            secretName: "gcp-sa-key"
-          # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
-          config:
-            project: "your-primary-project"
-            region: "us-central1"
-          gcloud:
-            enabled: true
-          observability:
-            enabled: true
-          storage:
-            enabled: true
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ### Troubleshooting
 

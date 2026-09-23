@@ -54,45 +54,6 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
       model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openrouter-api-key="sk-or-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENROUTER_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openrouter-api-key
-
-      # Configure at least one model using modelList
-      modelList:
-        claude-sonnet-4:
-          api_key: "{{ env.OPENROUTER_API_KEY }}"
-          model: openrouter/anthropic/claude-sonnet-4.5-20250929
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        claude-opus-4:
-          api_key: "{{ env.OPENROUTER_API_KEY }}"
-          model: openrouter/anthropic/claude-opus-4.5-20251101
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
-    ```
 
 **Optional environment variables:**
 
@@ -158,49 +119,6 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
       model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-or-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openai-api-key
-        - name: OPENAI_API_BASE
-          value: "https://openrouter.ai/api/v1"
-
-      # Configure at least one model using modelList
-      modelList:
-        claude-sonnet-4:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          api_base: "https://openrouter.ai/api/v1"
-          model: openai/anthropic/claude-sonnet-4.5-20250929
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        claude-opus-4:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          api_base: "https://openrouter.ai/api/v1"
-          model: openai/anthropic/claude-opus-4.5-20251101
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
-    ```
 
 ## Available Models
 

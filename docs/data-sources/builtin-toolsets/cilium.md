@@ -38,18 +38,6 @@ By enabling this toolset, HolmesGPT will be able to interact with Cilium CNI and
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        cilium/core:
-          enabled: true
-        hubble/observability:
-          enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 ## Advanced Configuration
 

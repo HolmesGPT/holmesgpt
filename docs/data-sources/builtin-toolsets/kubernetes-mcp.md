@@ -50,38 +50,6 @@ The simplest setup. The MCP server runs in the same cluster it monitors and auth
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    Add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: true
-            clusterRole: "view"
-
-          config:
-            readOnly: true
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ### Step 2: Verify
 
@@ -318,123 +286,8 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi-cl
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    Add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          llmInstructions: |
-            This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
-
-            ## MANDATORY FIRST STEP — read this before any other tool call
-
-            Before doing ANYTHING else for a Kubernetes question (resource lookup, log retrieval, event check, status check, "is X running?", "why is X failing?", etc.):
-
-            1. Call `configuration_contexts_list` to enumerate every cluster context. Do this FIRST, on every fresh investigation, even if the user named a cluster or you think you already know which cluster applies. No exceptions.
-            2. Treat the returned list as the complete search space. The resource the user is asking about may live on ANY of these clusters.
-            3. For every subsequent tool call, pass the explicit `context` argument. Never rely on an implicit default.
-
-            ## Multi-cluster search procedure (when a resource is not on the first cluster)
-
-            If any resource lookup returns "not found" on a given context:
-
-            - **Immediately** re-issue the same lookup against every OTHER context returned by `configuration_contexts_list`.
-            - Do this WITHOUT pausing, WITHOUT asking the user "should I check other clusters?", and WITHOUT explaining what you're about to do. Just do it.
-            - Only after all contexts have been queried may you conclude that a resource truly does not exist.
-            - If a tool call against one context fails (auth, network, timeout), say so explicitly and CONTINUE with the remaining contexts. One failure must not short-circuit the search.
-
-            ## Forbidden behaviors (your answer is incorrect if you do any of these)
-
-            - Skipping `configuration_contexts_list` and jumping straight to a resource query.
-            - Reporting "resource not found" without having queried EVERY context from `configuration_contexts_list`.
-            - Asking the user "should I check the other clusters?" — the answer is always yes; do it without asking.
-            - Assuming the first/default cluster is the only one to check.
-            - Omitting the cluster name from your final answer when reporting findings.
-
-            ## Required output discipline
-
-            Every finding must be labeled with the cluster/context name it came from.
-
-            - Correct: "Found `payment-service` deployment on cluster **prod-eu** (3/3 ready). It does NOT exist on **prod-us** or **prod-ap**."
-            - Incorrect: "Found payment-service deployment, 3/3 ready." (missing cluster attribution)
-
-            ## When to Use This MCP Server
-
-            Use the Kubernetes MCP when investigating:
-            - Pod failures, crash loops, or scheduling issues
-            - Resource consumption and node capacity problems
-            - Deployment rollout issues or scaling problems
-            - Kubernetes events and cluster-level diagnostics
-            - Helm release status and management
-
-            ## Investigation Workflow
-
-            1. **List clusters FIRST** — call `configuration_contexts_list` (mandatory; see top of this document). All subsequent tool calls must include an explicit `context`.
-            2. **List namespaces** on the candidate cluster(s) to identify where the resource of interest could live.
-            3. **Check events**: look for warnings and errors. If the resource was not on the first cluster, fan out and check events on every other cluster too.
-            4. **Inspect pods**: get status, logs, resource usage — from the cluster where the resource actually exists.
-            5. **Examine resources**: get detailed definitions to identify misconfigurations.
-            6. **Check node health**: review node status and resource consumption on the relevant cluster.
-
-            ## Important Guidelines
-
-            - Always specify BOTH the namespace AND the cluster `context` when querying namespaced resources.
-            - Check events first — they often reveal the root cause quickly.
-            - Use pod logs to understand application-level failures.
-            - Compare resource requests/limits with actual usage via top commands.
-            - When investigating scheduling issues, check node capacity and taints on the cluster where the pod lives.
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: false  # auth comes from kubeconfig tokens
-
-          config:
-            readOnly: true
-
-            kubeconfig:
-              secretName: "k8s-mcp-kubeconfig"
-              secretKey: "kubeconfig"
-
-            extraArgs:
-              - "--kubeconfig"
-              - "/etc/kubernetes/kubeconfig"
-              - "--cluster-provider"
-              - "kubeconfig"
-
-            serverConfig: |
-              disabled_tools = ["configuration_view"]
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 The `llmInstructions` block above helps holmes with multi-cluster awareness.
-
-### Step 5: Route chats to the right cluster (Robusta UI)
-
-Only needed if you use the [Robusta platform](https://platform.robusta.dev) with Slack or Teams. Go to **Settings → HolmesGPT → Multi-Agent Routing** and fill in:
-
-- **Routing Agent** — prompt for picking the cluster from chat context. Example:
-
-    > If the `cluster_name` or `cluster` field is available in the chat context, route to that cluster. Otherwise, use the <your-hub-holmes> cluster/agent for the question.
-
-Your "Hub" holmes instance now have access to multiple clusters.
 
 ## Per-User Auth (OAuth or OIDC)
 
@@ -535,56 +388,6 @@ kubectl create secret generic mcp-oauth-credentials \
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    Add the following to your `generated_values.yaml` (replace `<TENANT_ID>` and `<CLIENT_ID>`):
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MCP_OAUTH_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: mcp-oauth-credentials
-              key: client-secret
-
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: false  # No RBAC — OAuth token provides permissions
-
-          config:
-            readOnly: true
-
-            serverConfig: |
-              require_oauth = true
-              authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
-              oauth_audience    = "6dae42f8-4368-4678-94ff-3960e28e3630"
-              oauth_scopes      = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
-              issuer_url        = "https://sts.windows.net/<TENANT_ID>/"
-
-            oauth:
-              enabled: true
-              client_id:     "<CLIENT_ID>"
-              client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ### Step 5: Verify
 

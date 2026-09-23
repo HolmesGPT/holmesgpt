@@ -121,62 +121,6 @@ FLUSH PRIVILEGES;
           connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic mysql-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-credentials
-              key: url
-
-      toolsets:
-        orders-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.MYSQL_URL }}"
-          llm_instructions: "Orders database with customer and product data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: ORDERS_MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-orders
-              key: url
-        - name: ANALYTICS_MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-analytics
-              key: url
-
-      toolsets:
-        orders-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.ORDERS_MYSQL_URL }}"
-
-        analytics-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
-    ```
 
 ## Configuration Options
 

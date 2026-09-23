@@ -118,62 +118,6 @@ GRANT pg_read_all_stats TO holmes_readonly;
           connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic postgres-credentials \
-      --from-literal=url='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: PROD_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-prod
-              key: url
-        - name: ANALYTICS_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-analytics
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.PROD_POSTGRES_URL }}"
-
-        analytics-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
-    ```
 
 ## Configuration Options
 

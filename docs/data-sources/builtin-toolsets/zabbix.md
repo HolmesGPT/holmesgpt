@@ -106,54 +106,6 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-
-    ```bash
-    kubectl create secret generic zabbix-credentials \
-      --from-literal=token="your-zabbix-api-token" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-
-    ```yaml
-    # generated_values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: ZABBIX_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: zabbix-credentials
-              key: token
-
-      toolsets:
-        zabbix:
-          type: http
-          enabled: true
-          description: "Zabbix monitoring system"
-          config:
-            endpoints:
-              - hosts: ["your-zabbix-instance.com"]
-                paths: ["/zabbix/api_jsonrpc.php"]
-                methods: ["POST"]
-                auth:
-                  type: bearer
-                  token: "{{ env.ZABBIX_TOKEN }}"
-          llm_instructions: |
-            Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-            All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
-              {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-            Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## Testing the Connection
 

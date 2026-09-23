@@ -63,45 +63,6 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
       model: "gpt-4.1"  # This refers to the key name in modelList above
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openai-api-key
-
-      # Configure at least one model using modelList
-      modelList:
-        gpt-4.1:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-4.1
-          temperature: 0
-
-        gpt-5:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: medium
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "gpt-4.1"  # This refers to the key name in modelList above
-    ```
 
 ## Available Models
 
@@ -170,35 +131,6 @@ When using GPT-5 models, you can control the reasoning effort level. This allows
       model: "gpt-5-medium"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Configure in modelList:**
-    ```yaml
-    # values.yaml
-    holmes:
-      modelList:
-        gpt-5-minimal:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: minimal  # Fast responses
-
-        gpt-5-medium:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: medium  # Balanced (default)
-
-        gpt-5-high:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-5
-          temperature: 1
-          reasoning_effort: high  # Complex investigations
-
-      # Use the appropriate model based on your needs
-      config:
-        model: "gpt-5-medium"
-    ```
 
 **Available reasoning effort levels:**
 
