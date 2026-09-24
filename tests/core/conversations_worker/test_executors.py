@@ -44,14 +44,17 @@ def test_lookup_order_account_then_env_then_builtin_then_base():
 
 
 @pytest.mark.parametrize("bad", ["0", "-2", "x", "", "1.5"])
-def test_invalid_per_name_env_is_ignored_with_error(bad, caplog):
+def test_invalid_per_name_env_is_ignored_with_warning_once(bad, caplog):
     s = _settings(env={"CONVERSATION_WORKER_MAX_CONCURRENT_AUTO": bad})
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.WARNING):
         assert s.size_for("auto") == 2
-    assert any(
-        "CONVERSATION_WORKER_MAX_CONCURRENT_AUTO" in r.getMessage()
+        assert s.size_for("auto") == 2
+    hits = [
+        r
         for r in caplog.records
-    )
+        if "CONVERSATION_WORKER_MAX_CONCURRENT_AUTO" in r.getMessage()
+    ]
+    assert len(hits) == 1 and hits[0].levelno == logging.WARNING
 
 
 @pytest.mark.parametrize("bad", [0, -1, "x", None, True, 2.5, {"n": 1}])

@@ -47,10 +47,11 @@ def _bare_worker(sizes=None, default_size=2, max_executors=16):
     )
     w._executors = {}
     w._executors_lock = threading.Lock()
-    w._last_executor_reject_log = None
+    w._last_executor_reject_log = {}
     w._discovery_thread = None
     w._discovery_event = threading.Event()
     w._legacy_claim_mode = False
+    w._legacy_mode_since = None
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
     w._tool_call_worker = MagicMock()
@@ -409,21 +410,125 @@ def test_dispatch_routes_by_task_executor():
     assert ("c-auto", 1) in auto._active
 
 
-def test_dispatch_noop_when_not_running():
+def _assert_retired(w, cid="c1"):
+    """A claimed row we could not run is closed out like a shutdown-interrupted
+    turn: error event with the restart reason, then status 'timeout'."""
+    events = w.dal.post_conversation_events.call_args.kwargs["events"]
+    assert events[0]["data"]["reason"] == SHUTDOWN_REASON
+    assert events[0]["data"]["error_code"] == SHUTDOWN_ERROR_CODE
+    w.dal.update_conversation_status.assert_called_once_with(
+        conversation_id=cid, request_sequence=1, assignee="h-test", status="timeout"
+    )
+
+
+def test_dispatch_retires_claimed_row_when_not_running():
     w = _bare_worker()
     ex = _fake_executor(w, "manual")
     w._running = False
     w._dispatch(_task("c1"))
     ex._pool.submit.assert_not_called()
     assert ("c1", 1) not in ex._active
+    _assert_retired(w)
 
 
-def test_dispatch_drops_task_when_executor_shutdown_races():
+def test_dispatch_retires_task_when_executor_shutdown_races():
     w = _bare_worker()
     ex = _fake_executor(w, "manual")
     ex._pool.submit.side_effect = RuntimeError("cannot schedule new futures")
     w._dispatch(_task("c1"))
     assert ("c1", 1) not in ex._active
+    _assert_retired(w)
+
+
+def test_dispatch_retire_failure_is_swallowed():
+    w = _bare_worker()
+    w._running = False
+    w.dal.post_conversation_events.side_effect = Exception("boom")
+    w.dal.update_conversation_status.side_effect = Exception("boom")
+    w._dispatch(_task("c1"))  # must not raise into the claim loop
+
+
+def test_stop_does_not_deadlock_with_a_claim_loop_waiting_to_dispatch():
+    """stop() holds _dispatch_lock while shutting pools down; the claim loop
+    may be blocked on that very lock inside _dispatch. Joining it under the
+    lock would deadlock — the join has to happen after the lock is released."""
+    w = _bare_worker(sizes={"manual": 1})
+    gate = threading.Event()
+    reached = threading.Event()
+
+    def fake_claim(_holmes_id, limit, executor=None):
+        gate.wait(5)
+        return [_row("c1")]
+
+    w.dal.claim_n_pending_conversations.side_effect = fake_claim
+    real_dispatch = w._dispatch
+
+    def dispatch(task, executor=None):
+        reached.set()
+        real_dispatch(task, executor)
+
+    w._dispatch = dispatch
+    ex = w._get_or_create_executor("manual")
+    assert ex is not None
+    real_shutdown = ex.shutdown_pool
+
+    def shutdown_pool():
+        # Release the claim so it runs into _dispatch while we hold the lock.
+        gate.set()
+        assert reached.wait(5)
+        time.sleep(0.05)
+        real_shutdown()
+
+    ex.shutdown_pool = shutdown_pool
+    ex.wake()
+    t0 = time.monotonic()
+    w.stop()
+    assert time.monotonic() - t0 < 4
+    assert ex._thread is None
+    _assert_retired(w)
+    assert ("c1", 1) not in ex._active
+
+
+def test_executor_creation_clamps_account_size_to_thread_ceiling():
+    w = _bare_worker()
+    w._executor_settings = ExecutorSettings(
+        base_size=2, max_executors=16, thread_ceiling=8, env={}
+    )
+    w.dal.get_conversation_executor_sizes.return_value = {"manual": 5000}
+    try:
+        ex = w._get_or_create_executor("manual")
+        assert ex is not None and ex.max_concurrent == 8
+    finally:
+        w.stop()
+
+
+def test_executor_size_lookup_runs_outside_the_executors_lock():
+    w = _bare_worker()
+
+    def sizes():
+        assert not w._executors_lock.locked()
+        return {}
+
+    w.dal.get_conversation_executor_sizes.side_effect = sizes
+    try:
+        assert w._get_or_create_executor("manual") is not None
+    finally:
+        w.stop()
+
+
+def test_reject_log_rate_limit_is_per_message(caplog):
+    w = _bare_worker(sizes={}, default_size=1, max_executors=1)
+    try:
+        with caplog.at_level(logging.WARNING):
+            w.claim_pending_conversations("a")
+            w.claim_pending_conversations("b")  # cap reached
+            w.claim_pending_conversations("b")  # rate-limited repeat
+            w.claim_pending_conversations("UPPER")  # different cause: still logged
+        msgs = [r.getMessage() for r in caplog.records]
+        assert sum("executors already exist" in m for m in msgs) == 1
+        assert sum("named invalid executor" in m for m in msgs) == 1
+    finally:
+        w.stop()
 
 
 def test_process_conversation_safe_marks_failed_on_exception():
@@ -615,6 +720,56 @@ def test_non_default_executor_goes_idle_in_legacy_mode():
     assert w._legacy_claim_mode is True
     assert w.dal.claim_n_pending_conversations.call_count == 1
     auto._pool.submit.assert_not_called()
+
+
+def test_non_default_pool_woken_after_legacy_fallback_does_not_claim():
+    """An 'auto' pool created before the fallback must not start claiming
+    unfiltered rows once the default pool has entered legacy mode."""
+    w = _bare_worker()
+    auto = _fake_executor(w, "auto")
+    w._legacy_claim_mode = True
+    w._try_claim_and_dispatch(auto)
+    w.dal.claim_n_pending_conversations.assert_not_called()
+
+
+def test_legacy_mode_is_reprobed_and_left_once_the_migration_lands(monkeypatch):
+    w = _bare_worker()
+    w.dal.list_pending_conversation_executors.side_effect = ExecutorRpcUnsupportedError(
+        "x"
+    )
+    try:
+        w._discover_and_wake()
+        assert w._legacy_claim_mode is True
+        # Within the re-probe window the RPC is not tried again.
+        w.dal.list_pending_conversation_executors.reset_mock()
+        w._discover_and_wake()
+        w.dal.list_pending_conversation_executors.assert_not_called()
+        # Migration applied; the next probe after the window leaves legacy mode.
+        w.dal.list_pending_conversation_executors.side_effect = None
+        w.dal.list_pending_conversation_executors.return_value = ["auto"]
+        monkeypatch.setattr(w, "_legacy_mode_since", time.monotonic() - 10_000)
+        w._discover_and_wake()
+        assert w._legacy_claim_mode is False
+        assert w._legacy_mode_since is None
+        assert set(w.executor_names()) == {"manual", "auto"}
+    finally:
+        w.stop()
+
+
+def test_failed_reprobe_stays_in_legacy_mode_and_rearms_the_window(monkeypatch):
+    w = _bare_worker()
+    w.dal.list_pending_conversation_executors.side_effect = ExecutorRpcUnsupportedError(
+        "x"
+    )
+    try:
+        w._discover_and_wake()
+        monkeypatch.setattr(w, "_legacy_mode_since", time.monotonic() - 10_000)
+        w._discover_and_wake()
+        assert w._legacy_claim_mode is True
+        assert time.monotonic() - w._legacy_mode_since < 5
+        assert w.dal.list_pending_conversation_executors.call_count == 2
+    finally:
+        w.stop()
 
 
 def test_discovery_uses_default_executor_in_legacy_mode():

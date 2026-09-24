@@ -881,7 +881,8 @@ class SupabaseDal:
         """
         if not self.enabled:
             return {}
-        cached = self.executor_sizes_cache.get("sizes")
+        with self.lock:
+            cached = self.executor_sizes_cache.get("sizes")
         if cached is not None:
             return cached
         sizes: Dict[str, int] = {}
@@ -918,13 +919,16 @@ class SupabaseDal:
                         value,
                     )
         except Exception:
+            # Cache the failure too: the discovery loop and every new executor
+            # ask for sizes, and a Supabase outage should not turn that into a
+            # request per tick.
             logging.warning(
                 "Failed to read conversation_executors from AccountSettings; "
                 "using env/built-in executor sizes",
                 exc_info=True,
             )
-            return {}
-        self.executor_sizes_cache["sizes"] = sizes
+        with self.lock:
+            self.executor_sizes_cache["sizes"] = sizes
         return sizes
 
     def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:

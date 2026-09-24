@@ -32,6 +32,8 @@ from holmes.core.conversations_worker.models import (
 # stuck-slot WARNING repeats at most every _STUCK_WARN_RATE_LIMIT_SECONDS.
 _SATURATION_LOG_AFTER_SECONDS = 60.0
 _STUCK_WARN_RATE_LIMIT_SECONDS = 300.0
+# See ConversationExecutor._loop.
+_LOOP_SAFETY_TIMEOUT_SECONDS = 300.0
 
 # Executor names come from broadcast payloads and DB rows written by other
 # services; keep them to a conservative slug so a bad payload can't name a
@@ -89,40 +91,54 @@ class ExecutorSettings:
             BUILTIN_EXECUTOR_SIZES if builtin_sizes is None else builtin_sizes
         )
         self._env = env if env is not None else os.environ
+        self._warned: set = set()
 
     @classmethod
     def from_env(cls) -> "ExecutorSettings":
         return cls()
 
+    @staticmethod
+    def env_var_for(name: str) -> str:
+        # '-' is not exportable from most shells, so 'auto-triage' reads
+        # CONVERSATION_WORKER_MAX_CONCURRENT_AUTO_TRIAGE.
+        suffix = name.upper().replace("-", "_")
+        return f"{CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX}{suffix}"
+
     def env_size_for(self, name: str) -> Optional[int]:
-        raw = self._env.get(
-            f"{CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX}{name.upper()}"
-        )
+        var = self.env_var_for(name)
+        raw = self._env.get(var)
         if raw is None:
             return None
         size = _positive_int(raw)
-        if size is None:
-            logging.error(
-                "Ignoring invalid %s%s=%r (expected a positive integer)",
-                CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX,
-                name.upper(),
-                raw,
+        if size is None and var not in self._warned:
+            # size_for runs on every discovery tick; warn once per variable.
+            self._warned.add(var)
+            logging.warning(
+                "Ignoring invalid %s=%r (expected a positive integer)", var, raw
             )
         return size
 
     def size_for(
         self, name: str, account_sizes: Optional[Mapping[str, object]] = None
     ) -> int:
+        return min(self._unclamped_size_for(name, account_sizes), self.thread_ceiling)
+
+    def _unclamped_size_for(
+        self, name: str, account_sizes: Optional[Mapping[str, object]]
+    ) -> int:
         if account_sizes:
             size = _positive_int(account_sizes.get(name))
             if size is not None:
                 return size
             if name in account_sizes:
-                logging.warning(
-                    "Ignoring invalid account setting conversation_executors[%r]=%r",
-                    name,
-                    account_sizes.get(name),
-                )
+                key = f"account:{name}"
+                if key not in self._warned:
+                    self._warned.add(key)
+                    logging.warning(
+                        "Ignoring invalid account setting conversation_executors[%r]=%r",
+                        name,
+                        account_sizes.get(name),
+                    )
         size = self.env_size_for(name)
         if size is not None:
             return size
@@ -154,12 +170,20 @@ class ConversationExecutor:
         thread_ceiling: int = CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
     ):
         self.name = name
-        self.max_concurrent = max(1, int(max_concurrent))
         # The pool holds up to thread_ceiling threads so set_max_concurrent()
         # can raise the limit live; only max_concurrent tasks are ever
         # submitted (claims are bounded by free_slots()), so extra threads
-        # are never spawned.
-        self.thread_ceiling = max(self.max_concurrent, int(thread_ceiling))
+        # are never spawned. The ceiling also bounds a huge account setting.
+        self.thread_ceiling = max(1, int(thread_ceiling))
+        requested = max(1, int(max_concurrent))
+        self.max_concurrent = min(requested, self.thread_ceiling)
+        if self.max_concurrent != requested:
+            logging.warning(
+                "Conversation executor %r size %d capped at the thread ceiling %d",
+                name,
+                requested,
+                self.thread_ceiling,
+            )
         self._pool: Optional[ThreadPoolExecutor] = None
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -200,6 +224,11 @@ class ConversationExecutor:
         )
 
     def stop(self) -> None:
+        self.shutdown_pool()
+        self.join()
+
+    def shutdown_pool(self) -> None:
+        """Stop accepting work and wake the loop; does not block."""
         self._running = False
         self.notify_event.set()
         if self._pool is not None:
@@ -207,8 +236,10 @@ class ConversationExecutor:
             # worker's shutdown sweep.
             self._pool.shutdown(wait=False)
             self._pool = None
+
+    def join(self, timeout: float = 5.0) -> None:
         if self._thread is not None:
-            self._thread.join(timeout=5)
+            self._thread.join(timeout=timeout)
             self._thread = None
 
     def wake(self) -> None:
@@ -232,8 +263,10 @@ class ConversationExecutor:
         return True
 
     def _loop(self, claim_fn: Callable[["ConversationExecutor"], None]) -> None:
+        # Event-driven, with a slow self-check so a pool that missed a wake
+        # (or outlived the discovery loop) still drains its backlog.
         while self._running:
-            triggered = self.notify_event.wait()
+            self.notify_event.wait(timeout=_LOOP_SAFETY_TIMEOUT_SECONDS)
             if not self._running:
                 break
             self.notify_event.clear()
@@ -241,9 +274,8 @@ class ConversationExecutor:
                 claim_fn(self)
             except Exception:
                 logging.exception(
-                    "Error in conversation executor %r claim loop (triggered=%s)",
+                    "Error in conversation executor %r claim loop",
                     self.name,
-                    triggered,
                     exc_info=True,
                 )
 

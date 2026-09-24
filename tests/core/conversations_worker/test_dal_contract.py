@@ -4,6 +4,7 @@ Verifies the RPC contract: parameter names, default values, and that the DAL
 just forwards the response from the RPC.
 """
 
+import threading
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
@@ -559,6 +560,7 @@ def _settings_dal(settings_rows):
     dal.account_id = "acc-1"
     dal.cluster = "cluster-1"
     dal.executor_sizes_cache = TTLCache(maxsize=1, ttl=60)
+    dal.lock = threading.Lock()
     dal.client = MagicMock()
     execute = dal.client.table.return_value.select.return_value.eq.return_value.execute
     execute.return_value = MagicMock(data=settings_rows)
@@ -602,10 +604,13 @@ def test_executor_sizes_are_cached():
     assert execute.call_count == 1
 
 
-def test_executor_sizes_read_failure_returns_empty_and_is_not_cached():
+def test_executor_sizes_read_failure_returns_empty_and_is_cached_for_the_ttl():
     dal, execute = _settings_dal([])
     execute.side_effect = Exception("502")
     assert dal.get_conversation_executor_sizes() == {}
+    assert dal.get_conversation_executor_sizes() == {}
+    assert execute.call_count == 1  # an outage is not re-queried every tick
+    dal.executor_sizes_cache.clear()  # TTL expiry
     execute.side_effect = None
     execute.return_value = MagicMock(
         data=[{"settings": {"conversation_executors": {"manual": 2}}}]

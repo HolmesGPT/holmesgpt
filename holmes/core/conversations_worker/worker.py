@@ -95,6 +95,9 @@ SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
 
 # Unknown executor names beyond the pool cap are logged at most this often.
 _EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS = 300.0
+# While in legacy claim mode, re-probe the DB this often so the worker picks
+# up the ROB-1369 migration without a restart.
+_LEGACY_REPROBE_SECONDS = 600.0
 
 
 class ConversationWorker:
@@ -139,7 +142,7 @@ class ConversationWorker:
         self._executor_settings = executor_settings or ExecutorSettings.from_env()
         self._executors: Dict[str, ConversationExecutor] = {}
         self._executors_lock = threading.Lock()
-        self._last_executor_reject_log: Optional[float] = None
+        self._last_executor_reject_log: Dict[str, float] = {}
 
         # Discovery loop: the safety-net poll (Realtime is at-most-once) and the
         # target of executor-less wakeups (reconnects, legacy broadcasts). It
@@ -151,6 +154,7 @@ class ConversationWorker:
         # the worker in legacy mode: one pool, the default executor, claiming
         # any pending row — i.e. exactly the pre-ROB-1369 behavior.
         self._legacy_claim_mode = False
+        self._legacy_mode_since: Optional[float] = None
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -292,15 +296,19 @@ class ConversationWorker:
             except Exception:
                 logging.exception("Error stopping realtime manager", exc_info=True)
         # Let any in-flight _dispatch finish before shutting the pools down.
+        # Only the non-blocking shutdown happens under the lock: joining a
+        # claim loop that is itself waiting on _dispatch_lock would deadlock.
         with self._dispatch_lock:
             with self._executors_lock:
                 executors = list(self._executors.values())
                 self._executors = {}
             for ex in executors:
                 try:
-                    ex.stop()
+                    ex.shutdown_pool()
                 except Exception:
                     logging.debug("Executor %r stop failed", ex.name, exc_info=True)
+        for ex in executors:
+            ex.join()
         if self._discovery_thread:
             # Bounded join: the loop wakes once per notify or poll interval and
             # checks ``self._running``; if it is somehow stuck we still return
@@ -443,13 +451,23 @@ class ConversationWorker:
         Returns None (and logs, rate-limited) for an invalid name or when the
         process already holds ``max_executors`` pools — a bogus broadcast must
         not be able to spawn unbounded thread pools. Rows naming a rejected
-        executor stay 'pending' for another instance.
+        executor stay 'pending' — every instance runs the same validation —
+        until the claim window closes.
         """
         if self._legacy_claim_mode:
             name = DEFAULT_EXECUTOR
         if not is_valid_executor_name(name):
             self._log_executor_reject("invalid executor name %r", name)
             return None
+        with self._executors_lock:
+            ex = self._executors.get(name)
+        if ex is not None:
+            return ex
+        if not self._running or not self._active_started:
+            return None
+        # The size lookup may hit Supabase; keep it out of the lock so a slow
+        # read does not stall claim_pending_conversations for other executors.
+        size = self._executor_settings.size_for(name, self._account_executor_sizes())
         with self._executors_lock:
             ex = self._executors.get(name)
             if ex is not None:
@@ -466,14 +484,12 @@ class ConversationWorker:
                 return None
             ex = ConversationExecutor(
                 name=name,
-                max_concurrent=self._executor_settings.size_for(
-                    name, self._account_executor_sizes()
-                ),
+                max_concurrent=size,
                 thread_ceiling=self._executor_settings.thread_ceiling,
             )
             self._executors[name] = ex
-            ex.start(self._try_claim_and_dispatch)
-            return ex
+        ex.start(self._try_claim_and_dispatch)
+        return ex
 
     def _account_executor_sizes(self) -> Dict[str, int]:
         try:
@@ -488,7 +504,8 @@ class ConversationWorker:
     def _refresh_executor_sizes(self) -> None:
         """Apply account-setting changes (Settings → LLM Models / AI Triage) to
         running pools; called on every discovery tick."""
-        executors = list(self._executors.values()) if self._executors else []
+        with self._executors_lock:
+            executors = list(self._executors.values())
         if not executors:
             return
         account_sizes = self._account_executor_sizes()
@@ -498,14 +515,12 @@ class ConversationWorker:
             )
 
     def _log_executor_reject(self, msg: str, *args: Any) -> None:
+        # Rate-limited per message so one noisy cause cannot mask another.
         now = time.monotonic()
-        if (
-            self._last_executor_reject_log is not None
-            and now - self._last_executor_reject_log
-            < _EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS
-        ):
+        last = self._last_executor_reject_log.get(msg)
+        if last is not None and now - last < _EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS:
             return
-        self._last_executor_reject_log = now
+        self._last_executor_reject_log[msg] = now
         logging.warning(msg, *args)
 
     def claim_pending_conversations(self, executor: Optional[str] = None) -> None:
@@ -583,24 +598,44 @@ class ConversationWorker:
         for a lost broadcast, and a woken pool with nothing to claim costs one
         cheap RPC.
         """
-        if self._legacy_claim_mode:
+        if self._legacy_claim_mode and not self._legacy_reprobe_due():
             names: List[str] = [DEFAULT_EXECUTOR]
         else:
             try:
                 names = self.dal.list_pending_conversation_executors()
             except ExecutorRpcUnsupportedError:
                 self._enter_legacy_claim_mode()
+                self._legacy_mode_since = time.monotonic()
                 names = [DEFAULT_EXECUTOR]
+            else:
+                self._exit_legacy_claim_mode()
         self._refresh_executor_sizes()
         for name in set(names) | set(self.executor_names()):
             ex = self._get_or_create_executor(name)
             if ex is not None:
                 ex.wake()
 
+    def _legacy_reprobe_due(self) -> bool:
+        return (
+            self._legacy_mode_since is None
+            or time.monotonic() - self._legacy_mode_since >= _LEGACY_REPROBE_SECONDS
+        )
+
+    def _exit_legacy_claim_mode(self) -> None:
+        if not self._legacy_claim_mode:
+            return
+        self._legacy_claim_mode = False
+        self._legacy_mode_since = None
+        logging.info(
+            "Executor-aware conversation RPCs are now available; leaving legacy "
+            "claim mode"
+        )
+
     def _enter_legacy_claim_mode(self) -> None:
         if self._legacy_claim_mode:
             return
         self._legacy_claim_mode = True
+        self._legacy_mode_since = time.monotonic()
         logging.warning(
             "Supabase does not expose the executor-aware conversation RPCs "
             "(robusta-storage migration for ROB-1369 not applied); running in "
@@ -616,6 +651,10 @@ class ConversationWorker:
         # slots and submit each straight to its pool (the claim already set them
         # 'running'). The surplus stays 'pending' for another instance.
         # _process_conversation_safe wakes the executor to re-claim as slots free.
+        if self._legacy_claim_mode and executor.name != DEFAULT_EXECUTOR:
+            # Only the default pool claims in legacy mode; a pool created
+            # before the fallback (or woken by a stale broadcast) stays idle.
+            return
         free = executor.free_slots()
         if free <= 0:
             # All slots occupied: pending rows stay unclaimed until a slot
@@ -687,24 +726,42 @@ class ConversationWorker:
         after the claim (stop/retry) is caught later as ConversationReassignedError.
         """
         with self._dispatch_lock:
-            if not self._running:
-                return
-            if executor is None:
-                executor = self._get_or_create_executor(task.executor)
-            if executor is None or not executor.running:
-                return
-            executor.track(task)
-            try:
-                executor.submit(self._process_conversation_safe, task)
-            except RuntimeError:
-                # Pool shut down (stop() raced); row stays 'running' and is
-                # recovered by the stale-conversation timeout sweep.
-                executor.untrack(task)
-                logging.warning(
-                    "Executor %r shut down; dropping claimed conversation %s",
-                    executor.name,
-                    task.conversation_id,
-                )
+            if self._running:
+                if executor is None:
+                    executor = self._get_or_create_executor(task.executor)
+                if executor is not None and executor.running:
+                    executor.track(task)
+                    try:
+                        executor.submit(self._process_conversation_safe, task)
+                        return
+                    except RuntimeError:
+                        executor.untrack(task)
+        # The claim already set the row 'running' with our assignee, and the
+        # shutdown sweep has run (or the pool is gone), so nothing else would
+        # ever finish it: retire it now the same way stop() retires in-flight
+        # turns, instead of leaving it for the stale-conversation sweep.
+        logging.warning(
+            "Executor %r unavailable; retiring claimed conversation %s",
+            task.executor,
+            task.conversation_id,
+        )
+        self._retire_unrunnable_task(task)
+
+    def _retire_unrunnable_task(self, task: ConversationTask) -> None:
+        try:
+            self._post_error_event(
+                task,
+                SHUTDOWN_ERROR_DESCRIPTION,
+                error_code=SHUTDOWN_ERROR_CODE,
+                reason=SHUTDOWN_REASON,
+            )
+            self._timeout_conversation(task)
+        except Exception:
+            logging.exception(
+                "Failed to retire claimed conversation %s",
+                task.conversation_id,
+                exc_info=True,
+            )
 
     def _executor_for(self, task: ConversationTask) -> Optional[ConversationExecutor]:
         with self._executors_lock:
@@ -964,7 +1021,8 @@ class ConversationWorker:
                 task.conversation_id,
             )
             self._fail_conversation(
-                task, "Conversation event identity does not match the conversation owner"
+                task,
+                "Conversation event identity does not match the conversation owner",
             )
             return
         resolved_user_id = task.user_id
