@@ -19,13 +19,13 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
                     - name: aks-prod-kafka
                       broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
                       username: kafka-plaintext-user
-                      password: ******
+                      password: "<your-password>"
                       sasl_mechanism: SCRAM-SHA-512
                       security_protocol: SASL_PLAINTEXT
                     - name: gke-stg-kafka
                       broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
                       username: kafka-plaintext-user
-                      password: ****
+                      password: "<your-password>"
                       sasl_mechanism: SCRAM-SHA-512
                       security_protocol: SASL_PLAINTEXT
     ```
