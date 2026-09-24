@@ -103,6 +103,27 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
         model: "gpt-4.1"  # This refers to the key name in modelList above
     ```
 
+## Tool Count Limits
+
+Some model endpoints reject requests that contain more tool definitions than
+they support. If your endpoint reports a specific limit, configure it on the
+corresponding `modelList` entry:
+
+```yaml
+modelList:
+  gpt-4.1:
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    model: openai/gpt-4.1
+    custom_args:
+      max_tools: 128  # Use the limit reported by your endpoint
+```
+
+Holmes validates the final tools array before sending the request. When the
+configured limit is exceeded, it reports the model, tool count, and limit
+without silently removing tools. Reduce the enabled toolsets or MCP tools to
+continue. If `max_tools` is omitted, Holmes preserves the provider's existing
+behavior.
+
 ## Available Models
 
 Most OpenAI models are supported. For example:
