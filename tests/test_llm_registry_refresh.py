@@ -29,6 +29,12 @@ def _catalog(*model_names: str, default: str = "") -> RobustaModelsResponse:
     )
 
 
+def _opted_out() -> RobustaModelsResponse:
+    """What relay serves an account with the Robusta AI opt-out set: no models,
+    no defaults, and the flag that says so."""
+    return RobustaModelsResponse(models={}, robusta_ai_disabled=True)
+
+
 def _config() -> MagicMock:
     config = MagicMock()
     config.cluster_name = "test-cluster"
@@ -55,17 +61,19 @@ def build_registry(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("MODEL", raising=False)
 
-    def factory(boot_catalog, file_models=None, robusta_ai=True):
+    def factory(boot_catalog, file_models=None, robusta_ai=True, config_model=None):
         monkeypatch.setattr(
             LLMModelRegistry,
             "_parse_models_file",
             lambda self, path: dict(file_models or {}),
         )
+        config = _config()
+        config.model = config_model
         with (
             patch("holmes.core.llm.ROBUSTA_AI", robusta_ai),
             patch("holmes.core.llm.fetch_robusta_models", return_value=boot_catalog),
         ):
-            return LLMModelRegistry(_config(), _dal())
+            return LLMModelRegistry(config, _dal())
 
     return factory
 
@@ -317,9 +325,9 @@ def test_unknown_model_lookup_does_not_block_other_readers(build_registry):
         reader = threading.Thread(target=unrelated_reader, daemon=True)
         reader.start()
 
-        assert reader_done.wait(timeout=5), (
-            "a reader of an unrelated model blocked behind the in-flight refresh"
-        )
+        assert reader_done.wait(
+            timeout=5
+        ), "a reader of an unrelated model blocked behind the in-flight refresh"
         assert served["entry"].model == "azure/gpt-4"
         reader.join(timeout=5)
     finally:
@@ -369,5 +377,114 @@ def test_heartbeat_advertises_the_refreshed_catalog(mock_cluster, monkeypatch):
 
     update_holmes_status_in_db(dal, config)
 
-    advertised = json.loads(dal.upsert_holmes_status.call_args[0][0]["model"])
-    assert advertised == ["Playtika-sonnet-5"]
+    upserted = dal.upsert_holmes_status.call_args[0][0]
+    assert json.loads(upserted["model"]) == ["Playtika-sonnet-5"]
+    # This agent reads the catalog, so it reads the opt-out; the platform's
+    # settings page tells such agents from the rest by this flag.
+    assert json.loads(upserted["metadata"])["honors_robusta_ai_disabled"] is True
+
+
+@patch("holmes.core.llm.ROBUSTA_AI", True)
+@patch("holmes.core.llm.LOAD_ALL_ROBUSTA_MODELS", False)
+@patch("holmes.config.Config._Config__get_cluster_name", return_value="test-cluster")
+def test_heartbeat_does_not_claim_the_opt_out_when_the_catalog_is_not_read(
+    mock_cluster, monkeypatch
+):
+    """LOAD_ALL_ROBUSTA_MODELS=false keeps the agent on the legacy single
+    Robusta entry: it never fetches the catalog, so it never sees the account's
+    opt-out and must not be listed as honouring it."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MODEL", raising=False)
+    monkeypatch.setattr(LLMModelRegistry, "_parse_models_file", lambda self, path: {})
+
+    dal = _dal()
+    with patch("holmes.core.llm.fetch_robusta_models") as fetch:
+        config = Config.load_from_env()
+        config._dal = dal
+        assert set(config.llm_model_registry.models) == {ROBUSTA_AI_MODEL_NAME}
+        fetch.assert_not_called()
+
+        update_holmes_status_in_db(dal, config)
+
+    upserted = dal.upsert_holmes_status.call_args[0][0]
+    assert json.loads(upserted["metadata"])["honors_robusta_ai_disabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Account-level Robusta AI opt-out (ROB-1389)
+# ---------------------------------------------------------------------------
+
+
+def test_opt_out_at_boot_serves_only_the_cluster_models(build_registry):
+    """An opted-out account gets no Robusta-hosted entries at all - not even
+    the legacy fallback, which is what an empty catalog would otherwise mean."""
+    registry = build_registry(
+        _opted_out(),
+        file_models={
+            "my-azure-gpt4": ModelEntry(model="azure/gpt-4", name="my-azure-gpt4")
+        },
+    )
+
+    assert set(registry.models) == {"my-azure-gpt4"}
+    assert registry.default_robusta_model is None
+    assert registry.robusta_ai_disabled
+    assert registry.get_model_params().name == "my-azure-gpt4"
+
+
+def test_opt_out_at_boot_with_no_cluster_models_explains_itself(build_registry):
+    registry = build_registry(_opted_out())
+
+    assert registry.models == {}
+    with pytest.raises(Exception) as excinfo:
+        registry.get_model_params()
+
+    assert "Robusta-hosted models are disabled for this account" in str(excinfo.value)
+    assert "Settings > LLM Models" in str(excinfo.value)
+
+
+def test_opt_out_at_boot_serves_the_config_model(build_registry):
+    registry = build_registry(_opted_out(), config_model="azure/gpt-4.1")
+
+    assert set(registry.models) == {"azure/gpt-4.1"}
+    assert registry.get_model_params().name == "azure/gpt-4.1"
+
+
+def test_refresh_applies_a_new_opt_out(build_registry):
+    registry = build_registry(
+        _catalog("Robusta/opus-4-6", default="Robusta/opus-4-6"),
+        file_models={
+            "my-azure-gpt4": ModelEntry(model="azure/gpt-4", name="my-azure-gpt4")
+        },
+    )
+
+    changed = _refresh_with(registry, _opted_out())
+
+    assert changed
+    assert set(registry.models) == {"my-azure-gpt4"}
+    assert registry.default_robusta_model is None
+    assert registry.robusta_ai_disabled
+
+
+def test_a_repeated_opt_out_is_not_a_change(build_registry):
+    """The refresh loop re-reads the flag every cycle; an account that stays
+    opted out must not be reported as changed on each one."""
+    registry = build_registry(_opted_out())
+
+    assert not _refresh_with(registry, _opted_out())
+    assert registry.models == {}
+    assert registry.robusta_ai_disabled
+
+
+def test_an_opted_out_agent_keeps_polling_and_recovers(build_registry):
+    """Re-enabling the account must reach a running agent: it has no Robusta
+    entries left, so the refresh gate can't key on those alone."""
+    registry = build_registry(_opted_out())
+
+    changed = _refresh_with(
+        registry, _catalog("Robusta/opus-4-6", default="Robusta/opus-4-6")
+    )
+
+    assert changed
+    assert set(registry.models) == {"Robusta/opus-4-6"}
+    assert registry.default_robusta_model == "Robusta/opus-4-6"
+    assert not registry.robusta_ai_disabled

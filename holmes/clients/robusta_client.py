@@ -24,6 +24,11 @@ TIMEOUT = 0.5
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 FETCH_MODELS_ATTEMPTS = 5
 
+# The v3 catalog is an envelope that carries the account's opt-out. A platform
+# that does not serve it answers 404, the fetch fails like any other client
+# error, and the registry loads its legacy single-model entry.
+MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +45,14 @@ class RobustaModel(BaseModel):
 
 
 class RobustaModelsResponse(BaseModel):
+    # Relay's v3 envelope carries the account's effective catalog plus the
+    # flag that explains it: `robusta_ai_disabled` tells an agent that an
+    # empty catalog is the account's choice rather than a relay blip, so it
+    # must not fall back to the legacy Robusta entry. The envelope's other
+    # fields are the platform's own bookkeeping and are dropped here.
+    model_config = ConfigDict(extra="ignore")
     models: Dict[str, RobustaModel]
+    robusta_ai_disabled: bool = False
 
 
 def _is_retryable_fetch_error(exc: BaseException) -> bool:
@@ -109,12 +121,12 @@ def fetch_supabase_api_key(account_id: str, cluster: str) -> Optional[str]:
 )
 def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
     resp = requests.post(
-        f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2",
+        MODELS_URL,
         json={"session_token": token, "account_id": account_id},
         timeout=10,
     )
     resp.raise_for_status()
-    return RobustaModelsResponse(models=resp.json())
+    return RobustaModelsResponse.model_validate(resp.json())
 
 
 def fetch_robusta_models(

@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, Union
 display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
 import sentry_sdk
-from openai import BadRequestError
+from openai import APIError, BadRequestError
 from openai.types.chat.chat_completion_message_tool_call import (
     ChatCompletionMessageToolCall,
 )
@@ -36,6 +36,7 @@ from holmes.core.models import (
 )
 from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
 from holmes.core.oauth_utils import _get_token_manager
+from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 from holmes.core.safeguards import prevent_overly_repeated_tool_call
 from holmes.core.tools import (
     StructuredToolResult,
@@ -203,6 +204,66 @@ class ToolCallWithDecision(BaseModel):
     message_index: int
     tool_call: ChatCompletionMessageToolCall
     decision: Optional[ToolApprovalDecision]
+
+
+# litellm renders a provider error as
+# `litellm.<Class>: <Class>: <Provider>Exception - <body>`, and appends
+# ` LiteLLM Retried: N times` to `str(e)` when it retried. Neither belongs in
+# what the user is asked to act on.
+_LITELLM_PREFIX_RE = re.compile(
+    r"^(?:litellm\.\w+:\s*)?(?:\w*Error:\s*)?(?:\w*Exception\s*-\s*)?"
+)
+_LITELLM_RETRY_SUFFIX_RE = re.compile(
+    r"\s*LiteLLM Retried: \d+ times(?:, LiteLLM Max Retries: \d+)?\s*$"
+)
+# The statuses relay refuses with; see RelayRefusal.
+REFUSAL_STATUS_CODES = tuple(RELAY_REFUSAL_ERROR_CODES)
+
+
+def _message_from_body(body: Any) -> Optional[str]:
+    """The human sentence inside an error body, whichever shape it arrived in:
+    FastAPI's `{"detail": ...}`, relay's `{"msg": ..., "error_code": ...}`, or
+    OpenAI's `{"error": {"message": ...}}` (which litellm hands over already
+    unwrapped to `{"message": ..., "type": ...}`)."""
+    if isinstance(body, dict) and isinstance(body.get("error"), dict):
+        body = body["error"]
+    if not isinstance(body, dict):
+        return None
+    candidates = (body.get(key) for key in ("detail", "msg", "message"))
+    return next((c for c in candidates if isinstance(c, str) and c), None)
+
+
+def _refusal_message(error: Exception) -> str:
+    """The text the server put in the body of its refusal.
+
+    The structured body is the source: litellm keeps it on the exception, or on
+    the httpx response it wrapped. Only when neither carries one do we fall
+    back to unwrapping litellm's own decoration of the message.
+    """
+    body = getattr(error, "body", None)
+    if body is None:
+        response = getattr(error, "response", None)
+        if response is not None:
+            try:
+                body = response.json()
+            except Exception:
+                body = None
+
+    message = _message_from_body(body)
+    if message:
+        return message
+
+    text = getattr(error, "message", None) or str(error)
+    text = _LITELLM_RETRY_SUFFIX_RE.sub("", text)
+    return _LITELLM_PREFIX_RE.sub("", text).strip()
+
+
+def _is_robusta_refusal(llm: LLM, error: Exception) -> bool:
+    return (
+        isinstance(error, APIError)
+        and getattr(error, "status_code", None) in REFUSAL_STATUS_CODES
+        and llm.is_robusta_model
+    )
 
 
 class ToolCallingLLM:
@@ -1279,21 +1340,39 @@ class ToolCallingLLM:
                         },
                     )
 
-              # catch a known error that occurs with Azure and replace the error message with something more obvious to the user
-              except BadRequestError as e:
-                if "Unrecognized request arguments supplied: tool_choice, tools" in str(
-                    e
-                ):
-                    raise Exception(
-                        "The Azure model you chose is not supported. Model version 1106 and higher required."
-                    ) from e
-                else:
+              # One clause, because the checks are ordered rather than typed:
+              # litellm maps a refusal by the body's error *type*, so a 401
+              # whose body says `invalid_request_error` arrives as a
+              # BadRequestError carrying status 401. The refusal is therefore
+              # recognised by status before anything keyed on the class runs;
+              # the Azure case below is a 400, so it can never be taken first.
+              except Exception as e:
+                if _is_robusta_refusal(self.llm, e):
+                    # _is_robusta_refusal already established the status is one
+                    # of REFUSAL_STATUS_CODES.
+                    status_code = e.status_code  # type: ignore[attr-defined]
+                    logging.warning(
+                        f"Relay refused the call on model={self.llm.model} "
+                        f"(status {status_code}): {e}"
+                    )
+                    raise RelayRefusal(_refusal_message(e), status_code) from e
+
+                # a known error that occurs with Azure, replaced with something
+                # more obvious to the user
+                if isinstance(e, BadRequestError):
+                    if (
+                        "Unrecognized request arguments supplied: tool_choice, tools"
+                        in str(e)
+                    ):
+                        raise Exception(
+                            "The Azure model you chose is not supported. Model version 1106 and higher required."
+                        ) from e
                     logging.error(
                         f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
                         exc_info=True,
                     )
                     raise
-              except Exception as e:
+
                 logging.error(
                     f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
                     f"{type(e).__name__}: {e}",
@@ -1418,10 +1497,28 @@ class ToolCallingLLM:
                                 data=tool_result_dict,
                             )
                         else:
+                            # No approval flow exists in this conversation, so
+                            # the error must state that nothing was executed OR
+                            # queued: a bare "requires approval" reads as if an
+                            # approval is now pending, and the model then tells
+                            # the user the command is waiting for a human to
+                            # approve it, which is false.
+                            original_error = (
+                                tool_call_result.result.error
+                                or "This tool call requires approval."
+                            )
                             tool_call_result.result.status = (
                                 StructuredToolResultStatus.ERROR
                             )
-                            tool_call_result.result.error = f"Tool call rejected for security reasons: {tool_call_result.result.error}"
+                            tool_call_result.result.error = (
+                                "Tool call rejected: it requires human approval, "
+                                "and approval is not available in this conversation. "
+                                f"({original_error}) "
+                                "The command was NOT executed and NOT submitted or queued for approval - "
+                                "nothing is waiting for anyone's approval. "
+                                "Do not tell the user the command was submitted or is awaiting approval. "
+                                "Instead, explain that you cannot run this command in this conversation and why."
+                            )
                             tool_result_dict = tool_call_result.to_client_dict()
 
                             tool_calls.append(tool_result_dict)
