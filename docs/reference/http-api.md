@@ -331,7 +331,7 @@ For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision D
 
 #### Tool Approval Behavior
 
-The `enable_tool_approval` field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that bashlex cannot parse).
+The `enable_tool_approval` field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that cannot be safely parsed).
 
 **When `enable_tool_approval: true` (interactive clients):**
 
