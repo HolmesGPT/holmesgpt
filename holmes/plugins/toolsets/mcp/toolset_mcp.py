@@ -560,6 +560,56 @@ class RemoteMCPTool(Tool):
             return f"[resource_link {label}: {uri}]" if label else f"[resource_link: {uri}]"
         return ""
 
+    def _strip_omitted_optional_params(self, params: Dict) -> Dict:
+        """Drop optional params the model explicitly set to null.
+
+        The tool schema we hand the LLM declares every optional param as
+        anyOf[<type>, null] and (in strict mode) also lists it in "required",
+        so models signal "leave this out" by sending an explicit null.  MCP
+        servers validate against their own inputSchema, where those params are
+        usually plain non-nullable types, so forwarding the null fails
+        validation and the model falls back to guessing sentinels like the
+        string "null".  Omitting the key is what the model actually meant.
+        """
+        if not params:
+            return params
+        return {
+            key: value
+            for key, value in params.items()
+            if value is not None
+            or (key in self.parameters and self.parameters[key].required)
+        }
+
+    @staticmethod
+    def _merge_result_payload(merged_text: str, structured_content: Any) -> str:
+        """Combine content[] text with CallToolResult.structuredContent.
+
+        A server that declares an outputSchema returns the machine-readable
+        payload in structuredContent and is only *recommended* to also
+        serialize it into a text block.  Many servers (e.g. CircleCI's) put a
+        human summary such as "Found 5 run(s)" in content[] instead, so
+        reading content[] alone hides every id the LLM needs to drill down.
+        """
+        # Per the spec the field is a JSON object or absent; ignore anything else
+        # rather than stringifying it into the model's context.
+        if not isinstance(structured_content, dict) or not structured_content:
+            return merged_text
+        structured_text = json.dumps(structured_content, default=str)
+        if not merged_text or merged_text.strip() == structured_text.strip():
+            return structured_text
+        # The spec only *recommends* that a server also serialize the payload
+        # into a text block, but the servers that do (including the reference
+        # Python SDK, which uses indent=2) pick their own separators and key
+        # order, so an exact string compare misses the common well-behaved case
+        # and doubles the whole payload in the model's context.  Compare the
+        # parsed values instead and keep the compact serialization.
+        try:
+            if json.loads(merged_text) == structured_content:
+                return structured_text
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return f"{merged_text}\n{structured_text}"
+
     async def _invoke_async(
         self,
         params: Dict,
@@ -568,7 +618,7 @@ class RemoteMCPTool(Tool):
         session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
         is_remote = self.is_remote
-        call_params = params
+        call_params = self._strip_omitted_optional_params(params)
         if is_remote and user_approved:
             call_params = {**call_params, REMOTE_TOOL_APPROVED_PARAM: True}
         if is_remote and session_approved_prefixes:
@@ -626,7 +676,7 @@ class RemoteMCPTool(Tool):
                 if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
-            data=merged_text,
+            data=self._merge_result_payload(merged_text, tool_result.structuredContent),
             images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
