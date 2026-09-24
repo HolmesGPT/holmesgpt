@@ -44,6 +44,9 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
           secretKeyRef:
             name: holmes-secrets
             key: openai-api-key
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "gpt-4.1"  # This refers to the key name in modelList above
 
     # Configure at least one model using modelList
     modelList:
@@ -57,10 +60,6 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
         model: openai/gpt-5
         temperature: 1
         reasoning_effort: medium
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "gpt-4.1"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -84,6 +83,9 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
             secretKeyRef:
               name: robusta-holmes-secret
               key: openai-api-key
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "gpt-4.1"  # This refers to the key name in modelList above
 
       # Configure at least one model using modelList
       modelList:
@@ -97,10 +99,6 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
           model: openai/gpt-5
           temperature: 1
           reasoning_effort: medium
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "gpt-4.1"  # This refers to the key name in modelList above
     ```
 
 ## Available Models
@@ -165,9 +163,10 @@ When using GPT-5 models, you can control the reasoning effort level. This allows
         temperature: 1
         reasoning_effort: high  # Complex investigations
 
-    # Use the appropriate model based on your needs
-    config:
-      model: "gpt-5-medium"
+    additionalEnvVars:
+      # Use the appropriate model based on your needs
+      - name: MODEL
+        value: "gpt-5-medium"
     ```
 
 === "Robusta Helm Chart"
@@ -195,9 +194,10 @@ When using GPT-5 models, you can control the reasoning effort level. This allows
           temperature: 1
           reasoning_effort: high  # Complex investigations
 
-      # Use the appropriate model based on your needs
-      config:
-        model: "gpt-5-medium"
+      additionalEnvVars:
+        # Use the appropriate model based on your needs
+        - name: MODEL
+          value: "gpt-5-medium"
     ```
 
 **Available reasoning effort levels:**

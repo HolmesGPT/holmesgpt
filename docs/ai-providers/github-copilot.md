@@ -61,8 +61,9 @@ Configure them via the `extra_headers` field in your model list configuration, o
           Copilot-Integration-Id: "vscode-chat"
           User-Agent: "GithubCopilot/1.155.0"
 
-    config:
-      model: "copilot-claude"
+    additionalEnvVars:
+      - name: MODEL
+        value: "copilot-claude"
     ```
 
 === "Robusta Helm Chart"
@@ -79,8 +80,9 @@ Configure them via the `extra_headers` field in your model list configuration, o
             Copilot-Integration-Id: "vscode-chat"
             User-Agent: "GithubCopilot/1.155.0"
 
-      config:
-        model: "copilot-claude"
+      additionalEnvVars:
+        - name: MODEL
+          value: "copilot-claude"
     ```
 
 ## Additional Resources

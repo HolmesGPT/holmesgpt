@@ -50,15 +50,14 @@ Browse the full list of available models at [github.com/marketplace/models](http
           secretKeyRef:
             name: holmes-secrets
             key: github-api-key
+      - name: MODEL
+        value: "gpt-4-1"
 
     modelList:
       gpt-4-1:
         api_key: "{{ env.GITHUB_API_KEY }}"
         model: github/gpt-4.1
         temperature: 0
-
-    config:
-      model: "gpt-4-1"
     ```
 
 === "Robusta Helm Chart"
@@ -80,15 +79,14 @@ Browse the full list of available models at [github.com/marketplace/models](http
             secretKeyRef:
               name: robusta-holmes-secret
               key: github-api-key
+        - name: MODEL
+          value: "gpt-4o"
 
       modelList:
         gpt-4o:
           api_key: "{{ env.GITHUB_API_KEY }}"
           model: github/gpt-4o
           temperature: 0
-
-      config:
-        model: "gpt-4o"
     ```
 
 ## Additional Resources

@@ -33,6 +33,9 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
           secretKeyRef:
             name: holmes-secrets
             key: openrouter-api-key
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "claude-sonnet-4"  # This refers to the key name in modelList above
 
     # Configure at least one model using modelList
     modelList:
@@ -48,10 +51,6 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
         api_key: "{{ env.OPENROUTER_API_KEY }}"
         model: openrouter/anthropic/claude-opus-4.5-20251101
         temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -73,6 +72,9 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
             secretKeyRef:
               name: robusta-holmes-secret
               key: openrouter-api-key
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "claude-sonnet-4"  # This refers to the key name in modelList above
 
       # Configure at least one model using modelList
       modelList:
@@ -88,10 +90,6 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
           api_key: "{{ env.OPENROUTER_API_KEY }}"
           model: openrouter/anthropic/claude-opus-4.5-20251101
           temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 **Optional environment variables:**
@@ -135,6 +133,9 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
             key: openai-api-key
       - name: OPENAI_API_BASE
         value: "https://openrouter.ai/api/v1"
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "claude-sonnet-4"  # This refers to the key name in modelList above
 
     # Configure at least one model using modelList
     modelList:
@@ -152,10 +153,6 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
         api_base: "https://openrouter.ai/api/v1"
         model: openai/anthropic/claude-opus-4.5-20251101
         temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -179,6 +176,9 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
               key: openai-api-key
         - name: OPENAI_API_BASE
           value: "https://openrouter.ai/api/v1"
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "claude-sonnet-4"  # This refers to the key name in modelList above
 
       # Configure at least one model using modelList
       modelList:
@@ -196,10 +196,6 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
           api_base: "https://openrouter.ai/api/v1"
           model: openai/anthropic/claude-opus-4.5-20251101
           temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 ## Available Models

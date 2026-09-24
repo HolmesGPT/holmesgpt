@@ -41,6 +41,8 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         #   secretKeyRef:
         #     name: holmes-secrets
         #     key: openai-api-key
+      - name: MODEL
+        value: "my-model"
 
     # Optional: Custom CA certificate (base64-encoded)
     # certificate: "LS0tLS1CRUdJTi..."
@@ -51,9 +53,6 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         api_base: "{{ env.OPENAI_API_BASE }}"
         model: openai/your-model-name
         temperature: 1
-
-    config:
-      model: "my-model"
     ```
 
 === "Robusta Helm Chart"
@@ -71,6 +70,8 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
           #   secretKeyRef:
           #     name: robusta-holmes-secret
           #     key: openai-api-key
+        - name: MODEL
+          value: "my-model"
 
       # Optional: Custom CA certificate (base64-encoded)
       # certificate: "LS0tLS1CRUdJTi..."
@@ -81,9 +82,6 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
           api_base: "{{ env.OPENAI_API_BASE }}"
           model: openai/your-model-name
           temperature: 1
-
-      config:
-        model: "my-model"
     ```
 
 ## Known Limitations

@@ -46,6 +46,9 @@ Configure HolmesGPT to use local models with Ollama.
     additionalEnvVars:
       - name: OLLAMA_API_BASE
         value: "http://ollama-service:11434"
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "ollama-llama3"  # This refers to the key name in modelList above
 
     # Configure at least one model using modelList
     modelList:
@@ -58,10 +61,6 @@ Configure HolmesGPT to use local models with Ollama.
         api_base: "{{ env.OLLAMA_API_BASE }}"
         model: ollama_chat/codellama
         temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "ollama-llama3"  # This refers to the key name in modelList above
     ```
 
     !!! note "Ollama Service"
@@ -78,16 +77,15 @@ Configure HolmesGPT to use local models with Ollama.
         value: "http://ollama-service:11434/v1"
       - name: OPENAI_API_KEY
         value: "YOUR_BEARER_TOKEN_HERE"
+      # Optional
+      - name: MODEL
+        value: "ollama-alt"
 
     modelList:
       ollama-alt:
         api_base: "{{ env.OPENAI_API_BASE }}"
         api_key: "{{ env.OPENAI_API_KEY }}"
         model: openai/OLLAMA_MODEL_NAME
-
-    # Optional
-    config:
-      model: "ollama-alt"
     ```
 
 === "Robusta Helm Chart"
@@ -99,6 +97,9 @@ Configure HolmesGPT to use local models with Ollama.
       additionalEnvVars:
         - name: OLLAMA_API_BASE
           value: "http://ollama-service:11434"
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "ollama-llama3"  # This refers to the key name in modelList above
 
       # Configure at least one model using modelList
       modelList:
@@ -111,10 +112,6 @@ Configure HolmesGPT to use local models with Ollama.
           api_base: "{{ env.OLLAMA_API_BASE }}"
           model: ollama_chat/codellama
           temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "ollama-llama3"  # This refers to the key name in modelList above
     ```
 
     !!! note "Ollama Service"
@@ -132,16 +129,15 @@ Configure HolmesGPT to use local models with Ollama.
           value: "http://ollama-service:11434/v1"
         - name: OPENAI_API_KEY
           value: "YOUR_BEARER_TOKEN_HERE"
+        # Optional
+        - name: MODEL
+          value: "ollama-alt"
 
       modelList:
         ollama-alt:
           api_base: "{{ env.OPENAI_API_BASE }}"
           api_key: "{{ env.OPENAI_API_KEY }}"
           model: openai/OLLAMA_MODEL_NAME
-
-      # Optional
-      config:
-        model: "ollama-alt"
     ```
 
 ## Additional Resources

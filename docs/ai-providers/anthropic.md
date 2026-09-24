@@ -41,6 +41,9 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
           secretKeyRef:
             name: holmes-secrets
             key: anthropic-api-key
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "claude-sonnet-4"  # This refers to the key name in modelList above
 
     # Configure at least one model using modelList
     modelList:
@@ -56,10 +59,6 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
         api_key: "{{ env.ANTHROPIC_API_KEY }}"
         model: anthropic/claude-opus-4-1-20250805
         temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -81,6 +80,9 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
             secretKeyRef:
               name: robusta-holmes-secret
               key: anthropic-api-key
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "claude-sonnet-4"  # This refers to the key name in modelList above
 
       # Configure at least one model using modelList
       modelList:
@@ -96,10 +98,6 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
           model: anthropic/claude-opus-4-1-20250805
           temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
     ```
 
 ## Prompt Caching

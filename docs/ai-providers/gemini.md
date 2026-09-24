@@ -40,6 +40,9 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
             key: gemini-api-key
       - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
         value: "true"  # Required for Gemini - see Environment Variables Reference
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "gemini-pro"  # This refers to the key name in modelList above
 
     # Configure at least one model using modelList
     modelList:
@@ -57,10 +60,6 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
         api_key: "{{ env.GEMINI_API_KEY }}"
         model: gemini/gemini-exp-1206
         temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "gemini-pro"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -84,6 +83,9 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
               key: gemini-api-key
         - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
           value: "true"  # Required for Gemini - see Environment Variables Reference
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "gemini-pro"  # This refers to the key name in modelList above
 
       # Configure at least one model using modelList
       modelList:
@@ -101,10 +103,6 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
           api_key: "{{ env.GEMINI_API_KEY }}"
           model: gemini/gemini-exp-1206
           temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "gemini-pro"  # This refers to the key name in modelList above
     ```
 
 ## Using CLI Parameters

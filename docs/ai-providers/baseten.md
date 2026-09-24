@@ -34,6 +34,8 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
           secretKeyRef:
             name: holmes-secrets
             key: baseten-api-key
+      - name: MODEL
+        value: "glm-5-3"  # modelList key name
 
     modelList:
       glm-5-3:
@@ -45,9 +47,6 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
         output_cost_per_token: 0.000015
         custom_args:
           max_context_size: 1048576
-
-    config:
-      model: "glm-5-3"  # modelList key name
     ```
 
 === "Robusta Helm Chart"
@@ -69,6 +68,8 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
             secretKeyRef:
               name: robusta-holmes-secret
               key: baseten-api-key
+        - name: MODEL
+          value: "glm-5-3"  # modelList key name
 
       modelList:
         glm-5-3:
@@ -80,9 +81,6 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
           output_cost_per_token: 0.000015
           custom_args:
             max_context_size: 1048576
-
-      config:
-        model: "glm-5-3"  # modelList key name
     ```
 
 ## Models missing from LiteLLM

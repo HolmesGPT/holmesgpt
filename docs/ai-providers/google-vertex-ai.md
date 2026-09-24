@@ -48,6 +48,9 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
             key: vertexai-location
       - name: GOOGLE_APPLICATION_CREDENTIALS
         value: "/etc/google-credentials/google-credentials"
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "vertex-gemini-pro"  # This refers to the key name in modelList above
 
     # Mount the credentials file (required for file-based authentication)
     # See: https://kubernetes.io/docs/concepts/storage/volumes/#secret
@@ -77,10 +80,6 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
         vertex_location: "{{ env.VERTEXAI_LOCATION }}"
         model: vertex_ai/gemini-1.5-flash
         temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "vertex-gemini-pro"  # This refers to the key name in modelList above
     ```
 
 === "Robusta Helm Chart"
@@ -112,6 +111,9 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
               key: vertexai-location
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/etc/google-credentials/google-credentials"
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "vertex-gemini-pro"  # This refers to the key name in modelList above
 
       # Mount the credentials file (required for file-based authentication)
       # See: https://kubernetes.io/docs/concepts/storage/volumes/#secret
@@ -141,10 +143,6 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
           vertex_location: "{{ env.VERTEXAI_LOCATION }}"
           model: vertex_ai/gemini-1.5-flash
           temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "vertex-gemini-pro"  # This refers to the key name in modelList above
     ```
 
 ## Using CLI Parameters
