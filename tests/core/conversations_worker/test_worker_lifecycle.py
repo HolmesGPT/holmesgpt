@@ -50,8 +50,6 @@ def _bare_worker(sizes=None, default_size=2, max_executors=16):
     w._last_executor_reject_log = {}
     w._discovery_thread = None
     w._discovery_event = threading.Event()
-    w._legacy_claim_mode = False
-    w._legacy_mode_since = None
     w._dispatch_lock = threading.Lock()
     w._realtime_manager = None
     w._tool_call_worker = MagicMock()
@@ -139,7 +137,7 @@ def test_build_task_from_conversation_row_tolerates_missing_fields():
 
 def test_build_task_claiming_executor_wins_over_row_column():
     """The pool that claimed the row owns it — a filtered claim can only return
-    rows for that executor, and in legacy mode the column may be absent."""
+    rows for that executor; the column is a fallback for a bare row."""
     w = _bare_worker()
     task = w._build_task_from_conversation_row(_row("c1", executor="auto"), "manual")
     assert task is not None and task.executor == "manual"
@@ -692,121 +690,28 @@ def test_discover_and_wake_also_wakes_existing_idle_executors():
 
 
 # ---------------------------------------------------------------------------
-# Legacy mode: database without the executor-aware RPCs
+# Database without the executor-aware RPCs (migration 20260916073349 missing)
 # ---------------------------------------------------------------------------
 
 
-def test_claim_falls_back_to_legacy_when_rpc_lacks_executor_param(caplog):
-    w = _bare_worker(sizes={"manual": 5})
-    ex = _fake_executor(w, "manual")
-    calls = []
-
-    def fake_claim(_holmes_id, limit, executor=None):
-        calls.append(executor)
-        if executor is not None:
-            raise ExecutorRpcUnsupportedError("PGRST202")
-        return [_row("c1")]
-
-    w.dal.claim_n_pending_conversations.side_effect = fake_claim
-    with caplog.at_level(logging.WARNING):
-        w._try_claim_and_dispatch(ex)
-    assert calls == ["manual", None]
-    assert w._legacy_claim_mode is True
-    assert ("c1", 1) in ex._active
-    assert any("legacy mode" in r.getMessage() for r in caplog.records)
-
-    # Subsequent claims go straight to the legacy signature.
-    w._try_claim_and_dispatch(ex)
-    assert calls[-1] is None
-
-
-def test_non_default_executor_goes_idle_in_legacy_mode():
-    """Only the default pool claims in legacy mode — two pools claiming
-    unfiltered would double the pre-ROB-1369 concurrency."""
+def test_missing_executor_rpc_is_a_plain_error_not_a_mode_switch():
+    """Holmes is deployed after the migration; a PGRST202 is a deploy error.
+    It surfaces through the claim/discovery loops' exception logging and the
+    worker keeps its per-executor behavior (no single-pool fallback)."""
     w = _bare_worker()
-    auto = _fake_executor(w, "auto")
+    ex = _fake_executor(w, "auto")
     w.dal.claim_n_pending_conversations.side_effect = ExecutorRpcUnsupportedError("x")
-    w._try_claim_and_dispatch(auto)
-    assert w._legacy_claim_mode is True
-    assert w.dal.claim_n_pending_conversations.call_count == 1
-    auto._pool.submit.assert_not_called()
-
-
-def test_claim_loop_does_not_claim_once_shutdown_began():
-    """stop() clears _running before the pools go down; a loop woken in that
-    window must leave pending rows for another instance, not claim them only
-    to retire them as 'timeout'."""
-    w = _bare_worker()
-    ex = _fake_executor(w, "manual")
-    w._running = False
-    w._try_claim_and_dispatch(ex)
-    w.dal.claim_n_pending_conversations.assert_not_called()
-
-
-def test_non_default_pool_woken_after_legacy_fallback_does_not_claim():
-    """An 'auto' pool created before the fallback must not start claiming
-    unfiltered rows once the default pool has entered legacy mode."""
-    w = _bare_worker()
-    auto = _fake_executor(w, "auto")
-    w._legacy_claim_mode = True
-    w._try_claim_and_dispatch(auto)
-    w.dal.claim_n_pending_conversations.assert_not_called()
-
-
-def test_legacy_mode_is_reprobed_and_left_once_the_migration_lands(monkeypatch):
-    w = _bare_worker()
+    with pytest.raises(ExecutorRpcUnsupportedError):
+        w._try_claim_and_dispatch(ex)
+    w.dal.claim_n_pending_conversations.assert_called_once_with(
+        "h-test", ex.max_concurrent, executor="auto"
+    )
     w.dal.list_pending_conversation_executors.side_effect = ExecutorRpcUnsupportedError(
         "x"
     )
-    try:
+    with pytest.raises(ExecutorRpcUnsupportedError):
         w._discover_and_wake()
-        assert w._legacy_claim_mode is True
-        # Within the re-probe window the RPC is not tried again.
-        w.dal.list_pending_conversation_executors.reset_mock()
-        w._discover_and_wake()
-        w.dal.list_pending_conversation_executors.assert_not_called()
-        # Migration applied; the next probe after the window leaves legacy mode.
-        w.dal.list_pending_conversation_executors.side_effect = None
-        w.dal.list_pending_conversation_executors.return_value = ["auto"]
-        monkeypatch.setattr(w, "_legacy_mode_since", time.monotonic() - 10_000)
-        w._discover_and_wake()
-        assert w._legacy_claim_mode is False
-        assert w._legacy_mode_since is None
-        assert set(w.executor_names()) == {"manual", "auto"}
-    finally:
-        w.stop()
-
-
-def test_failed_reprobe_stays_in_legacy_mode_and_rearms_the_window(monkeypatch):
-    w = _bare_worker()
-    w.dal.list_pending_conversation_executors.side_effect = ExecutorRpcUnsupportedError(
-        "x"
-    )
-    try:
-        w._discover_and_wake()
-        monkeypatch.setattr(w, "_legacy_mode_since", time.monotonic() - 10_000)
-        w._discover_and_wake()
-        assert w._legacy_claim_mode is True
-        assert time.monotonic() - w._legacy_mode_since < 5
-        assert w.dal.list_pending_conversation_executors.call_count == 2
-    finally:
-        w.stop()
-
-
-def test_discovery_uses_default_executor_in_legacy_mode():
-    w = _bare_worker()
-    w.dal.list_pending_conversation_executors.side_effect = ExecutorRpcUnsupportedError(
-        "x"
-    )
-    try:
-        w._discover_and_wake()
-        assert w._legacy_claim_mode is True
-        assert w.executor_names() == ["manual"]
-        # Named wakes are routed to the default pool too.
-        w.claim_pending_conversations("auto")
-        assert w.executor_names() == ["manual"]
-    finally:
-        w.stop()
+    assert w.executor_names() == ["auto"]
 
 
 # ---------------------------------------------------------------------------

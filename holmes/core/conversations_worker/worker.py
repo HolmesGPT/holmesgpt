@@ -37,7 +37,7 @@ from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
 from holmes.core.conversation_links import resolve_conversation_link
-from holmes.core.supabase_dal import ExecutorRpcUnsupportedError, SupabaseDnsException
+from holmes.core.supabase_dal import SupabaseDnsException
 from postgrest.exceptions import APIError as PGAPIError
 from holmes.core.prompt import PromptComponent
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
@@ -95,9 +95,6 @@ SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
 
 # Unknown executor names beyond the pool cap are logged at most this often.
 _EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS = 300.0
-# While in legacy claim mode, re-probe the DB this often so the worker picks
-# up the ROB-1369 migration without a restart.
-_LEGACY_REPROBE_SECONDS = 600.0
 
 
 class ConversationWorker:
@@ -145,16 +142,10 @@ class ConversationWorker:
         self._last_executor_reject_log: Dict[str, float] = {}
 
         # Discovery loop: the safety-net poll (Realtime is at-most-once) and the
-        # target of executor-less wakeups (reconnects, legacy broadcasts). It
+        # target of executor-less wakeups (reconnects, older publishers). It
         # asks the DB which executors have pending rows and wakes/creates them.
         self._discovery_thread: Optional[threading.Thread] = None
         self._discovery_event = threading.Event()
-
-        # A DB without the executor-aware RPCs (migration not applied yet) puts
-        # the worker in legacy mode: one pool, the default executor, claiming
-        # any pending row — i.e. exactly the pre-ROB-1369 behavior.
-        self._legacy_claim_mode = False
-        self._legacy_mode_since: Optional[float] = None
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -454,8 +445,6 @@ class ConversationWorker:
         executor stay 'pending' — every instance runs the same validation —
         until the claim window closes.
         """
-        if self._legacy_claim_mode:
-            name = DEFAULT_EXECUTOR
         if not is_valid_executor_name(name):
             self._log_executor_reject("invalid executor name %r", name)
             return None
@@ -530,7 +519,7 @@ class ConversationWorker:
         broadcasts. Non-blocking.
 
         A broadcast naming an executor wakes exactly that pool. A name without
-        a pool yet — and a broadcast without a name (a legacy publisher, a
+        a pool yet — and a broadcast without a name (an older publisher, a
         (re)subscribe drain, a pgchanges notification) — goes through the
         discovery loop, which asks the DB which executors have pending rows and
         creates pools for those only, so a stray broadcast cannot spawn a pool
@@ -603,51 +592,12 @@ class ConversationWorker:
         for a lost broadcast, and a woken pool with nothing to claim costs one
         cheap RPC.
         """
-        if self._legacy_claim_mode and not self._legacy_reprobe_due():
-            names: List[str] = [DEFAULT_EXECUTOR]
-        else:
-            try:
-                names = self.dal.list_pending_conversation_executors()
-            except ExecutorRpcUnsupportedError:
-                self._enter_legacy_claim_mode()
-                self._legacy_mode_since = time.monotonic()
-                names = [DEFAULT_EXECUTOR]
-            else:
-                self._exit_legacy_claim_mode()
+        names: List[str] = self.dal.list_pending_conversation_executors()
         self._refresh_executor_sizes()
         for name in set(names) | set(self.executor_names()):
             ex = self._get_or_create_executor(name)
             if ex is not None:
                 ex.wake()
-
-    def _legacy_reprobe_due(self) -> bool:
-        return (
-            self._legacy_mode_since is None
-            or time.monotonic() - self._legacy_mode_since >= _LEGACY_REPROBE_SECONDS
-        )
-
-    def _exit_legacy_claim_mode(self) -> None:
-        if not self._legacy_claim_mode:
-            return
-        self._legacy_claim_mode = False
-        self._legacy_mode_since = None
-        logging.info(
-            "Executor-aware conversation RPCs are now available; leaving legacy "
-            "claim mode"
-        )
-
-    def _enter_legacy_claim_mode(self) -> None:
-        if self._legacy_claim_mode:
-            return
-        self._legacy_claim_mode = True
-        self._legacy_mode_since = time.monotonic()
-        logging.warning(
-            "Supabase does not expose the executor-aware conversation RPCs "
-            "(robusta-storage migration for ROB-1369 not applied); running in "
-            "legacy mode with a single %r executor claiming every pending "
-            "conversation",
-            DEFAULT_EXECUTOR,
-        )
 
     # ---- claim + dispatch ----
 
@@ -660,10 +610,6 @@ class ConversationWorker:
             # Shutting down: leave pending rows for another instance instead of
             # claiming them only to retire them.
             return
-        if self._legacy_claim_mode and executor.name != DEFAULT_EXECUTOR:
-            # Only the default pool claims in legacy mode; a pool created
-            # before the fallback (or woken by a stale broadcast) stays idle.
-            return
         free = executor.free_slots()
         if free <= 0:
             # All slots occupied: pending rows stay unclaimed until a slot
@@ -672,20 +618,9 @@ class ConversationWorker:
             executor.note_saturation()
             return
         executor.note_capacity_available(free)
-        try:
-            claimed = self.dal.claim_n_pending_conversations(
-                self.holmes_id,
-                free,
-                executor=None if self._legacy_claim_mode else executor.name,
-            )
-        except ExecutorRpcUnsupportedError:
-            self._enter_legacy_claim_mode()
-            if executor.name != DEFAULT_EXECUTOR:
-                # Only the default pool claims in legacy mode; this one goes idle.
-                return
-            claimed = self.dal.claim_n_pending_conversations(
-                self.holmes_id, free, executor=None
-            )
+        claimed = self.dal.claim_n_pending_conversations(
+            self.holmes_id, free, executor=executor.name
+        )
         if claimed:
             logging.info(
                 "Executor %r claimed %d conversation(s) (free slots=%d)",
@@ -790,9 +725,8 @@ class ConversationWorker:
                 title=conv.get("title"),
                 # RLS-bound owner; the per-turn identity (see _process_conversation).
                 user_id=conv.get("user_id"),
-                # The pool that claimed the row wins over the column: in legacy
-                # mode the column may not exist, and a filtered claim can only
-                # return rows naming the claiming executor anyway.
+                # The pool that claimed the row wins over the column: a filtered
+                # claim can only return rows naming the claiming executor.
                 executor=executor or conv.get("executor") or DEFAULT_EXECUTOR,
             )
         except Exception:
