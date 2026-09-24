@@ -71,7 +71,11 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
               security_protocol: SASL_PLAINTEXT
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Update your Helm values and run a Helm upgrade:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
@@ -237,7 +241,11 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
               ssl_client_key_path: /etc/kafka-tls/client.key
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Update your Helm values and run a Helm upgrade:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
@@ -391,7 +399,11 @@ Use this approach when certificates are passed as environment variables (e.g., f
               ssl_client_key: "{{ env.KAFKA_CLIENT_KEY_BASE64 }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Update your Helm values and run a Helm upgrade:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
