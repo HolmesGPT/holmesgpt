@@ -488,7 +488,9 @@ class ConversationWorker:
                 thread_ceiling=self._executor_settings.thread_ceiling,
             )
             self._executors[name] = ex
-        ex.start(self._try_claim_and_dispatch)
+            # Started under the lock so stop() cannot detach the pool between
+            # the insert and the start and leave an untracked claim loop.
+            ex.start(self._try_claim_and_dispatch)
         return ex
 
     def _account_executor_sizes(self) -> Dict[str, int]:
@@ -527,13 +529,16 @@ class ConversationWorker:
         """Routing target for RealtimeWorker on 'pending_conversations'
         broadcasts. Non-blocking.
 
-        A broadcast naming an executor wakes exactly that pool (creating it on
-        first sight). Without a name — a legacy publisher, a (re)subscribe drain
-        or a pgchanges notification — the discovery loop asks the DB which
-        executors have pending rows and wakes those.
+        A broadcast naming an executor wakes exactly that pool. A name without
+        a pool yet — and a broadcast without a name (a legacy publisher, a
+        (re)subscribe drain, a pgchanges notification) — goes through the
+        discovery loop, which asks the DB which executors have pending rows and
+        creates pools for those only, so a stray broadcast cannot spawn a pool
+        no row needs and use up the executor cap.
         """
         if executor is not None and is_valid_executor_name(executor):
-            ex = self._get_or_create_executor(executor)
+            with self._executors_lock:
+                ex = self._executors.get(executor)
             if ex is not None:
                 ex.wake()
                 return
@@ -651,6 +656,10 @@ class ConversationWorker:
         # slots and submit each straight to its pool (the claim already set them
         # 'running'). The surplus stays 'pending' for another instance.
         # _process_conversation_safe wakes the executor to re-claim as slots free.
+        if not self._running:
+            # Shutting down: leave pending rows for another instance instead of
+            # claiming them only to retire them.
+            return
         if self._legacy_claim_mode and executor.name != DEFAULT_EXECUTOR:
             # Only the default pool claims in legacy mode; a pool created
             # before the fallback (or woken by a stale broadcast) stays idle.

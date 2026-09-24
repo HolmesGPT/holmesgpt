@@ -42,7 +42,7 @@ _EXECUTOR_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 def is_valid_executor_name(name: object) -> bool:
-    return isinstance(name, str) and bool(_EXECUTOR_NAME_RE.match(name))
+    return isinstance(name, str) and bool(_EXECUTOR_NAME_RE.fullmatch(name))
 
 
 # Built-in per-executor defaults, used when neither the account settings nor a

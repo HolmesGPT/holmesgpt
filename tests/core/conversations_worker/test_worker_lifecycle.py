@@ -455,8 +455,10 @@ def test_stop_does_not_deadlock_with_a_claim_loop_waiting_to_dispatch():
     w = _bare_worker(sizes={"manual": 1})
     gate = threading.Event()
     reached = threading.Event()
+    entered = threading.Event()
 
     def fake_claim(_holmes_id, limit, executor=None):
+        entered.set()
         gate.wait(5)
         return [_row("c1")]
 
@@ -481,6 +483,7 @@ def test_stop_does_not_deadlock_with_a_claim_loop_waiting_to_dispatch():
 
     ex.shutdown_pool = shutdown_pool
     ex.wake()
+    assert entered.wait(5)  # the claim RPC is in flight when stop() begins
     t0 = time.monotonic()
     w.stop()
     assert time.monotonic() - t0 < 4
@@ -520,9 +523,9 @@ def test_reject_log_rate_limit_is_per_message(caplog):
     w = _bare_worker(sizes={}, default_size=1, max_executors=1)
     try:
         with caplog.at_level(logging.WARNING):
-            w.claim_pending_conversations("a")
-            w.claim_pending_conversations("b")  # cap reached
-            w.claim_pending_conversations("b")  # rate-limited repeat
+            w._get_or_create_executor("a")
+            w._get_or_create_executor("b")  # cap reached
+            w._get_or_create_executor("b")  # rate-limited repeat
             w.claim_pending_conversations("UPPER")  # different cause: still logged
         msgs = [r.getMessage() for r in caplog.records]
         assert sum("executors already exist" in m for m in msgs) == 1
@@ -600,18 +603,27 @@ def test_no_executors_exist_before_a_request_names_one():
     assert w.executor_names() == []
 
 
-def test_claim_pending_conversations_creates_named_executor_on_demand():
-    w = _bare_worker(sizes={"manual": 5, "auto": 3})
+def test_named_broadcast_without_a_pool_routes_through_discovery():
+    """A broadcast naming an executor with no pool yet does not create one —
+    only DB-backed discovery does, for names that really have pending rows —
+    so a stray publisher name cannot use up CONVERSATION_WORKER_MAX_EXECUTORS."""
+    w = _bare_worker()
+    w._discovery_event.clear()
+    w.claim_pending_conversations("auto")
+    assert w.executor_names() == []
+    assert w._discovery_event.is_set()
+    # Discovery finds rows for it and creates the pool …
+    w.dal.list_pending_conversation_executors.return_value = ["auto"]
     try:
-        w.claim_pending_conversations("auto")
+        w._discover_and_wake()
         assert w.executor_names() == ["auto"]
+        # … and the next named broadcast wakes exactly that pool directly.
         ex = w._executors["auto"]
-        assert ex.max_concurrent == 3
-        assert ex.running
-        assert ex.notify_event.is_set() or True  # consumed by the loop thread
-        # A second wake reuses the pool.
+        ex.notify_event.clear()
+        w._discovery_event.clear()
         w.claim_pending_conversations("auto")
-        assert w.executor_names() == ["auto"]
+        assert ex.notify_event.is_set()
+        assert not w._discovery_event.is_set()
     finally:
         w.stop()
 
@@ -619,7 +631,7 @@ def test_claim_pending_conversations_creates_named_executor_on_demand():
 def test_unknown_executor_name_gets_default_size():
     w = _bare_worker(sizes={"manual": 5}, default_size=2)
     try:
-        w.claim_pending_conversations("nightly-report")
+        w._get_or_create_executor("nightly-report")
         assert w._executors["nightly-report"].max_concurrent == 2
     finally:
         w.stop()
@@ -628,12 +640,10 @@ def test_unknown_executor_name_gets_default_size():
 def test_executor_creation_is_capped():
     w = _bare_worker(sizes={}, default_size=1, max_executors=2)
     try:
-        w.claim_pending_conversations("a")
-        w.claim_pending_conversations("b")
-        w.claim_pending_conversations("c")
+        assert w._get_or_create_executor("a") is not None
+        assert w._get_or_create_executor("b") is not None
+        assert w._get_or_create_executor("c") is None
         assert w.executor_names() == ["a", "b"]
-        # The rejected name falls through to discovery instead of being lost.
-        assert w._discovery_event.is_set()
     finally:
         w.stop()
 
@@ -720,6 +730,17 @@ def test_non_default_executor_goes_idle_in_legacy_mode():
     assert w._legacy_claim_mode is True
     assert w.dal.claim_n_pending_conversations.call_count == 1
     auto._pool.submit.assert_not_called()
+
+
+def test_claim_loop_does_not_claim_once_shutdown_began():
+    """stop() clears _running before the pools go down; a loop woken in that
+    window must leave pending rows for another instance, not claim them only
+    to retire them as 'timeout'."""
+    w = _bare_worker()
+    ex = _fake_executor(w, "manual")
+    w._running = False
+    w._try_claim_and_dispatch(ex)
+    w.dal.claim_n_pending_conversations.assert_not_called()
 
 
 def test_non_default_pool_woken_after_legacy_fallback_does_not_claim():
@@ -1080,8 +1101,9 @@ def test_start_starts_discovery_but_no_executors_after_definitive_true():
             mock_update.assert_called_once_with(dal, w.config, realtime_available=True)
             assert w._discovery_thread is not None
             assert w.executor_names() == []
-            # A request naming an executor creates it, sized from settings.
-            w.claim_pending_conversations("auto")
+            # A pending row naming an executor creates it, sized from settings.
+            w.dal.list_pending_conversation_executors.return_value = ["auto"]
+            w._discover_and_wake()
             assert w.executor_names() == ["auto"]
         finally:
             w.stop()
@@ -1259,8 +1281,8 @@ def test_executor_created_with_account_setting_size():
     w = _bare_worker(sizes={"manual": 10, "auto": 2})
     w.dal.get_conversation_executor_sizes.return_value = {"manual": 4}
     try:
-        w.claim_pending_conversations("manual")
-        w.claim_pending_conversations("auto")
+        w._get_or_create_executor("manual")
+        w._get_or_create_executor("auto")
         assert w._executors["manual"].max_concurrent == 4  # account setting wins
         assert w._executors["auto"].max_concurrent == 2  # built-in default
     finally:
@@ -1291,7 +1313,7 @@ def test_account_sizes_read_failure_falls_back_to_defaults():
     w = _bare_worker(sizes={"manual": 10})
     w.dal.get_conversation_executor_sizes.side_effect = RuntimeError("db down")
     try:
-        w.claim_pending_conversations("manual")
+        w._get_or_create_executor("manual")
         assert w._executors["manual"].max_concurrent == 10
     finally:
         w.stop()

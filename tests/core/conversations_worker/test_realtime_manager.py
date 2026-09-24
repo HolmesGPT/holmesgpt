@@ -13,6 +13,7 @@ import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
 
 from holmes.core.conversations_worker.realtime_manager import (
+    extract_executor,
     RealtimeWorker,
     _build_ssl_context,
     _expires_within,
@@ -592,8 +593,6 @@ def test_first_reconnect_logs_info_and_repeat_logs_warning(caplog):
 # ROB-1369: broadcast payloads name the executor to wake
 # ---------------------------------------------------------------------------
 
-from holmes.core.conversations_worker.realtime_manager import extract_executor  # noqa: E402
-
 
 @pytest.mark.parametrize(
     "payload, expected",
@@ -615,8 +614,6 @@ def test_extract_executor(payload, expected):
 def _broadcast_callbacks(worker):
     """Drive _subscribe_via_broadcast with a fake client and return the
     registered on_broadcast callbacks keyed by event name."""
-    import asyncio
-
     callbacks = {}
     channel = MagicMock()
 

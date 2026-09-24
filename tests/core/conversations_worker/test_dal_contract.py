@@ -9,9 +9,11 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
+from cachetools import TTLCache
+from postgrest.exceptions import APIError as PGAPIError
 
 from holmes.core.conversations_worker.models import ConversationReassignedError
-from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.supabase_dal import ExecutorRpcUnsupportedError, SupabaseDal
 
 
 def _build_dal(rpc_data: Any = None) -> SupabaseDal:
@@ -447,9 +449,6 @@ def test_post_remote_tool_call_result_does_not_retry_mismatch():
 
 # ---- ROB-1369: executor-aware claim + discovery ----
 
-from holmes.core.supabase_dal import ExecutorRpcUnsupportedError  # noqa: E402
-from postgrest.exceptions import APIError as PGAPIError  # noqa: E402
-
 
 def _pgrst202():
     return PGAPIError(
@@ -550,8 +549,6 @@ def test_list_pending_conversation_executors_swallows_transient_errors():
 
 
 # ---- get_conversation_executor_sizes (AccountSettings.settings.conversation_executors) ----
-
-from cachetools import TTLCache  # noqa: E402
 
 
 def _settings_dal(settings_rows):

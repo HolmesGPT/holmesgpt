@@ -108,7 +108,7 @@ def test_valid_executor_names(name):
 
 
 @pytest.mark.parametrize(
-    "name", ["", "-lead", "Upper", "has space", "x" * 65, None, 3, "a/b"]
+    "name", ["", "-lead", "Upper", "has space", "x" * 65, None, 3, "a/b", "manual\n"]
 )
 def test_invalid_executor_names(name):
     assert not is_valid_executor_name(name)

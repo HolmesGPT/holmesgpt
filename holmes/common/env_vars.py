@@ -235,8 +235,11 @@ CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
 # lazily the first time a pending conversation names it. Pool size lookup order:
 #   1. AccountSettings.settings.conversation_executors[name]  (set from the UI)
 #   2. env CONVERSATION_WORKER_MAX_CONCURRENT_<NAME>            (e.g. _MANUAL)
-#   3. env CONVERSATION_WORKER_MAX_CONCURRENT
-# Built-in per-name defaults live in executors.py (manual=10, auto=2).
+#   3. built-in per-name default in executors.py (manual=10, auto=2)
+#   4. env CONVERSATION_WORKER_MAX_CONCURRENT (only for names without a built-in)
+# Upgrade note: CONVERSATION_WORKER_MAX_CONCURRENT used to size the single shared
+# pool; it no longer sizes 'manual' or 'auto'. Set the _MANUAL / _AUTO variables
+# (or the account setting) to override those.
 CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX = "CONVERSATION_WORKER_MAX_CONCURRENT_"
 # Threads a pool is created with. Concurrency is enforced by the executor's
 # max_concurrent (slots claimed), so a live settings change up to this ceiling
