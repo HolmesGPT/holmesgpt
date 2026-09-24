@@ -1,0 +1,42 @@
+incident_id: INC-003
+occurred_at: "2026-02-19"
+source_type: prometheus
+title: Cart service exhausting its database connection pool
+subject: cart-service
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - postgres
+  - connection
+  - pool
+  - exhausted
+  - cart
+  - database
+  - latency
+
+root_cause:
+  label: connection_pool_exhausted
+  summary: >-
+    A slow query held pool connections open until the pool was empty. The
+    database was reachable throughout; the workload only behaved as if it were
+    not, which is why the label is not dependency_unreachable.
+
+reference_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: Pool exhaustion is reported by the client, not the database.
+  - intent: metrics
+    entity: {kind: metric, name: pg_stat_activity_count}
+    weight: 0.9
+    rationale: Distinguishes an exhausted pool from an unreachable database.
+  - intent: topology
+    entity: {kind: service, name: postgres}
+    weight: 0.5
+    rationale: Confirms the dependency is still routable before blaming the client.
+  - intent: describe
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 0.6
+    rationale: The pool size is set on the workload spec, not observable from the pod.
