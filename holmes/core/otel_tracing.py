@@ -145,6 +145,10 @@ ATTR_GEN_AI_REQUEST_TEMPERATURE = "gen_ai.request.temperature"
 ATTR_GEN_AI_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens"
 ATTR_GEN_AI_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
 ATTR_GEN_AI_USAGE_TOTAL_TOKENS = "gen_ai.usage.total_tokens"
+# Anthropic-style prompt-cache buckets (subsets of input_tokens). Langfuse and
+# other GenAI backends recognise these names and price them at cache rates.
+ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS = "gen_ai.usage.cache_read_input_tokens"
+ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS = "gen_ai.usage.cache_creation_input_tokens"
 
 # ---------------------------------------------------------------------------
 # Metric dimension keys — underscore-delimited for backend compatibility
