@@ -25,7 +25,7 @@ from typing import (
     Union,
 )
 
-from jinja2 import Template
+from jinja2 import Template, TemplateError
 
 from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
@@ -588,12 +588,18 @@ class YAMLTool(Tool, BaseModel):
 
     def get_parameterized_one_liner(self, params) -> str:
         params = sanitize_params(params)
-        if self.user_description:
-            template = Template(self.user_description)
-        else:
-            cmd_or_script = self.command or self.script
-            template = Template(cmd_or_script)  # type: ignore
-        return template.render(params)
+        source = self.user_description or self.command or self.script
+        try:
+            return Template(source).render(params)  # type: ignore
+        except TemplateError:
+            # This string is only ever shown to the user as a label for the call.
+            # Plenty of valid commands are not valid Jinja2: Go templates delimit
+            # with {{ }} and start with a dot, which Jinja2 lexes as the start of
+            # an expression and rejects with "unexpected '.'". kubectl -o
+            # go-template and docker inspect -f both produce exactly that.
+            # Rendering the label is not worth failing the tool call over, so
+            # show the command unrendered instead.
+            return str(source)
 
     def _build_context(
         self, params: dict, request_context: Optional[Dict[str, Any]] = None
