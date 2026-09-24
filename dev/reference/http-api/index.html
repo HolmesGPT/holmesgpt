@@ -6852,7 +6852,7 @@ with HTTP status <code>401 Unauthorized</code>.</p>
 </tbody>
 </table>
 <h4 id="tool-approval-behavior">Tool Approval Behavior<a class="headerlink" href="#tool-approval-behavior" title="Permanent link">&para;</a></h4>
-<p>The <code>enable_tool_approval</code> field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that bashlex cannot parse).</p>
+<p>The <code>enable_tool_approval</code> field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that cannot be safely parsed).</p>
 <p><strong>When <code>enable_tool_approval: true</code> (interactive clients):</strong></p>
 <p>The stream pauses and emits an <code>approval_required</code> event with the pending tool calls. The client must send a follow-up request with <code>tool_decisions</code> to approve or deny each tool call. See the <a href="#approval_required">approval_required</a> event for details.</p>
 <p><strong>When <code>enable_tool_approval: false</code> (default, server/automation):</strong></p>
