@@ -13,6 +13,7 @@ import re
 import uuid
 
 import yaml  # type: ignore
+from pymdownx.superfences import SuperFencesException
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -235,6 +236,11 @@ def _reindent(text: str, spaces: int) -> str:
     return "\n".join(pad + ln[base:] if ln.strip() else "" for ln in lines)
 
 
+class MultiInstanceFenceError(SuperFencesException):
+    """Superfences catches any other exception a fence raises and renders the
+    block as plain code; this one fails the build."""
+
+
 def multi_instance_fence_format(source, language, css_class, options, md, **kwargs):
     """Render the standard "Multiple Instances" section for a toolset.
 
@@ -258,12 +264,21 @@ def multi_instance_fence_format(source, language, css_class, options, md, **kwar
     The same component renders identically for every toolset, so each page imports
     it in one fenced block instead of repeating the prose.
     """
-    spec = yaml.safe_load(source) or {}
+    try:
+        spec = yaml.safe_load(source) or {}
+    except yaml.YAMLError as e:
+        raise MultiInstanceFenceError(
+            f"multi-instance fence body is not valid YAML: {e}"
+        ) from e
+    if not isinstance(spec, dict):
+        raise MultiInstanceFenceError(
+            "multi-instance fence body must be a YAML mapping"
+        )
     toolset = str(spec.get("toolset", "")).strip()
     name = str(spec.get("name") or toolset or "this").strip()
     config = str(spec.get("config", "")).strip()
     if not toolset or not config:
-        raise ValueError(
+        raise MultiInstanceFenceError(
             "multi-instance fence requires 'toolset' and 'config' keys in its YAML body"
         )
 
