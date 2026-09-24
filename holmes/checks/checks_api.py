@@ -126,7 +126,7 @@ def execute_health_check(
             is_streaming=False,
             model=ai_model,
             provider=resolve_provider(ai_model),
-            is_robusta_model=getattr(ai.llm, "is_robusta_model", False),
+            is_robusta_model=ai.llm.is_robusta_model,
             meta={"check_mode": request.mode.value, "timeout": request.timeout},
         )
 
