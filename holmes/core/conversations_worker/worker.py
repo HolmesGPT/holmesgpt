@@ -95,6 +95,10 @@ SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
 
 # Unknown executor names beyond the pool cap are logged at most this often.
 _EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS = 300.0
+# Rows naming an executor this instance cannot run (pool cap reached) are
+# failed instead of left 'pending' forever; this many per discovery tick.
+EXECUTOR_UNAVAILABLE_ERROR_CODE = 5206
+_EXECUTOR_UNAVAILABLE_FAIL_BATCH = 20
 
 
 class ConversationWorker:
@@ -441,9 +445,9 @@ class ConversationWorker:
 
         Returns None (and logs, rate-limited) for an invalid name or when the
         process already holds ``max_executors`` pools — a bogus broadcast must
-        not be able to spawn unbounded thread pools. Rows naming a rejected
-        executor stay 'pending' — every instance runs the same validation —
-        until the claim window closes.
+        not be able to spawn unbounded thread pools. Discovery fails the
+        pending rows of such a name (see ``_fail_pending_rows_for_executor``)
+        so the request surfaces as an error instead of hanging.
         """
         if not is_valid_executor_name(name):
             self._log_executor_reject("invalid executor name %r", name)
@@ -598,6 +602,44 @@ class ConversationWorker:
             ex = self._get_or_create_executor(name)
             if ex is not None:
                 ex.wake()
+            elif name in names and self._running and self._active_started:
+                self._fail_pending_rows_for_executor(name)
+
+    def _fail_pending_rows_for_executor(self, name: str) -> None:
+        """Claim and fail rows naming an executor this instance will never run.
+
+        Every instance applies the same cap and name rule, so such a row would
+        otherwise sit 'pending' with no error until its claim window closes.
+        """
+        if not is_valid_executor_name(name):
+            description = f"Invalid Holmes executor name {name!r}"
+        else:
+            description = (
+                f"No Holmes executor pool available for {name!r}: this agent "
+                f"already runs {len(self.executor_names())} executor pools "
+                f"(CONVERSATION_WORKER_MAX_EXECUTORS="
+                f"{self._executor_settings.max_executors}). Use 'manual' or "
+                f"'auto', or raise the limit."
+            )
+        try:
+            claimed = self.dal.claim_n_pending_conversations(
+                self.holmes_id, _EXECUTOR_UNAVAILABLE_FAIL_BATCH, executor=name
+            )
+        except Exception:
+            logging.exception(
+                "Failed to claim rows of unavailable executor %r", name, exc_info=True
+            )
+            return
+        for conv in claimed:
+            task = self._build_task_from_conversation_row(conv, name)
+            if task is None:
+                continue
+            logging.warning(
+                "Failing conversation %s: %s", task.conversation_id, description
+            )
+            self._fail_conversation(
+                task, description, error_code=EXECUTOR_UNAVAILABLE_ERROR_CODE
+            )
 
     # ---- claim + dispatch ----
 

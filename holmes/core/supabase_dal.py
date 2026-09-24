@@ -164,7 +164,9 @@ def _is_missing_rpc_error(exc: Exception) -> bool:
 class ExecutorRpcUnsupportedError(Exception):
     """The database lacks the executor-aware conversation RPCs (ROB-1369).
 
-    Raised instead of retrying so the worker can fall back to legacy claiming.
+    robusta-storage migration 20260916073349 is deployed before Holmes, so
+    this is a deploy error: raised instead of retried, and surfaced by the
+    worker loops' error logging.
     """
 
 class SupabaseConnectionException(Exception):
@@ -1440,9 +1442,9 @@ class SupabaseDal:
         nothing. Returns the claimed rows (assignee=holmes_id).
 
         ``executor`` restricts the claim to rows whose ``executor`` column
-        matches (ROB-1369); ``None`` claims any pending row (legacy behavior).
-        Raises ``ExecutorRpcUnsupportedError`` when ``executor`` is given but
-        the database predates the executor-aware RPC signature.
+        matches (ROB-1369); ``None`` claims any pending row. Raises
+        ``ExecutorRpcUnsupportedError`` when ``executor`` is given but the
+        database predates the executor-aware RPC signature (a deploy error).
         """
         if not self.enabled:
             return []

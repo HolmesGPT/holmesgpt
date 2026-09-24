@@ -16,6 +16,7 @@ from holmes.core.conversations_worker.models import (
     ConversationTask,
 )
 from holmes.core.conversations_worker.worker import (
+    EXECUTOR_UNAVAILABLE_ERROR_CODE,
     SHUTDOWN_ERROR_CODE,
     SHUTDOWN_REASON,
     ConversationWorker,
@@ -644,6 +645,38 @@ def test_executor_creation_is_capped():
         assert w.executor_names() == ["a", "b"]
     finally:
         w.stop()
+
+
+def test_rows_of_an_executor_past_the_cap_are_failed_not_left_pending():
+    """Every instance applies the same cap, so a row naming a third executor
+    would hang 'pending' with no error. Discovery claims and fails it with a
+    message that says why."""
+    w = _bare_worker(sizes={}, default_size=1, max_executors=2)
+    w.dal.list_pending_conversation_executors.return_value = ["a", "b", "c"]
+
+    def fake_claim(_holmes_id, limit, executor=None):
+        return [_row("c1", executor="c")] if executor == "c" else []
+
+    w.dal.claim_n_pending_conversations.side_effect = fake_claim
+    try:
+        w._discover_and_wake()
+        assert w.executor_names() == ["a", "b"]
+        events = w.dal.post_conversation_events.call_args.kwargs["events"]
+        assert events[0]["data"]["error_code"] == EXECUTOR_UNAVAILABLE_ERROR_CODE
+        assert "CONVERSATION_WORKER_MAX_EXECUTORS=2" in events[0]["data"]["description"]
+        w.dal.update_conversation_status.assert_called_once_with(
+            conversation_id="c1", request_sequence=1, assignee="h-test", status="failed"
+        )
+    finally:
+        w.stop()
+
+
+def test_discovery_does_not_fail_rows_of_a_pool_it_could_not_create_before_start():
+    w = _bare_worker(sizes={}, default_size=1, max_executors=1)
+    w._active_started = False
+    w.dal.list_pending_conversation_executors.return_value = ["a"]
+    w._discover_and_wake()
+    w.dal.claim_n_pending_conversations.assert_not_called()
 
 
 @pytest.mark.parametrize("bad", ["", "Has Space", "UPPER", "x" * 65, "../etc", 42])
