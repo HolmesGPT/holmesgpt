@@ -41,22 +41,6 @@ Enabling this toolset allows HolmesGPT to fetch pages from Notion, making it use
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: NOTION_AUTH
-              value: "<your Notion integration secret>"
-        toolsets:
-            notion:
-                enabled: true
-                config:
-                    additional_headers:
-                        Authorization: Bearer {{ env.NOTION_AUTH }}
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 ### Timeout Configuration
 
@@ -68,14 +52,6 @@ By default, the Notion toolset uses a 5-second timeout for webpage requests. If 
     export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
-              value: "30"
-    ```
 
 ## Capabilities
 

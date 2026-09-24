@@ -204,10 +204,3 @@ Skills are sent to the LLM when Holmes decides they are relevant to an investiga
 
 A good rule of thumb: if you would not want the LLM to repeat the value back in an answer, do not put it in a skill.
 
-## Limit Skills to Relevant Clusters
-
-In the Robusta UI, you can restrict skills to specific clusters. If a skill is only relevant to your `production-us-east` cluster, don't send it to other clusters — it adds noise to Holmes's decision-making.
-
-**Example**: A skill about troubleshooting an on-prem Elasticsearch cluster only matters if Holmes is investigating issues in a cluster that actually runs Elasticsearch. Remove it from clusters that don't have Elasticsearch.
-
-This reduces the number of skills Holmes considers, making matching faster and more accurate.

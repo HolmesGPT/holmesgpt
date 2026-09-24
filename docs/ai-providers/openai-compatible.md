@@ -56,35 +56,6 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
       model: "my-model"
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENAI_API_BASE
-          value: "http://your-inference-server:8000/v1"
-        - name: OPENAI_API_KEY
-          value: "none"  # Or any placeholder if endpoint doesn't need auth
-          # If authentication is required, use a secret instead:
-          # valueFrom:
-          #   secretKeyRef:
-          #     name: robusta-holmes-secret
-          #     key: openai-api-key
-
-      # Optional: Custom CA certificate (base64-encoded)
-      # certificate: "LS0tLS1CRUdJTi..."
-
-      modelList:
-        my-model:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          api_base: "{{ env.OPENAI_API_BASE }}"
-          model: openai/your-model-name
-          temperature: 1
-
-      config:
-        model: "my-model"
-    ```
 
 ## Known Limitations
 

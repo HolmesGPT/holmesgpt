@@ -69,40 +69,6 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
           #   X-Custom-Header: "custom-value"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Grafana service account token:
-
-    ```bash
-    kubectl create secret generic grafana-api-key \
-      --from-literal=api-key=your-grafana-service-account-token \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: GRAFANA_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: grafana-api-key
-              key: api-key
-      toolsets:
-        grafana/dashboards:
-          enabled: true
-          config:
-            api_key: "{{ env.GRAFANA_API_KEY }}"
-            api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
-            # Optional: Additional headers for all requests
-            # additional_headers:
-            #   X-Custom-Header: "custom-value"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 ## Multiple Instances
 
@@ -152,20 +118,6 @@ Rendering is **disabled by default**. To enable it, add `enable_rendering: true`
           enable_rendering: true
     ```
 
-=== "Robusta Helm Chart"
-
-    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/dashboards:
-          enabled: true
-          config:
-            api_url: <your grafana url>
-            api_key: "{{ env.GRAFANA_API_KEY }}"
-            enable_rendering: true
-    ```
 
 When rendering a full dashboard, HolmesGPT captures the entire page (all rows) so that panels at the bottom are not cropped.
 
@@ -201,20 +153,6 @@ For self-signed certificates, you can disable SSL verification:
           verify_ssl: false
     ```
 
-=== "Robusta Helm Chart"
-
-    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/dashboards:
-          enabled: true
-          config:
-            api_url: https://grafana.internal
-            api_key: "{{ env.GRAFANA_API_KEY }}"
-            verify_ssl: false
-    ```
 
 ### External URL
 
@@ -246,20 +184,6 @@ If HolmesGPT accesses Grafana through an internal URL but you want clickable lin
           api_key: "{{ env.GRAFANA_API_KEY }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    Reuses the `grafana-api-key` Kubernetes secret created in the [Configuration](#configuration) section above.
-
-    ```yaml
-    holmes:
-      toolsets:
-        grafana/dashboards:
-          enabled: true
-          config:
-            api_url: http://grafana.internal:3000
-            external_url: https://grafana.example.com
-            api_key: "{{ env.GRAFANA_API_KEY }}"
-    ```
 
 ## Common Use Cases
 

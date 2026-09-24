@@ -191,34 +191,6 @@ Before configuring the Prefect MCP server, you need:
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Prefect API key:
-
-    ```bash
-    kubectl create secret generic prefect-mcp-token \
-      --from-literal=token=<YOUR_PREFECT_API_KEY> \
-      -n <NAMESPACE>
-    ```
-
-    Then add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        prefect:
-          enabled: true
-          auth:
-            secretName: "prefect-mcp-token"
-          config:
-            apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## Testing the Connection
 

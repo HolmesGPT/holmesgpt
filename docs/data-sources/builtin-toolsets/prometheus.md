@@ -255,40 +255,6 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
             Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your credentials:
-
-    ```bash
-    # Base64-encode your credentials: <instance_id>:<cloud_access_policy_token>
-    kubectl create secret generic grafana-cloud-prometheus \
-      --from-literal=auth-header="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)" \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: GRAFANA_CLOUD_PROM_AUTH
-          valueFrom:
-            secretKeyRef:
-              name: grafana-cloud-prometheus
-              key: auth-header
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: grafana-cloud
-          config:
-            prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-            additional_headers:
-              Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 #### Option 2: Grafana API Proxy
 
@@ -355,39 +321,6 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
             Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your service account token:
-
-    ```bash
-    kubectl create secret generic grafana-cloud-sa-token \
-      --from-literal=token=YOUR_GLSA_TOKEN \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: GRAFANA_CLOUD_SA_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: grafana-cloud-sa-token
-              key: token
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: grafana-cloud
-          config:
-            prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-            additional_headers:
-              Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 ---
 

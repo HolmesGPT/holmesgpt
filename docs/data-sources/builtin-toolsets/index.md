@@ -19,7 +19,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-datadog:{ .lg .middle } **Datadog**](datadog.md)
 -   [:simple-newrelic:{ .lg .middle } **New Relic**](newrelic.md)
 -   [:material-chart-line:{ .lg .middle } **Coralogix**](coralogix-logs.md)
--   [:material-robot:{ .lg .middle } **Robusta**](robusta.md)
 -   [:simple-prometheus:{ .lg .middle } **Prometheus**](prometheus.md)
 -   [:simple-victoriametrics:{ .lg .middle } **VictoriaMetrics**](victoriametrics.md)
 -   [:simple-grafana:{ .lg .middle } **Grafana Dashboards**](grafanadashboards.md)

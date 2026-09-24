@@ -35,24 +35,6 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
     | `--bash-always-deny` | Automatically deny commands not in the allow list |
     | `--bash-always-allow` | Automatically approve all commands (use with caution) |
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        bash:
-          enabled: true
-          config:
-            builtin_allowlist: "extended"
-            # allow:
-            #   - "helm list"
-            #   - "kubectl rollout history"
-            #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
-            deny:
-              - "kubectl get secret"
-    ```
-
-    `extended` is recommended for Helm deployments where Holmes runs in a container with a minimal filesystem.
 
 ## Builtin Allowlist Levels
 

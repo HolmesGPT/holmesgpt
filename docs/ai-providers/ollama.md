@@ -90,59 +90,6 @@ Configure HolmesGPT to use local models with Ollama.
       model: "ollama-alt"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OLLAMA_API_BASE
-          value: "http://ollama-service:11434"
-
-      # Configure at least one model using modelList
-      modelList:
-        ollama-llama3:
-          api_base: "{{ env.OLLAMA_API_BASE }}"
-          model: ollama_chat/llama3
-          temperature: 1
-
-        ollama-codellama:
-          api_base: "{{ env.OLLAMA_API_BASE }}"
-          model: ollama_chat/codellama
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "ollama-llama3"  # This refers to the key name in modelList above
-    ```
-
-    !!! note "Ollama Service"
-        You'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
-
-    **Alternative (OpenAI-compatible gateway)**
-
-    If you hit compatibility issues with certain Ollama models via LiteLLM, you can configure an OpenAI-compatible gateway in your Robusta chart values:
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENAI_API_BASE
-          value: "http://ollama-service:11434/v1"
-        - name: OPENAI_API_KEY
-          value: "YOUR_BEARER_TOKEN_HERE"
-
-      modelList:
-        ollama-alt:
-          api_base: "{{ env.OPENAI_API_BASE }}"
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/OLLAMA_MODEL_NAME
-
-      # Optional
-      config:
-        model: "ollama-alt"
-    ```
 
 ## Additional Resources
 

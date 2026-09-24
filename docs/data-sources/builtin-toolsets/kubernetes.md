@@ -166,22 +166,6 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
       externalSecrets: true
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      crdPermissions:
-        argo: true
-        flux: true
-        kafka: true
-        keda: true
-        crossplane: true
-        istio: true
-        gatewayApi: true
-        velero: true
-        externalSecrets: true
-    ```
 
 #### Adding Custom Permissions
 
@@ -213,24 +197,6 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
     helm upgrade holmes holmes/holmes --values=values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    **Update your `generated_values.yaml`** (note: add the `holmes:` prefix):
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      customClusterRoleRules:
-        - apiGroups: ["cert-manager.io"]
-          resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
-          verbs: ["get", "list", "watch"]
-    ```
-
-    **Apply the configuration:**
-
-    ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
 
 #### Using an Existing ServiceAccount
 
@@ -243,11 +209,3 @@ If you prefer to use an existing ServiceAccount with custom permissions instead 
     customServiceAccountName: "your-existing-service-account"
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      createServiceAccount: false
-      customServiceAccountName: "your-existing-service-account"
-    ```

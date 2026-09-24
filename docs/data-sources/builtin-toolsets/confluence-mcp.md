@@ -185,35 +185,6 @@ You'll also need:
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Confluence credentials:
-
-    ```bash
-    kubectl create secret generic confluence-mcp-credentials \
-      --from-literal=confluence-username=<YOUR_EMAIL> \
-      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
-      -n <NAMESPACE>
-    ```
-
-    Then add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        confluenceMcp:
-          enabled: true
-          auth:
-            secretName: "confluence-mcp-credentials"
-          config:
-            url: "https://your-company.atlassian.net/wiki"
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## Available Tools
 

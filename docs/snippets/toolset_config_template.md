@@ -13,14 +13,3 @@
                 CUSTOM_CONFIG
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        toolsets:
-            TOOLSET_PATH:
-                enabled: true
-                config:
-                    # Add your configuration here
-                    CUSTOM_CONFIG
-    ```
