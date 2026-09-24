@@ -93,7 +93,7 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
     Apply with:
 
     ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml -n <namespace>
+    helm upgrade holmesgpt robusta/holmes -f values.yaml -n <namespace>
     ```
 
 === "Robusta Helm Chart"

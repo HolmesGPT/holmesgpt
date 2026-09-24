@@ -60,7 +60,7 @@ HolmesGPT supports three MCP transport modes:
     ```
 
     ```bash
-    helm upgrade holmes robusta/holmes --values=values.yaml
+    helm upgrade holmesgpt robusta/holmes --values=values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -209,7 +209,7 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
     ```
 
     ```bash
-    helm upgrade holmes robusta/holmes --values=values.yaml
+    helm upgrade holmesgpt robusta/holmes --values=values.yaml
     ```
 
 === "Robusta Helm Chart"

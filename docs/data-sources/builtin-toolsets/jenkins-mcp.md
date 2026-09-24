@@ -110,7 +110,7 @@ Store the encoded credential securely for use in the configuration below.
     Then deploy or upgrade your Holmes installation:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

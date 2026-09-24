@@ -117,7 +117,7 @@ Choose the setup that matches your Grafana version and deployment:
         ```
 
         ```bash
-        helm upgrade --install holmes robusta/holmes -f values.yaml
+        helm upgrade --install holmesgpt robusta/holmes -f values.yaml
         ```
 
     === "Robusta Helm Chart"
@@ -282,7 +282,7 @@ Choose the setup that matches your Grafana version and deployment:
         ```
 
         ```bash
-        helm upgrade --install holmes robusta/holmes -f values.yaml
+        helm upgrade --install holmesgpt robusta/holmes -f values.yaml
         ```
 
     === "Robusta Helm Chart"
@@ -460,7 +460,7 @@ For connecting to a Grafana mcp server instance outside the cluster (e.g., Grafa
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

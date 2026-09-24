@@ -215,7 +215,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
     Then deploy or upgrade your Holmes installation:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -405,7 +405,7 @@ Find the **App ID** on the App's settings page (under "About").
     A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

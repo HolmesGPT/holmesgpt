@@ -47,7 +47,7 @@ The simplest setup. The MCP server runs in the same cluster it monitors and auth
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -315,7 +315,7 @@ Adjust your values.yaml file in the holmes "hub" cluster where you want multi-cl
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -532,7 +532,7 @@ kubectl create secret generic mcp-oauth-credentials \
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

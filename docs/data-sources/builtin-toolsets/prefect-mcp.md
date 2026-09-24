@@ -188,7 +188,7 @@ Before configuring the Prefect MCP server, you need:
     Then deploy or upgrade your Holmes installation:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

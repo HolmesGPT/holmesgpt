@@ -162,7 +162,7 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -236,7 +236,7 @@ If you're not using GKE, or prefer not to use Workload Identity, you can authent
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

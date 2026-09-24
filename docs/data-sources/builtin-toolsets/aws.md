@@ -192,7 +192,7 @@ Choose your installation method:
     **Step 2b: Deploy Holmes**
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
     **Step 2c: Verify the deployment**

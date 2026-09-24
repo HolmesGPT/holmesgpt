@@ -71,7 +71,7 @@ def toolset_config_fence_format(source, language, css_class, options, md, **kwar
 <p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
 <pre><code class="language-yaml">{escaped_source}</code></pre>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes holmes/holmes --values=values.yaml</code></pre>
+<pre><code class="language-bash">helm upgrade holmesgpt robusta/holmes --values=values.yaml</code></pre>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
@@ -123,7 +123,7 @@ def helm_tabs_fence_format(source, language, css_class, options, md, **kwargs):
 <p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
 <pre><code class="language-yaml">{escaped_source}</code></pre>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes holmes/holmes --values=values.yaml</code></pre>
+<pre><code class="language-bash">helm upgrade holmesgpt robusta/holmes --values=values.yaml</code></pre>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code> (note: add the <code>holmes:</code> prefix):</p>

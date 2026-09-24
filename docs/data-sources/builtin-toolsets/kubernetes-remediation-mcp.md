@@ -216,7 +216,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
     Then deploy or upgrade your Holmes installation:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
     The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.

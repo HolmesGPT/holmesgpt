@@ -103,7 +103,7 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
     Then deploy or upgrade your Holmes installation:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

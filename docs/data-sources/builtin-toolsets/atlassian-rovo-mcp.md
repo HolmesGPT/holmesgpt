@@ -166,7 +166,7 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
     ```
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade --install holmesgpt robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
