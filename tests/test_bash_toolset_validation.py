@@ -178,11 +178,15 @@ class TestParseCommandSegments:
         with pytest.raises(ShellParseError):
             parse_command_segments("  |  kubectl get pods  |  ")
 
-    def test_compound_statements_raise(self):
-        """Loops and conditionals are not parsed; validate_command asks for approval."""
-        for command in ['for i in 1 2 3; do echo "$i"; done', "if [ -f file ]; then cat file; fi"]:
-            with pytest.raises(ShellParseError):
-                parse_command_segments(command)
+    def test_for_loop_raises(self):
+        """For loop is not parsed; validate_command asks for approval."""
+        with pytest.raises(ShellParseError):
+            parse_command_segments('for i in 1 2 3; do echo "$i"; done')
+
+    def test_if_statement_raises(self):
+        """If statement is not parsed; validate_command asks for approval."""
+        with pytest.raises(ShellParseError):
+            parse_command_segments("if [ -f file ]; then cat file; fi")
 
     def test_case_statement_raises(self):
         """Case statement (unsupported syntax) raises ShellParseError."""
@@ -642,6 +646,26 @@ class TestUserConfiguredDenyList:
             allow_list,
             deny_list,
         )
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "kubectl get 'secret' -n x",
+            'kubectl get "secrets" x',
+            'kubectl get sec""ret x',
+            "kubectl  get secret x",
+        ],
+    )
+    def test_user_configured_deny_matches_unquoted_words(self, command):
+        """Quoting or extra blanks must not slip past a multi-word deny entry."""
+        config = BashExecutorConfig(
+            builtin_allowlist="extended",
+            deny=["kubectl get secret"],
+        )
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(command, [], allow_list, deny_list)
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
 

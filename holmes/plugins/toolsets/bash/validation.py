@@ -607,6 +607,13 @@ def validate_command(
     segments = parsed.segments
     contains_compound_command = parsed.contains_compound_command
 
+    # Deny checks must also see the words bash will run, not only the quoted
+    # source: `kubectl get 'secret'` must match deny entry `kubectl get secret`.
+    for argv in parsed.command_argvs:
+        result = validate_segment(" ".join(argv), [], deny_list)
+        if result.status == ValidationStatus.DENIED:
+            return result
+
     # Validate each segment against deny/allow lists
     unapproved_segments: List[str] = []
 
