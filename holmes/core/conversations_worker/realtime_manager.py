@@ -82,6 +82,24 @@ def broadcast_submit_topic(account_id: str, cluster_id: str) -> str:
     return f"holmes:submit:{account_id}:{cluster_id}"
 
 
+def extract_executor(payload: Any) -> Optional[str]:
+    """The ``executor`` a 'pending_conversations' broadcast names, or None.
+
+    Publishers (frontend, relay, the SQL RPCs) send ``{conversation_id,
+    executor}``; the realtime client wraps it as ``{"event", "type",
+    "payload": {...}}``. Legacy publishers omit ``executor`` — the worker then
+    falls back to discovery. Non-string values are treated as absent.
+    """
+    if not isinstance(payload, dict):
+        return None
+    inner = payload.get("payload")
+    source = inner if isinstance(inner, dict) else payload
+    executor = source.get("executor")
+    if isinstance(executor, str) and executor:
+        return executor
+    return None
+
+
 def _build_ssl_context() -> ssl.SSLContext:
     """Build the SSL context used for outbound Realtime WebSocket connections.
 
@@ -200,7 +218,8 @@ class RealtimeWorker:
     channel — connection, auth refresh, reconnection, subscribe states —
     and routes received broadcasts to the right worker:
 
-      * 'pending_conversations' -> conversation_worker.claim_pending_conversations()
+      * 'pending_conversations' -> conversation_worker.claim_pending_conversations(executor)
+        (``executor`` from the broadcast payload; None wakes discovery)
       * 'pending_tool_calls'    -> tool_call_worker.claim_pending_tool_calls()
 
     Both routing targets MUST be non-blocking (they just wake the worker's
@@ -215,7 +234,7 @@ class RealtimeWorker:
         conversation_worker: Optional[Any] = None,
         tool_call_worker: Optional[Any] = None,
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
-        on_new_pending: Optional[Callable[[], None]] = None,
+        on_new_pending: Optional[Callable[..., None]] = None,
         on_new_tool_calls: Optional[Callable[[], None]] = None,
     ) -> None:
         self.dal = dal
@@ -682,11 +701,16 @@ class RealtimeWorker:
 
         def _on_broadcast(payload: Dict[str, Any]) -> None:
             try:
+                executor = extract_executor(payload)
                 logging.info(
-                    "RealtimeWorker: Broadcast notification: %s",
+                    "RealtimeWorker: Broadcast notification: %s (executor=%s)",
                     payload.get("event"),
+                    executor,
                 )
-                self.on_new_pending()
+                if executor is None:
+                    self.on_new_pending()
+                else:
+                    self.on_new_pending(executor)
             except Exception:
                 logging.exception("Error in broadcast callback", exc_info=True)
 
