@@ -37,6 +37,9 @@ Enabling this toolset allows HolmesGPT to fetch pages from Notion, making it use
     toolsets:
         notion:
             enabled: true
+            config:
+                additional_headers:
+                    Authorization: Bearer {{ env.NOTION_AUTH }}
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
