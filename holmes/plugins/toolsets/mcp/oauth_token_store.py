@@ -143,19 +143,6 @@ class OAuthTokenCache:
                 if entry.expires_at <= threshold
             ]
 
-    def has_token_or_refresh(self, key: str) -> bool:
-        """True if there is a valid access token or any refresh token (even expired — IdP decides validity)."""
-        with self._lock:
-            entry = self._cache.get(key)
-            if entry is None:
-                return False
-            if not entry.access_expired:
-                return True
-            if entry.refresh_token:
-                return True
-            del self._cache[key]
-            return False
-
 
 # ── Persistent token store interface ──────────────────────────────────────
 

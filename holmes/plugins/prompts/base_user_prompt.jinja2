@@ -3,12 +3,11 @@
 {% if skills_enabled %}
 {#
   Skill selection block.
-  Context passes up to 3 optional strings: skill_catalog, custom_instructions, global_instructions.
+  Context passes up to 2 optional strings: skill_catalog, global_instructions.
   We build a priority-ordered list from whichever are non-empty, so the LLM knows which source to prefer.
 #}
 {%- set sections = [
   {'title': 'Skill Catalog', 'content': skill_catalog},
-  {'title': 'Subject/Issue Skills', 'content': custom_instructions},
   {'title': 'Global Instructions', 'content': global_instructions}
 ] -%}
 {%- set available = sections | selectattr('content') | list -%}

@@ -1,7 +1,7 @@
 from http import HTTPStatus
 from unittest import mock
 
-from holmes.version import check_version, fetch_holmes_info
+from holmes.version import HOLMES_GET_INFO_URL, check_version, fetch_holmes_info
 
 
 def test_version_check_matches_latest(responses):
@@ -9,7 +9,7 @@ def test_version_check_matches_latest(responses):
     with mock.patch("holmes.version.get_version", return_value="1.0.0"):
         responses.add(
             responses.GET,
-            "https://api.robusta.dev/api/holmes/get_info",
+            HOLMES_GET_INFO_URL,
             json={"latest_version": "1.0.0"},
         )
         result = check_version()
@@ -24,7 +24,7 @@ def test_version_check_matches_latest_on_dev(responses):
     with mock.patch("holmes.version.get_version", return_value="dev-1.0.0"):
         responses.add(
             responses.GET,
-            "https://api.robusta.dev/api/holmes/get_info",
+            HOLMES_GET_INFO_URL,
             json={"latest_version": "1.0.0"},
         )
         result = check_version()
@@ -39,7 +39,7 @@ def test_version_check_outdated(responses):
     with mock.patch("holmes.version.get_version", return_value="0.9.0"):
         responses.add(
             responses.GET,
-            "https://api.robusta.dev/api/holmes/get_info",
+            HOLMES_GET_INFO_URL,
             json={"latest_version": "1.0.0"},
         )
         result = check_version()
@@ -53,7 +53,7 @@ def test_version_check_failed_fetch(responses):
     fetch_holmes_info.cache_clear()
     responses.add(
         responses.GET,
-        "https://api.robusta.dev/api/holmes/get_info",
+        HOLMES_GET_INFO_URL,
         status=HTTPStatus.INTERNAL_SERVER_ERROR,
     )
     with mock.patch("holmes.version.get_version", return_value="1.0.0"):

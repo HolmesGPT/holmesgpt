@@ -1,3 +1,4 @@
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.config import Config
 from holmes.core.llm import DefaultLLM
 from tests.conftest import DEFAULT_ROBUSTA_MODEL, ROBUSTA_SONNET_4_MODEL, get_cli_config
@@ -9,7 +10,7 @@ def test_server_config_get_llm_no_model_key_returns_default_model(
     llm: DefaultLLM = server_config._get_llm()
     assert llm.name == DEFAULT_ROBUSTA_MODEL
     assert llm.model == "azure/gpt-5-mini"
-    assert llm.api_base == f"https://api.robusta.dev/llm/{DEFAULT_ROBUSTA_MODEL}"
+    assert llm.api_base == f"{ROBUSTA_API_ENDPOINT}/llm/{DEFAULT_ROBUSTA_MODEL}"
 
 
 def test_server_config_get_llm_with_model_key_returns_model_from_config(
@@ -29,7 +30,7 @@ def test_server_config_get_llm_unexisting_model_key_returns_default_model(
     llm: DefaultLLM = server_config._get_llm(model_key="unexisting_model")
     assert llm.name == DEFAULT_ROBUSTA_MODEL
     assert llm.model == "azure/gpt-5-mini"
-    assert llm.api_base == f"https://api.robusta.dev/llm/{DEFAULT_ROBUSTA_MODEL}"
+    assert llm.api_base == f"{ROBUSTA_API_ENDPOINT}/llm/{DEFAULT_ROBUSTA_MODEL}"
 
 
 def test_server_config_get_llm_no_default_model_fallback_to_first_available_model(

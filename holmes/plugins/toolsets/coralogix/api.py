@@ -113,8 +113,6 @@ def execute_dataprime_query(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     tier: Optional[CoralogixTier] = None,
-    max_poll_attempts: int = 60,
-    poll_interval_seconds: float = 1.0,
 ) -> Tuple[Optional[Any], Optional[str]]:
     try:
         query_dict = _build_query_dict(dataprime_query, start_date, end_date, tier)

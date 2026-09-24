@@ -116,10 +116,6 @@ class Feedback(FeedbackInfoBase):
         self.metadata = FeedbackMetadata()
         self.user_feedback: Optional[UserFeedback] = None
 
-    def set_user_feedback(self, user_feedback: UserFeedback) -> None:
-        """Set the user feedback."""
-        self.user_feedback = user_feedback
-
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
         return {
@@ -131,61 +127,3 @@ class Feedback(FeedbackInfoBase):
 
 
 FeedbackCallback = Callable[[Feedback], None]
-
-
-def feedback_callback_example(feedback: Feedback) -> None:
-    """
-    Example implementation of a feedback callback function.
-
-    This function demonstrates how to process feedback data using to_dict() methods
-    and could be used for:
-    - Logging feedback to files or databases
-    - Sending feedback to analytics services
-    - Training data collection
-    - User satisfaction monitoring
-
-    Args:
-        feedback: Feedback object containing user feedback and metadata
-    """
-    print("\n=== Feedback Received ===")
-
-    # Convert entire feedback to dict first - this is the main data structure
-    feedback_dict = feedback.to_dict()
-    print(f"Complete feedback dictionary keys: {list(feedback_dict.keys())}")
-
-    # How to check user feedback using to_dict()
-    print("\n1. Checking User Feedback:")
-    user_feedback_dict = (
-        feedback.user_feedback.to_dict() if feedback.user_feedback else None
-    )
-    if user_feedback_dict:
-        print(f"   User feedback dict: {user_feedback_dict}")
-        print(f"   Is positive: {user_feedback_dict['is_positive']}")
-        print(f"   Comment: {user_feedback_dict['comment'] or 'None'}")
-        # You can also access properties through the object:
-        print(f"   Rating emoji: {feedback.user_feedback.rating_emoji}")  # type: ignore
-        print(f"   Rating text: {feedback.user_feedback.rating_text}")  # type: ignore
-    else:
-        print("   No user feedback provided (user_feedback is None)")
-
-    # How to check LLM information using to_dict()
-    print("\n2. Checking LLM Information:")
-    metadata_dict = feedback.metadata.to_dict()
-    llm_dict = metadata_dict["llm"]
-    print(f"   LLM dict: {llm_dict}")
-    print(f"   Model: {llm_dict['model']}")
-    print(f"   Max context size: {llm_dict['max_context_size']}")
-
-    # How to check ask and response pairs using to_dict()
-    print("\n3. Checking Ask and Response History:")
-    llm_responses_dict = metadata_dict["llm_responses"]
-    print(f"   Number of exchanges: {len(llm_responses_dict)}")
-
-    for i, response_dict in enumerate(llm_responses_dict, 1):
-        print(f"   Exchange {i} dict: {list(response_dict.keys())}")
-        user_ask = response_dict["user_ask"]
-        ai_response = response_dict["response"]
-        print(f"     User ask: {user_ask}")
-        print(f"     AI response: {ai_response}")
-
-    print("=== End Feedback ===\n")

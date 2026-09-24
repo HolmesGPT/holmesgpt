@@ -31,7 +31,6 @@ from holmes.core.oauth_config import (
     MCPOAuthConfig,
     OAuthDecisionCode,
     OAuthEndpoints,
-    OAuthExchangeManager,
     OAuthTokenExchangeError,
     _get_exchange_manager,
     exchange_code_for_tokens,
@@ -151,12 +150,6 @@ class TestOAuthTokenCache:
         cache.set("conv-1", "token-abc", expires_in=60)
         assert cache.get_valid_access_token("conv-1") == "token-abc"
 
-    def test_has(self):
-        cache = OAuthTokenCache()
-        assert not cache.has_token_or_refresh("conv-1")
-        cache.set("conv-1", "token-abc", expires_in=60)
-        assert cache.has_token_or_refresh("conv-1")
-
     def test_expired_entry(self):
         cache = OAuthTokenCache()
         # Set with 0 expires_in — the code does max(expires_in - 30, 10) so minimum is 10s
@@ -166,7 +159,6 @@ class TestOAuthTokenCache:
         cache._cache["conv-exp"].expires_at = time.monotonic() - 1
         cache._cache["conv-exp"].refresh_expires_at = time.monotonic() - 1
         assert cache.get_valid_access_token("conv-exp") is None
-        assert not cache.has_token_or_refresh("conv-exp")
 
     def test_different_conversations(self):
         cache = OAuthTokenCache()
@@ -1571,11 +1563,13 @@ class TestOAuthTokenCacheRefresh:
         cache = OAuthTokenCache()
         assert cache.get_refresh_token("nonexistent") is None
 
-    def test_has_true_when_access_expired_but_refresh_valid(self):
+    def test_entry_kept_when_access_expired_but_refresh_valid(self):
         cache = OAuthTokenCache()
         cache.set("k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600)
         cache._cache["k"].expires_at = time.monotonic() - 1
-        assert cache.has_token_or_refresh("k") is True
+        assert cache.get_valid_access_token("k") is None
+        assert cache.get_refresh_token("k") == "r"
+        assert "k" in cache._cache
 
     def test_get_returns_none_when_access_expired_refresh_valid(self):
         """get() should return None when access is expired, even if refresh is valid — caller must refresh."""
@@ -1590,14 +1584,16 @@ class TestOAuthTokenCacheRefresh:
         cache.set("k", "access", expires_in=60, refresh_token="r", refresh_expires_in=3600)
         cache._cache["k"].expires_at = time.monotonic() - 1
         cache._cache["k"].refresh_expires_at = time.monotonic() - 1
-        assert cache.has_token_or_refresh("k") is True  # kept because refresh token exists
+        assert cache.get_valid_access_token("k") is None
+        assert cache.get_refresh_token("k") == "r"  # kept because refresh token exists
+        assert "k" in cache._cache
 
     def test_no_refresh_token_evicts_entry(self):
         """Entry without refresh token is evicted when access expires."""
         cache = OAuthTokenCache()
         cache.set("k", "access", expires_in=60)
         cache._cache["k"].expires_at = time.monotonic() - 1
-        assert cache.has_token_or_refresh("k") is False
+        assert cache.get_valid_access_token("k") is None
         assert "k" not in cache._cache
 
     def test_set_without_refresh_token(self):
@@ -2218,7 +2214,6 @@ class TestInvokeOAuthConnectReturnsTools:
 
     def test_connect_returns_oauth_tools_in_result(self):
         """_invoke_oauth_connect populates oauth_tools on the result."""
-        from unittest.mock import AsyncMock
 
         ts = RemoteMCPToolset(name="test-mcp", enabled=True)
         ts._mcp_config = MCPConfig(
@@ -2599,15 +2594,6 @@ class TestUserIdGuard:
 
         manager.shutdown()
 
-    def test_has_token_returns_false_without_user_id(self):
-        manager = self._make_manager(with_dal=True)
-        oauth = self._oauth()
-
-        assert manager.has_token(oauth, request_context=None) is False
-        assert manager.has_token(oauth, request_context={"user_id": None}) is False
-
-        manager.shutdown()
-
     def test_store_token_refused_without_user_id(self):
         manager = self._make_manager(with_dal=True)
         oauth = self._oauth()
@@ -2661,7 +2647,6 @@ class TestUserIdGuard:
         manager._cache.set(cache_key, "alice-token", expires_in=3600)
 
         assert manager.get_access_token(oauth, request_context=ctx) == "alice-token"
-        assert manager.has_token(oauth, request_context=ctx) is True
 
         manager.shutdown()
 
@@ -2681,7 +2666,6 @@ class TestUserIdGuard:
         )
 
         assert manager.get_access_token(oauth, request_context=cli_ctx) == "cli-token"
-        assert manager.has_token(oauth, request_context=cli_ctx) is True
 
         manager.shutdown()
 
