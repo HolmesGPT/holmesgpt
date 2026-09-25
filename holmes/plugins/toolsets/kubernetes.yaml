@@ -15,7 +15,7 @@ toolsets:
 
     tools:
       - name: "kubernetes_jq_query"
-        user_description: "jq query: kubectl get {{kind}} | jq '{{jq_expr}}'"
+        user_description: "jq query: kubectl get {{kind}}{% if namespace is string and namespace %} -n {{namespace}}{% else %} --all-namespaces{% endif %} | jq '{{jq_expr}}'"
         description: >
           Use kubectl to get json for all resources of a specific kind and filter with jq.
           Prefer over bash for large queries - paginates via the Kubernetes API so large
@@ -24,8 +24,18 @@ toolsets:
           "results" (array of matching resources), and "stderr" (error output or null).
           The 'kind' parameter must be the plural form of the resource type
           (e.g., "pods" not "pod", "jobs" not "job").
+          Set the namespace parameter to scope the query to a single namespace - strongly
+          preferred when the investigation concerns one namespace, and required on large
+          clusters to keep the query within memory limits. Leave empty for a cluster-wide
+          query. The namespace is ignored for cluster-scoped resource kinds.
           Do not worry about escaping the jq_expr - it will be done by the system.
           Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
+        parameters:
+          namespace:
+            type: string
+            required: false
+            description: "Kubernetes namespace to scope the query to. Strongly preferred when the investigation concerns a single namespace; avoids cluster-wide listing on large clusters. Leave empty for a cluster-wide query. Ignored for cluster-scoped resource kinds."
+            default: ""
         script: |
           #!/bin/bash
 
@@ -40,8 +50,24 @@ toolsets:
           # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
           JQ_FILTER={{ jq_expr }}
           JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr $'\n\r' '  ')
+          NAMESPACE={{ namespace if namespace is string else '' }}
 
           err_file=$(mktemp)
+
+          # SECURITY (SSRF, CWE-918): validate the namespace before it is
+          # interpolated into the --raw API path below. Kubernetes namespace
+          # names are RFC 1123 DNS labels; anything else (slashes, dots,
+          # "..", etc.) could reroute the request to an unintended API
+          # endpoint. Fail fast: no kubectl call happens for an invalid
+          # namespace.
+          if [ -n "$NAMESPACE" ]; then
+            if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+              rm -f "$err_file"
+              jq -n --arg stderr "Invalid namespace '${NAMESPACE}': must be a valid Kubernetes namespace name (RFC 1123 DNS label: up to 63 characters of lowercase alphanumeric and '-', starting and ending with an alphanumeric character)" \
+                '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
+              exit 0
+            fi
+          fi
 
           # Get the API path for the resource kind using kubectl
           # Match the resource name (first column) as an EXACT string, not a
@@ -60,8 +86,10 @@ toolsets:
           # Extract NAMESPACED value
           if [[ "$API_INFO" == *" true "* ]]; then
             PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
+            IS_NAMESPACED=true
           elif [[ "$API_INFO" == *" false "* ]]; then
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
+            IS_NAMESPACED=false
           else
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
@@ -99,6 +127,23 @@ toolsets:
             API_PATH="/api/v1/${RESOURCE_NAME}"
           else
             API_PATH="/apis/${API_VERSION}/${RESOURCE_NAME}"
+          fi
+
+          # Scope the listing to a single namespace when requested. Only
+          # namespaced resource kinds support this; for cluster-scoped kinds
+          # the namespace is ignored and the query stays cluster-wide.
+          # SECURITY: $NAMESPACE was validated as an RFC 1123 DNS label above
+          # (SSRF, CWE-918) before reaching this path interpolation, and was
+          # assigned from the sanitized namespace param in an unquoted slot (a
+          # missing/empty param renders as empty via the `is string` guard),
+          # so referencing "$NAMESPACE" inside double quotes here is safe
+          # (no re-evaluation of the stored value).
+          if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
+            if [[ "$API_VERSION" == "v1" ]]; then
+              API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            else
+              API_PATH="/apis/${API_VERSION}/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            fi
           fi
 
           # Process resources in chunks using API pagination
@@ -192,12 +237,16 @@ toolsets:
                 - Include grep-ready keys/values; avoid repeating entire objects or unchanged defaults
 
       - name: "kubernetes_tabular_query"
-        user_description: "filter: kubectl get {{kind}} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}"
+        user_description: "filter: kubectl get {{kind}}{% if namespace is string and namespace %} -n {{namespace}}{% else %} --all-namespaces{% endif %} columns='{{columns}}'{% if filter_pattern %} filter={{filter_pattern}}{% endif %}"
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
           Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
-          "rows" (array of data rows), and "stderr" (error output or null).
+          "rows" (array of data rows), "truncated" (true when rows were cut off at max_rows),
+          and "stderr" (error output or null).
           Only requested fields are transmitted, so it works well on large clusters.
+          When the investigation concerns resources in a single namespace, always set the
+          namespace parameter: a cluster-wide query on a large cluster can exhaust kubectl's
+          memory and fail. Leave namespace empty to query all namespaces.
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
           e.g. NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
           Optional filter_pattern matches any column (grep regex), e.g. filter_pattern="Running".
@@ -208,6 +257,17 @@ toolsets:
           slashes are forbidden characters. Use kubernetes_jq_query instead for labels with
           special characters, e.g.: .items[] | {name: .metadata.name, arch: .metadata.labels["kubernetes.io/arch"]}
           Similarly, use .status.nodeInfo.architecture instead of .metadata.labels["kubernetes.io/arch"] when possible.
+        parameters:
+          namespace:
+            type: string
+            required: false
+            description: "Kubernetes namespace to scope the query to. Strongly preferred when the investigation concerns a single namespace - cluster-wide queries on large clusters can exhaust kubectl's memory and fail. Leave empty to query all namespaces."
+            default: ""
+          max_rows:
+            type: integer
+            required: false
+            description: "Maximum number of data rows returned. When the result exceeds this, rows are truncated and 'truncated' is true in the output. Lower it to save context, raise it for exhaustive listings."
+            default: 1000
         script: |
           #!/bin/bash
           # SECURITY: assign sanitized params to shell variables (unquoted slot),
@@ -215,15 +275,29 @@ toolsets:
           # inside a quoted context. See kubernetes_jq_query for the rationale.
           KIND={{ kind }}
           CUSTOM_COLUMNS={{ columns }}
+          NAMESPACE={{ namespace if namespace is string else '' }}
+          MAX_ROWS={{ max_rows }}
+          # Guard against non-numeric max_rows (e.g. param omitted): default to 1000
+          case "$MAX_ROWS" in
+            ''|*[!0-9]*) MAX_ROWS=1000 ;;
+          esac
           err_file=$(mktemp)
-          output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          if [ -n "$NAMESPACE" ]; then
+            output=$(kubectl get "$KIND" -n "$NAMESPACE" -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          else
+            output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          fi
           kubectl_exit=$?
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
 
-          if [ $kubectl_exit -ne 0 ] || [ -z "$output" ]; then
+          if [ $kubectl_exit -ne 0 ]; then
+            # kubectl failed (e.g. OOMKilled under the tool memory limit on a
+            # large cluster): surface this as an error, not as a successful
+            # empty result, so the agent retries with a narrower query
+            # (e.g. a namespace) instead of concluding "no resources found".
             if command -v jq &>/dev/null; then
-              jq -n --arg stderr "$err_content" '{count: 0, header: null, rows: [], stderr: $stderr}'
+              jq -n --arg stderr "$err_content" '{count: 0, header: null, rows: [], truncated: false, stderr: $stderr}'
             else
               echo "=== STDERR ==="
               echo "$err_content"
@@ -231,7 +305,7 @@ toolsets:
               echo "=== COUNT ==="
               echo 0
             fi
-            exit 0
+            exit 1
           fi
 
           # Split header and data rows
@@ -242,6 +316,23 @@ toolsets:
           {% else %}
           data=$(echo "$output" | tail -n +2)
           {% endif %}
+
+          # Output budgeting: cap rows so a huge result set cannot overflow the
+          # agent context. The truncation is reported, never silent.
+          truncated=false
+          if [ -n "$data" ]; then
+            total_rows=$(echo "$data" | wc -l)
+            if [ "$total_rows" -gt "$MAX_ROWS" ]; then
+              data=$(echo "$data" | head -n "$MAX_ROWS")
+              truncated=true
+              trunc_note="Output truncated to $MAX_ROWS of $total_rows rows. Set namespace and/or filter_pattern to narrow the query, or raise max_rows."
+              if [ -n "$err_content" ]; then
+                err_content="$err_content $trunc_note"
+              else
+                err_content="$trunc_note"
+              fi
+            fi
+          fi
 
           if command -v jq &>/dev/null; then
             if [ -n "$data" ]; then
@@ -255,8 +346,9 @@ toolsets:
               --argjson count "$count" \
               --arg header "$header" \
               --argjson rows "$rows" \
+              --argjson truncated "$truncated" \
               --arg stderr "$err_content" \
-              '{count: $count, header: $header, rows: $rows, stderr: (if $stderr == "" then null else $stderr end)}'
+              '{count: $count, header: $header, rows: $rows, truncated: $truncated, stderr: (if $stderr == "" then null else $stderr end)}'
           else
             echo "=== STDERR ==="
             echo "$err_content"
@@ -264,6 +356,8 @@ toolsets:
             echo "$header"
             echo "=== ROWS ==="
             echo "$data"
+            echo "=== TRUNCATED ==="
+            echo "$truncated"
             echo "=== COUNT ==="
             if [ -n "$data" ]; then echo "$data" | wc -l; else echo 0; fi
           fi
@@ -283,7 +377,7 @@ toolsets:
                 - Keep output actionable and focused on anomalies
 
       - name: "kubernetes_count"
-        user_description: "count: kubectl get {{kind}} | jq '{{jq_expr}}'"
+        user_description: "count: kubectl get {{kind}}{% if namespace is string and namespace %} -n {{namespace}}{% else %} --all-namespaces{% endif %} | jq '{{jq_expr}}'"
         description: >
           Use kubectl to apply a jq filter and then count the results.
           Use this whenever asked to count kubernetes resources.
@@ -292,9 +386,19 @@ toolsets:
           Returns a JSON object with keys: "total_items_processed", "matches_found" (number of matches),
           "preview" (first 10 results truncated to 200 chars), and "stderr" (error output or null).
           The 'kind' parameter must be the plural form of the resource type ("pods" not "pod").
+          Set the namespace parameter to count within a single namespace - strongly preferred
+          when the question concerns one namespace, and required on large clusters to keep the
+          query within memory limits. Leave empty for a cluster-wide count. The namespace is
+          ignored for cluster-scoped resource kinds.
           Use select() to filter objects before extracting properties; do not worry about escaping
           the jq_expr - it will be done by the system.
           e.g. .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
+        parameters:
+          namespace:
+            type: string
+            required: false
+            description: "Kubernetes namespace to scope the count to. Strongly preferred when the question concerns a single namespace; avoids cluster-wide listing on large clusters. Leave empty for a cluster-wide count. Ignored for cluster-scoped resource kinds."
+            default: ""
         script: |
           #!/bin/bash
 
@@ -302,8 +406,24 @@ toolsets:
           # then reference them only as "$VAR" - never interpolate {{ param }}
           # inside a quoted context. See kubernetes_jq_query for the rationale.
           KIND={{ kind }}
+          NAMESPACE={{ namespace if namespace is string else '' }}
 
           err_file=$(mktemp)
+
+          # SECURITY (SSRF, CWE-918): validate the namespace before it is
+          # interpolated into the --raw API path below. Kubernetes namespace
+          # names are RFC 1123 DNS labels; anything else (slashes, dots,
+          # "..", etc.) could reroute the request to an unintended API
+          # endpoint. Fail fast: no kubectl call happens for an invalid
+          # namespace.
+          if [ -n "$NAMESPACE" ]; then
+            if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+              rm -f "$err_file"
+              jq -n --arg stderr "Invalid namespace '${NAMESPACE}': must be a valid Kubernetes namespace name (RFC 1123 DNS label: up to 63 characters of lowercase alphanumeric and '-', starting and ending with an alphanumeric character)" \
+                '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
+              exit 0
+            fi
+          fi
 
           # Get the API path for the resource kind
           # Match the resource name (first column) as an EXACT string, not a
@@ -321,8 +441,10 @@ toolsets:
 
           if [[ "$API_INFO" == *" true "* ]]; then
             PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
+            IS_NAMESPACED=true
           elif [[ "$API_INFO" == *" false "* ]]; then
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
+            IS_NAMESPACED=false
           else
             err_content=$(cat "$err_file" 2>/dev/null)
             rm -f "$err_file"
@@ -359,6 +481,23 @@ toolsets:
             API_PATH="/api/v1/${RESOURCE_NAME}"
           else
             API_PATH="/apis/${API_VERSION}/${RESOURCE_NAME}"
+          fi
+
+          # Scope the listing to a single namespace when requested. Only
+          # namespaced resource kinds support this; for cluster-scoped kinds
+          # the namespace is ignored and the query stays cluster-wide.
+          # SECURITY: $NAMESPACE was validated as an RFC 1123 DNS label above
+          # (SSRF, CWE-918) before reaching this path interpolation, and was
+          # assigned from the sanitized namespace param in an unquoted slot (a
+          # missing/empty param renders as empty via the `is string` guard),
+          # so referencing "$NAMESPACE" inside double quotes here is safe
+          # (no re-evaluation of the stored value).
+          if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
+            if [[ "$API_VERSION" == "v1" ]]; then
+              API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            else
+              API_PATH="/apis/${API_VERSION}/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            fi
           fi
 
           # Process resources in chunks using API pagination
