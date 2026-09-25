@@ -98,7 +98,3 @@ Take the numbers from Baseten's model catalog, which reports `context_length`, `
 curl -s https://inference.baseten.co/v1/models \
   -H "Authorization: Bearer $BASETEN_API_KEY" | jq '.data[] | {id, context_length, max_completion_tokens, pricing}'
 ```
-
-## Rate limits
-
-Baseten enforces requests-per-minute and tokens-per-minute limits per account tier and returns `429 Too Many Requests` when either is exceeded; an unverified Basic account gets 15 requests and 100,000 tokens per minute. An investigation sends the whole conversation on every step, so a few tool-calling steps can exhaust the token budget of a low tier within a minute. See [Baseten's pricing and limits](https://docs.baseten.co/inference/model-apis/pricing-and-limits){:target="_blank"} for the tiers and how to raise them.

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from holmes.common.env_vars import TRACE_TOKEN_USAGE
 from holmes.core.llm import ContextWindowUsage, build_usage_metadata
+from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 
 
 class StreamEvents(str, Enum):
@@ -108,6 +109,16 @@ def stream_chat_formatter(
                 )
             else:
                 yield create_sse_message(message.event.value, message.data)
+    except RelayRefusal as e:
+        # The platform refused the call; the stream's HTTP status is long
+        # committed, so the refusal rides the error event's code, with relay's
+        # own sentence as the text (ROB-1389).
+        logging.warning(f"Relay refused the streamed chat (status {e.status_code}): {e}")
+        yield create_sse_error_message(
+            description=str(e),
+            error_code=RELAY_REFUSAL_ERROR_CODES[e.status_code],
+            msg=str(e),
+        )
     except Exception as e:
         logging.error(f"Error during streaming chat: {e}", exc_info=True)
         if _is_rate_limit_error(e):
