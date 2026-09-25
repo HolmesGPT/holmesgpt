@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-292
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: AdmissionCheck
+metadata:
+  name: app-292-fake-check
+spec:
+  controllerName: kueue-doctor.example.com/fake-controller
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: app-292-flavor
+spec: {}
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: app-292-cq
+spec:
+  namespaceSelector: {}
+  admissionChecksStrategy:
+    admissionChecks:
+      - name: app-292-fake-check
+  resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+        - name: app-292-flavor
+          resources:
+            - name: "cpu"
+              nominalQuota: "2"
+            - name: "memory"
+              nominalQuota: 4Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: provision-queue
+  namespace: app-292
+spec:
+  clusterQueue: app-292-cq
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: provision-gpu
+  namespace: app-292
+  labels:
+    kueue.x-k8s.io/queue-name: provision-queue
+spec:
+  suspend: true
+  template:
+    spec:
+      containers:
+        - name: main
+          image: busybox:1.36
+          command: ["sh", "-c", "echo running && sleep 3600"]
+          resources:
+            requests:
+              cpu: "200m"
+              memory: 128Mi
+      restartPolicy: Never
+  backoffLimit: 0

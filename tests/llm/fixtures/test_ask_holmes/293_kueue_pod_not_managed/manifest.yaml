@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-293
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: legacy-batch-job
+  namespace: app-293
+  # deliberately missing kueue.x-k8s.io/queue-name: Kueue's webhook never
+  # intercepts this Job, so no Workload is ever created for it.
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo work && sleep 3600"]
+          resources:
+            requests:
+              cpu: "100"  # deliberately far beyond any real node's capacity
+              memory: 4Gi
+      restartPolicy: Never
+  backoffLimit: 0

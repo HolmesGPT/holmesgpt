@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-294
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: app-294-flavor
+spec: {}
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: app-294-cq
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+        - name: app-294-flavor
+          resources:
+            - name: "cpu"
+              nominalQuota: "300"
+            - name: "memory"
+              nominalQuota: 300Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: team-a-queue
+  namespace: app-294
+spec:
+  clusterQueue: app-294-cq
+---
+# This pod requests a normal, schedulable amount of resources and will run.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: distributed-train-0
+  namespace: app-294
+  labels:
+    kueue.x-k8s.io/queue-name: team-a-queue
+    kueue.x-k8s.io/pod-group-name: distributed-train
+    app: distributed-train
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+spec:
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command: ["sh", "-c", "echo worker && sleep 3600"]
+      resources:
+        requests:
+          cpu: "100m"
+          memory: 64Mi
+  restartPolicy: Never
+---
+# These two pods request far more CPU than any real node has, so they can
+# never actually schedule regardless of cluster size (deliberately not using
+# node anti-affinity, which would only reproduce this on a single-node
+# cluster). The ClusterQueue's nominal quota above is high enough that Kueue
+# still admits the whole group of 3 - only real node-level scheduling fails.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: distributed-train-1
+  namespace: app-294
+  labels:
+    kueue.x-k8s.io/queue-name: team-a-queue
+    kueue.x-k8s.io/pod-group-name: distributed-train
+    app: distributed-train
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+spec:
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command: ["sh", "-c", "echo worker && sleep 3600"]
+      resources:
+        requests:
+          cpu: "100"
+          memory: 64Mi
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: distributed-train-2
+  namespace: app-294
+  labels:
+    kueue.x-k8s.io/queue-name: team-a-queue
+    kueue.x-k8s.io/pod-group-name: distributed-train
+    app: distributed-train
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+spec:
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command: ["sh", "-c", "echo worker && sleep 3600"]
+      resources:
+        requests:
+          cpu: "100"
+          memory: 64Mi
+  restartPolicy: Never
