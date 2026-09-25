@@ -40,13 +40,12 @@ before_test: |
 
   echo "Creating test index for time-series gap detection..."
 
-  # Clean up any existing test data first
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse, and use stable doc _ids so concurrent runs converge on
+  # the same set of timestamped points (preserving the 6-hour gap).
 
-  # Create the index
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -65,7 +64,7 @@ before_test: |
       }
     }')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
@@ -103,7 +102,9 @@ before_test: |
     # Host rotation
     HOST_NUM=$((hour % 5 + 1))
 
-    echo "{\"index\": {\"_index\": \"app-189-metrics-timeseries\"}}" >> "$BULK_FILE"
+    # Stable _id keyed by hour so concurrent runs converge on the same 42
+    # data points (one per hour, with the 6-hour gap preserved).
+    echo "{\"index\": {\"_index\": \"app-189-metrics-timeseries\", \"_id\": \"hour-${hour}\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"$TIMESTAMP\", \"request_id\": \"$REQUEST_ID\", \"metric_name\": \"cpu_usage\", \"value\": ${CPU_VALUE}.0, \"host\": \"server-${HOST_NUM}\"}" >> "$BULK_FILE"
   done
 
@@ -151,11 +152,10 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-189-metrics-timeseries" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Index uses a static test-ID-scoped name (app-189-metrics-timeseries).
+  # Parallel CI runs share the same Elasticsearch cluster, so we skip
+  # deletion to avoid wiping data another in-flight run depends on.
+  # before_test is idempotent (PUT tolerates already-exists, bulk inserts
+  # use stable hour-keyed _ids).
   rm -f /tmp/es_timeseries_189_*.ndjson
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"
