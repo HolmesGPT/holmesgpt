@@ -98,6 +98,15 @@ TOOL_MEMORY_LIMIT_MB = int(
     os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
 )
 
+# Wall-clock timeout (seconds) for `command:`/`script:` toolset tools run via
+# subprocess (e.g. kubectl, jq). Without this, a stalled child process (e.g. an
+# apiserver connection that accepts the TCP handshake but never responds) blocks
+# the calling thread and leaks a process forever. On timeout the entire process
+# group spawned for the command is killed, not just the immediate shell child.
+TOOL_SUBPROCESS_TIMEOUT_SECONDS = int(
+    os.environ.get("TOOL_SUBPROCESS_TIMEOUT_SECONDS", 300)
+)
+
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)
 )  # Empirical value with 6~ parsing calls. Consider using larger value if LLM response is long as to reduce markdown to section calls.
