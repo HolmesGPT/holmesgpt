@@ -50,7 +50,17 @@ toolsets:
             required: false
         script: |
           #!/bin/bash
-          case "{{ resource }}" in
+          # SECURITY: params below are assigned UNQUOTED so shlex.quote()'s single-quoting
+          # (applied to every param by the framework before rendering) stays in effect. Do not
+          # wrap these assignments in double quotes - that neutralizes the quoting and reopens
+          # command substitution (see SEC-INJ-001 fixed in kubernetes.yaml). Only ever reference
+          # these variables later as "${VAR}", never re-interpolate the raw Jinja value again.
+          RESOURCE={{ resource }}
+          {% if name %}NAME={{ name }}{% else %}NAME=""{% endif %}
+          NAMESPACE={{ namespace if namespace is string else "flux-system" }}
+          {% if all_namespaces %}ALL_NAMESPACES="-A"{% else %}ALL_NAMESPACES=""{% endif %}
+
+          case "${RESOURCE}" in
             sources-git) SUBCMD="sources git" ;;
             sources-helm) SUBCMD="sources helm" ;;
             sources-oci) SUBCMD="sources oci" ;;
@@ -58,16 +68,18 @@ toolsets:
             sources-bucket) SUBCMD="sources bucket" ;;
             sources-external) SUBCMD="sources external" ;;
             images) SUBCMD="images all" ;;
-            *) SUBCMD="{{ resource }}" ;;
+            *) SUBCMD="${RESOURCE}" ;;
           esac
-          NAME="{% if name %}{{ name }}{% endif %}"
-          NS="{{ namespace if namespace is string else 'flux-system' }}"
-          ALLNS=""
-          {% if all_namespaces %}ALLNS="-A"{% endif %}
 
-          CMD="flux get $SUBCMD $NAME -n $NS $ALLNS"
-          echo "Running: $CMD"
-          OUTPUT=$(eval "$CMD" 2>&1)
+          # SUBCMD is only ever one of the fixed literals above, so intentionally
+          # unquoted here to split it into its constituent words (e.g. "sources git").
+          ARGS=(${SUBCMD})
+          [ -n "${NAME}" ] && ARGS+=("${NAME}")
+          ARGS+=("-n" "${NAMESPACE}")
+          [ -n "${ALL_NAMESPACES}" ] && ARGS+=("${ALL_NAMESPACES}")
+
+          echo "Running: flux get ${ARGS[*]}"
+          OUTPUT=$(flux get "${ARGS[@]}" 2>&1)
           STATUS=$?
 
           if [ $STATUS -ne 0 ]; then
@@ -77,7 +89,7 @@ toolsets:
           fi
 
           if [ -z "$OUTPUT" ]; then
-            echo "No Flux '{{ resource }}' resources found (searched namespace: $NS${ALLNS:+, all namespaces})."
+            echo "No Flux '${RESOURCE}' resources found (searched namespace: ${NAMESPACE}${ALL_NAMESPACES:+, all namespaces})."
             exit 0
           fi
 
@@ -97,10 +109,12 @@ toolsets:
             required: false
         script: |
           #!/bin/bash
-          NS="{{ namespace if namespace is string else 'flux-system' }}"
-          CMD="flux tree kustomization {{ name }} -n $NS"
-          echo "Running: $CMD"
-          OUTPUT=$(eval "$CMD" 2>&1)
+          # SECURITY: see the note in flux_get above - unquoted assignment, quoted reference only.
+          NAME={{ name }}
+          NAMESPACE={{ namespace if namespace is string else "flux-system" }}
+
+          echo "Running: flux tree kustomization ${NAME} -n ${NAMESPACE}"
+          OUTPUT=$(flux tree kustomization "${NAME}" -n "${NAMESPACE}" 2>&1)
           STATUS=$?
 
           if [ $STATUS -ne 0 ]; then
@@ -110,7 +124,7 @@ toolsets:
           fi
 
           if [ -z "$OUTPUT" ]; then
-            echo "No resources found for Kustomization '{{ name }}' in namespace '$NS'."
+            echo "No resources found for Kustomization '${NAME}' in namespace '${NAMESPACE}'."
             exit 0
           fi
 
