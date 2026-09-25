@@ -64,8 +64,6 @@ You'll need two keys and your site URL from your Datadog account:
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
     ```yaml
     # Load API keys from secret
@@ -121,8 +119,6 @@ You'll need two keys and your site URL from your Datadog account:
       --from-literal=datadog-app-key=your-datadog-app-key \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
     ```yaml

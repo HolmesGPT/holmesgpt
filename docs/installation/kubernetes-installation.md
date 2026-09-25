@@ -133,6 +133,9 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
    helm install holmesgpt robusta/holmes -f values.yaml
    ```
 
+    !!! note "The namespace Holmes runs in"
+        This command installs Holmes into the namespace of your current kubectl context, `default` unless you set another. `helm list -A` shows the namespace of each release. Every Kubernetes secret your values read, through `extraEnvVarsSecrets` or `additionalEnvVars`, must be in that namespace: if one is missing, the Holmes pod does not start. It stays in `CreateContainerConfigError`, and its events show `Error: secret "<name>" not found`.
+
 ## Usage
 
 After installation, test the service with a simple API call:

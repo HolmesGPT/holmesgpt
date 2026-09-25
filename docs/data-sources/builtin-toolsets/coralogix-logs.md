@@ -51,8 +51,6 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -90,8 +88,6 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
       --from-literal=api-key=your-coralogix-api-key \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

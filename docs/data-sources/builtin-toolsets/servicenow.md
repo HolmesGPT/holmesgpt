@@ -112,8 +112,6 @@ You should receive a JSON response. If you get an authentication error, check yo
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -149,8 +147,6 @@ You should receive a JSON response. If you get an authentication error, check yo
       --from-literal=api-key=your-servicenow-api-key \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

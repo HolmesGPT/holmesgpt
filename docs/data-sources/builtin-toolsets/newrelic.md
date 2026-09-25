@@ -51,8 +51,6 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -82,8 +80,6 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
       --from-literal=api-key=your-new-relic-user-api-key \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

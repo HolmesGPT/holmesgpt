@@ -46,8 +46,6 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -78,8 +76,6 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
       --from-literal=api-key=your-grafana-service-account-token \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

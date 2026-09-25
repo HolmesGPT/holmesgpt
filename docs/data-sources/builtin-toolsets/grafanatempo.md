@@ -78,8 +78,6 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -108,8 +106,6 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
       --from-literal=api-key=your-grafana-service-account-token \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -223,8 +219,6 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -253,8 +247,6 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
       --from-literal=api-key=your-grafana-cloud-service-account-token \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

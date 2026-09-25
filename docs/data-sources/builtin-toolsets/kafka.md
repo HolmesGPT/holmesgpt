@@ -41,8 +41,6 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then reference them in your Helm values:
 
     ```yaml
@@ -87,8 +85,6 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
       --from-literal=password=<your-password> \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -171,8 +167,6 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
       --from-file=client.key=/path/to/client.key \
       -n holmes
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then mount the secret and reference the paths in your Helm values:
 
@@ -258,8 +252,6 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
       --from-file=client.key=/path/to/client.key \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -364,8 +356,6 @@ Use this approach when certificates are passed as environment variables (e.g., f
       -n holmes
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
     Then expose them as environment variables in your Helm values:
 
     ```yaml
@@ -416,8 +406,6 @@ Use this approach when certificates are passed as environment variables (e.g., f
       --from-literal=client.key.b64="$(base64 < /path/to/client.key | tr -d '\n')" \
       -n default
     ```
-
-    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
