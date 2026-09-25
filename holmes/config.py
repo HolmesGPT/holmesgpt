@@ -163,6 +163,7 @@ class Config(RobustaBaseConfig):
     toolsets: Optional[dict[str, dict[str, Any]]] = None
     mcp_servers: Optional[dict[str, dict[str, Any]]] = None
     additional_toolsets: Optional[List[Toolset]] = None
+    hooks: Optional[dict[str, List[dict[str, str]]]] = None
 
     # Thread-safe executor cache: stores (executor, cache_key) where cache_key
     # is (tuple(tags), enable_all_toolsets_possible) so callers with different
