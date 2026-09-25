@@ -215,7 +215,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 
     - AKS cluster with OIDC issuer and workload identity enabled
     - A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
-    - A federated credential linking the managed identity to the Holmes ServiceAccount
+    - A federated credential linking the managed identity to the Holmes ServiceAccount, which the chart names `<release>-holmes-service-account` (`holmesgpt-holmes-service-account` for the install guide's `holmesgpt` release)
 
     **Set up the identity and federation:**
 
@@ -240,7 +240,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
       --identity-name holmes-identity \
       --resource-group <rg> \
       --issuer "$OIDC_ISSUER" \
-      --subject "system:serviceaccount:<namespace>:holmes" \
+      --subject "system:serviceaccount:<namespace>:holmesgpt-holmes-service-account" \
       --audiences "api://AzureADTokenExchange"
     ```
 
@@ -325,8 +325,9 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 # Verify the pod has workload identity labels and env vars injected
 kubectl describe pod -l app=holmes -n <namespace> | grep -A5 "AZURE_"
 
-# Test that the identity can obtain a token (from inside the pod)
-kubectl exec -n <namespace> deploy/holmes -- python -c "
+# Test that the identity can obtain a token (from inside the pod).
+# The chart names the deployment <release>-holmes: holmesgpt-holmes for the install guide's release.
+kubectl exec -n <namespace> deploy/holmesgpt-holmes -- python -c "
 from azure.identity import DefaultAzureCredential
 token = DefaultAzureCredential().get_token('https://cognitiveservices.azure.com/.default')
 print('Token obtained, expires at:', token.expires_on)
