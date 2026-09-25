@@ -237,12 +237,6 @@ markdown_extensions:
               - name: mermaid
                 class: mermaid
                 format: !!python/name:pymdownx.superfences.fence_code_format
-              - name: yaml-helm-values
-                class: yaml
-                format: !!python/name:docs.custom_fences.helm_tabs_fence_format
-              - name: yaml-toolset-config
-                class: yaml
-                format: !!python/name:docs.custom_fences.toolset_config_fence_format
               - name: robusta-region
                 class: robusta-region
                 format: !!python/name:docs.custom_fences.robusta_region_fence_format
@@ -258,6 +252,11 @@ markdown_extensions:
     - pymdownx.tasklist:
           custom_checkbox: true
     - pymdownx.tilde
+    # The deployment fences (yaml-toolset-config, yaml-helm-values); the hook below tells them which page they are on.
+    - docs.custom_fences
+
+hooks:
+    - docs/custom_fences.py
 
 extra_css:
     - stylesheets/extra.css
