@@ -29,8 +29,9 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
     additionalEnvVars:
       - name: OPENAI_API_BASE
         value: "http://your-inference-server:8000/v1"
@@ -39,8 +40,8 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         # If authentication is required, use a secret instead:
         # valueFrom:
         #   secretKeyRef:
-        #     name: holmes-secrets
-        #     key: openai-api-key
+        #     name: holmes-openai-compatible
+        #     key: OPENAI_API_KEY
       - name: MODEL
         value: "my-model"
 
@@ -55,10 +56,17 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         temperature: 1
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
       additionalEnvVars:
         - name: OPENAI_API_BASE
@@ -68,8 +76,8 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
           # If authentication is required, use a secret instead:
           # valueFrom:
           #   secretKeyRef:
-          #     name: robusta-holmes-secret
-          #     key: openai-api-key
+          #     name: holmes-openai-compatible
+          #     key: OPENAI_API_KEY
         - name: MODEL
           value: "my-model"
 
@@ -82,6 +90,12 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
           api_base: "{{ env.OPENAI_API_BASE }}"
           model: openai/your-model-name
           temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Known Limitations

@@ -18,22 +18,21 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-file=baseten-api-key=/path/to/baseten-api-key \
+    kubectl create secret generic holmes-baseten \
+      --from-file=BASETEN_API_KEY=/path/to/baseten-api-key \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-baseten
+
     additionalEnvVars:
-      - name: BASETEN_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: baseten-api-key
       - name: MODEL
         value: "glm-5-3"  # modelList key name
 
@@ -49,25 +48,30 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
           max_context_size: 1048576
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-file=baseten-api-key=/path/to/baseten-api-key \
+    kubectl create secret generic holmes-baseten \
+      --from-file=BASETEN_API_KEY=/path/to/baseten-api-key \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-baseten
+
       additionalEnvVars:
-        - name: BASETEN_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: baseten-api-key
         - name: MODEL
           value: "glm-5-3"  # modelList key name
 
@@ -81,6 +85,12 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
           output_cost_per_token: 0.000015
           custom_args:
             max_context_size: 1048576
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Models missing from LiteLLM

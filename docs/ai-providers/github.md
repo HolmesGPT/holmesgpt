@@ -18,6 +18,7 @@ Browse the full list of available models at [github.com/marketplace/models](http
 === "Holmes CLI"
 
     **Using Environment Variables:**
+
     ```bash
     export GITHUB_API_KEY="your-github-token"
     holmes ask "what pods are failing?" --model="github/gpt-4.1"
@@ -34,22 +35,21 @@ Browse the full list of available models at [github.com/marketplace/models](http
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=github-api-key="your-github-token" \
+    kubectl create secret generic holmes-github \
+      --from-literal=GITHUB_API_KEY="your-github-token" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-github
+
     additionalEnvVars:
-      - name: GITHUB_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: github-api-key
       - name: MODEL
         value: "gpt-4-1"
 
@@ -60,33 +60,44 @@ Browse the full list of available models at [github.com/marketplace/models](http
         temperature: 0
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=github-api-key="your-github-token" \
+    kubectl create secret generic holmes-github \
+      --from-literal=GITHUB_API_KEY="your-github-token" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-github
+
       additionalEnvVars:
-        - name: GITHUB_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: github-api-key
         - name: MODEL
-          value: "gpt-4o"
+          value: "gpt-4-1"
 
       modelList:
-        gpt-4o:
+        gpt-4-1:
           api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/gpt-4o
+          model: github/gpt-4.1
           temperature: 0
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Additional Resources

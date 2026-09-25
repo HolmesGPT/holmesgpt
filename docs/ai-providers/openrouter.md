@@ -17,25 +17,24 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openrouter-api-key="sk-or-..." \
+    kubectl create secret generic holmes-openrouter \
+      --from-literal=OPENROUTER_API_KEY="sk-or-..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-openrouter
+
     additionalEnvVars:
-      - name: OPENROUTER_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: openrouter-api-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -53,28 +52,33 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
         temperature: 1
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openrouter-api-key="sk-or-..." \
+    kubectl create secret generic holmes-openrouter \
+      --from-literal=OPENROUTER_API_KEY="sk-or-..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-openrouter
+
       additionalEnvVars:
-        - name: OPENROUTER_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openrouter-api-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -90,6 +94,12 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
           api_key: "{{ env.OPENROUTER_API_KEY }}"
           model: openrouter/anthropic/claude-opus-4.5-20251101
           temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 **Optional environment variables:**
@@ -115,27 +125,26 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-or-..." \
+    kubectl create secret generic holmes-openrouter-openai \
+      --from-literal=OPENAI_API_KEY="sk-or-..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-openrouter-openai
+
     additionalEnvVars:
-      - name: OPENAI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: openai-api-key
       - name: OPENAI_API_BASE
         value: "https://openrouter.ai/api/v1"
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -155,30 +164,35 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
         temperature: 1
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-or-..." \
+    kubectl create secret generic holmes-openrouter-openai \
+      --from-literal=OPENAI_API_KEY="sk-or-..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-openrouter-openai
+
       additionalEnvVars:
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openai-api-key
         - name: OPENAI_API_BASE
           value: "https://openrouter.ai/api/v1"
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -196,6 +210,12 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
           api_base: "https://openrouter.ai/api/v1"
           model: openai/anthropic/claude-opus-4.5-20251101
           temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Available Models

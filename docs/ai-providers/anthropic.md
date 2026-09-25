@@ -25,25 +25,24 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=anthropic-api-key="sk-ant-..." \
+    kubectl create secret generic holmes-anthropic \
+      --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-anthropic
+
     additionalEnvVars:
-      - name: ANTHROPIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: anthropic-api-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -61,28 +60,33 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
         temperature: 1
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=anthropic-api-key="sk-ant-..." \
+    kubectl create secret generic holmes-anthropic \
+      --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-anthropic
+
       additionalEnvVars:
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: anthropic-api-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -98,6 +102,12 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
           api_key: "{{ env.ANTHROPIC_API_KEY }}"
           model: anthropic/claude-opus-4-1-20250805
           temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Prompt Caching

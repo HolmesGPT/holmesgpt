@@ -4,6 +4,10 @@ Define multiple model configurations and switch between them by name. This is us
 
 ## Configuration
 
+Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables. Only include the keys of the providers you're using in the secret.
+
+When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+
 === "Holmes CLI"
 
     **1. Create `~/.holmes/model_list.yaml`:**
@@ -42,58 +46,23 @@ Define multiple model configurations and switch between them by name. This is us
 
 === "Holmes Helm Chart"
 
-    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables.
-
-    **Create the Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    # Example with all providers - only include what you're using
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      --from-literal=azure-api-key="..." \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="..." \
-      -n <namespace>
-
-    # Example with just OpenAI and Anthropic
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
+    kubectl create secret generic holmes-using-multiple-providers \
+      --from-literal=OPENAI_API_KEY="sk-..." \
+      --from-literal=AZURE_API_KEY="..." \
+      --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
+      --from-literal=AWS_ACCESS_KEY_ID="AKIA..." \
+      --from-literal=AWS_SECRET_ACCESS_KEY="..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    # values.yaml
-    # Reference only the API keys you created in the secret
-    additionalEnvVars:
-      - name: AZURE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: azure-api-key
-      - name: ANTHROPIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: anthropic-api-key
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-access-key-id
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-secret-access-key
-      - name: OPENAI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: openai-api-key
+    extraEnvVarsSecrets:
+      - holmes-using-multiple-providers
 
     # Configure the model list using the environment variables
     modelList:
@@ -144,63 +113,32 @@ Define multiple model configurations and switch between them by name. This is us
           type: enabled
     ```
 
-    When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
-    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables. All Holmes configuration is nested under the `holmes:` key.
-
-    **Create the Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    # Example with all providers - only include what you're using
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      --from-literal=azure-api-key="..." \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="..." \
-      -n <namespace>
-
-    # Example with just OpenAI and Anthropic
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
+    kubectl create secret generic holmes-using-multiple-providers \
+      --from-literal=OPENAI_API_KEY="sk-..." \
+      --from-literal=AZURE_API_KEY="..." \
+      --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
+      --from-literal=AWS_ACCESS_KEY_ID="AKIA..." \
+      --from-literal=AWS_SECRET_ACCESS_KEY="..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    # values.yaml
     holmes:
-      # Reference only the API keys you created in the secret
-      additionalEnvVars:
-        - name: AZURE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: azure-api-key
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: anthropic-api-key
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-secret-access-key
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openai-api-key
+      extraEnvVarsSecrets:
+        - holmes-using-multiple-providers
 
       # Configure the model list using the environment variables
       modelList:
@@ -251,7 +189,11 @@ Define multiple model configurations and switch between them by name. This is us
             type: enabled
     ```
 
-    When multiple providers are defined, users can select which model to use from a dropdown in the Robusta UI, or specify a `model` parameter when using the HTTP API directly.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Model Parameters
 

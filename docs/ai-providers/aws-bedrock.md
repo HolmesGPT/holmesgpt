@@ -26,6 +26,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
     ```
 
     **For Claude Sonnet with 1M context window:**
+
     ```bash
     export AWS_REGION_NAME="us-east-1"
     export AWS_ACCESS_KEY_ID="your-access-key"
@@ -38,31 +39,25 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="your-secret-key" \
+    kubectl create secret generic holmes-aws-bedrock \
+      --from-literal=AWS_ACCESS_KEY_ID="AKIA..." \
+      --from-literal=AWS_SECRET_ACCESS_KEY="your-secret-key" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-aws-bedrock
+
     additionalEnvVars:
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-access-key-id
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-secret-access-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -91,34 +86,34 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
           max_context_size: 1000000
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="your-secret-key" \
+    kubectl create secret generic holmes-aws-bedrock \
+      --from-literal=AWS_ACCESS_KEY_ID="AKIA..." \
+      --from-literal=AWS_SECRET_ACCESS_KEY="your-secret-key" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-aws-bedrock
+
       additionalEnvVars:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-secret-access-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -145,6 +140,12 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
             anthropic-beta: context-1m-2025-08-07
           custom_args:
             max_context_size: 1000000
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ### Using Claude Sonnet with 1M Context Window
@@ -179,9 +180,9 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
 === "Holmes Helm Chart"
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
     serviceAccount:
       annotations:
         eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/<role-name>"
@@ -202,11 +203,17 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
         value: "bedrock-claude-sonnet-4"
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
       serviceAccount:
         annotations:
@@ -226,6 +233,12 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
         # Optional: Set default model (use modelList key name)
         - name: MODEL
           value: "bedrock-claude-sonnet-4"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 **Note:** With IRSA, you do not need `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY`. The AWS SDK picks up the injected token automatically.

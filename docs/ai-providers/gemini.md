@@ -22,27 +22,26 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=gemini-api-key="your-gemini-api-key" \
+    kubectl create secret generic holmes-gemini \
+      --from-literal=GEMINI_API_KEY="your-gemini-api-key" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-gemini
+
     additionalEnvVars:
-      - name: GEMINI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: gemini-api-key
       - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
         value: "true"  # Required for Gemini - see Environment Variables Reference
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "gemini-pro"  # This refers to the key name in modelList above
+        value: "gemini-pro"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -62,30 +61,35 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
         temperature: 1
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=gemini-api-key="your-gemini-api-key" \
+    kubectl create secret generic holmes-gemini \
+      --from-literal=GEMINI_API_KEY="your-gemini-api-key" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-gemini
+
       additionalEnvVars:
-        - name: GEMINI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: gemini-api-key
         - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
           value: "true"  # Required for Gemini - see Environment Variables Reference
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "gemini-pro"  # This refers to the key name in modelList above
+          value: "gemini-pro"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -103,6 +107,12 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
           api_key: "{{ env.GEMINI_API_KEY }}"
           model: gemini/gemini-exp-1206
           temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Using CLI Parameters

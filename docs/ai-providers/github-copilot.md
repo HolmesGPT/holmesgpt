@@ -50,8 +50,9 @@ Configure them via the `extra_headers` field in your model list configuration, o
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
     modelList:
       copilot-claude:
         model: github_copilot/claude-sonnet-4.5
@@ -66,10 +67,17 @@ Configure them via the `extra_headers` field in your model list configuration, o
         value: "copilot-claude"
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
       modelList:
         copilot-claude:
@@ -83,6 +91,12 @@ Configure them via the `extra_headers` field in your model list configuration, o
       additionalEnvVars:
         - name: MODEL
           value: "copilot-claude"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Additional Resources
