@@ -1,5 +1,17 @@
 ## Datadog Metrics Tools Usage Guide
+{% if config and config.scope and config.scope.tags %}
+### MANDATORY: Environment Scope
 
+This Holmes instance is restricted to Datadog data tagged with:
+{% for key, value in config.scope.tags.items() %}
+- `{{ key }}:{{ value if value is string else value | join("` or `" + key + ":") }}`
+{% endfor %}
+
+- EVERY metric selector in a `query_datadog_metrics` query MUST include the scope tag as a plain `tag:value` term, e.g. `system.cpu.user{env:staging,host:web-1}`. Queries whose selectors are missing it — including `{*}` — are rejected without being executed.
+- Selector scopes must be plain comma-separated `tag:value` terms. Boolean operators (`OR`/`AND`/`NOT`), negation and `IN (...)` lists are rejected.
+- Do NOT retry a rejected query by loosening the scope; add the scope tag instead.
+- An empty result means no data within the configured scope. Data outside the scope is invisible to you: never conclude a service does not exist or is healthy from an empty result — report that it is outside your visibility instead.
+{% endif %}
 Before running metrics queries:
 
 ** You are often (but not always) running in a kubernetes environment. So users might ask you questions about kubernetes workloads without explicitly stating their type.

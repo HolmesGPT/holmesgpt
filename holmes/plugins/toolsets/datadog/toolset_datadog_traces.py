@@ -28,6 +28,10 @@ from holmes.plugins.toolsets.datadog.datadog_api import (
     get_headers,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import DatadogTracesConfig
+from holmes.plugins.toolsets.datadog.datadog_scope import (
+    apply_scope_to_search_query,
+    no_data_suffix,
+)
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
     generate_datadog_spans_analytics_url,
     generate_datadog_spans_url,
@@ -97,7 +101,7 @@ class DatadogTracesToolset(Toolset):
                         "filter": {
                             "from": "now-1m",
                             "to": "now",
-                            "query": "*",
+                            "query": apply_scope_to_search_query(dd_config.scope, "*"),
                             "indexes": dd_config.indexes,
                         },
                         "page": {"limit": 1},
@@ -244,7 +248,11 @@ class GetSpans(BaseDatadogTracesTool):
             from_time_ms = from_time_int * 1000
             to_time_ms = to_time_int * 1000
 
-            query: str = params.get("query") if params.get("query") else "*"  # type: ignore
+            # Scoping the query variable itself means both the API payload and the
+            # deep link built from it show the same (scoped) data.
+            query: str = apply_scope_to_search_query(
+                self.toolset.dd_config.scope, params.get("query")
+            )
             limit = params.get("limit") if params.get("limit") else 10
             if params.get("sort") is not None:
                 sort = "-timestamp" if params.get("sort") else True
@@ -296,6 +304,20 @@ class GetSpans(BaseDatadogTracesTool):
                 from_time_ms,
                 to_time_ms,
             )
+
+            scope = self.toolset.dd_config.scope
+            if scope is not None and not response.get("data"):
+                # Say why it is empty. Otherwise an out-of-scope service reads to
+                # the model as a healthy one.
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.NO_DATA,
+                    error=(
+                        f"No spans matched.\nQuery sent to Datadog: {query}"
+                        + no_data_suffix(scope)
+                    ),
+                    params=params,
+                    url=web_url,
+                )
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
@@ -610,7 +632,9 @@ class AggregateSpans(BaseDatadogTracesTool):
             from_time_ms = from_time_int * 1000
             to_time_ms = to_time_int * 1000
 
-            query = params.get("query", "*")
+            query = apply_scope_to_search_query(
+                self.toolset.dd_config.scope, params.get("query")
+            )
 
             # Build the request payload
             url = f"{self.toolset.dd_config.api_url}/api/v2/spans/analytics/aggregate"
