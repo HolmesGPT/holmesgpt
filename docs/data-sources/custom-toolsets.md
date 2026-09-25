@@ -20,9 +20,9 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
     toolsets:
       grafana:
         description: "View and suggest Grafana dashboards"
-        prerequisites: "Grafana instance accessible from HolmesGPT"
-        tags: [monitoring, observability]
-        installation: |
+        prerequisites:
+          - env: [GRAFANA_URL, GRAFANA_TOKEN]
+        installation_instructions: |
           1. Ensure Grafana is accessible from HolmesGPT
           2. Configure Grafana API credentials if authentication is required
         tools:
@@ -66,9 +66,9 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
       toolsets:
         grafana:
           description: "View and suggest Grafana dashboards"
-          prerequisites: "Grafana instance accessible from HolmesGPT"
-          tags: [monitoring, observability]
-          installation: |
+          prerequisites:
+            - command: "curl --version"
+          installation_instructions: |
             1. Ensure Grafana is accessible from HolmesGPT
             2. Configure Grafana API credentials if authentication is required
           tools:
@@ -110,9 +110,9 @@ This example creates a toolset with advanced diagnostic tools for Kubernetes clu
     toolsets:
       k8s-diagnostics:
         description: "Advanced Kubernetes diagnostic tools"
-        prerequisites: "kubectl access to the cluster"
-        tags: [kubernetes, diagnostics]
-        installation: |
+        prerequisites:
+          - command: "kubectl get nodes"
+        installation_instructions: |
           1. Ensure kubectl is configured with cluster access
           2. Verify necessary RBAC permissions are in place
         tools:
@@ -157,9 +157,9 @@ This example creates a toolset with advanced diagnostic tools for Kubernetes clu
       toolsets:
         k8s-diagnostics:
           description: "Advanced Kubernetes diagnostic tools"
-          prerequisites: "kubectl access to the cluster"
-          tags: [kubernetes, diagnostics]
-          installation: |
+          prerequisites:
+            - command: "kubectl get nodes"
+          installation_instructions: |
             1. Ensure kubectl is configured with cluster access
             2. Verify necessary RBAC permissions are in place
           tools:
@@ -202,9 +202,9 @@ This example shows how to create a toolset for fetching information from GitHub 
     toolsets:
       github:
         description: "Fetch information from GitHub repositories"
-        prerequisites: "GitHub API token with repository access"
-        tags: [source-control, github]
-        installation: |
+        prerequisites:
+          - env: [GITHUB_TOKEN]
+        installation_instructions: |
           1. Create a GitHub personal access token
           2. Set the token as an environment variable
           3. Ensure network access to GitHub API
@@ -254,9 +254,9 @@ This example shows how to create a toolset for fetching information from GitHub 
       toolsets:
         github:
           description: "Fetch information from GitHub repositories"
-          prerequisites: "GitHub API token with repository access"
-          tags: [source-control, github]
-          installation: |
+          prerequisites:
+            - command: "curl --version"
+          installation_instructions: |
             1. Create a GitHub personal access token
             2. Set the token as an environment variable
             3. Ensure network access to GitHub API
@@ -302,9 +302,11 @@ A custom toolset consists of the following components:
 toolsets:
   <toolset-name>:
     description: "Human-readable description"
-    prerequisites: "What needs to be installed/configured"
-    tags: [tag1, tag2]  # Optional: for categorization
-    installation: |
+    prerequisites:  # Optional: checks that must pass for the toolset to be enabled
+      - env: [API_TOKEN]  # these environment variables are set
+      - command: "curl --version"  # this command exits with status 0
+    tags: [core]  # Optional: where the toolset loads, see Tags below
+    installation_instructions: |
       Multi-line installation instructions
     tools:
       - name: tool_name
@@ -312,7 +314,7 @@ toolsets:
         command: |
           Command or script to execute
         parameters:  # Optional: can be inferred by LLM
-          - name: param_name
+          param_name:
             description: "Parameter description"
 ```
 
@@ -336,13 +338,11 @@ HolmesGPT supports two types of variables in commands:
 
 ### Tags
 
-Optional tags help categorize toolsets:
+Optional tags decide where a toolset loads. A toolset without tags is `core`.
 
-- **core**: Essential system tools
-- **cluster**: Cluster-specific tools
-- **monitoring**: Observability tools
-- **networking**: Network-related tools
-- **storage**: Storage-related tools
+- **core**: the CLI and the Holmes server
+- **cli**: the CLI only
+- **cluster**: the Holmes server only
 
 ## Advanced: Adding Custom Binaries
 
