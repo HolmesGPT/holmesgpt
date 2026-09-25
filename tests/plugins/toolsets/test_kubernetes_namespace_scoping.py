@@ -423,3 +423,68 @@ def test_namespace_param_is_injection_safe():
             timeout=30,
         )
         assert not os.path.exists("/tmp/pwned-ns")
+
+
+# --- namespace validation (SSRF, CWE-918) -------------------------------------
+# Both --raw tools interpolate the namespace into the API path as a URL path
+# segment. A malformed value (path traversal, separators, etc.) must never
+# reach the path: the value has to be a valid Kubernetes namespace name
+# (RFC 1123 DNS label) before any kubectl call happens. Invalid values fail
+# fast with a clear error JSON and make NO kubectl call at all.
+
+VALID_NAMESPACES = ["a", "0", "team-a", "ns-123-abc", "x" * 63]
+INVALID_NAMESPACES = [
+    "Foo",  # uppercase
+    "team_a",  # underscore
+    "-team",  # leading dash
+    "team-",  # trailing dash
+    "a/b",  # path separator
+    "..",  # path traversal
+    "../api",  # path traversal into another endpoint
+    "team a",  # whitespace
+    "x" * 64,  # longer than the 63-character limit
+]
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+@pytest.mark.parametrize("tool_name", ["kubernetes_jq_query", "kubernetes_count"])
+@pytest.mark.parametrize("namespace", VALID_NAMESPACES)
+def test_api_tools_accept_valid_namespaces(fake_kubectl_env, tool_name, namespace):
+    """Valid namespaces keep the exact namespaced API path behavior."""
+    env, args_log, workdir = fake_kubectl_env
+    tool = TOOLS[tool_name]
+    rendered = _render_tool(
+        tool,
+        {"kind": "pods", "jq_expr": ".items[]", "namespace": namespace},
+    )
+    result = _run_script(rendered, env, workdir)
+    assert result.returncode == 0, result.stderr
+    calls = _logged_kubectl_calls(args_log)
+    raw_calls = [c for c in calls if "--raw" in c]
+    assert raw_calls, "expected a kubectl get --raw invocation"
+    assert any(f"/api/v1/namespaces/{namespace}/pods" in c for c in raw_calls)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+@pytest.mark.parametrize("tool_name", ["kubernetes_jq_query", "kubernetes_count"])
+@pytest.mark.parametrize("namespace", INVALID_NAMESPACES)
+def test_api_tools_reject_invalid_namespace(fake_kubectl_env, tool_name, namespace):
+    """A malformed namespace must never reach the API path: the tool fails
+    fast with a clear error JSON and makes no kubectl call at all."""
+    env, args_log, workdir = fake_kubectl_env
+    tool = TOOLS[tool_name]
+    rendered = _render_tool(
+        tool,
+        {"kind": "pods", "jq_expr": ".items[]", "namespace": namespace},
+    )
+    result = _run_script(rendered, env, workdir)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    empty_key = "results" if tool_name == "kubernetes_jq_query" else "preview"
+    assert payload[empty_key] == [], "error JSON must carry the empty results array"
+    assert "Invalid namespace" in payload["stderr"], "clear error message expected"
+    assert namespace in payload["stderr"], "error must name the offending value"
+    # Fail fast: validation runs before kubectl api-resources / get --raw, so
+    # the fake kubectl must never have been invoked (no args log at all).
+    if os.path.exists(args_log):
+        assert _logged_kubectl_calls(args_log) == []
