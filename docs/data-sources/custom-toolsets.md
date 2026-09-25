@@ -350,14 +350,15 @@ If your custom toolset requires additional binaries not available in the base Ho
 
 ### Create a Custom Dockerfile
 
+Start from the image your Holmes chart version runs. `helm show values robusta/holmes | grep -E '^(registry|image):'` prints it; chart 0.42.0 runs `robustadev/holmes:0.42.0`. The image is based on Alpine Linux, so install packages with `apk`.
+
 ```dockerfile
-FROM us-central1-docker.pkg.dev/genuine-flight-317411/devel/holmes:latest
+FROM robustadev/holmes:0.42.0
 
 # Install additional tools
-RUN apt-get update && apt-get install -y \
+RUN apk add --no-cache \
     your-custom-tool \
-    another-binary \
-    && rm -rf /var/lib/apt/lists/*
+    another-binary
 
 # Copy custom scripts
 COPY scripts/ /usr/local/bin/
