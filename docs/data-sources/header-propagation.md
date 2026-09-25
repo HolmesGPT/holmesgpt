@@ -154,7 +154,7 @@ YAML tool commands and scripts are Jinja2 templates. The variables `request_cont
     ```yaml
     toolsets:
       internal-api:
-        name: "internal-api"
+        description: "Fetch data from the internal API"
         tools:
           - name: "fetch_data"
             description: "Fetch data from internal API"
@@ -173,7 +173,7 @@ YAML tool commands and scripts are Jinja2 templates. The variables `request_cont
     holmes:
       toolsets:
         internal-api:
-          name: "internal-api"
+          description: "Fetch data from the internal API"
           tools:
             - name: "fetch_data"
               description: "Fetch data from internal API"
