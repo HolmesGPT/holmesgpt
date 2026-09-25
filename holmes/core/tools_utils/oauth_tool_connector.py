@@ -35,6 +35,10 @@ class OAuthToolConnector:
         self._lock = threading.Lock()
         # Per-user tool→toolset mapping: {user_id: {tool_name: toolset}}
         self._user_tool_to_toolset: Dict[str, Dict[str, Any]] = {}
+        # Exposed name → tool, for tools this connector renames to avoid a
+        # collision with the base tool list: {user_id: {exposed_name: tool}}.
+        # Lookups must consult this before matching on tool.name.
+        self._user_exposed_tools: Dict[str, Dict[str, Tool]] = {}
 
     # ── Decision processing ────────────────────────────────────────────
 
@@ -166,8 +170,17 @@ class OAuthToolConnector:
         """Replace _connect placeholders with real OAuth tools for this user.
 
         If the user has stored OAuth tools for a toolset, removes that toolset's
-        placeholder from the list and appends the real tools.
-        Returns the original list unchanged if no replacements apply.
+        placeholder from the list and appends the real tools. Returns the
+        original list unchanged if no replacements apply.
+
+        A user tool whose name is already taken in the resulting list is exposed
+        under its ``collision_safe_name`` (``<toolset>__<tool>``) instead. The
+        base list was resolved by ``resolve_tool_name_collisions`` before this
+        user's tools existed — at that point an OAuth toolset only has a
+        placeholder — so a collision can appear here that was not visible at
+        construction time. Without this, two MCP tools with the same name reach
+        the model and the provider rejects the whole request with "Tool names
+        must be unique".
         """
         from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 
@@ -184,20 +197,66 @@ class OAuthToolConnector:
                 continue
             filtered.append(t)
 
+        used = {t["function"]["name"] for t in filtered}
+        exposed_tools: Dict[str, Tool] = {}
         for user_tools in oauth_replacements.values():
             for tool in user_tools:
-                filtered.append(tool.get_openai_format())
+                exposed = tool.name
+                if exposed in used:
+                    exposed = self._collision_safe_name(tool)
+                used.add(exposed)
+                exposed_tools[exposed] = tool
+                payload = tool.get_openai_format()
+                if exposed != tool.name:
+                    payload["function"]["name"] = exposed
+                filtered.append(payload)
+
+        # Rebuild the whole per-user map: oauth_replacements covers every toolset
+        # stored for this user, so names cannot go stale when a colliding toolset
+        # is enabled or disabled between calls.
+        if user_id:
+            with self._lock:
+                self._user_exposed_tools[user_id] = exposed_tools
 
         return filtered
 
+    @staticmethod
+    def _collision_safe_name(tool: Tool) -> str:
+        """The name to expose a colliding tool under.
+
+        RemoteMCPTool provides ``collision_safe_name`` (``<toolset>__<tool>``,
+        the same form ``resolve_tool_name_collisions`` uses); anything else 
+        falls back to that same shape built from the tool's toolset.
+        """
+        name = getattr(tool, "collision_safe_name", None)
+        if name:
+            return str(name)
+        toolset_name = getattr(getattr(tool, "toolset", None), "name", None) or "mcp"
+        return f"{toolset_name}__{tool.name}"
+
     def find_tool(self, name: str, user_id: Optional[str]) -> Optional[Tool]:
-        """Look up a tool in the per-user OAuth tools store."""
+        """Look up a tool in the per-user OAuth tools store.
+
+        The exposed-name map is checked first; when it has not been built yet
+        (nothing has asked for the tool list in this process), a tool renamed to
+        avoid a collision is still found by its collision-safe name. Raw names
+        win over collision-safe names so a server tool that happens to be called
+        ``<toolset>__<tool>`` is not shadowed.
+        """
         if not user_id:
             return None
         with self._lock:
-            for toolset_tools in self._user_tools.get(user_id, {}).values():
-                for tool in toolset_tools:
+            exposed = self._user_exposed_tools.get(user_id, {}).get(name)
+            if exposed is not None:
+                return exposed
+            toolset_tools = self._user_tools.get(user_id, {})
+            for tools in toolset_tools.values():
+                for tool in tools:
                     if tool.name == name:
+                        return tool
+            for tools in toolset_tools.values():
+                for tool in tools:
+                    if self._collision_safe_name(tool) == name:
                         return tool
         return None
 
@@ -205,7 +264,14 @@ class OAuthToolConnector:
         """Return the toolset for a per-user OAuth tool, or None."""
         if not user_id:
             return None
-        return self._user_tool_to_toolset.get(user_id, {}).get(tool_name)
+        tool = self._user_exposed_tools.get(user_id, {}).get(tool_name)
+        if tool is not None:
+            return getattr(tool, "toolset", None)
+        toolset = self._user_tool_to_toolset.get(user_id, {}).get(tool_name)
+        if toolset is not None:
+            return toolset
+        found = self.find_tool(tool_name, user_id)
+        return getattr(found, "toolset", None) if found is not None else None
 
 
     # ── Error handling helpers ─────────────────────────────────────────
@@ -313,3 +379,10 @@ class OAuthToolConnector:
             user_map = self._user_tool_to_toolset.get(user_id, {})
             for tool_name in [n for n, ts in user_map.items() if ts.name == toolset.name]:
                 user_map.pop(tool_name, None)
+            exposed_map = self._user_exposed_tools.get(user_id, {})
+            for exposed_name in [
+                n
+                for n, tool in exposed_map.items()
+                if getattr(getattr(tool, "toolset", None), "name", None) == toolset.name
+            ]:
+                exposed_map.pop(exposed_name, None)
