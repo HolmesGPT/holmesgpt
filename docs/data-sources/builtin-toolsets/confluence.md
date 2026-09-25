@@ -118,7 +118,11 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
             api_key: "{{ env.CONFLUENCE_API_KEY }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 !!! note "Scoped tokens and service accounts"
     Scoped API tokens and service account tokens on Confluence Cloud require routing through the Atlassian API gateway (`api.atlassian.com`). HolmesGPT auto-detects this and switches to the gateway transparently — no extra configuration needed. If auto-detection doesn't work, you can set `cloud_id` explicitly in raw YAML (find it at `https://yourcompany.atlassian.net/_edge/tenant_info`).
@@ -209,7 +213,11 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
             api_key: "{{ env.CONFLUENCE_PAT }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Confluence Data Center - Basic Auth
 
@@ -300,7 +308,11 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
             api_key: "{{ env.CONFLUENCE_PASSWORD }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Multiple Instances
 

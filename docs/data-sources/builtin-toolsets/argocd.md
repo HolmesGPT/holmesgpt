@@ -82,7 +82,11 @@ HolmesGPT needs permission to establish a port-forward to ArgoCD. The configurat
                 enabled: true
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 !!! note
 
@@ -135,7 +139,11 @@ This is the recommended approach if your ArgoCD is reachable through a public DN
                 enabled: true
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 !!! note
 

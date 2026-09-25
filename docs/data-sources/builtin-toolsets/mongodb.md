@@ -162,7 +162,11 @@ The `readAnyDatabase` role grants read access to all databases. The `clusterMoni
             connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Configuration Options
 

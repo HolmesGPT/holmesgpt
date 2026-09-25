@@ -98,7 +98,11 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
             #   X-Custom-Header: "custom-value"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Multiple Instances
 

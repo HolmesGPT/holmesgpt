@@ -125,7 +125,11 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
             # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 !!! tip "Enable only what you need"
     You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.

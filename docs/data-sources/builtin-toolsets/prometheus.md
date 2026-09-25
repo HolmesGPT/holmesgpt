@@ -284,7 +284,11 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
               Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 #### Option 2: Grafana API Proxy
 
@@ -379,7 +383,11 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
               Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ---
 

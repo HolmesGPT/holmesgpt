@@ -126,7 +126,11 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
             grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Self-Hosted Tempo - Direct Connection
 
@@ -267,7 +271,11 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
             grafana_datasource_uid: <the UID of the Tempo datasource>
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Multiple Instances
 

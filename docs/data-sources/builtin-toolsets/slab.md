@@ -34,7 +34,11 @@ Retrieve your Slab [API token](https://help.slab.com/en/articles/6545629-develop
                 enabled: true
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 To test, run:
 

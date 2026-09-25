@@ -174,7 +174,11 @@ You should receive a JSON response. If you get an authentication error, check yo
             api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Optional Fields
 

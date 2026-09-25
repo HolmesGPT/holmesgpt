@@ -43,7 +43,11 @@ By enabling this toolset, HolmesGPT will be able to provide read access to a clu
               verbs: ["get", "list", "watch"]
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Capabilities
 

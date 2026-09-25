@@ -116,7 +116,11 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
             prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 **Note**: Both toolsets use the same API key. Helm-tab users only need to create one Kubernetes secret â€” the env var feeds both the `coralogix` toolset's `api_key` field and the Prometheus toolset's `Authorization` header.
 

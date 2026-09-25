@@ -59,7 +59,11 @@ Enabling this toolset allows HolmesGPT to fetch pages from Notion, making it use
                         Authorization: Bearer {{ env.NOTION_AUTH }}
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Timeout Configuration
 
