@@ -60,13 +60,13 @@ chgrp holmes-group /path/to/database.db
     **Using mounted volume:**
 
     ```yaml
-    extraVolumes:
+    additionalVolumes:
       - name: sqlite-db
         hostPath:
           path: /path/on/host/database.db
           type: File
 
-    extraVolumeMounts:
+    additionalVolumeMounts:
       - name: sqlite-db
         mountPath: /data/database.db
         readOnly: true
@@ -82,7 +82,7 @@ chgrp holmes-group /path/to/database.db
     **Multiple instances:**
 
     ```yaml
-    extraVolumes:
+    additionalVolumes:
       - name: app-db
         hostPath:
           path: /data/app.db
@@ -92,7 +92,7 @@ chgrp holmes-group /path/to/database.db
           path: /data/cache.db
           type: File
 
-    extraVolumeMounts:
+    additionalVolumeMounts:
       - name: app-db
         mountPath: /data/app.db
         readOnly: true
@@ -118,13 +118,13 @@ chgrp holmes-group /path/to/database.db
 
     ```yaml
     holmes:
-      extraVolumes:
+      additionalVolumes:
         - name: sqlite-db
           hostPath:
             path: /path/on/host/database.db
             type: File
 
-      extraVolumeMounts:
+      additionalVolumeMounts:
         - name: sqlite-db
           mountPath: /data/database.db
           readOnly: true
@@ -141,7 +141,7 @@ chgrp holmes-group /path/to/database.db
 
     ```yaml
     holmes:
-      extraVolumes:
+      additionalVolumes:
         - name: app-db
           hostPath:
             path: /data/app.db
@@ -151,7 +151,7 @@ chgrp holmes-group /path/to/database.db
             path: /data/cache.db
             type: File
 
-      extraVolumeMounts:
+      additionalVolumeMounts:
         - name: app-db
           mountPath: /data/app.db
           readOnly: true

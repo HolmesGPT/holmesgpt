@@ -171,7 +171,7 @@ YAML tool commands and scripts are Jinja2 templates. The variables `request_cont
 
     ```yaml
     holmes:
-      customToolsets:
+      toolsets:
         internal-api:
           name: "internal-api"
           tools:

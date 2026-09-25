@@ -262,7 +262,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
       annotations:
         azure.workload.identity/client-id: "<managed-identity-client-id>"
 
-    podLabels:
+    commonLabels:
       azure.workload.identity/use: "true"
 
     modelList:
@@ -302,7 +302,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
         annotations:
           azure.workload.identity/client-id: "<managed-identity-client-id>"
 
-      podLabels:
+      commonLabels:
         azure.workload.identity/use: "true"
 
       modelList:
