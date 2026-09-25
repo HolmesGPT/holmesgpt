@@ -599,3 +599,110 @@ def test_override_with_full_flow_through_toolset_manager(tmp_path, monkeypatch):
 
     assert len(toolsets) == 1
     assert toolsets[0].config["secret"] == "E2E_XX"
+
+
+# ---- Integration tests for the Karpenter toolsets ---------------------------
+#
+# These exercise ``karpenter/core`` and ``karpenter/aws`` through the real
+# ``ToolsetManager`` pipeline — builtin discovery, custom-YAML overlay, tag
+# filtering and Jinja rendering — so a regression in any of those layers
+# surfaces here even though the unit tests in
+# ``tests/plugins/toolsets/test_karpenter_toolset.py`` use the raw YAML
+# loader directly. Prerequisites are skipped so the tests don't depend on
+# a Karpenter-enabled kubectl context.
+
+
+def _write_karpenter_custom_toolsets_yaml(tmp_path):
+    yaml_file = tmp_path / "karpenter_toolsets.yaml"
+    yaml_file.write_text(
+        "toolsets:\n"
+        "  karpenter/core:\n"
+        "    enabled: true\n"
+        "  karpenter/aws:\n"
+        "    enabled: true\n"
+    )
+    return yaml_file
+
+
+def _load_karpenter_toolsets_via_manager(tmp_path):
+    """Drive ToolsetManager end-to-end with a karpenter custom YAML overlay.
+
+    load_python_toolsets is stubbed so that the test does not depend on
+    transitive Python-toolset imports (e.g. prometrix, which pins an old
+    pydantic v1 that is incompatible with Python 3.14). Karpenter is a
+    YAML-only toolset, so real YAML discovery still runs end-to-end and
+    karpenter.yaml is picked up by load_toolsets_from_file."""
+    yaml_file = _write_karpenter_custom_toolsets_yaml(tmp_path)
+
+    manager = ToolsetManager(custom_toolsets=[yaml_file])
+    with patch(
+        "holmes.plugins.toolsets.load_python_toolsets", return_value=[]
+    ):
+        toolsets = manager._list_all_toolsets(
+            check_prerequisites=False,
+            toolset_tags=[ToolsetTag.CORE, ToolsetTag.CLI],
+        )
+    return {ts.name: ts for ts in toolsets}
+
+
+def test_karpenter_toolsets_load_via_toolset_manager(tmp_path):
+    """Both ``karpenter/core`` and ``karpenter/aws`` must be discovered as
+    builtins, enabled by the user's custom YAML, and survive tag filtering
+    when ToolsetManager is called in CLI mode (CORE + CLI tags)."""
+    by_name = _load_karpenter_toolsets_via_manager(tmp_path)
+
+    assert "karpenter/core" in by_name, (
+        "karpenter/core must be discovered as a builtin and survive tag filtering"
+    )
+    assert "karpenter/aws" in by_name, (
+        "karpenter/aws must be discovered as a builtin and survive tag filtering"
+    )
+    assert by_name["karpenter/core"].enabled is True
+    assert by_name["karpenter/aws"].enabled is True
+
+    # Tag contract: karpenter/core runs anywhere kubectl runs (CORE), while
+    # karpenter/aws is AWS-gated and tagged CLI — matches aks.yaml precedent.
+    assert ToolsetTag.CORE in by_name["karpenter/core"].tags
+    assert ToolsetTag.CLI in by_name["karpenter/aws"].tags
+
+
+def test_karpenter_tool_invocations_render_via_toolset_manager(tmp_path):
+    """The diagnostic commands a Karpenter investigation triggers
+    (NodePool/NodeClaim inspection, disruption events, EC2NodeClass get)
+    must render with realistic parameters after the toolsets come back
+    from ToolsetManager — not just from the raw YAML loader."""
+    by_name = _load_karpenter_toolsets_via_manager(tmp_path)
+    core_tools = {t.name: t for t in by_name["karpenter/core"].tools}
+    aws_tools = {t.name: t for t in by_name["karpenter/aws"].tools}
+
+    # NodePool listing — the first step in any "why isn't anything scaling"
+    # investigation.
+    nodepool_list = core_tools[
+        "karpenter_nodepool_list"
+    ].get_parameterized_one_liner({})
+    assert "get nodepools.karpenter.sh" in nodepool_list
+
+    # NodeClaim describe with a resource name — the primary tool for
+    # diagnosing a NodeClaim that is not becoming a Node.
+    describe = core_tools[
+        "karpenter_nodeclaim_describe"
+    ].get_parameterized_one_liner({"name": "nc-integration-xyz"})
+    assert "nc-integration-xyz" in describe
+    assert "describe nodeclaim" in describe
+
+    # Disruption events must be bounded via `tail -n` with a sensible
+    # default so the grep doesn't blow out context on busy clusters.
+    events = core_tools[
+        "karpenter_disruption_events"
+    ].get_parameterized_one_liner({})
+    assert "--sort-by=.lastTimestamp" in events
+    assert "tail -n 100" in events
+
+    # AWS-specific EC2NodeClass fetch — only reachable once karpenter/aws
+    # is loaded, used to verify subnet/AMI/security-group selectors.
+    ec2 = aws_tools[
+        "karpenter_ec2nodeclass_get"
+    ].get_parameterized_one_liner({"name": "default"})
+    assert "default" in ec2
+    assert "-o yaml" in ec2
+    assert "get ec2nodeclass.karpenter.k8s.aws" in ec2

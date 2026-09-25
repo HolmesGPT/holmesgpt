@@ -95,6 +95,7 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
+-   [:simple-kubernetes:{ .lg .middle } **Karpenter**](karpenter.md)
 -   [:material-cloud-sync:{ .lg .middle } **Crossplane**](crossplane.md)
 -   [:material-magnify:{ .lg .middle } **Inspektor Gadget**](inspektor-gadget.md)
 -   [:material-microsoft-azure:{ .lg .middle } **Azure Kubernetes Service**](aks.md)
