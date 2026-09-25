@@ -59,6 +59,12 @@ def check(
         "--slack-webhook",
         help="Slack webhook URL for inline check alerts. Standalone option that doesn't require a bot token. Cannot be used with --slack-channel.",
     ),
+    teams_webhook: Optional[str] = typer.Option(
+        None,
+        "--teams-webhook",
+        help="Microsoft Teams incoming webhook URL for inline check alerts.",
+        envvar="TEAMS_WEBHOOK_URL",
+    ),
     slack_token: Optional[str] = typer.Option(
         None,
         "--slack-token",
@@ -133,10 +139,14 @@ def check(
                 slack_config["webhook_url"] = slack_webhook
             if slack_channel:
                 slack_config["channel"] = slack_channel
-            checks_config.destinations = {"slack": DestinationConfig(**slack_config)}
+            checks_config.destinations["slack"] = DestinationConfig(**slack_config)
+            checks_config.checks[0].destinations.append("slack")
 
-            # Add destination to the check
-            checks_config.checks[0].destinations = ["slack"]
+        if teams_webhook:
+            checks_config.destinations["teams"] = DestinationConfig(
+                webhook_url=teams_webhook
+            )
+            checks_config.checks[0].destinations.append("teams")
 
     else:
         # Determine checks file location
