@@ -29,6 +29,10 @@ toolsets:
           "notes" (e.g. a namespace ignored for a cluster-scoped kind).
           The 'kind' parameter must be the plural form of the resource type
           (e.g., "pods" not "pod", "jobs" not "job").
+          Set the namespace parameter to scope the query to a single namespace - strongly
+          preferred when the investigation concerns one namespace, and required on large
+          clusters to keep the query within memory limits. Leave empty for a cluster-wide
+          query. The namespace is ignored for cluster-scoped resource kinds.
           Do not worry about escaping the jq_expr - it will be done by the system.
           Example: .items[] | .spec.containers[].image | select(test("^gcr.io/") | not)
         parameters:
@@ -66,6 +70,7 @@ toolsets:
           # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
           JQ_FILTER={{ jq_expr }}
           JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr $'\n\r' '  ')
+          NAMESPACE={{ namespace if namespace is string else '' }}
 
           err_file=$(mktemp)
           PROCESSED=0
@@ -126,9 +131,11 @@ toolsets:
           if [[ "$API_INFO" == *" true "* ]]; then
             NAMESPACED=true
             PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
+            IS_NAMESPACED=true
           elif [[ "$API_INFO" == *" false "* ]]; then
             NAMESPACED=false
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
+            IS_NAMESPACED=false
           else
             fail "Could not parse API info for '${KIND}'."
           fi
@@ -184,6 +191,21 @@ toolsets:
               namespace: (if $namespace == "" then null else $namespace end),
               label_selector: (if $labels == "" then null else $labels end),
               field_selector: (if $fields == "" then null else $fields end)}')
+
+          # Scope the listing to a single namespace when requested. Only
+          # namespaced resource kinds support this; for cluster-scoped kinds
+          # the namespace is ignored and the query stays cluster-wide.
+          # SECURITY: $NAMESPACE was assigned from the sanitized namespace param
+          # in an unquoted slot above (a missing/empty param renders as empty via
+          # the `is string` guard), so referencing "$NAMESPACE" inside double
+          # quotes here is safe (no re-evaluation of the stored value).
+          if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
+            if [[ "$API_VERSION" == "v1" ]]; then
+              API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            else
+              API_PATH="/apis/${API_VERSION}/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            fi
+          fi
 
           # Process resources in chunks using API pagination
           LIMIT=500
@@ -265,13 +287,16 @@ toolsets:
         description: >
           Extract specific fields from Kubernetes resources in tabular format with optional filtering.
           Returns a JSON object with keys: "count" (number of rows), "header" (column header line),
-          "rows" (array of data rows), "stderr" (error output or null), "scope"
+          "rows" (array of data rows), "truncated" (true when rows were cut off at max_rows),
+          "stderr" (error output or null), "scope"
           (the namespace and selectors actually queried), and "notes" (e.g. a namespace
           ignored for a cluster-scoped kind).
           Only requested fields are transmitted, so it works well on large clusters.
           If you know the namespace or labels of the resources you need, pass namespace,
           label_selector and/or field_selector so filtering happens server-side; unscoped
           queries can be slow on large clusters.
+          Set max_rows to cap the number of data rows returned; when the result exceeds it,
+          rows are truncated and "truncated" is true.
           Column specification format: HEADER:FIELD_PATH,HEADER2:FIELD_PATH2,...
           e.g. NAME:.metadata.name,STATUS:.status.phase,IMAGE:.spec.containers[0].image
           Optional filter_pattern matches any column (grep regex), e.g. filter_pattern="Running".
@@ -299,6 +324,11 @@ toolsets:
             type: string
             required: false
             description: "grep -E regex matched against each output row, e.g. 'Running'."
+          max_rows:
+            type: integer
+            required: false
+            description: "Maximum number of data rows returned. When the result exceeds this, rows are truncated and 'truncated' is true in the output. Lower it to save context, raise it for exhaustive listings."
+            default: 1000
         script: |
           #!/bin/bash
           # SECURITY: assign sanitized params to shell variables (unquoted slot),
@@ -311,11 +341,16 @@ toolsets:
           SEL_LABELS={{ label_selector }}
           SEL_FIELDS={{ field_selector }}
           FILTER_PATTERN={{ filter_pattern }}
+          MAX_ROWS={{ max_rows }}
           # Strict tool calls send null for unset optional params, which renders as 'None'
           [ "$SEL_NAMESPACE" = "None" ] && SEL_NAMESPACE=""
           [ "$SEL_LABELS" = "None" ] && SEL_LABELS=""
           [ "$SEL_FIELDS" = "None" ] && SEL_FIELDS=""
           [ "$FILTER_PATTERN" = "None" ] && FILTER_PATTERN=""
+          # Guard against non-numeric max_rows (e.g. param omitted): default to 1000
+          case "$MAX_ROWS" in
+            ''|*[!0-9]*) MAX_ROWS=1000 ;;
+          esac
 
           # kubectl ignores -n for cluster-scoped kinds; say so instead of reporting a namespace that wasn't applied
           NOTES='[]'
@@ -355,10 +390,14 @@ toolsets:
                 field_selector: (if $fields == "" then null else $fields end)}')
           fi
 
+          # kubectl failure (e.g. OOMKilled under the tool memory limit on a
+          # large cluster) surfaces as an error, not a successful empty
+          # result, so the agent retries with a narrower query (e.g. a
+          # namespace) instead of concluding "no resources found".
           if [ $kubectl_exit -ne 0 ] || [ -z "$output" ]; then
             if command -v jq &>/dev/null; then
               jq -n --arg stderr "$err_content" --argjson scope "$SCOPE" --argjson notes "$NOTES" \
-                '{count: 0, header: null, rows: [], stderr: $stderr, scope: $scope, notes: $notes}'
+                '{count: 0, header: null, rows: [], truncated: false, stderr: $stderr, scope: $scope, notes: $notes}'
             else
               echo "=== STDERR ==="
               echo "$err_content"
@@ -366,7 +405,7 @@ toolsets:
               echo "=== COUNT ==="
               echo 0
             fi
-            exit 0
+            exit 1
           fi
 
           # Split header and data rows
@@ -375,6 +414,23 @@ toolsets:
             data=$(echo "$output" | tail -n +2 | grep -E -- "$FILTER_PATTERN" || true)
           else
             data=$(echo "$output" | tail -n +2)
+          fi
+
+          # Output budgeting: cap rows so a huge result set cannot overflow the
+          # agent context. The truncation is reported, never silent.
+          truncated=false
+          if [ -n "$data" ]; then
+            total_rows=$(echo "$data" | wc -l)
+            if [ "$total_rows" -gt "$MAX_ROWS" ]; then
+              data=$(echo "$data" | head -n "$MAX_ROWS")
+              truncated=true
+              trunc_note="Output truncated to $MAX_ROWS of $total_rows rows. Set namespace and/or filter_pattern to narrow the query, or raise max_rows."
+              if [ -n "$err_content" ]; then
+                err_content="$err_content $trunc_note"
+              else
+                err_content="$trunc_note"
+              fi
+            fi
           fi
 
           if command -v jq &>/dev/null; then
@@ -390,7 +446,8 @@ toolsets:
               --arg stderr "$err_content" \
               --argjson scope "$SCOPE" \
               --argjson notes "$NOTES" \
-              '{count: $count, header: $header, rows: ., stderr: (if $stderr == "" then null else $stderr end), scope: $scope, notes: $notes}'
+              --argjson truncated "$truncated" \
+              '{count: $count, header: $header, rows: ., truncated: $truncated, stderr: (if $stderr == "" then null else $stderr end), scope: $scope, notes: $notes}'
           else
             echo "=== STDERR ==="
             echo "$err_content"
@@ -398,6 +455,8 @@ toolsets:
             echo "$header"
             echo "=== ROWS ==="
             echo "$data"
+            echo "=== TRUNCATED ==="
+            echo "$truncated"
             echo "=== COUNT ==="
             if [ -n "$data" ]; then echo "$data" | wc -l; else echo 0; fi
           fi
@@ -431,6 +490,10 @@ toolsets:
           "scope" (the resource, namespace and selectors actually queried), and
           "notes" (e.g. a namespace ignored for a cluster-scoped kind).
           The 'kind' parameter must be the plural form of the resource type ("pods" not "pod").
+          Set the namespace parameter to count within a single namespace - strongly preferred
+          when the question concerns one namespace, and required on large clusters to keep the
+          query within memory limits. Leave empty for a cluster-wide count. The namespace is
+          ignored for cluster-scoped resource kinds.
           Use select() to filter objects before extracting properties; do not worry about escaping
           the jq_expr - it will be done by the system.
           e.g. .items[] | select(.spec.containers[].image | test("^gcr.io/") | not) | .metadata.name
@@ -518,9 +581,11 @@ toolsets:
           if [[ "$API_INFO" == *" true "* ]]; then
             NAMESPACED=true
             PREFIX=$(echo "$API_INFO" | sed 's/ true .*//')
+            IS_NAMESPACED=true
           elif [[ "$API_INFO" == *" false "* ]]; then
             NAMESPACED=false
             PREFIX=$(echo "$API_INFO" | sed 's/ false .*//')
+            IS_NAMESPACED=false
           else
             fail "Could not parse API info for '${KIND}'."
           fi
@@ -575,6 +640,21 @@ toolsets:
               namespace: (if $namespace == "" then null else $namespace end),
               label_selector: (if $labels == "" then null else $labels end),
               field_selector: (if $fields == "" then null else $fields end)}')
+
+          # Scope the listing to a single namespace when requested. Only
+          # namespaced resource kinds support this; for cluster-scoped kinds
+          # the namespace is ignored and the query stays cluster-wide.
+          # SECURITY: $NAMESPACE was assigned from the sanitized namespace param
+          # in an unquoted slot above (a missing/empty param renders as empty via
+          # the `is string` guard), so referencing "$NAMESPACE" inside double
+          # quotes here is safe (no re-evaluation of the stored value).
+          if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
+            if [[ "$API_VERSION" == "v1" ]]; then
+              API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            else
+              API_PATH="/apis/${API_VERSION}/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
+            fi
+          fi
 
           # Process resources in chunks using API pagination
           LIMIT=500
@@ -652,7 +732,7 @@ toolsets:
 
     #- name: "healthcheck_plugin"
     #  description: "Check why a kubernetes health probe is failing. First call get_healthcheck_details"
-    #  command: "kubectl exec -n {{namespace}} {{ pod_name }} -- wget {{ url }}:{{port}}"
+    #  command: "kubectl exec -n {{pod_name}} {{ pod_name }} -- wget {{ url }}:{{port}}"
 
     # try adding your own tools here!
     # e.g. to query company-specific data or run your own commands
@@ -672,6 +752,10 @@ toolsets:
     tools:
       - name: "kubectl_top_pods"
         description: "Retrieves real-time CPU and memory usage for each pod in the cluster."
+        command: >
+          kubectl top pods -A
+      - name: "kubectl_top_nodes"
+        description: "Retrieves real-time CPU and memory usage for each node in the cluster."
         command: >
           kubectl top pods -A
       - name: "kubectl_top_nodes"
