@@ -99,6 +99,21 @@ toolsets:
             fail "Invalid namespace '${SEL_NAMESPACE}': must be a Kubernetes namespace name (lowercase letters, digits and '-')."
           fi
 
+          # SECURITY (SSRF, CWE-918): validate the namespace before it is
+          # interpolated into the --raw API path below. Kubernetes namespace
+          # names are RFC 1123 DNS labels; anything else (slashes, dots,
+          # "..", etc.) could reroute the request to an unintended API
+          # endpoint. Fail fast: no kubectl call happens for an invalid
+          # namespace.
+          if [ -n "$NAMESPACE" ]; then
+            if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+              rm -f "$err_file"
+              jq -n --arg stderr "Invalid namespace '${NAMESPACE}': must be a valid Kubernetes namespace name (RFC 1123 DNS label: up to 63 characters of lowercase alphanumeric and '-', starting and ending with an alphanumeric character)" \
+                '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
+              exit 0
+            fi
+          fi
+
           # Get the API path for the resource kind using kubectl
           # Match the resource name (first column) as an EXACT string, not a
           # grep regex - otherwise a kind like '.*' or 'a|b' would match the
@@ -195,10 +210,12 @@ toolsets:
           # Scope the listing to a single namespace when requested. Only
           # namespaced resource kinds support this; for cluster-scoped kinds
           # the namespace is ignored and the query stays cluster-wide.
-          # SECURITY: $NAMESPACE was assigned from the sanitized namespace param
-          # in an unquoted slot above (a missing/empty param renders as empty via
-          # the `is string` guard), so referencing "$NAMESPACE" inside double
-          # quotes here is safe (no re-evaluation of the stored value).
+          # SECURITY: $NAMESPACE was validated as an RFC 1123 DNS label above
+          # (SSRF, CWE-918) before reaching this path interpolation, and was
+          # assigned from the sanitized namespace param in an unquoted slot (a
+          # missing/empty param renders as empty via the `is string` guard),
+          # so referencing "$NAMESPACE" inside double quotes here is safe
+          # (no re-evaluation of the stored value).
           if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
             if [[ "$API_VERSION" == "v1" ]]; then
               API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
@@ -552,6 +569,21 @@ toolsets:
             fail "Invalid namespace '${SEL_NAMESPACE}': must be a Kubernetes namespace name (lowercase letters, digits and '-')."
           fi
 
+          # SECURITY (SSRF, CWE-918): validate the namespace before it is
+          # interpolated into the --raw API path below. Kubernetes namespace
+          # names are RFC 1123 DNS labels; anything else (slashes, dots,
+          # "..", etc.) could reroute the request to an unintended API
+          # endpoint. Fail fast: no kubectl call happens for an invalid
+          # namespace.
+          if [ -n "$NAMESPACE" ]; then
+            if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+              rm -f "$err_file"
+              jq -n --arg stderr "Invalid namespace '${NAMESPACE}': must be a valid Kubernetes namespace name (RFC 1123 DNS label: up to 63 characters of lowercase alphanumeric and '-', starting and ending with an alphanumeric character)" \
+                '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
+              exit 0
+            fi
+          fi
+
           # Get the API path for the resource kind
           # Match the resource name (first column) as an EXACT string, not a
           # grep regex - otherwise a kind like '.*' or 'a|b' would match the
@@ -644,10 +676,12 @@ toolsets:
           # Scope the listing to a single namespace when requested. Only
           # namespaced resource kinds support this; for cluster-scoped kinds
           # the namespace is ignored and the query stays cluster-wide.
-          # SECURITY: $NAMESPACE was assigned from the sanitized namespace param
-          # in an unquoted slot above (a missing/empty param renders as empty via
-          # the `is string` guard), so referencing "$NAMESPACE" inside double
-          # quotes here is safe (no re-evaluation of the stored value).
+          # SECURITY: $NAMESPACE was validated as an RFC 1123 DNS label above
+          # (SSRF, CWE-918) before reaching this path interpolation, and was
+          # assigned from the sanitized namespace param in an unquoted slot (a
+          # missing/empty param renders as empty via the `is string` guard),
+          # so referencing "$NAMESPACE" inside double quotes here is safe
+          # (no re-evaluation of the stored value).
           if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
             if [[ "$API_VERSION" == "v1" ]]; then
               API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
@@ -732,7 +766,7 @@ toolsets:
 
     #- name: "healthcheck_plugin"
     #  description: "Check why a kubernetes health probe is failing. First call get_healthcheck_details"
-    #  command: "kubectl exec -n {{pod_name}} {{ pod_name }} -- wget {{ url }}:{{port}}"
+    #  command: "kubectl exec -n {{namespace}} {{ pod_name }} -- wget {{ url }}:{{port}}"
 
     # try adding your own tools here!
     # e.g. to query company-specific data or run your own commands
@@ -752,10 +786,6 @@ toolsets:
     tools:
       - name: "kubectl_top_pods"
         description: "Retrieves real-time CPU and memory usage for each pod in the cluster."
-        command: >
-          kubectl top pods -A
-      - name: "kubectl_top_nodes"
-        description: "Retrieves real-time CPU and memory usage for each node in the cluster."
         command: >
           kubectl top pods -A
       - name: "kubectl_top_nodes"
