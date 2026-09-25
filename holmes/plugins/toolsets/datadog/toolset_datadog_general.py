@@ -4,8 +4,9 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, Optional, Tuple
-from urllib.parse import urlencode, urlparse
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote, urlencode
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -37,121 +38,290 @@ from holmes.plugins.toolsets.datadog.datadog_url_utils import (
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
-# Whitelisted API endpoint patterns with optional hints
-# Format: (pattern, hint) - hint is empty string if no special instructions
-WHITELISTED_ENDPOINTS = [
+
+@dataclass
+class EndpointTemplate:
+    """Represents a valid Datadog API endpoint template."""
+
+    template: str  # e.g., "/api/v1/monitor/{monitor_id}"
+    description: str  # Description for the LLM
+    placeholder_name: Optional[str] = None  # e.g., "monitor_id", None if no placeholder
+
+
+# GET endpoint templates - schema-constrained list of valid endpoints
+# Each entry defines an explicit template with optional resource_id placeholder
+GET_ENDPOINT_TEMPLATES: List[EndpointTemplate] = [
     # Monitors
-    (r"^/api/v\d+/monitor(/search)?$", ""),
-    (r"^/api/v\d+/monitor/\d+$", "Get a specific monitor by ID"),
-    (r"^/api/v1/monitor/groups/search$", "Search monitor groups (v1 only, no v2 equivalent)"),
+    EndpointTemplate("/api/v1/monitor", "List all monitors"),
+    EndpointTemplate(
+        "/api/v1/monitor/{monitor_id}",
+        "Get a specific monitor by ID",
+        "monitor_id",
+    ),
+    EndpointTemplate("/api/v1/monitor/groups/search", "Search monitor groups"),
     # Dashboards
-    (r"^/api/v\d+/dashboard(/lists)?$", ""),
-    (r"^/api/v\d+/dashboard/[^/]+$", ""),
-    (r"^/api/v\d+/dashboard/public/[^/]+$", ""),
+    EndpointTemplate("/api/v1/dashboard", "List all dashboards"),
+    EndpointTemplate("/api/v1/dashboard/lists", "List dashboard lists"),
+    EndpointTemplate(
+        "/api/v1/dashboard/{dashboard_id}",
+        "Get a specific dashboard by ID",
+        "dashboard_id",
+    ),
+    EndpointTemplate(
+        "/api/v1/dashboard/public/{token}",
+        "Get a public dashboard by token",
+        "token",
+    ),
     # SLOs
-    (r"^/api/v\d+/slo(/search)?$", ""),
-    (r"^/api/v\d+/slo/[^/]+(/history)?$", ""),
-    (r"^/api/v\d+/slo/[^/]+/corrections$", ""),
+    EndpointTemplate("/api/v1/slo", "List all SLOs"),
+    EndpointTemplate(
+        "/api/v1/slo/{slo_id}",
+        "Get a specific SLO by ID",
+        "slo_id",
+    ),
+    EndpointTemplate(
+        "/api/v1/slo/{slo_id}/history",
+        "Get SLO history",
+        "slo_id",
+    ),
+    EndpointTemplate(
+        "/api/v1/slo/{slo_id}/corrections",
+        "Get SLO corrections",
+        "slo_id",
+    ),
     # Events
-    (
-        r"^/api/v\d+/events$",
-        "Use time range parameters 'start' and 'end' as Unix timestamps",
+    EndpointTemplate(
+        "/api/v1/events",
+        "List events. Use 'start' and 'end' query params as Unix timestamps",
     ),
-    (r"^/api/v\d+/events/[^/]+$", "Get specific event by ID"),
+    EndpointTemplate(
+        "/api/v1/events/{event_id}",
+        "Get a specific event by ID",
+        "event_id",
+    ),
     # Incidents
-    (r"^/api/v\d+/incidents(/search)?$", ""),
-    (r"^/api/v\d+/incidents/[^/]+$", ""),
-    (r"^/api/v\d+/incidents/[^/]+/attachments$", ""),
-    (r"^/api/v\d+/incidents/[^/]+/connected_integrations$", ""),
-    (r"^/api/v\d+/incidents/[^/]+/relationships$", ""),
-    (r"^/api/v\d+/incidents/[^/]+/timeline$", ""),
+    EndpointTemplate("/api/v2/incidents", "List all incidents"),
+    EndpointTemplate(
+        "/api/v2/incidents/{incident_id}",
+        "Get a specific incident by ID",
+        "incident_id",
+    ),
+    EndpointTemplate(
+        "/api/v2/incidents/{incident_id}/attachments",
+        "Get incident attachments",
+        "incident_id",
+    ),
+    EndpointTemplate(
+        "/api/v2/incidents/{incident_id}/relationships",
+        "Get incident relationships",
+        "incident_id",
+    ),
+    EndpointTemplate(
+        "/api/v2/incidents/{incident_id}/timeline",
+        "Get incident timeline",
+        "incident_id",
+    ),
     # Synthetics
-    (r"^/api/v\d+/synthetics/tests(/search)?$", ""),
-    (r"^/api/v\d+/synthetics/tests/[^/]+$", ""),
-    (r"^/api/v\d+/synthetics/tests/[^/]+/results$", ""),
-    (r"^/api/v\d+/synthetics/tests/browser/[^/]+/results$", ""),
-    (r"^/api/v\d+/synthetics/tests/api/[^/]+/results$", ""),
-    (r"^/api/v\d+/synthetics/locations$", ""),
-    # Security
-    (r"^/api/v\d+/security_monitoring/rules(/search)?$", ""),
-    (r"^/api/v\d+/security_monitoring/rules/[^/]+$", ""),
-    (r"^/api/v\d+/security_monitoring/signals(/search)?$", ""),
-    (r"^/api/v\d+/security_monitoring/signals/[^/]+$", ""),
-    # Services
-    (r"^/api/v\d+/services$", ""),
-    (r"^/api/v\d+/services/[^/]+$", ""),
-    (r"^/api/v\d+/services/[^/]+/dependencies$", ""),
-    (r"^/api/v\d+/service_dependencies$", ""),
+    EndpointTemplate("/api/v1/synthetics/tests", "List all synthetic tests"),
+    EndpointTemplate(
+        "/api/v1/synthetics/tests/{public_id}",
+        "Get a specific synthetic test by public ID",
+        "public_id",
+    ),
+    EndpointTemplate(
+        "/api/v1/synthetics/tests/{public_id}/results",
+        "Get synthetic test results",
+        "public_id",
+    ),
+    EndpointTemplate(
+        "/api/v1/synthetics/tests/browser/{public_id}/results",
+        "Get browser synthetic test results",
+        "public_id",
+    ),
+    EndpointTemplate(
+        "/api/v1/synthetics/tests/api/{public_id}/results",
+        "Get API synthetic test results",
+        "public_id",
+    ),
+    EndpointTemplate("/api/v1/synthetics/locations", "List synthetic test locations"),
+    # Security Monitoring
+    EndpointTemplate("/api/v2/security_monitoring/rules", "List security monitoring rules"),
+    EndpointTemplate(
+        "/api/v2/security_monitoring/rules/{rule_id}",
+        "Get a specific security rule by ID",
+        "rule_id",
+    ),
+    EndpointTemplate("/api/v2/security_monitoring/signals", "List security signals"),
+    EndpointTemplate(
+        "/api/v2/security_monitoring/signals/{signal_id}",
+        "Get a specific security signal by ID",
+        "signal_id",
+    ),
+    # Services (APM)
+    EndpointTemplate("/api/v1/services", "List APM services"),
+    EndpointTemplate(
+        "/api/v1/services/{service_name}",
+        "Get a specific APM service by name",
+        "service_name",
+    ),
+    EndpointTemplate(
+        "/api/v1/services/{service_name}/dependencies",
+        "Get service dependencies",
+        "service_name",
+    ),
+    EndpointTemplate("/api/v1/service_dependencies", "Get all service dependencies"),
     # Hosts
-    (r"^/api/v\d+/hosts$", ""),
-    (r"^/api/v\d+/hosts/totals$", ""),
-    (r"^/api/v\d+/hosts/[^/]+$", ""),
+    EndpointTemplate("/api/v1/hosts", "List all hosts"),
+    EndpointTemplate("/api/v1/hosts/totals", "Get host totals"),
+    EndpointTemplate(
+        "/api/v1/hosts/{hostname}",
+        "Get a specific host by hostname",
+        "hostname",
+    ),
     # Usage
-    (r"^/api/v\d+/usage/[^/]+$", ""),
-    (r"^/api/v\d+/usage/summary$", ""),
-    (r"^/api/v\d+/usage/billable-summary$", ""),
-    (r"^/api/v\d+/usage/cost_by_org$", ""),
-    (r"^/api/v\d+/usage/estimated_cost$", ""),
+    EndpointTemplate("/api/v1/usage/summary", "Get usage summary"),
+    EndpointTemplate("/api/v1/usage/billable-summary", "Get billable usage summary"),
+    EndpointTemplate("/api/v1/usage/cost_by_org", "Get cost by organization"),
+    EndpointTemplate("/api/v1/usage/estimated_cost", "Get estimated cost"),
+    EndpointTemplate(
+        "/api/v1/usage/{usage_type}",
+        "Get usage for a specific type (e.g., hosts, logs, indexed_spans)",
+        "usage_type",
+    ),
     # Processes
-    (r"^/api/v\d+/processes$", ""),
-    # Containers
-    (r"^/api/v2/containers$", "List running containers"),
-    (r"^/api/v2/container_images$", "List container images"),
+    EndpointTemplate("/api/v1/processes", "List processes"),
+    # Containers (v2 only)
+    EndpointTemplate("/api/v2/containers", "List running containers"),
+    EndpointTemplate("/api/v2/container_images", "List container images"),
     # Downtimes
-    (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
-    (r"^/api/v\d+/downtime/[^/]+$", "Get specific downtime by ID"),
-    (r"^/api/v2/monitor/\d+/downtime_matches$", "Get active downtimes for a specific monitor"),
+    EndpointTemplate("/api/v1/downtime", "List scheduled downtimes"),
+    EndpointTemplate(
+        "/api/v1/downtime/{downtime_id}",
+        "Get a specific downtime by ID",
+        "downtime_id",
+    ),
+    EndpointTemplate(
+        "/api/v2/monitor/{monitor_id}/downtime_matches",
+        "Get active downtimes for a specific monitor",
+        "monitor_id",
+    ),
     # Tags
-    (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
+    EndpointTemplate("/api/v1/tags/hosts", "List all host tags"),
+    EndpointTemplate(
+        "/api/v1/tags/hosts/{hostname}",
+        "Get tags for a specific host",
+        "hostname",
+    ),
     # Notebooks
-    (r"^/api/v\d+/notebooks$", ""),
-    (r"^/api/v\d+/notebooks/\d+$", ""),
+    EndpointTemplate("/api/v1/notebooks", "List all notebooks"),
+    EndpointTemplate(
+        "/api/v1/notebooks/{notebook_id}",
+        "Get a specific notebook by ID",
+        "notebook_id",
+    ),
     # Organization
-    (r"^/api/v\d+/org$", ""),
-    (r"^/api/v\d+/org/[^/]+$", ""),
+    EndpointTemplate("/api/v1/org", "Get organization info"),
+    EndpointTemplate(
+        "/api/v1/org/{org_id}",
+        "Get a specific organization by ID",
+        "org_id",
+    ),
     # Users
-    (r"^/api/v\d+/users$", ""),
-    (r"^/api/v\d+/users/[^/]+$", ""),
+    EndpointTemplate("/api/v2/users", "List all users"),
+    EndpointTemplate(
+        "/api/v2/users/{user_id}",
+        "Get a specific user by ID",
+        "user_id",
+    ),
     # Teams
-    (r"^/api/v\d+/teams$", ""),
-    (r"^/api/v\d+/teams/[^/]+$", ""),
-    # Logs
-    (
-        r"^/api/v1/logs/config/indexes$",
-        "When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset",
+    EndpointTemplate("/api/v2/teams", "List all teams"),
+    EndpointTemplate(
+        "/api/v2/teams/{team_id}",
+        "Get a specific team by ID",
+        "team_id",
     ),
-    (
-        r"^/api/v2/logs/events$",
-        "When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. Use RFC3339 timestamps (e.g., '2024-01-01T00:00:00Z')",
+    # Logs (prefer datadog/logs toolset when available)
+    EndpointTemplate(
+        "/api/v1/logs/config/indexes",
+        "List log indexes. Prefer datadog/logs toolset when available",
     ),
-    (
-        r"^/api/v2/logs/events/search$",
-        'When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. RFC3339 time format. Example: {"filter": {"from": "2024-01-01T00:00:00Z", "to": "2024-01-02T00:00:00Z", "query": "*"}}',
+    EndpointTemplate(
+        "/api/v2/logs/events",
+        "List log events. Use RFC3339 timestamps. Prefer datadog/logs toolset when available",
     ),
-    (
-        r"^/api/v2/logs/analytics/aggregate$",
-        "When available, prefer using fetch_pod_logs tool from datadog/logs toolset instead of calling this API directly with the datadog/general toolset. Do not include 'sort' parameter",
+    # Metrics (prefer datadog/metrics toolset when available)
+    EndpointTemplate(
+        "/api/v1/metrics",
+        "List metrics. Prefer datadog/metrics toolset when available",
     ),
-    # Metrics
-    (
-        r"^/api/v\d+/metrics$",
-        "When available, prefer using query_datadog_metrics tool from datadog/metrics toolset instead of calling this API directly with the datadog/general toolset",
+    EndpointTemplate(
+        "/api/v1/metrics/{metric_name}",
+        "Get metric metadata. Prefer datadog/metrics toolset when available",
+        "metric_name",
     ),
-    (
-        r"^/api/v\d+/metrics/[^/]+$",
-        "When available, prefer using get_datadog_metric_metadata tool from datadog/metrics toolset instead of calling this API directly with the datadog/general toolset",
-    ),
-    (
-        r"^/api/v\d+/query$",
-        "When available, prefer using query_datadog_metrics tool from datadog/metrics toolset instead of calling this API directly with the datadog/general toolset. Use 'from' and 'to' as Unix timestamps",
-    ),
-    (
-        r"^/api/v\d+/search/query$",
-        "When available, prefer using query_datadog_metrics tool from datadog/metrics toolset instead of calling this API directly with the datadog/general toolset",
+    EndpointTemplate(
+        "/api/v1/query",
+        "Query metrics. Use 'from' and 'to' as Unix timestamps. Prefer datadog/metrics toolset when available",
     ),
 ]
 
-# Blacklisted path segments that indicate write operations
+# POST endpoint templates for search/query operations
+POST_ENDPOINT_TEMPLATES: List[EndpointTemplate] = [
+    # Monitor search
+    EndpointTemplate("/api/v1/monitor/search", "Search monitors with query"),
+    # Dashboard lists
+    EndpointTemplate("/api/v1/dashboard/lists", "Search dashboard lists"),
+    # SLO search
+    EndpointTemplate("/api/v1/slo/search", "Search SLOs with query"),
+    # Events search (v2 only)
+    EndpointTemplate(
+        "/api/v2/events/search",
+        "Search events with filters. Use RFC3339 timestamps",
+    ),
+    # Incidents search
+    EndpointTemplate("/api/v2/incidents/search", "Search incidents with query"),
+    # Synthetics search
+    EndpointTemplate("/api/v1/synthetics/tests/search", "Search synthetic tests"),
+    # Security monitoring search
+    EndpointTemplate(
+        "/api/v2/security_monitoring/rules/search",
+        "Search security monitoring rules",
+    ),
+    EndpointTemplate(
+        "/api/v2/security_monitoring/signals/search",
+        "Search security signals",
+    ),
+    # Logs search (prefer datadog/logs toolset when available)
+    EndpointTemplate(
+        "/api/v2/logs/events/search",
+        "Search logs. Use RFC3339 timestamps. Prefer datadog/logs toolset when available",
+    ),
+    EndpointTemplate(
+        "/api/v2/logs/analytics/aggregate",
+        "Aggregate logs. Do not include 'sort' parameter. Prefer datadog/logs toolset when available",
+    ),
+    # Spans search
+    EndpointTemplate("/api/v2/spans/events/search", "Search APM spans"),
+    # RUM search
+    EndpointTemplate("/api/v2/rum/events/search", "Search RUM events"),
+    # Audit search
+    EndpointTemplate("/api/v2/audit/events/search", "Search audit events"),
+    # Metrics query
+    EndpointTemplate(
+        "/api/v1/query",
+        "Query metrics via POST. Prefer datadog/metrics toolset when available",
+    ),
+]
+
+# Build lookup dictionaries for fast template validation
+_GET_TEMPLATES_BY_PATH: Dict[str, EndpointTemplate] = {
+    t.template: t for t in GET_ENDPOINT_TEMPLATES
+}
+_POST_TEMPLATES_BY_PATH: Dict[str, EndpointTemplate] = {
+    t.template: t for t in POST_ENDPOINT_TEMPLATES
+}
+
+# Blacklisted path segments that indicate write operations (kept as safety net)
 BLACKLISTED_SEGMENTS = [
     "/create",
     "/update",
@@ -182,25 +352,94 @@ BLACKLISTED_SEGMENTS = [
     "/restart",
 ]
 
-# POST endpoints that are allowed (search/query operations only)
-WHITELISTED_POST_ENDPOINTS = [
-    r"^/api/v\d+/monitor/search$",
-    r"^/api/v\d+/dashboard/lists$",
-    r"^/api/v\d+/slo/search$",
-    r"^/api/v2/events/search$",  # v1 events/search does not exist, only v2
-    r"^/api/v\d+/incidents/search$",
-    r"^/api/v\d+/synthetics/tests/search$",
-    r"^/api/v\d+/security_monitoring/rules/search$",
-    r"^/api/v\d+/security_monitoring/signals/search$",
-    r"^/api/v\d+/logs/events/search$",
-    r"^/api/v2/logs/events/search$",
-    r"^/api/v2/logs/analytics/aggregate$",
-    r"^/api/v\d+/spans/events/search$",
-    r"^/api/v\d+/rum/events/search$",
-    r"^/api/v\d+/audit/events/search$",
-    r"^/api/v\d+/query$",
-    r"^/api/v\d+/search/query$",
-]
+
+def get_valid_get_endpoint_templates() -> List[str]:
+    """Return list of valid GET endpoint template strings for enum constraint."""
+    return [t.template for t in GET_ENDPOINT_TEMPLATES]
+
+
+def get_valid_post_endpoint_templates() -> List[str]:
+    """Return list of valid POST endpoint template strings for enum constraint."""
+    return [t.template for t in POST_ENDPOINT_TEMPLATES]
+
+
+def build_endpoint_from_template(
+    endpoint_template: str, resource_id: Optional[str], method: str = "GET"
+) -> Tuple[bool, str, str]:
+    """
+    Build a concrete endpoint path from a template and optional resource_id.
+
+    Returns:
+        Tuple of (success, endpoint_or_error, description)
+        - If success: (True, "/api/v1/monitor/12345", "Get a specific monitor by ID")
+        - If failure: (False, "error message", "")
+    """
+    # Get the appropriate template lookup
+    templates = _GET_TEMPLATES_BY_PATH if method == "GET" else _POST_TEMPLATES_BY_PATH
+
+    # Validate template exists
+    if endpoint_template not in templates:
+        valid_templates = (
+            get_valid_get_endpoint_templates()
+            if method == "GET"
+            else get_valid_post_endpoint_templates()
+        )
+        return (
+            False,
+            f"Invalid endpoint_template '{endpoint_template}'. Valid templates: {valid_templates}",
+            "",
+        )
+
+    template_info = templates[endpoint_template]
+
+    # Check if template has a placeholder
+    has_placeholder = "{" in endpoint_template
+
+    if has_placeholder:
+        if not resource_id:
+            return (
+                False,
+                f"endpoint_template '{endpoint_template}' requires resource_id parameter",
+                "",
+            )
+
+        # Security: Validate resource_id to prevent path traversal and injection attacks
+        # Check for path traversal sequences and URL-encoded variants
+        resource_id_lower = resource_id.lower()
+        if (
+            "/" in resource_id
+            or ".." in resource_id
+            or "%2f" in resource_id_lower
+            or "%2e" in resource_id_lower
+        ):
+            return (
+                False,
+                f"resource_id '{resource_id}' contains invalid characters (path traversal not allowed)",
+                "",
+            )
+
+        # URL-encode the resource_id for safe path inclusion
+        safe_resource_id = quote(resource_id, safe="")
+
+        # Substitute the placeholder with resource_id using lambda to prevent
+        # backreference injection (e.g., \1, \g<name> sequences)
+        endpoint = re.sub(r"\{[^}]+\}", lambda _: safe_resource_id, endpoint_template)
+    else:
+        # Template has no placeholder - resource_id should be empty/None
+        if resource_id:
+            logging.warning(
+                f"resource_id '{resource_id}' provided but template '{endpoint_template}' "
+                "has no placeholder. Ignoring resource_id."
+            )
+        endpoint = endpoint_template
+
+    # Safety check: verify no blacklisted segments
+    path_lower = endpoint.lower()
+    for segment in BLACKLISTED_SEGMENTS:
+        if segment in path_lower:
+            return False, f"Endpoint contains blacklisted operation '{segment}'", ""
+
+    return True, endpoint, template_info.description
 
 
 class DatadogGeneralToolset(Toolset):
@@ -291,64 +530,6 @@ class DatadogGeneralToolset(Toolset):
             return False, f"Datadog General health check failed: {e}"
 
 
-def is_endpoint_allowed(
-    endpoint: str, method: str = "GET", allow_custom: bool = False
-) -> Tuple[bool, str]:
-    """
-    Check if an endpoint is allowed based on whitelist and safety rules.
-
-    Returns:
-        Tuple of (is_allowed, error_message)
-    """
-    # Parse the endpoint
-    parsed = urlparse(endpoint)
-    path = parsed.path
-
-    # Check for blacklisted segments
-    path_lower = path.lower()
-    for segment in BLACKLISTED_SEGMENTS:
-        if segment in path_lower:
-            return False, f"Endpoint contains blacklisted operation '{segment}'"
-
-    # Check method-specific whitelists
-    if method == "POST":
-        for pattern in WHITELISTED_POST_ENDPOINTS:
-            if re.match(pattern, path):
-                return True, ""
-        return False, f"POST method not allowed for endpoint: {path}"
-
-    elif method == "GET":
-        for pattern, _ in WHITELISTED_ENDPOINTS:
-            if re.match(pattern, path):
-                return True, ""
-
-        # If custom endpoints are allowed and no blacklisted segments found
-        if allow_custom:
-            return True, ""
-
-        return False, f"Endpoint not in whitelist: {path}"
-
-    else:
-        return False, f"HTTP method {method} not allowed for {path}"
-
-
-def get_endpoint_hint(endpoint: str) -> str:
-    """
-    Get hint for an endpoint if available.
-
-    Returns:
-        Hint string or empty string if no hint
-    """
-    parsed = urlparse(endpoint)
-    path = parsed.path
-
-    for pattern, hint in WHITELISTED_ENDPOINTS:
-        if re.match(pattern, path):
-            return hint
-
-    return ""
-
-
 class BaseDatadogGeneralTool(Tool):
     """Base class for general Datadog API tools."""
 
@@ -359,14 +540,29 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
     """Tool for making GET requests to Datadog API."""
 
     def __init__(self, toolset: "DatadogGeneralToolset"):
+        # Build enum description from templates
+        templates_desc = "\n".join(
+            [f"  - {t.template}: {t.description}" for t in GET_ENDPOINT_TEMPLATES]
+        )
+
         super().__init__(
             name="datadog_api_get",
             description="[datadog/general toolset] Make a GET request to a Datadog API endpoint for read-only operations",
             parameters={
-                "endpoint": ToolParameter(
-                    description="The API endpoint path (e.g., '/api/v1/monitors', '/api/v2/events')",
+                "endpoint_template": ToolParameter(
+                    description=f"""The API endpoint template to call. Must be one of the valid templates below.
+If the template contains a placeholder like {{monitor_id}}, you must provide the resource_id parameter.
+
+Valid endpoint templates:
+{templates_desc}""",
                     type="string",
                     required=True,
+                    enum=get_valid_get_endpoint_templates(),
+                ),
+                "resource_id": ToolParameter(
+                    description="The resource identifier to substitute into the endpoint template placeholder (e.g., monitor ID, dashboard ID, hostname). Required if the endpoint_template contains a placeholder like {monitor_id}.",
+                    type="string",
+                    required=False,
                 ),
                 "query_params": ToolParameter(
                     description="""Query parameters as a dictionary.
@@ -403,7 +599,8 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
         logging.info("=" * 60)
         logging.info("DatadogAPIGet Tool Invocation:")
         logging.info(f"  Description: {params.get('description', 'No description')}")
-        logging.info(f"  Endpoint: {params.get('endpoint', '')}")
+        logging.info(f"  Endpoint Template: {params.get('endpoint_template', '')}")
+        logging.info(f"  Resource ID: {params.get('resource_id', 'None')}")
         logging.info(f"  Query Params: {params_return['query_params']}")
         logging.info("=" * 60)
 
@@ -414,22 +611,23 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 params=params_return,
             )
 
-        endpoint = params.get("endpoint", "")
+        endpoint_template = params.get("endpoint_template", "")
+        resource_id = params.get("resource_id")
         query_params = params.get("query_params", {})
 
-        # Validate endpoint
-        is_allowed, error_msg = is_endpoint_allowed(
-            endpoint,
-            method="GET",
-            allow_custom=self.toolset.dd_config.allow_custom_endpoints,
+        # Build endpoint from template and resource_id
+        success, endpoint_or_error, _ = build_endpoint_from_template(
+            endpoint_template, resource_id, method="GET"
         )
-        if not is_allowed:
-            logging.error(f"Endpoint validation failed: {error_msg}")
+        if not success:
+            logging.error(f"Endpoint validation failed: {endpoint_or_error}")
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Endpoint validation failed: {error_msg}",
+                error=f"Endpoint validation failed: {endpoint_or_error}",
                 params=params_return,
             )
+
+        endpoint = endpoint_or_error
 
         url = None
         try:
@@ -519,14 +717,23 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
     """Tool for making POST requests to Datadog search/query endpoints."""
 
     def __init__(self, toolset: "DatadogGeneralToolset"):
+        # Build enum description from templates
+        templates_desc = "\n".join(
+            [f"  - {t.template}: {t.description}" for t in POST_ENDPOINT_TEMPLATES]
+        )
+
         super().__init__(
             name="datadog_api_post_search",
             description="[datadog/general toolset] Make a POST request to Datadog search/query endpoints for complex filtering",
             parameters={
-                "endpoint": ToolParameter(
-                    description="The search API endpoint (e.g., '/api/v2/monitor/search', '/api/v2/events/search')",
+                "endpoint_template": ToolParameter(
+                    description=f"""The search API endpoint template to call. Must be one of the valid templates below.
+
+Valid endpoint templates:
+{templates_desc}""",
                     type="string",
                     required=True,
+                    enum=get_valid_post_endpoint_templates(),
                 ),
                 "body": ToolParameter(
                     description="""Request body for the search/filter operation.
@@ -599,7 +806,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
         logging.info("=" * 60)
         logging.info("DatadogAPIPostSearch Tool Invocation:")
         logging.info(f"  Description: {params.get('description', 'No description')}")
-        logging.info(f"  Endpoint: {params.get('endpoint', '')}")
+        logging.info(f"  Endpoint Template: {params.get('endpoint_template', '')}")
         logging.info(f"  Body: {json.dumps(params.get('body', {}), indent=2)}")
         logging.info("=" * 60)
 
@@ -610,22 +817,22 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                 params=params,
             )
 
-        endpoint = params.get("endpoint", "")
+        endpoint_template = params.get("endpoint_template", "")
         body = params.get("body", {})
 
-        # Validate endpoint
-        is_allowed, error_msg = is_endpoint_allowed(
-            endpoint,
-            method="POST",
-            allow_custom=self.toolset.dd_config.allow_custom_endpoints,
+        # Build endpoint from template (POST templates don't have placeholders currently)
+        success, endpoint_or_error, _ = build_endpoint_from_template(
+            endpoint_template, None, method="POST"
         )
-        if not is_allowed:
-            logging.error(f"Endpoint validation failed: {error_msg}")
+        if not success:
+            logging.error(f"Endpoint validation failed: {endpoint_or_error}")
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=f"Endpoint validation failed: {error_msg}",
+                error=f"Endpoint validation failed: {endpoint_or_error}",
                 params=params,
             )
+
+        endpoint = endpoint_or_error
 
         url = None
         try:
@@ -743,7 +950,8 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
         logging.info("=" * 60)
 
         # Filter endpoints based on regex search
-        matching_endpoints = []
+        matching_get_endpoints: List[EndpointTemplate] = []
+        matching_post_endpoints: List[EndpointTemplate] = []
 
         if search_regex:
             try:
@@ -758,44 +966,21 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
         else:
             search_pattern = None
 
-        # Build list of matching endpoints
-        for pattern, hint in WHITELISTED_ENDPOINTS:
-            # Create a readable endpoint example from the pattern
-            example_endpoint = pattern.replace(r"^/api/v\d+", "/api/v1")
-            example_endpoint = example_endpoint.replace(r"(/search)?$", "")
-            example_endpoint = example_endpoint.replace(r"(/[^/]+)?$", "/{id}")
-            example_endpoint = example_endpoint.replace(r"/[^/]+$", "/{id}")
-            example_endpoint = example_endpoint.replace(r"/\d+$", "/{id}")
-            example_endpoint = example_endpoint.replace("$", "")
-            example_endpoint = example_endpoint.replace("^", "")
-
-            # Apply search filter if provided
-            if search_pattern and not search_pattern.search(example_endpoint):
+        # Build list of matching GET endpoints
+        for template in GET_ENDPOINT_TEMPLATES:
+            if search_pattern and not search_pattern.search(template.template):
                 continue
+            matching_get_endpoints.append(template)
 
-            # Determine HTTP methods for display purposes only (cosmetic, doesn't affect validation)
-            # Check for POST search endpoints (path ends with /search, /query, or /aggregate)
-            # Note: /monitor/groups/search is GET but displays as POST here - no functional impact
-            if (
-                "/search$" in pattern
-                or "/query$" in pattern
-                or "/aggregate$" in pattern
-            ):
-                methods = "POST"
-            elif "/search)?$" in pattern:
-                methods = "GET/POST"
-            else:
-                methods = "GET"
+        # Build list of matching POST endpoints
+        for template in POST_ENDPOINT_TEMPLATES:
+            if search_pattern and not search_pattern.search(template.template):
+                continue
+            matching_post_endpoints.append(template)
 
-            endpoint_info = {
-                "endpoint": example_endpoint,
-                "methods": methods,
-                "hint": hint,
-                "pattern": pattern,
-            }
-            matching_endpoints.append(endpoint_info)
+        total_matches = len(matching_get_endpoints) + len(matching_post_endpoints)
 
-        if not matching_endpoints:
+        if total_matches == 0:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
                 data=f"No endpoints found matching regex: {search_regex}",
@@ -803,93 +988,49 @@ class ListDatadogAPIResources(BaseDatadogGeneralTool):
             )
 
         # Format output
-        output = ["Available Datadog API Endpoints", "=" * 40]
+        output = ["Available Datadog API Endpoint Templates", "=" * 40]
 
         if search_regex:
             output.append(f"Filter: {search_regex}")
-        output.append(f"Found: {len(matching_endpoints)} endpoints")
+        output.append(f"Found: {total_matches} endpoints ({len(matching_get_endpoints)} GET, {len(matching_post_endpoints)} POST)")
         output.append("")
 
-        # List endpoints with spec info if available
-        for info in matching_endpoints:
-            line = f"{info['methods']:8} {info['endpoint']}"
-            if info["hint"]:
-                line += f"\n         {info['hint']}"
+        # List GET endpoints
+        if matching_get_endpoints:
+            output.append("GET Endpoints:")
+            output.append("-" * 40)
+            for template in matching_get_endpoints:
+                has_placeholder = "{" in template.template
+                placeholder_note = f" (requires resource_id: {template.placeholder_name})" if has_placeholder else ""
+                output.append(f"  {template.template}{placeholder_note}")
+                output.append(f"    {template.description}")
+            output.append("")
 
-            # Add OpenAPI spec info for this specific endpoint if available
-            if self.toolset.openapi_spec and "paths" in self.toolset.openapi_spec:
-                # Try to find matching path in OpenAPI spec
-                spec_path = None
-                for path in self.toolset.openapi_spec["paths"].keys():
-                    if re.match(info["pattern"], path):
-                        spec_path = path
-                        break
+        # List POST endpoints
+        if matching_post_endpoints:
+            output.append("POST Endpoints (search/query operations):")
+            output.append("-" * 40)
+            for template in matching_post_endpoints:
+                output.append(f"  {template.template}")
+                output.append(f"    {template.description}")
+            output.append("")
 
-                if spec_path and spec_path in self.toolset.openapi_spec["paths"]:
-                    path_spec = self.toolset.openapi_spec["paths"][spec_path]
-                    # Add actual OpenAPI schema for the endpoint
-                    for method in ["get", "post", "put", "delete"]:
-                        if method in path_spec:
-                            method_spec = path_spec[method]
-                            line += f"\n\n         OpenAPI Schema ({method.upper()}):"
-
-                            # Add summary if available
-                            if "summary" in method_spec:
-                                line += f"\n         Summary: {method_spec['summary']}"
-
-                            # Add parameters if available
-                            if "parameters" in method_spec:
-                                line += "\n         Parameters:"
-                                for param in method_spec["parameters"]:
-                                    param_info = f"\n           - {param.get('name', 'unknown')} ({param.get('in', 'unknown')})"
-                                    if param.get("required", False):
-                                        param_info += " [required]"
-                                    if "description" in param:
-                                        param_info += f": {param['description'][:100]}"
-                                    line += param_info
-
-                            # Add request body schema if available
-                            if "requestBody" in method_spec:
-                                line += "\n         Request Body:"
-                                if "content" in method_spec["requestBody"]:
-                                    for content_type, content_spec in method_spec[
-                                        "requestBody"
-                                    ]["content"].items():
-                                        if "schema" in content_spec:
-                                            # Show a compact version of the schema
-                                            schema_str = json.dumps(
-                                                content_spec["schema"], indent=10
-                                            )[:500]
-                                            if (
-                                                len(json.dumps(content_spec["schema"]))
-                                                > 500
-                                            ):
-                                                schema_str += "..."
-                                            line += f"\n           Content-Type: {content_type}"
-                                            line += f"\n           Schema: {schema_str}"
-
-                            # Add response schema sample if available
-                            if "responses" in method_spec:
-                                if "200" in method_spec["responses"]:
-                                    line += "\n         Response (200):"
-                                    resp = method_spec["responses"]["200"]
-                                    if "description" in resp:
-                                        line += f"\n           {resp['description']}"
-                            break
-
-            output.append(line)
-
+        output.append("Usage:")
+        output.append("  • For GET: Use datadog_api_get with endpoint_template parameter")
+        output.append("  • For POST: Use datadog_api_post_search with endpoint_template parameter")
+        output.append("  • If template has {placeholder}, provide the resource_id parameter")
         output.append("")
-        output.append(
-            "Note: All endpoints are read-only. Use the appropriate tool with the endpoint path."
-        )
-        output.append("Example: datadog_api_get with endpoint='/api/v1/monitors'")
+        output.append("Examples:")
+        output.append("  • datadog_api_get(endpoint_template='/api/v1/monitor', description='List monitors')")
+        output.append("  • datadog_api_get(endpoint_template='/api/v1/monitor/{monitor_id}', resource_id='12345', description='Get monitor')")
+        output.append("  • datadog_api_post_search(endpoint_template='/api/v1/monitor/search', body={...}, description='Search monitors')")
         output.append("")
         output.append("Search examples:")
         output.append("  • 'monitor' - find all monitor endpoints")
         output.append("  • 'logs|metrics' - find logs OR metrics endpoints")
         output.append("  • 'v2.*search$' - find all v2 search endpoints")
         output.append("  • 'security.*signals' - find security signals endpoints")
+
         doc_url = "https://docs.datadoghq.com/api/latest/"
         if search_regex:
             # URL encode the search parameter - spaces become + in query strings
