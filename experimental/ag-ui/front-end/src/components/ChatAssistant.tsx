@@ -17,9 +17,20 @@ interface ChatMessage {
     description: string;
     retryable?: boolean;
   };
+  /** Token counts and latency for this completion (assistant messages only). */
+  runStats?: RunStats;
 }
 
 type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
+
+/** Token/cost metadata from RunFinishedEvent.result (server-agui). */
+interface RunStats {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  total_cost?: number;
+  latency_ms?: number;
+}
 
 interface ContextItem {
   description: string;
@@ -103,8 +114,10 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [lastFailedMessage, setLastFailedMessage] = useState<string | null>(null);
+  const [lastRunStats, setLastRunStats] = useState<RunStats | null>(null);
   const agentRef = useRef<HttpAgent | null>(null);
   const threadIdRef = useRef<string>('thread-' + Date.now());
+  const runStartTimeRef = useRef<number | null>(null);
   const currentMessageRef = useRef<string>('');
   const toolCallsRef = useRef<Map<string, { name: string, args?: any }>>(new Map());
   const toolArgsRef = useRef<Map<string, string>>(new Map());
@@ -113,6 +126,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const initialMessageSentRef = useRef<boolean>(false);
   const agentInitializedRef = useRef<boolean>(false);
+  const scheduleReconnectRef = useRef<() => void>(() => {});
 
   // Initialize the HttpAgent with error handling
   const initializeAgent = React.useCallback(() => {
@@ -150,6 +164,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
         setIsThinking(true);
         setConnectionStatus('connected');
         setRetryCount(0);
+        runStartTimeRef.current = Date.now();
         console.log('Agent run started:', params.event);
       },
 
@@ -157,6 +172,70 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
         setIsLoading(false);
         setIsThinking(false);
         setConnectionStatus('connected');
+        const result = params.event?.result;
+        const latencyMs = runStartTimeRef.current != null
+          ? Date.now() - runStartTimeRef.current
+          : undefined;
+        runStartTimeRef.current = null;
+
+        if (result && typeof result === 'object') {
+          const usage = result.usage ?? result.costs;
+          const costs = result.costs ?? result.usage;
+          const prompt = usage?.prompt_tokens ?? costs?.prompt_tokens ?? 0;
+          const completion = usage?.completion_tokens ?? costs?.completion_tokens ?? 0;
+          const total = usage?.total_tokens ?? costs?.total_tokens ?? (prompt + completion);
+          const cost = typeof costs?.total_cost === 'number' ? costs.total_cost : undefined;
+          if (total > 0 || cost != null || latencyMs != null) {
+            const stats: RunStats = {
+              prompt_tokens: prompt,
+              completion_tokens: completion,
+              total_tokens: total,
+              total_cost: cost,
+              latency_ms: latencyMs
+            };
+            setLastRunStats(stats);
+            setMessages(prev => {
+              const next = [...prev];
+              let lastIdx = -1;
+              for (let i = next.length - 1; i >= 0; i--) {
+                if (next[i].sender === 'assistant') {
+                  lastIdx = i;
+                  break;
+                }
+              }
+              if (lastIdx >= 0) {
+                next[lastIdx] = { ...next[lastIdx], runStats: stats };
+              }
+              return next;
+            });
+          } else {
+            setLastRunStats(null);
+          }
+        } else if (latencyMs != null) {
+          const stats: RunStats = {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            latency_ms: latencyMs
+          };
+          setLastRunStats(stats);
+          setMessages(prev => {
+            const next = [...prev];
+            let lastIdx = -1;
+            for (let i = next.length - 1; i >= 0; i--) {
+              if (next[i].sender === 'assistant') {
+                lastIdx = i;
+                break;
+              }
+            }
+            if (lastIdx >= 0) {
+              next[lastIdx] = { ...next[lastIdx], runStats: stats };
+            }
+            return next;
+          });
+        } else {
+          setLastRunStats(null);
+        }
         console.log('Agent run finished:', params.event);
       },
 
@@ -438,7 +517,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
         setMessages(prev => [...prev, errorMessage]);
 
         // Schedule reconnection attempt
-        scheduleReconnect();
+        scheduleReconnectRef.current();
       },
 
       // Add network error handler
@@ -461,7 +540,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
         };
         setMessages(prev => [...prev, errorMessage]);
 
-        scheduleReconnect();
+        scheduleReconnectRef.current();
       }
     };
 
@@ -477,9 +556,10 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       setConnectionStatus('error');
       setCurrentModel(null);
       agentInitializedRef.current = false; // Reset flag on error
-      scheduleReconnect();
+      scheduleReconnectRef.current();
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchModel, sendInitialMessage, scheduleReconnect defined later; scheduleReconnect read via ref to avoid circular dep
+  }, [connectionStatus, onExecutePPLQuery, onExecutePromQLQuery]);
 
   // Connection check using model endpoint
   const checkConnection = React.useCallback(async () => {
@@ -583,7 +663,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       // Reset flag on error so it can be retried
       initialMessageSentRef.current = false;
     }
-  }, [connectionStatus, isLoading]);
+  }, [connectionStatus, isLoading, pageContext]);
 
   // Reconnection logic
   const scheduleReconnect = React.useCallback(() => {
@@ -603,10 +683,14 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       } else {
         // Server still not reachable, schedule another check
         setConnectionStatus('disconnected');
-        scheduleReconnect();
+        scheduleReconnectRef.current();
       }
     }, delay);
   }, [retryCount, initializeAgent, checkConnection]);
+
+  useEffect(() => {
+    scheduleReconnectRef.current = scheduleReconnect;
+  }, [scheduleReconnect]);
 
   // Global error handlers to prevent crashes
   useEffect(() => {
@@ -633,7 +717,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
           }
         };
         setMessages(prev => [...prev, errorMessage]);
-        scheduleReconnect();
+        scheduleReconnectRef.current();
       }
     };
 
@@ -817,7 +901,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
         setMessages(prev => [...prev, errorMessage]);
 
         // Try to reconnect
-        scheduleReconnect();
+        scheduleReconnectRef.current();
       }
     };
 
@@ -937,6 +1021,23 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
             <div className="message-time">
               {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
+            {message.sender === 'assistant' && message.runStats && (
+              <div className="message-run-stats" aria-label="Run statistics">
+                <span className="run-stats-tokens">
+                  Tokens: {message.runStats.prompt_tokens.toLocaleString()} prompt + {message.runStats.completion_tokens.toLocaleString()} completion = {message.runStats.total_tokens.toLocaleString()} total
+                </span>
+                {message.runStats.total_cost != null && message.runStats.total_cost > 0 && (
+                  <span className="run-stats-cost">
+                    Cost: ${message.runStats.total_cost.toFixed(6)}
+                  </span>
+                )}
+                {message.runStats.latency_ms != null && (
+                  <span className="run-stats-latency">
+                    Latency: {(message.runStats.latency_ms / 1000).toFixed(2)}s
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         ))}
         {isThinking && (
@@ -953,6 +1054,24 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {lastRunStats && (
+        <div className="chat-run-stats" aria-label="Last run statistics">
+          <span className="run-stats-tokens">
+            Tokens: {lastRunStats.prompt_tokens.toLocaleString()} prompt + {lastRunStats.completion_tokens.toLocaleString()} completion = {lastRunStats.total_tokens.toLocaleString()} total
+          </span>
+          {lastRunStats.total_cost != null && lastRunStats.total_cost > 0 && (
+            <span className="run-stats-cost">
+              Cost: ${lastRunStats.total_cost.toFixed(6)}
+            </span>
+          )}
+          {lastRunStats.latency_ms != null && (
+            <span className="run-stats-latency">
+              Latency: {(lastRunStats.latency_ms / 1000).toFixed(2)}s
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="chat-controls">
         <label className="auto-scroll-checkbox">
