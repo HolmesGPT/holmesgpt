@@ -130,7 +130,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 
 3. **Install HolmesGPT:**
    ```bash
-   helm install holmesgpt robusta/holmes -f values.yaml
+   helm install holmes robusta/holmes -f values.yaml
    ```
 
 ## Usage
@@ -140,7 +140,7 @@ After installation, test the service with a simple API call:
 ```bash
 # Port forward to access the service locally
 # Note: Service name is {release-name}-holmes
-kubectl port-forward svc/holmesgpt-holmes 8080:80
+kubectl port-forward svc/holmes-holmes 8080:80
 
 # If you used a different release name or namespace:
 # kubectl port-forward svc/{your-release-name}-holmes 8080:80 -n {your-namespace}
@@ -193,7 +193,7 @@ To require client certificates (**mutual TLS**), add a CA bundle under an extra 
 After enabling, port-forward and call the service over `https` (use `-k` for a self-signed/private-CA certificate):
 
 ```bash
-kubectl port-forward svc/holmesgpt-holmes 8080:80
+kubectl port-forward svc/holmes-holmes 8080:80
 curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "anthropic/claude-sonnet-4-5-20250929"}'
 ```
@@ -202,13 +202,13 @@ curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
 
 ```bash
 helm repo update
-helm upgrade holmesgpt robusta/holmes -f values.yaml
+helm upgrade holmes robusta/holmes -f values.yaml
 ```
 
 ## Uninstalling
 
 ```bash
-helm uninstall holmesgpt
+helm uninstall holmes
 ```
 
 ## Next Steps
