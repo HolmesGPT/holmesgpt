@@ -416,6 +416,8 @@ def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
         x: "{{ env.X }}"
         ```
 
+        ### Later Y
+
         ```yaml-helm-values
         y: "{{ env.Y }}"
         ```
@@ -570,6 +572,21 @@ def test_the_reuse_note_links_to_the_heading_as_toc_renders_it(
     assert len(note) == 1 and f'<a href="#{anchor}">{link_text}</a>' in note[0]
     assert re.search(rf'<h2[^>]* id="{anchor}"', html)
     assert "TABFENCEGROUP" not in html
+
+
+def test_a_second_deployment_group_under_a_heading_fails_the_build(convert):
+    page = f"## Setup\n\n{X_FENCE}\n```yaml-toolset-config\ntoolsets:\n  a: {{}}\n```\n"
+    with pytest.raises(
+        TabFenceError,
+        match=re.escape(
+            "the yaml-toolset-config fence starting 'toolsets:' on "
+            "data-sources/builtin-toolsets/victorialogs.md sits under the same heading "
+            """as the yaml-helm-values fence starting 'x: "{{ env.X }}"' (Setup)"""
+        ),
+    ):
+        convert(page)
+    with pytest.raises(TabFenceError, match=re.escape("(no heading)")):
+        convert(f"{X_FENCE}\n{X_FENCE}")
 
 
 def test_a_fence_in_a_blockquote_renders_as_tabs_written_in_it(convert):

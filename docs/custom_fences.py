@@ -19,7 +19,7 @@ blockquote; it expands there.
   with a path relative to the page.
 
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
-the chart's upgrade command.
+the chart's upgrade command. Each deployment fence is the only one under its heading.
 
 Secrets. Every `{{ env.X }}` in a value of the body (not in a YAML comment) that no
 `additionalEnvVars` entry sets by name is a key of the group's Kubernetes secret, in the order the
@@ -46,7 +46,7 @@ A fence that cannot render as written raises TabFenceError, which fails the buil
 not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, a
 multi-instance body without `toolset` or `config`, an option the fence does not take, a qualifier
 or page name that makes no valid Kubernetes secret name, a second secret of the same name on a page,
-a reuse whose creating fence sits under no heading or under a heading without an id (toc gives
+a second deployment fence under a heading, a reuse whose creating fence sits under no heading or under a heading without an id (toc gives
 headings their ids), a fence with no closing line, and a secret or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
@@ -544,8 +544,9 @@ class TabFenceTreeprocessor(Treeprocessor):
 
     Runs after toc, so every heading has its final id, whatever markup its text
     has and wherever it sits (an admonition, a tab, a list). Each group's marker
-    paragraph is removed, and each reuse note's link gets the id and text of
-    the heading above the group that creates the secret."""
+    paragraph is removed; a second group under the heading of an earlier one
+    fails the build; and each reuse note's link gets the id and text of the
+    heading above the group that creates the secret."""
 
     def __init__(self, md, fences: TabFencePreprocessor):
         super().__init__(md)
@@ -553,6 +554,7 @@ class TabFenceTreeprocessor(Treeprocessor):
 
     def run(self, root):
         headings: dict = {}  # group index -> the heading above it, or None
+        groups: dict = {}  # id(heading) -> the first group under it
         markers, links = [], []
         heading = None
         for parent, el in _walk(root):
@@ -563,6 +565,14 @@ class TabFenceTreeprocessor(Treeprocessor):
             )
             if marker:
                 index = int(marker[1])
+                first = groups.setdefault(id(heading), index)
+                if first != index:
+                    raise TabFenceError(
+                        f"{self.fences.groups[index]} on {self.fences.page or 'this page'} "
+                        f"sits under the same heading as {self.fences.groups[first]} "
+                        f"({self._name(heading) if heading is not None else 'no heading'}); "
+                        "give each deployment tab group a heading of its own"
+                    )
                 headings[index] = heading
                 markers.append((parent, el))
             link = el.tag == "a" and GROUP_MARKER_RE.match(el.get("href", "")[1:])
