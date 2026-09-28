@@ -545,10 +545,26 @@ def test_the_reuse_note_names_a_setext_heading(convert, heading, anchor):
             id="code",
         ),
         pytest.param(
+            "## Logs & Metrics", "logs-metrics", "Logs &amp; Metrics", id="ampersand"
+        ),
+        pytest.param(
+            "## Logs &amp; Metrics",
+            "logs-metrics",
+            "Logs &amp; Metrics",
+            id="entity-reference",
+        ),
+        pytest.param("## Setup ##", "setup", "Setup", id="closing-hashes"),
+        pytest.param(
             "## Setup\n\n<!--\n## Old section\n-->",
             "setup",
             "Setup",
             id="heading-in-a-comment",
+        ),
+        pytest.param(
+            "## Setup\n\n    indented code\n---",
+            "setup",
+            "Setup",
+            id="indented-line-above-a-rule",
         ),
         pytest.param(
             "!!! note\n    ## Setup\n\n    t\n\n## Setup",
@@ -587,6 +603,48 @@ def test_a_second_deployment_group_under_a_heading_fails_the_build(convert):
         convert(page)
     with pytest.raises(TabFenceError, match=re.escape("(no heading)")):
         convert(f"{X_FENCE}\n{X_FENCE}")
+
+
+def test_a_qualified_group_creates_its_own_secret_even_when_an_earlier_one_holds_its_keys(
+    convert,
+):
+    page = f"## A\n\n{X_FENCE}\n## B\n\n" + X_FENCE.replace(
+        "values", "values {secret-qualifier=q}"
+    )
+    b = text(convert(page).split('<h2 id="b">')[1])
+    assert "kubectl create secret generic holmes-victorialogs-q" in b
+    assert "Reuses" not in b
+
+
+def test_a_group_reuses_the_first_earlier_secret_that_holds_its_keys(convert):
+    page = """\
+        ## A
+
+        ```yaml-helm-values
+        x: "{{ env.X }}"
+        y: "{{ env.Y }}"
+        ```
+
+        ## B
+
+        ```yaml-helm-values {secret-qualifier=b}
+        x: "{{ env.X }}"
+        ```
+
+        ## C
+
+        ```yaml-helm-values
+        x: "{{ env.X }}"
+        ```
+        """
+    note = re.findall(r"<p>Reuses .*?</p>", convert(page))
+    assert len(note) == 1
+    assert "<code>holmes-victorialogs</code>" in note[0] and 'href="#a"' in note[0]
+
+
+def test_a_tilde_fence_renders_as_a_backtick_fence(convert):
+    tilde = TOKEN_FENCE.replace("```", "~~~")
+    assert convert(tilde) == convert(TOKEN_TABS)
 
 
 def test_options_may_follow_the_fence_name_without_a_space(convert):
@@ -760,6 +818,11 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             X_FENCE.replace("values", "values {secret-qualifier=a secret-qualifier=b}"),
             "sets the option secret-qualifier more than once",
             id="repeated-option",
+        ),
+        pytest.param(
+            X_FENCE.replace("values", f"values {{secret-qualifier={'a' * 240}}}"),
+            "not a valid Kubernetes secret name",
+            id="secret-name-over-253-characters",
         ),
         pytest.param(
             "```robusta-region\nhttps://docs.example.com/x\n```\n",
