@@ -61,7 +61,6 @@ reads a secret and every multi-instance fence fails the build.
 import html
 import posixpath
 import re
-import textwrap
 from collections import Counter
 from pathlib import PurePosixPath
 
@@ -327,7 +326,8 @@ def _multi_instance_section(where: str, body: str, page: str) -> str:
         raise TabFenceError(
             f"{where} links to the Multiple Instances page relative to the page, {NO_PAGE}"
         )
-    fields = _indent(textwrap.dedent(config), " " * 10)
+    # `config` is a YAML block scalar, which YAML has already dedented.
+    fields = _indent(config, " " * 10)
     example = (
         f"toolsets:\n  {toolset}:\n    enabled: true\n    config:\n      instances:\n"
         f"        - name: prod\n{fields}\n        - name: staging\n{fields}"
