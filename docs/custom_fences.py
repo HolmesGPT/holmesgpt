@@ -20,6 +20,7 @@ from pathlib import PurePosixPath
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
+from markdown.extensions.toc import unique
 from markdown.preprocessors import Preprocessor
 from pymdownx.superfences import SuperFencesException
 
@@ -41,7 +42,11 @@ EXTENSION_NAME = "docs.custom_fences"
 
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
-DEPLOYMENT_FENCES = (TOOLSET_CONFIG_FENCE, HELM_VALUES_FENCE)
+# The header options each deployment fence takes, as `{name=value}` after the fence name.
+FENCE_OPTIONS = {
+    TOOLSET_CONFIG_FENCE: ("secret-qualifier",),
+    HELM_VALUES_FENCE: ("secret-qualifier",),
+}
 
 # Top-level keys of a Holmes config body that the CLI reads from
 # ~/.holmes/config.yaml; every other top-level key is a chart value.
@@ -49,6 +54,14 @@ CLI_CONFIG_KEYS = ("toolsets", "mcp_servers")
 
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 FENCE_START_RE = re.compile(r"^(?P<indent> *)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
+FENCE_OPTION_RE = re.compile(
+    r'(?P<name>[A-Za-z][\w-]*)=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+))'
+)
+# An ATX heading, with an optional attr_list id: `## Title {#id}`.
+HEADING_RE = re.compile(
+    r"^#{1,6}\s+(?P<text>.*?)(?:\s+#+)?\s*(?:\{[^}]*#(?P<id>[\w-]+)[^}]*\})?\s*$"
+)
 
 HOLMES_VALUES_CAPTION = (
     "When using the **standalone Holmes Helm Chart**, update your `values.yaml`:"
@@ -202,22 +215,29 @@ class DeploymentFencePreprocessor(Preprocessor):
 
     def run(self, lines):
         out: list = []
-        created: set = set()  # env vars a secret step earlier on this page creates
+        # The secrets deployment groups earlier on this page create: name -> (keys, section).
+        self.secrets: dict = {}
+        # The last heading above the current line, as (text, id), and the ids used so far.
+        self.section = None
+        self.heading_ids: set = set()
         i = 0
         while i < len(lines):
             match = FENCE_START_RE.match(lines[i])
             end = match and _fence_end(lines, i, match["indent"], match["fence"])
             if not end:
+                self._track_heading(lines[i])
                 out.append(lines[i])
                 i += 1
                 continue
-            fence, _, options = match["info"].strip().partition(" ")
-            if fence not in DEPLOYMENT_FENCES:
+            fence, _, header = match["info"].strip().partition(" ")
+            if fence not in FENCE_OPTIONS:
                 out.extend(lines[i : end + 1])
             else:
                 indent = match["indent"]
                 body = "\n".join(line[len(indent) :] for line in lines[i + 1 : end])
-                group = self._group(fence, options, body.strip("\n"), created)
+                where = f"the {fence} fence on {self.page or 'this page'}"
+                options = self._options(where, fence, header.strip())
+                group = self._group(where, fence, options, body.strip("\n"))
                 expansion = ["", *_indent(group, indent).split("\n"), ""]
                 if "snippet" in self.md.preprocessors:
                     expansion = self.md.preprocessors["snippet"].parse_snippets(
@@ -227,10 +247,39 @@ class DeploymentFencePreprocessor(Preprocessor):
             i = end + 1
         return out
 
-    def _group(self, fence: str, options: str, body: str, created: set) -> str:
-        where = f"the {fence} fence on {self.page or 'this page'}"
-        if options:
-            raise DeploymentFenceError(f"{where} takes no options: {options}")
+    def _track_heading(self, line: str) -> None:
+        """Follow the page's headings, giving each the id the toc extension gives it."""
+        heading = HEADING_RE.match(line)
+        if not heading or "toc" not in self.md.treeprocessors:
+            return
+        toc = self.md.treeprocessors["toc"]
+        text = heading["text"]
+        anchor = heading["id"] or toc.slugify(html.unescape(text), toc.sep)
+        self.section = (text, unique(anchor, self.heading_ids))
+
+    @staticmethod
+    def _options(where: str, fence: str, header: str) -> dict:
+        match = FENCE_OPTIONS_RE.match(header)
+        if header and not match:
+            raise DeploymentFenceError(
+                f"{where} takes options as {{name=value}}: {header}"
+            )
+        text = match["options"] if match else ""
+        options = {
+            option["name"]: option["quoted"]
+            if option["quoted"] is not None
+            else option["bare"]
+            for option in FENCE_OPTION_RE.finditer(text)
+        }
+        leftover = FENCE_OPTION_RE.sub("", text).strip()
+        unknown = sorted(set(options) - set(FENCE_OPTIONS[fence]))
+        if leftover or unknown:
+            raise DeploymentFenceError(
+                f"{where} takes only the options {', '.join(FENCE_OPTIONS[fence])}: {header}"
+            )
+        return options
+
+    def _group(self, where: str, fence: str, options: dict, body: str) -> str:
         try:
             data = yaml.safe_load(body)
         except yaml.YAMLError as e:
@@ -244,7 +293,7 @@ class DeploymentFencePreprocessor(Preprocessor):
             )
 
         # Every env var the body references and no additionalEnvVars entry sets
-        # is a key of the page's secret, which extraEnvVarsSecrets mounts whole.
+        # is a key of the group's secret, which extraEnvVarsSecrets mounts whole.
         set_by_chart = {
             entry.get("name")
             for entry in data.get("additionalEnvVars") or []
@@ -255,17 +304,46 @@ class DeploymentFencePreprocessor(Preprocessor):
             for key in dict.fromkeys(ENV_REFERENCE_RE.findall(body))
             if key not in set_by_chart
         ]
-        if keys and not self.page:
+        qualifier = options.get("secret-qualifier")
+        if not keys:
+            if qualifier:
+                raise DeploymentFenceError(
+                    f"{where} reads no secret, so it takes no secret-qualifier"
+                )
+            return _deployment_group(fence, body, "", [])
+        if not self.page:
             raise DeploymentFenceError(
                 f"{where} reads a secret, which is named after the page, "
                 f"but no page was given to the {EXTENSION_NAME} extension"
             )
+
+        # A group whose keys a secret an earlier group created holds reuses that
+        # secret: no secret step, and a note naming the section that creates it.
+        if not qualifier:
+            for secret, (created, section) in self.secrets.items():
+                if not set(keys) <= created:
+                    continue
+                if section is None:
+                    raise DeploymentFenceError(
+                        f"{where} reuses the secret {secret}, but the group that "
+                        "creates it sits under no heading for the note to name"
+                    )
+                note = (
+                    f"Reuses the `{secret}` Kubernetes secret created in the "
+                    f"[{section[0]}](#{section[1]}) section above."
+                )
+                return note + "\n\n" + _deployment_group(fence, body, secret, [])
+
         secret = f"holmes-{PurePosixPath(self.page).stem}"
-        # A group whose keys an earlier group's secret step created reuses that
-        # secret, and has no secret step of its own.
-        new_keys = [] if set(keys) <= created else keys
-        created.update(keys)
-        return _deployment_group(fence, body, secret, new_keys)
+        if qualifier:
+            secret += f"-{qualifier}"
+        if secret in self.secrets:
+            raise DeploymentFenceError(
+                f"{where} creates the secret {secret}, which an earlier group on the page "
+                "creates with other keys; give it a secret-qualifier"
+            )
+        self.secrets[secret] = (set(keys), self.section)
+        return _deployment_group(fence, body, secret, keys)
 
 
 class DeploymentFencesExtension(Extension):
@@ -273,7 +351,7 @@ class DeploymentFencesExtension(Extension):
         self.config = {
             "page": [
                 "",
-                "Path of the page being converted; its file stem names the page's secret",
+                "Path of the page being converted; its file stem names the page's secrets",
             ]
         }
         super().__init__(**kwargs)

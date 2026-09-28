@@ -301,9 +301,9 @@ def test_env_vars_set_by_the_chart_are_not_secret_keys_and_chart_keys_stay_out_o
     assert convert(fence, page=page) == convert(hand_written, page=page)
 
 
-def test_a_group_reading_an_earlier_groups_secret_has_no_secret_step(convert):
+def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert):
     page = """\
-        ## A
+        ## Set up A
 
         ```yaml-helm-values
         mcp_servers:
@@ -314,17 +314,132 @@ def test_a_group_reading_an_earlier_groups_secret_has_no_secret_step(convert):
 
         ## B
 
-        ```yaml-helm-values
+        ```yaml-toolset-config
         mcp_servers:
           b:
             config:
               token: "{{ env.TOKEN }}"
         ```
         """
-    first, second = map(text, convert(page).split('<h2 id="b">'))
-    assert first.count("kubectl create secret generic holmes-victorialogs") == 2
-    assert first.count("extraEnvVarsSecrets") == 2
-    assert "kubectl" not in second and "extraEnvVarsSecrets" not in second
+    hand_written_b = """\
+        ## B
+
+        Reuses the `holmes-victorialogs` Kubernetes secret created in the [Set up A](#set-up-a) section above.
+
+        === "Holmes CLI"
+
+            Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+            ```yaml
+            mcp_servers:
+              b:
+                config:
+                  token: "{{ env.TOKEN }}"
+            ```
+
+            --8<-- "snippets/toolset_refresh_warning.md"
+
+        === "Holmes Helm Chart"
+
+            When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+            ```yaml
+            mcp_servers:
+              b:
+                config:
+                  token: "{{ env.TOKEN }}"
+            ```
+
+            Apply the configuration:
+
+            ```bash
+            helm upgrade holmesgpt robusta/holmes -f values.yaml
+            ```
+
+        === "Robusta Helm Chart"
+
+            When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+            ```yaml
+            holmes:
+              mcp_servers:
+                b:
+                  config:
+                    token: "{{ env.TOKEN }}"
+            ```
+
+            Apply the configuration:
+
+            ```bash
+            helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+            ```
+        """
+    html = convert(page)
+    group_a = page.split("        ## B")[0]
+    assert html == convert(group_a + hand_written_b)
+    first = html.split('<h2 id="b">')[0]
+    assert text(first).count("kubectl create secret generic holmes-victorialogs") == 2
+    assert '<h2 id="set-up-a">' in first  # the note links to the heading's own id
+
+
+def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
+    page = """\
+        ## Setup
+
+        ## Setup
+
+        ```yaml-helm-values
+        x: "{{ env.X }}"
+        ```
+
+        ## Custom {#my-id}
+
+        ```yaml-helm-values {secret-qualifier=y}
+        y: "{{ env.Y }}"
+        ```
+
+        ## Later
+
+        ```yaml-helm-values
+        x: "{{ env.X }}"
+        ```
+
+        ```yaml-helm-values
+        y: "{{ env.Y }}"
+        ```
+        """
+    html = convert(page)
+    assert '<h2 id="setup_1">' in html and '<h2 id="my-id">' in html
+    later = text(html.split('<h2 id="later">')[1])
+    assert "created in the Setup section above" in later
+    assert 'href="#setup_1"' in html and 'href="#my-id"' in html
+
+
+QUALIFIED_PAGE = """\
+    ## Basic auth
+
+    ```yaml-helm-values
+    password: "{{ env.PASSWORD }}"
+    ```
+
+    ## Bearer token
+
+    ```yaml-helm-values {secret-qualifier=token}
+    token: "{{ env.TOKEN }}"
+    ```
+    """
+
+
+def test_a_secret_qualifier_names_a_second_secret_on_the_page(convert):
+    bearer = text(convert(QUALIFIED_PAGE).split('<h2 id="bearer-token">')[1])
+    assert "kubectl create secret generic holmes-victorialogs-token" in bearer
+    assert "extraEnvVarsSecrets:\n  - holmes-victorialogs-token" in bearer
+    assert "holmes-victorialogs\n" not in bearer and "Reuses" not in bearer
+
+
+def test_a_second_secret_without_a_qualifier_fails_the_build(convert):
+    with pytest.raises(DeploymentFenceError, match="secret-qualifier"):
+        convert(QUALIFIED_PAGE.replace(" {secret-qualifier=token}", ""))
 
 
 TOKEN_FENCE = """\
@@ -422,12 +537,41 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "```yaml-toolset-config\ncustomClusterRoleRules: []\n```\n",
             id="toolset-config-without-cli-keys",
         ),
-        pytest.param("```yaml-helm-values title=x\nkey: 1\n```\n", id="fence-options"),
+        pytest.param(
+            "```yaml-helm-values title=x\nkey: 1\n```\n", id="options-without-braces"
+        ),
+        pytest.param(
+            "```yaml-helm-values {title=x}\nkey: 1\n```\n", id="unknown-option"
+        ),
+        pytest.param(
+            '```yaml-helm-values {secret-qualifier=a b}\nx: "{{ env.X }}"\n```\n',
+            id="option-leftover",
+        ),
+        pytest.param(
+            "```yaml-helm-values {secret-qualifier=a}\nkey: 1\n```\n",
+            id="qualifier-without-a-secret",
+        ),
+        pytest.param(
+            '```yaml-helm-values\nx: "{{ env.X }}"\n```\n\n'
+            '## B\n\n```yaml-helm-values\nx: "{{ env.X }}"\n```\n',
+            id="reuse-of-a-secret-created-under-no-heading",
+        ),
     ],
 )
 def test_a_fence_that_cannot_be_rendered_fails_the_build(convert, block):
     with pytest.raises(DeploymentFenceError):
         convert(block)
+
+
+def test_without_toc_headings_have_no_ids_for_a_reuse_note(monkeypatch):
+    monkeypatch.chdir(REPO)
+    md = markdown.Markdown(
+        extensions=["docs.custom_fences", "pymdownx.superfences", "pymdownx.tabbed"],
+        extension_configs={"docs.custom_fences": {"page": "a.md"}},
+    )
+    fence = '```yaml-helm-values\nx: "{{ env.X }}"\n```\n'
+    with pytest.raises(DeploymentFenceError, match="no heading"):
+        md.convert(f"## A\n\n{fence}\n## B\n\n{fence}")
 
 
 def test_a_secret_needs_the_page(convert):
