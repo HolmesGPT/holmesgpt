@@ -210,7 +210,7 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
     **Apply the configuration:**
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes --values=values.yaml
+    helm upgrade holmes robusta/holmes --values=values.yaml
     ```
 
 === "Robusta Helm Chart"

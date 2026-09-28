@@ -74,7 +74,7 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
     Update your Helm values and run a Helm upgrade:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -248,7 +248,7 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
     Update your Helm values and run a Helm upgrade:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -410,7 +410,7 @@ Use this approach when certificates are passed as environment variables (e.g., f
     Update your Helm values and run a Helm upgrade:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
