@@ -1,26 +1,26 @@
 """
 Custom fences for the MkDocs documentation.
 
-Each fence expands into markdown before any other fence or tab is rendered, so it renders exactly
-as the same markdown written by hand, tab ids included. A fence may sit indented in a list or in a
-blockquote; it expands there. Options go in braces after the fence name: `{name=value}`.
-
 - yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart
   tabs. The CLI tab shows the body's `toolsets` and `mcp_servers` keys for ~/.holmes/config.yaml.
 - yaml-helm-values: a Holmes chart values body, for chart-only settings. Holmes Helm Chart and
   Robusta Helm Chart tabs.
-- robusta-region: 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
-  sp.robusta.dev, each with the domains rewritten to the region's. Plain text renders as a code block
-  (`{lang=<name>}` sets its language); a markdown link `[text](url)` renders as a clickable link.
+- robusta-region: Creates 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
+  sp.robusta.dev. Plain URLs render as code blocks; markdown links `[text](url)` render as clickable links.
 - multi-instance: the standard "Multiple Instances" section for a toolset. The body is YAML with
   `toolset` (the toolset's config key), `config` (a single-instance config example), and optionally
   `name` (the toolset's display name, the toolset key by default) and `list_tool` (the discovery
   tool, `<toolset with / as _>_list_instances` by default). It links to the Multiple Instances page
   with a path relative to the page.
 
+robusta-region is a superfences custom fence, registered in mkdocs.yml. The other three expand into
+markdown before any other fence or tab is rendered, so each renders exactly as the same markdown
+written by hand, tab ids included. Each renders from its own body and options and the page's path,
+and reads nothing else on the page. A fence may sit indented in a list or in a blockquote; it
+expands there. Options go in braces after the fence name: `{name=value}`, or `{name}` for a flag.
+
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
-the chart's upgrade command. A fence renders from its own body and options and the page's path, and
-reads nothing else on the page.
+the chart's upgrade command.
 
 Secrets. Every `{{ env.X }}` in a key or value of the body (not in a YAML comment) that no
 `additionalEnvVars` entry sets by name is a key of the group's Kubernetes secret, in the order the
@@ -45,8 +45,7 @@ not valid YAML or not a mapping, a yaml-toolset-config body with neither `toolse
 `mcp_servers`, a multi-instance body without `toolset` or `config`, an option the fence does not
 take or an option set twice, a flag given a value or another option given none, a qualifier or
 `reuse` on a fence that reads no secret, a qualifier or page name that makes no valid Kubernetes
-secret name, a robusta-region body with no Robusta host, a fence with no closing line, and a secret
-or multi-instance link with no page.
+secret name, a fence with no closing line, and a secret or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -58,6 +57,7 @@ reads a secret and every multi-instance fence fails the build.
 import html
 import posixpath
 import re
+import uuid
 from collections import Counter
 from pathlib import PurePosixPath
 
@@ -77,6 +77,87 @@ def _rewrite_robusta_domain(text: str, region_infix: str) -> str:
     return ROBUSTA_DOMAIN_RE.sub(rf"\1.{region_infix}.robusta.dev", text)
 
 
+def robusta_region_fence_format(source, language, css_class, options, md, **kwargs):
+    """
+    Render the source as three tabs (US, EU, AP), rewriting `api.robusta.dev`,
+    `platform.robusta.dev` and `sp.robusta.dev` to the regional subdomain in each tab.
+
+    Auto-detects two input shapes:
+
+    1. A markdown link `[text](url)` (with optional `{...}` attribute list) →
+       renders as a clickable link per region.
+    2. Anything else → renders as a code block per region. Pass `lang=<name>`
+       in the fence options to set syntax highlighting (e.g. `lang=yaml`).
+
+    Usage:
+
+        ```robusta-region
+        https://api.robusta.dev/litellm/model_prices_and_context_window.json
+        ```
+
+        ```robusta-region
+        [platform.robusta.dev](https://platform.robusta.dev/)
+        ```
+
+        ````robusta-region lang=yaml
+        holmes:
+          additionalEnvVars:
+            - name: ROBUSTA_API_ENDPOINT
+              value: "https://api.robusta.dev"
+        ````
+    """
+    inner = source.strip()
+    # Inline `{lang=yaml}` attrs arrive via kwargs['attrs']; config-level options
+    # come from mkdocs.yml (currently unused).
+    attrs = kwargs.get("attrs") or {}
+    inner_lang = attrs.get("lang") or (options or {}).get("lang") or ""
+    lang_class_attr = (
+        f' class="language-{html.escape(inner_lang)}"' if inner_lang else ""
+    )
+
+    link_match = MARKDOWN_LINK_RE.match(inner)
+
+    tab_group_id = str(uuid.uuid4()).replace("-", "_")
+    group_name = f"__tabbed_{tab_group_id}"
+
+    inputs_html = ""
+    labels_html = ""
+    blocks_html = ""
+
+    for index, (region_name, region_infix) in enumerate(ROBUSTA_REGIONS, start=1):
+        tab_id = f"{group_name}_{index}"
+        checked_attr = ' checked="checked"' if index == 1 else ""
+        inputs_html += (
+            f'<input{checked_attr} id="{tab_id}" name="{group_name}" type="radio">\n'
+        )
+        labels_html += f'<label for="{tab_id}">{region_name}</label>\n'
+
+        if link_match:
+            link_text, link_url, _attrs = link_match.groups()
+            regional_text = _rewrite_robusta_domain(link_text, region_infix)
+            regional_url = _rewrite_robusta_domain(link_url, region_infix)
+            inner_html = (
+                f'<p><a href="{html.escape(regional_url)}">'
+                f"{html.escape(regional_text)}</a></p>"
+            )
+        else:
+            regional_content = _rewrite_robusta_domain(inner, region_infix)
+            inner_html = (
+                f"<pre><code{lang_class_attr}>{html.escape(regional_content)}"
+                "</code></pre>"
+            )
+
+        blocks_html += f'<div class="tabbed-block">{inner_html}</div>\n'
+
+    return (
+        '<div class="tabbed-set" data-tabs="1:3">\n'
+        f"{inputs_html}"
+        f'<div class="tabbed-labels">\n{labels_html}</div>\n'
+        f'<div class="tabbed-content">\n{blocks_html}</div>\n'
+        "</div>"
+    )
+
+
 # The name mkdocs.yml lists this module under in `markdown_extensions`; the hook
 # passes each page's path to the extension through this key of `mdx_configs`.
 EXTENSION_NAME = "docs.custom_fences"
@@ -87,14 +168,12 @@ NO_PAGE = (
 
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
-REGION_FENCE = "robusta-region"
 MULTI_INSTANCE_FENCE = "multi-instance"
 # The header options each fence takes, as `{name=value}` after the fence name, or
 # `{name}` for a flag.
 FENCE_OPTIONS = {
     TOOLSET_CONFIG_FENCE: ("secret-qualifier", "reuse"),
     HELM_VALUES_FENCE: ("secret-qualifier", "reuse"),
-    REGION_FENCE: ("lang",),
     MULTI_INSTANCE_FENCE: (),
 }
 FLAG_OPTIONS = ("reuse",)
@@ -271,28 +350,6 @@ def _fence_end(lines: list, start: int, indent: str, fence: str):
     return None
 
 
-def _region_tabs(where: str, body: str, lang: str) -> str:
-    """US, EU and AP tabs, each with `body` rewritten to the region's domains:
-    as a paragraph when `body` is a markdown link, as a code block otherwise."""
-    if not ROBUSTA_DOMAIN_RE.search(body):
-        raise TabFenceError(
-            f"{where} holds no Robusta host (api., platform. or sp.robusta.dev), "
-            "so its region tabs would all be the same"
-        )
-    is_link = MARKDOWN_LINK_RE.match(body)
-    return "\n\n".join(
-        _tab(
-            region,
-            [
-                _rewrite_robusta_domain(body, infix)
-                if is_link
-                else _code_block(lang, _rewrite_robusta_domain(body, infix))
-            ],
-        )
-        for region, infix in ROBUSTA_REGIONS
-    )
-
-
 def _markdown_text(text: str) -> str:
     """`text` as markdown that renders as exactly that text."""
     return MARKDOWN_ESCAPED_RE.sub(r"\\\1", html.escape(text, quote=False))
@@ -384,9 +441,7 @@ class TabFencePreprocessor(Preprocessor):
                 body = "\n".join(line[len(indent) :] for line in lines[i + 1 : end])
                 where = f"the {fence} fence on {self.page or 'this page'}"
                 options = self._options(where, fence, header)
-                if fence == REGION_FENCE:
-                    group = _region_tabs(where, body.strip(), options.get("lang", ""))
-                elif fence == MULTI_INSTANCE_FENCE:
+                if fence == MULTI_INSTANCE_FENCE:
                     group = _multi_instance_section(where, body, self.page)
                 else:
                     group = self._group(where, fence, options, body.strip("\n"))

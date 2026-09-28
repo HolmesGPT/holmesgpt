@@ -239,6 +239,9 @@ markdown_extensions:
               - name: mermaid
                 class: mermaid
                 format: !!python/name:pymdownx.superfences.fence_code_format
+              - name: robusta-region
+                class: robusta-region
+                format: !!python/name:docs.custom_fences.robusta_region_fence_format
     - pymdownx.tabbed:
           alternate_style: true
           combine_header_slug: true
@@ -248,7 +251,7 @@ markdown_extensions:
     - pymdownx.tasklist:
           custom_checkbox: true
     - pymdownx.tilde
-    # The fences that expand to markdown (yaml-toolset-config, yaml-helm-values, robusta-region, multi-instance); the hook below tells them which page they are on.
+    # The fences that expand to markdown (yaml-toolset-config, yaml-helm-values, multi-instance); the hook below tells them which page they are on.
     - docs.custom_fences
 
 hooks:

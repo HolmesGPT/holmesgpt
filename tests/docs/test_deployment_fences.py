@@ -611,11 +611,6 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             id="secret-name-over-253-characters",
         ),
         pytest.param(
-            "```robusta-region\nhttps://docs.example.com/x\n```\n",
-            "holds no Robusta host",
-            id="region-without-a-robusta-host",
-        ),
-        pytest.param(
             "```multi-instance\ntoolset: [a\n```\n",
             "is not valid YAML",
             id="multi-instance-invalid-yaml",
@@ -647,11 +642,6 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
                 id=f"qualifier-{qualifier}",
             )
             for qualifier in ("My Token", "Token", "a_b", "a.b", "-a", "a-", "")
-        ),
-        pytest.param(
-            "```robusta-region {secret-qualifier=a}\nhttps://api.robusta.dev\n```\n",
-            "takes only the options lang",
-            id="region-option-it-does-not-take",
         ),
         pytest.param(
             "```yaml-helm-values\nkey: 1\n",
@@ -743,64 +733,6 @@ def test_multi_instance_links_relative_to_the_page_and_shows_its_names_as_writte
     )
     with pytest.raises(TabFenceError, match="no page was given"):
         convert(fence, page="")
-
-
-def test_robusta_region_renders_the_region_tabs_as_written_by_hand(convert):
-    fence = """\
-        ## Selecting a Region
-
-        ```robusta-region {lang=yaml}
-        url: "https://api.robusta.dev/api"
-        ```
-
-        1. Open the platform:
-
-            ```robusta-region
-            [platform.robusta.dev](https://platform.robusta.dev/)
-            ```
-        """
-    hand_written = """\
-        ## Selecting a Region
-
-        === "US"
-
-            ```yaml
-            url: "https://api.robusta.dev/api"
-            ```
-
-        === "EU"
-
-            ```yaml
-            url: "https://api.eu.robusta.dev/api"
-            ```
-
-        === "AP"
-
-            ```yaml
-            url: "https://api.ap.robusta.dev/api"
-            ```
-
-        1. Open the platform:
-
-            === "US"
-
-                [platform.robusta.dev](https://platform.robusta.dev/)
-
-            === "EU"
-
-                [platform.eu.robusta.dev](https://platform.eu.robusta.dev/)
-
-            === "AP"
-
-                [platform.ap.robusta.dev](https://platform.ap.robusta.dev/)
-        """
-    html = convert(fence)
-    assert html == convert(hand_written)
-    assert html == convert(fence)  # the same page always gets the same tab ids
-    assert (
-        'id="selecting-a-region-eu"' in html and 'id="selecting-a-region-eu_1"' in html
-    )
-    assert 'href="https://platform.ap.robusta.dev/"' in html
 
 
 def test_a_secret_needs_the_page(convert):
