@@ -25,6 +25,8 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
     - **Context window**: 98,304 tokens
     - **Max output**: 32,768 tokens
 
+#### Option 1: Using Kubernetes Secret (Recommended)
+
 === "Holmes CLI"
 
     **Set the API key and token limits:**
