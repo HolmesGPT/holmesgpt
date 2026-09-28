@@ -121,22 +121,26 @@ def _cli_config(body: str) -> str:
     return kept.strip("\n")
 
 
-def _deployment_group(fence: str, body: str, secret: str, keys: list) -> str:
+def _deployment_group(
+    fence: str, body: str, secret: str, keys: list, creates_secret: bool
+) -> str:
     """The tab group of the deployment tab standard for one fence body.
 
-    `secret` is the secret the values mount, "" for none. `keys` are the env
-    vars this group's secret step creates in it; with none, the group has no
-    secret step."""
+    `secret` is the secret the values mount, "" for none, and `keys` are the env
+    vars the values read from it. The Helm tabs have a secret step only when
+    `creates_secret`; the CLI tab exports the keys either way, since the CLI
+    reads them from the shell whichever group creates the Kubernetes secret."""
     secret_step = []
     exports = []
     values = f"extraEnvVarsSecrets:\n  - {secret}\n\n{body}" if secret else body
-    if keys:
+    if creates_secret:
         command = " \\\n".join(
             [f"kubectl create secret generic {secret}"]
             + [f"  --from-literal={key}={_secret_placeholder(key)}" for key in keys]
             + ["  -n <namespace>"]
         )
         secret_step = [SECRET_CAPTION, _code_block("bash", command)]
+    if keys:
         exports = [
             "Set the environment variable:"
             if len(keys) == 1
@@ -331,7 +335,7 @@ class TabFencePreprocessor(Preprocessor):
                 raise TabFenceError(
                     f"{where} reads no secret, so it takes no secret-qualifier"
                 )
-            return _deployment_group(fence, body, "", [])
+            return _deployment_group(fence, body, "", [], False)
         if not self.page:
             raise TabFenceError(
                 f"{where} reads a secret, which is named after the page, "
@@ -339,12 +343,13 @@ class TabFencePreprocessor(Preprocessor):
             )
 
         # A group whose keys a secret an earlier group created holds reuses that
-        # secret: its values still mount it, it has no secret step, and a note
-        # names the section that creates it. The note holds only in Kubernetes,
-        # so above a Holmes CLI tab it says so.
+        # secret: its values still mount it, its Helm tabs have no secret step,
+        # its CLI tab still exports the keys, and a note names the section that
+        # creates it. The note holds only in Kubernetes, so above a Holmes CLI
+        # tab it says so.
         if not qualifier:
             for secret, (created, section) in self.secrets.items():
-                if not set(keys) <= created:
+                if not set(keys) <= set(created):
                     continue
                 if section is None:
                     raise TabFenceError(
@@ -360,7 +365,10 @@ class TabFencePreprocessor(Preprocessor):
                     + f" the `{secret}` secret created in the "
                     f"[{section[0]}](#{section[1]}) section above."
                 )
-                return note + "\n\n" + _deployment_group(fence, body, secret, [])
+                keys = [key for key in created if key in keys]  # the secret's order
+                return note + "\n\n" + _deployment_group(
+                    fence, body, secret, keys, False
+                )
 
         secret = f"holmes-{PurePosixPath(self.page).stem}"
         if qualifier:
@@ -370,8 +378,8 @@ class TabFencePreprocessor(Preprocessor):
                 f"{where} creates the secret {secret}, which an earlier group on the page "
                 "creates with other keys; give it a secret-qualifier"
             )
-        self.secrets[secret] = (set(keys), self.section)
-        return _deployment_group(fence, body, secret, keys)
+        self.secrets[secret] = (keys, self.section)
+        return _deployment_group(fence, body, secret, keys, True)
 
 
 class TabFencesExtension(Extension):

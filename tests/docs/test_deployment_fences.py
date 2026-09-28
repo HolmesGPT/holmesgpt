@@ -328,6 +328,12 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
 
         === "Holmes CLI"
 
+            Set the environment variable:
+
+            ```bash
+            export TOKEN=your-token
+            ```
+
             Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
             ```yaml
@@ -427,6 +433,31 @@ def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
     )
     notes = re.findall(r"<p>Reuses .*?</p>", html)
     assert ['href="#setup_1"' in notes[0], 'href="#my-id"' in notes[1]] == [True, True]
+
+
+def test_a_reusing_group_exports_the_keys_it_reads_in_the_secrets_order(convert):
+    page = """\
+        ## A
+
+        ```yaml-helm-values
+        x: "{{ env.ZULU }}"
+        y: "{{ env.ALPHA }}"
+        z: "{{ env.MIKE }}"
+        ```
+
+        ## B
+
+        ```yaml-toolset-config
+        toolsets:
+          b:
+            config:
+              m: "{{ env.MIKE }}"
+              z: "{{ env.ZULU }}"
+        ```
+        """
+    cli = text(convert(page).split('<h2 id="b">')[1]).split("Add the following")[0]
+    assert "Set the environment variables:" in cli
+    assert re.findall(r"export (\w+)=", cli) == ["ZULU", "MIKE"]
 
 
 QUALIFIED_PAGE = """\
