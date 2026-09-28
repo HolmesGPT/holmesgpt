@@ -324,7 +324,7 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
     hand_written_b = """\
         ## B
 
-        Reuses the `holmes-victorialogs` Kubernetes secret created in the [Set up A](#set-up-a) section above.
+        In Kubernetes, this reuses the `holmes-victorialogs` Kubernetes secret created in the [Set up A](#set-up-a) section above.
 
         === "Holmes CLI"
 
@@ -344,6 +344,9 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
             When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
             ```yaml
+            extraEnvVarsSecrets:
+              - holmes-victorialogs
+
             mcp_servers:
               b:
                 config:
@@ -362,6 +365,9 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
 
             ```yaml
             holmes:
+              extraEnvVarsSecrets:
+                - holmes-victorialogs
+
               mcp_servers:
                 b:
                   config:
@@ -411,7 +417,14 @@ def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
     html = convert(page)
     assert '<h2 id="setup_1">' in html and '<h2 id="my-id">' in html
     later = text(html.split('<h2 id="later">')[1])
-    assert "created in the Setup section above" in later
+    assert (
+        "Reuses the holmes-victorialogs Kubernetes secret created in the Setup section above"
+        in later
+    )
+    assert (
+        "extraEnvVarsSecrets:\n  - holmes-victorialogs-y" in later
+        and "kubectl" not in later
+    )
     assert 'href="#setup_1"' in html and 'href="#my-id"' in html
 
 

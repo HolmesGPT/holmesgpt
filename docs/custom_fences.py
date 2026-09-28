@@ -124,11 +124,12 @@ def _cli_config(body: str) -> str:
 def _deployment_group(fence: str, body: str, secret: str, keys: list) -> str:
     """The tab group of the deployment tab standard for one fence body.
 
-    `keys` are the env vars this group's secret step creates in `secret`; with
-    none, the group has no secret step."""
+    `secret` is the secret the values mount, "" for none. `keys` are the env
+    vars this group's secret step creates in it; with none, the group has no
+    secret step."""
     secret_step = []
     exports = []
-    values = body
+    values = f"extraEnvVarsSecrets:\n  - {secret}\n\n{body}" if secret else body
     if keys:
         command = " \\\n".join(
             [f"kubectl create secret generic {secret}"]
@@ -136,7 +137,6 @@ def _deployment_group(fence: str, body: str, secret: str, keys: list) -> str:
             + ["  -n <namespace>"]
         )
         secret_step = [SECRET_CAPTION, _code_block("bash", command)]
-        values = f"extraEnvVarsSecrets:\n  - {secret}\n\n{body}"
         exports = [
             "Set the environment variable:"
             if len(keys) == 1
@@ -339,7 +339,9 @@ class TabFencePreprocessor(Preprocessor):
             )
 
         # A group whose keys a secret an earlier group created holds reuses that
-        # secret: no secret step, and a note naming the section that creates it.
+        # secret: its values still mount it, it has no secret step, and a note
+        # names the section that creates it. The note holds only in Kubernetes,
+        # so above a Holmes CLI tab it says so.
         if not qualifier:
             for secret, (created, section) in self.secrets.items():
                 if not set(keys) <= created:
@@ -350,7 +352,12 @@ class TabFencePreprocessor(Preprocessor):
                         "creates it sits under no heading for the note to name"
                     )
                 note = (
-                    f"Reuses the `{secret}` Kubernetes secret created in the "
+                    (
+                        "In Kubernetes, this reuses"
+                        if fence == TOOLSET_CONFIG_FENCE
+                        else "Reuses"
+                    )
+                    + f" the `{secret}` Kubernetes secret created in the "
                     f"[{section[0]}](#{section[1]}) section above."
                 )
                 return note + "\n\n" + _deployment_group(fence, body, secret, [])
