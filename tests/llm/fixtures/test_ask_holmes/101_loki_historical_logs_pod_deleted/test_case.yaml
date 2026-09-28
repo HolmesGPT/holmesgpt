@@ -28,6 +28,8 @@ port_forwards:
     remote_port: 3100
 
 before_test: |
+  set -e
+
   # Create namespace
   kubectl create namespace app-101 || true
 
@@ -63,6 +65,10 @@ before_test: |
   # Wait for logs to appear in Loki
   sleep 5  # Let Promtail initialize
   START_TIME=$(date +%s)
+  LOGS_READY=false
+  LOG_COUNT=0
+  HISTORICAL_COUNT=0
+  ERROR_COUNT=0
   while [ $(($(date +%s) - START_TIME)) -lt 120 ]; do
     LOG_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
     HISTORICAL_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&start=2025-08-02T13:00:00Z&end=2025-08-02T15:00:00Z&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
@@ -70,10 +76,16 @@ before_test: |
 
     if [ "$LOG_COUNT" -gt "0" ] && [ "$HISTORICAL_COUNT" -gt "0" ] && [ "$ERROR_COUNT" -gt "0" ]; then
       echo "Logs ready in Loki"
+      LOGS_READY=true
       break
     fi
     sleep 2
   done
+
+  if [ "$LOGS_READY" = false ]; then
+    echo "ERROR: Logs never reached Loki before the ingestion timeout (current=$LOG_COUNT, historical=$HISTORICAL_COUNT, errors=$ERROR_COUNT)" >&2
+    exit 1
+  fi
 
   # DELETE THE POD - this is the key difference from test 100
   # Holmes will need to investigate using only historical logs
