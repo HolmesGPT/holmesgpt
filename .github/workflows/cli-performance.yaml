@@ -53,13 +53,19 @@ jobs:
             --iterations 5 \
             --output startup.json
 
+          # The LLM half depends on a third-party account (credits, rate
+          # limits, outages). Its failure is reported, never a red check: the
+          # startup benchmark below is the regression gate.
           if [ -n "$OPENROUTER_API_KEY" ]; then
-            python scripts/cli_performance_benchmark.py \
-              --e2e-only \
-              --iterations 5 \
-              --model "openrouter/anthropic/claude-haiku-4.5" \
-              --output llm.json
-            echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+            if python scripts/cli_performance_benchmark.py \
+                --e2e-only \
+                --iterations 5 \
+                --model "openrouter/anthropic/claude-haiku-4.5" \
+                --output llm.json; then
+              echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::LLM benchmark failed (provider error?); reporting startup time only"
+            fi
           fi
 
           echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
@@ -114,13 +120,19 @@ jobs:
             --iterations 5 \
             --output startup.json
 
+          # The LLM half depends on a third-party account (credits, rate
+          # limits, outages). Its failure is reported, never a red check: the
+          # startup benchmark below is the regression gate.
           if [ -n "$OPENROUTER_API_KEY" ]; then
-            python scripts/cli_performance_benchmark.py \
-              --e2e-only \
-              --iterations 5 \
-              --model "openrouter/anthropic/claude-haiku-4.5" \
-              --output llm.json
-            echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+            if python scripts/cli_performance_benchmark.py \
+                --e2e-only \
+                --iterations 5 \
+                --model "openrouter/anthropic/claude-haiku-4.5" \
+                --output llm.json; then
+              echo "llm_json=$(cat llm.json | jq -c)" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::LLM benchmark failed (provider error?); reporting startup time only"
+            fi
           fi
 
           echo "startup_json=$(cat startup.json | jq -c)" >> "$GITHUB_OUTPUT"
@@ -194,7 +206,7 @@ jobs:
           else:
               report_lines.extend([
                   "### ⚠️ Full CLI with LLM",
-                  "_Skipped - OPENROUTER_API_KEY not configured in repository secrets._",
+                  "_Skipped - OPENROUTER_API_KEY not configured, or the LLM run failed (see the benchmark job logs)._",
               ])
 
           report_lines.extend([
