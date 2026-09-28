@@ -6,6 +6,8 @@ repo_name: HolmesGPT/holmesgpt
 edit_uri: edit/master/docs/
 exclude_docs: |
     _*
+    *.py
+    overrides/
     snippets/
     README.md
     data-sources/permissions.md

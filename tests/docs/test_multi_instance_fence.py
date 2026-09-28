@@ -1,4 +1,4 @@
-import markdown
+import markdown  # type: ignore[import-untyped]
 import pytest
 
 from docs.custom_fences import MultiInstanceFenceError, multi_instance_fence_format
