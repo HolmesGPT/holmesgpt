@@ -42,7 +42,7 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
         value: "true"  # Required for Gemini - see Environment Variables Reference
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "gemini-pro"  # This refers to the key name in modelList above
+        value: "gemini-pro"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -85,7 +85,7 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
           value: "true"  # Required for Gemini - see Environment Variables Reference
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "gemini-pro"  # This refers to the key name in modelList above
+          value: "gemini-pro"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:

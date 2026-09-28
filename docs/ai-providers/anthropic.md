@@ -43,7 +43,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
             key: anthropic-api-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -82,7 +82,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
               key: anthropic-api-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
