@@ -74,14 +74,14 @@ For a complete list of configuration options, see the [Configuration](configurat
 If this is a new installation:
 
 ```bash
-helm install holmesgpt robusta/holmes -f values.yaml
+helm install holmes robusta/holmes -f values.yaml
 ```
 
 If upgrading an existing installation:
 
 ```bash
 helm repo update
-helm upgrade holmesgpt robusta/holmes -f values.yaml
+helm upgrade holmes robusta/holmes -f values.yaml
 ```
 
 ### 3. Verify Installation
