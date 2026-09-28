@@ -1,10 +1,18 @@
 """Unit tests for the database toolset."""
 
+import datetime
+import ipaddress
 import os
 import tempfile
 
 import certifi
+import pytds.tls
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+from OpenSSL import crypto
 from pydantic import ValidationError
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
@@ -22,6 +30,7 @@ from holmes.plugins.toolsets.database.database import (  # noqa: E402
     _icon_url_for_subtype,
     _lookup_driver_info,
     _normalise_url,
+    _pytds_validate_host,
     _serialize_value,
 )
 
@@ -587,3 +596,57 @@ class TestDatabaseToolsetMeta:
             {"connection_url": "sqlite:///path/to/db"}
         )
         assert toolset.meta == {"type": "database", "subtype": "sqlite"}
+
+
+def _make_cert(cn, dns_names=(), ips=()):
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=1))
+    )
+    sans = [x509.DNSName(d) for d in dns_names] + [
+        x509.IPAddress(ipaddress.ip_address(i)) for i in ips
+    ]
+    if sans:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName(sans), critical=False
+        )
+    # pytds hands validate_host a pyOpenSSL X509, so the tests do too.
+    return crypto.X509.from_cryptography(builder.sign(key, hashes.SHA256()))
+
+
+class TestPytdsValidateHost:
+    def test_patch_installed(self):
+        assert pytds.tls.validate_host is _pytds_validate_host
+
+    def test_cn_match(self):
+        assert _pytds_validate_host(_make_cert("sql.example.com"), b"sql.example.com")
+
+    def test_san_match_when_cn_differs(self):
+        # The case that raised AttributeError with stock pytds on pyOpenSSL >= 26.2.
+        cert = _make_cert("other", dns_names=["a.example.com", "sql.example.com"])
+        assert _pytds_validate_host(cert, b"sql.example.com")
+
+    def test_case_insensitive(self):
+        cert = _make_cert("other", dns_names=["SQL.Example.com"])
+        assert _pytds_validate_host(cert, b"sql.example.COM")
+
+    def test_wildcard_first_label_only(self):
+        cert = _make_cert("other", dns_names=["*.example.com"])
+        assert _pytds_validate_host(cert, b"sql.example.com")
+        assert not _pytds_validate_host(cert, b"a.sql.example.com")
+        assert not _pytds_validate_host(cert, b"example.com")
+
+    def test_no_match(self):
+        cert = _make_cert("other", dns_names=["a.example.com"], ips=["10.0.0.1"])
+        assert not _pytds_validate_host(cert, b"sql.example.com")
+
+    def test_no_san_extension(self):
+        assert not _pytds_validate_host(_make_cert("other"), b"sql.example.com")

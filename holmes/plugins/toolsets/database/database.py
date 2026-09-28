@@ -9,7 +9,10 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 from urllib.parse import quote, unquote, urlparse
 
 import certifi
+import pytds.tls
 import requests
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 from pydantic import ConfigDict, Field, model_validator
 
 from holmes.core.tools import (
@@ -29,6 +32,43 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 import sqlalchemy
 
 logger = logging.getLogger(__name__)
+
+
+def _pytds_validate_host(cert, name: bytes) -> bool:
+    """Drop-in for pytds.tls.validate_host that reads the certificate via cryptography.
+
+    python-tds (<= 1.17.1) calls X509.get_extension(), which pyOpenSSL removed in
+    26.2.0; our cryptography>=50 floor (CVE fix) requires pyOpenSSL >= 26.3, so the
+    stock function raises AttributeError whenever the certificate CN differs from
+    the host name. Matching semantics mirror pytds: exact CN, then SAN DNS names
+    with an optional wildcard in the first label only.
+    """
+    host = name.decode("ascii").lower()
+    crypto_cert = cert.to_cryptography()
+
+    for attr in crypto_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME):
+        if str(attr.value).lower() == host:
+            return True
+
+    try:
+        san = crypto_cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        ).value
+    except x509.ExtensionNotFound:
+        return False
+
+    host_parent = host.split(".", 1)[1] if "." in host else ""
+    for dns_name in san.get_values_for_type(x509.DNSName):
+        entry = dns_name.lower()
+        if entry == host:
+            return True
+        if entry.startswith("*.") and host_parent and entry[2:] == host_parent:
+            return True
+    return False
+
+
+# pytds resolves validate_host as a module global during the TLS handshake.
+pytds.tls.validate_host = _pytds_validate_host
 
 # SQL statements that are safe for read-only access
 _READONLY_PATTERN = re.compile(
