@@ -1,14 +1,57 @@
 """
 Custom fences for the MkDocs documentation.
 
-Tab fences, expanded into tab markdown before any other fence or tab is rendered,
-so they render exactly as the same tabs written by hand, ids included:
-- yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart tabs.
-- yaml-helm-values: a Holmes chart values body, for chart-only settings. Holmes Helm Chart and Robusta
-  Helm Chart tabs.
+Tab fences expand into tab markdown before any other fence or tab is rendered, so they render
+exactly as the same tabs written by hand, ids included. A fence may sit indented in a list or in
+a blockquote; it expands there.
+
+- yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart
+  tabs. The CLI tab shows the body's `toolsets` and `mcp_servers` keys for ~/.holmes/config.yaml.
+- yaml-helm-values: a Holmes chart values body, for chart-only settings. Holmes Helm Chart and
+  Robusta Helm Chart tabs.
 - robusta-region: 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
   sp.robusta.dev, each with the domains rewritten to the region's. Plain text renders as a code block
   (`{lang=<name>}` sets its language); a markdown link `[text](url)` renders as a clickable link.
+
+Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
+the chart's upgrade command.
+
+Secrets. Every `{{ env.X }}` in a value of the body (not in a YAML comment) that no
+`additionalEnvVars` entry sets by name is a key of the group's Kubernetes secret, in the order the
+body first references them. The secret is `holmes-<page file stem>`. The Helm tabs create it with
+`kubectl create secret generic`, one `--from-literal=X=your-x` per key, and list it under
+`extraEnvVarsSecrets`, which mounts each key as an env var; the CLI tab exports the same variables.
+
+`{secret-qualifier=<name>}` after the fence name names the group's secret `holmes-<stem>-<name>`,
+for a group on the same page that needs a secret with other keys. `<name>` is lowercase letters,
+digits and `-`, starting and ending with a letter or digit.
+
+Reuse. A fence without a qualifier whose keys are all keys of a secret an earlier fence on the page
+created reuses that secret: its Helm tabs have no secret step, its values still list the secret, its
+CLI tab still exports the keys (in the secret's order), and a note above the group names the section
+of the group that creates it:
+
+    Reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
+
+Above a yaml-toolset-config group, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
+The section is the last ATX or setext heading above the creating fence. Its link text is the
+heading's raw markdown, and its anchor is the toc extension's slug of that raw text (or the
+heading's `{#id}`), with toc's `_1` suffix for a repeated id. A heading whose text has markup (a
+link, an emoji, inline HTML) gets an anchor the page does not have, since toc slugs the rendered
+text. A heading in an admonition, a tab, a list or a blockquote is not followed, so the note names
+the heading above it. MkDocs reports a link to a missing anchor only at INFO, so neither fails the
+build.
+
+A fence that cannot render as its tabs raises TabFenceError, which fails the build: a body that is
+not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, an option
+the fence does not take, a qualifier or page name that makes no valid Kubernetes secret name, a
+second secret of the same name on a page, a reuse whose creating fence sits under no heading, a
+fence with no closing line, and a secret with no page.
+
+The page hook. Secrets are named after the page, and the page reaches the extension through this
+module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists this file under `hooks:`. An MkDocs
+config that sets its own `hooks:`, including one that INHERITs mkdocs.yml (the child's list
+replaces the parent's), must list this file too, or every fence that reads a secret fails the build.
 
 Superfences formatter:
 - multi-instance: the standard "Multiple Instances" section for a toolset.
@@ -384,7 +427,8 @@ class TabFencePreprocessor(Preprocessor):
         if not self.page:
             raise TabFenceError(
                 f"{where} reads a secret, which is named after the page, "
-                f"but no page was given to the {EXTENSION_NAME} extension"
+                f"but no page was given to the {EXTENSION_NAME} extension: list "
+                "docs/custom_fences.py under hooks: in the MkDocs config"
             )
 
         # A group whose keys a secret an earlier group created holds reuses that
@@ -467,7 +511,7 @@ def on_page_markdown(markdown, page, config, **kwargs):
     """MkDocs hook: give the tab fences the path of the page being built.
 
     MkDocs builds each page's Markdown instance from `mdx_configs` right after
-    this event, and passes no page to extensions otherwise."""
+    this event."""
     config["mdx_configs"].setdefault(EXTENSION_NAME, {})["page"] = page.file.src_uri
     return markdown
 
