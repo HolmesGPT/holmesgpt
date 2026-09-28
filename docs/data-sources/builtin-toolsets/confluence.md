@@ -60,6 +60,8 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -93,6 +95,8 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
       --from-literal=api-key=your-api-token \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -161,6 +165,8 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -191,6 +197,8 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
       --from-literal=pat=your-personal-access-token \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -250,6 +258,8 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -283,6 +293,8 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
       --from-literal=password=your-password \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

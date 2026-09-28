@@ -233,6 +233,8 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -263,6 +265,8 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
       --from-literal=auth-header="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)" \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -333,6 +337,8 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -362,6 +368,8 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
       --from-literal=token=YOUR_GLSA_TOKEN \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 

@@ -53,6 +53,8 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then add to your Holmes Helm values:
 
     ```yaml
@@ -93,6 +95,8 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
       --from-literal=api-key=your-api-key \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
@@ -182,6 +186,8 @@ For Elasticsearch clusters that require client certificate authentication (commo
       -n holmes
     ```
 
+    --8<-- "snippets/secret_namespace_note.md"
+
     Then mount the secret into the Holmes container using `additionalVolumes` and `additionalVolumeMounts`:
 
     ```yaml
@@ -218,6 +224,8 @@ For Elasticsearch clusters that require client certificate authentication (commo
       --from-file=tls.key=/path/to/client.key \
       -n default
     ```
+
+    --8<-- "snippets/secret_namespace_note.md"
 
     Then add to your Robusta Helm values:
 
