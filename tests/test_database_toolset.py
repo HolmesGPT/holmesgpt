@@ -648,5 +648,18 @@ class TestPytdsValidateHost:
         cert = _make_cert("other", dns_names=["a.example.com"], ips=["10.0.0.1"])
         assert not _pytds_validate_host(cert, b"sql.example.com")
 
+    def test_ip_san_match(self):
+        cert = _make_cert("other", dns_names=["a.example.com"], ips=["10.0.0.1"])
+        assert _pytds_validate_host(cert, b"10.0.0.1")
+        assert not _pytds_validate_host(cert, b"10.0.0.2")
+
+    def test_cn_ignored_when_dns_san_present(self):
+        cert = _make_cert("sql.example.com", dns_names=["other.example.com"])
+        assert not _pytds_validate_host(cert, b"sql.example.com")
+
+    def test_cn_fallback_for_ip_without_ip_san(self):
+        cert = _make_cert("10.0.0.1", dns_names=["a.example.com"])
+        assert _pytds_validate_host(cert, b"10.0.0.1")
+
     def test_no_san_extension(self):
         assert not _pytds_validate_host(_make_cert("other"), b"sql.example.com")

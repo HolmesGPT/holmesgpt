@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import logging
 import os
@@ -5,7 +6,7 @@ import re
 from abc import ABC
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 from urllib.parse import quote, unquote, urlparse
 
 import certifi
@@ -34,37 +35,54 @@ import sqlalchemy
 logger = logging.getLogger(__name__)
 
 
+def _dns_name_matches(pattern: str, host: str) -> bool:
+    pattern = pattern.lower()
+    if pattern == host:
+        return True
+    # Wildcard only as the entire first label, matching exactly one label.
+    if pattern.startswith("*.") and "." in host:
+        return pattern[2:] == host.split(".", 1)[1]
+    return False
+
+
 def _pytds_validate_host(cert, name: bytes) -> bool:
     """Drop-in for pytds.tls.validate_host that reads the certificate via cryptography.
 
     python-tds (<= 1.17.1) calls X509.get_extension(), which pyOpenSSL removed in
     26.2.0; our cryptography>=50 floor (CVE fix) requires pyOpenSSL >= 26.3, so the
     stock function raises AttributeError whenever the certificate CN differs from
-    the host name. Matching semantics mirror pytds: exact CN, then SAN DNS names
-    with an optional wildcard in the first label only.
+    the host name. Matching follows RFC 6125: an IP host is checked against IP
+    SANs, a DNS host against DNS SANs, and the CN is consulted only when the
+    certificate has no SAN of the host's type.
     """
     host = name.decode("ascii").lower()
     crypto_cert = cert.to_cryptography()
-
-    for attr in crypto_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME):
-        if str(attr.value).lower() == host:
-            return True
 
     try:
         san = crypto_cert.extensions.get_extension_for_class(
             x509.SubjectAlternativeName
         ).value
+        san_dns = san.get_values_for_type(x509.DNSName)
+        san_ips = san.get_values_for_type(x509.IPAddress)
     except x509.ExtensionNotFound:
-        return False
+        san_dns, san_ips = [], []
 
-    host_parent = host.split(".", 1)[1] if "." in host else ""
-    for dns_name in san.get_values_for_type(x509.DNSName):
-        entry = dns_name.lower()
-        if entry == host:
-            return True
-        if entry.startswith("*.") and host_parent and entry[2:] == host_parent:
-            return True
-    return False
+    try:
+        host_ip: Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]] = (
+            ipaddress.ip_address(host)
+        )
+    except ValueError:
+        host_ip = None
+
+    if host_ip is not None and san_ips:
+        return host_ip in san_ips
+    if host_ip is None and san_dns:
+        return any(_dns_name_matches(entry, host) for entry in san_dns)
+
+    return any(
+        str(attr.value).lower() == host
+        for attr in crypto_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    )
 
 
 # pytds resolves validate_host as a module global during the TLS handshake.
