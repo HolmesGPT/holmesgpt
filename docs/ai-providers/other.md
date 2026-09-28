@@ -25,7 +25,7 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
     - **Context window**: 98,304 tokens
     - **Max output**: 32,768 tokens
 
-#### Option 1: Using Kubernetes Secret (Recommended)
+#### Option 1: API Key Kept Out of the Configuration (Recommended)
 
 === "Holmes CLI"
 
@@ -115,7 +115,7 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-#### Option 2: Direct Value (Less Secure)
+#### Option 2: API Key in the Configuration (Less Secure)
 
 !!! warning
     This method stores the API key in plain text in your values file. Use Kubernetes Secrets for production environments.
