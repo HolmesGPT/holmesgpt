@@ -314,6 +314,17 @@ When enabled, HolmesGPT emits logs as JSON (one object per line) instead of the 
 export ENABLE_JSON_LOGS_FORMAT="true"
 ```
 
+### SCOPED_NAMESPACES
+Comma-separated list of namespaces this Holmes instance's Kubernetes RBAC is limited to. When set, Holmes is told its access scope in the system prompt, so investigations start scoped to those namespaces instead of discovering the restriction from `Forbidden` errors. The Helm chart sets it automatically when `namespaceScopedRBAC` is enabled; set it yourself when scoping RBAC manually.
+
+**Default:** unset (cluster-wide access assumed)
+
+**Example:**
+```bash
+export SCOPED_NAMESPACES="monitoring"        # single namespace
+export SCOPED_NAMESPACES="monitoring,default"  # multiple namespaces
+```
+
 ### TRACE_TOKEN_USAGE
 When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed `/api/chat` request at `INFO` level. Useful for debugging token consumption and cost issues.
 

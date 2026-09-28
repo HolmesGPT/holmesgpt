@@ -177,3 +177,29 @@ def test_render_headers_strips_authorization_case_insensitively():
         headers = toolset._render_headers()
     _assert_no_authorization(headers)
     assert headers["X-Other"] == "keep"
+
+
+def _toolset():
+    dal = MagicMock()
+    dal.enabled = True
+    dal.account_id = "acct-1"
+    dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
+    return make_robusta_platform_mcp_toolset(dal)
+
+
+def test_user_id_header_prefers_conversation_owner():
+    # OAuth opt-out drops request_context.user_id; the RBAC header must still
+    # name the conversation owner, never the automated literal.
+    headers = _toolset()._render_headers({"conversation_owner_id": "owner-1"})
+    assert headers["X-Robusta-User-Id"] == "owner-1"
+
+    headers = _toolset()._render_headers(
+        {"conversation_owner_id": "owner-1", "user_id": "other"}
+    )
+    assert headers["X-Robusta-User-Id"] == "owner-1"
+
+
+def test_user_id_header_falls_back_to_user_id_then_none():
+    assert _toolset()._render_headers({"user_id": "u-1"})["X-Robusta-User-Id"] == "u-1"
+    assert _toolset()._render_headers({})["X-Robusta-User-Id"] == "None"
+    assert _toolset()._render_headers(None)["X-Robusta-User-Id"] == "None"

@@ -15,7 +15,5 @@ toolsets:
     enabled: false
   kubernetes/kube-prometheus-stack:
     enabled: false
-  kubernetes/kube-lineage-extras:
-    enabled: false
   skills:
     enabled: false

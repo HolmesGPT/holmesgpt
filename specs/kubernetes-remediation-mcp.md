@@ -151,7 +151,7 @@ Net core change is a deletion plus config plumbing.
 ## 5. Helm chart (`helm/holmes/.../kubernetes-remediation/`)
 
 `mcpAddons.kubernetesRemediation`: opt-in (`enabled: false`) but plug-and-play once
-enabled. Image `1.2.0`. Chart renders the scoped ClusterRole when
+enabled. Image `1.4.0`. Chart renders the scoped ClusterRole when
 `serviceAccount.clusterRole` is empty (bring-your-own otherwise), the ingress-only
 NetworkPolicy (on by default), the ConfigMap/env wiring for all the new config keys,
 and `approval_required_tools: ["run_kubectl_command"]` in `toolset-config.yaml`. The

@@ -30,11 +30,19 @@ rules:
     verbs: ["get", "update", "patch"]
   # Pods: restart(=delete), exec (read tools), run diagnostic images (create),
   # cleanup (delete), logs
+  # watch: kubectl run --rm -i (diagnostic and GPU-diagnostic pods) watches the
+  # pod to know when to attach and when it terminates; without it kubectl falls
+  # back to noisy, slower polling
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
     resources: ["pods/exec"]
+    verbs: ["create"]
+  # kubectl run --rm -i (diagnostic-image and GPU-diagnostic pods) attaches to
+  # the pod to stream its output
+  - apiGroups: [""]
+    resources: ["pods/attach"]
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["pods/log"]

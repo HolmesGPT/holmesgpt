@@ -165,6 +165,12 @@ spec:
             value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
+          {{- if .Values.namespaceScopedRBAC }}
+          # tells Holmes its RBAC scope so it doesn't probe cluster-wide access first;
+          # override via additionalEnvVars if the scope differs
+          - name: SCOPED_NAMESPACES
+            value: {{ .Release.Namespace | quote }}
+          {{- end }}
           - name: SENTRY_DSN
             value: {{ .Values.sentryDSN }}
           {{- if $tls.enabled }}

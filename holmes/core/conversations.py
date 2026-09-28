@@ -53,6 +53,7 @@ def build_chat_messages(
     skills: Optional[SkillCatalog] = None,
     images: Optional[List[Union[str, Dict[str, Any]]]] = None,
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
+    conversation_link: Optional[str] = None,
 ) -> List[dict]:
     """Build messages for general chat conversation.
 
@@ -77,6 +78,7 @@ def build_chat_messages(
         include_todowrite_reminder=False,
         images=images,
         prompt_component_overrides=prompt_component_overrides,
+        conversation_link=conversation_link,
     )
 
     if not conversation_history:

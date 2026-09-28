@@ -17,5 +17,3 @@ toolsets:
     enabled: false
   kubernetes/kube-prometheus-stack:
     enabled: false
-  kubernetes/krew-extras:
-    enabled: false

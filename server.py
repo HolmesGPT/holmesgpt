@@ -53,6 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -64,6 +65,7 @@ from holmes.core.models import (
     OAuthCallbackResponse,
 )
 from holmes.core.prompt import PromptComponent
+from holmes.core.tool_calling_llm import RelayRefusal
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
@@ -658,6 +660,12 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 skills=skills,
                 images=chat_request.images,
                 prompt_component_overrides=prompt_component_overrides,
+                conversation_link=resolve_conversation_link(
+                    chat_request.request_source,
+                    chat_request.conversation_id,
+                    dal.account_id,
+                    chat_request.conversation_link,
+                ),
             )
 
         try:
@@ -822,6 +830,11 @@ def chat(chat_request: ChatRequest, http_request: Request):
     except HTTPException:
         # The generic ``except Exception`` below would otherwise rewrite these as 500.
         raise
+    except RelayRefusal as e:
+        # Relay's own refusal of a Robusta-hosted model carries the status to
+        # answer with (401 stale token, 403 account opted out) and the sentence
+        # the user has to act on (ROB-1389).
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:

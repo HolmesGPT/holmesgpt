@@ -106,6 +106,41 @@ def test_server_loads_robusta_ai_when_model_var_exists(
     assert "Robusta/test" in config.llm_model_registry.models
 
 
+ROBUSTA_OPTED_OUT = RobustaModelsResponse(models={}, robusta_ai_disabled=True)
+
+
+@patch("holmes.core.llm.ROBUSTA_AI", True)
+@patch("holmes.core.llm.fetch_robusta_models", return_value=ROBUSTA_OPTED_OUT)
+@patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
+@patch(
+    "holmes.core.llm.LLMModelRegistry._parse_models_file",
+    return_value={"existing_model": _fake_existing_model_entry()},
+)
+def test_server_not_loads_robusta_ai_when_the_account_opted_out(
+    mock_parse, mock_cluster, mock_fetch, *, monkeypatch
+):
+    """ROBUSTA_AI=true still cannot put an opted-out account on a Robusta-hosted
+    model: the account setting wins, and the cluster's own models still load."""
+    config = Config.load_from_env()
+    assert "existing_model" in config.llm_model_registry.models
+    assert "Robusta" not in config.llm_model_registry.models
+    assert config.llm_model_registry.default_robusta_model is None
+    assert config.llm_model_registry.robusta_ai_disabled
+
+
+@patch("holmes.core.llm.ROBUSTA_AI", True)
+@patch("holmes.core.llm.fetch_robusta_models", return_value=ROBUSTA_OPTED_OUT)
+@patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
+def test_server_serves_the_model_env_var_when_the_account_opted_out(
+    mock_cluster, mock_fetch, *, monkeypatch
+):
+    monkeypatch.setenv("MODEL", "some_model")
+
+    config = Config.load_from_env()
+    assert "Robusta" not in config.llm_model_registry.models
+    assert config.llm_model_registry.get_model_params().name == "some_model"
+
+
 @patch("holmes.core.llm.ROBUSTA_AI", None)
 @patch("holmes.config.Config._Config__get_cluster_name", return_value="test")
 def test_server_not_loads_robusta_ai_when_model_var_exists_and_no_env_var(

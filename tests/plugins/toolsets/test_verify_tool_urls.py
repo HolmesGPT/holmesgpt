@@ -509,7 +509,8 @@ class TestDashboardURLs:
 class TestCoralogixURLs:
     TEAM_SLUG = "my-team"
     DOMAIN = "eu2.coralogix.com"
-    BASE_URL = f"https://{TEAM_SLUG}.{DOMAIN}"
+    # the team UI hostname differs from the API domain (ROB-1395)
+    BASE_URL = f"https://{TEAM_SLUG}.app.{DOMAIN}"
 
     @staticmethod
     def extract_query_from_url(url: str) -> str:

@@ -60,14 +60,7 @@ RUN cd /tmp \
     && rm -f kubectl.sha256 \
     && kubectl version --client
 
-# kube-lineage / ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
-COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
-COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz.sha256 /tmp/kube-lineage.gz.sha256
-RUN cd /tmp && sha256sum -c kube-lineage.gz.sha256 \
-    && gunzip /tmp/kube-lineage.gz && mv /tmp/kube-lineage /kube-lineage && chmod +x /kube-lineage \
-    && rm -f /tmp/kube-lineage.gz.sha256
-RUN /kube-lineage --version
-
+# ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz.sha256 /tmp/argocd.gz.sha256
 RUN cd /tmp && sha256sum -c argocd.gz.sha256 \
@@ -143,10 +136,6 @@ RUN apk upgrade --no-cache && apk add --no-cache \
 # Set up kubectl
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 RUN kubectl version --client
-
-# Set up kube lineage
-COPY --from=builder /kube-lineage /usr/local/bin
-RUN kube-lineage --version
 
 # Set up ArgoCD
 COPY --from=builder /argocd /usr/local/bin/argocd
