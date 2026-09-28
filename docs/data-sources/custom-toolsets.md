@@ -350,7 +350,7 @@ If your custom toolset requires additional binaries not available in the base Ho
 
 ### Create a Custom Dockerfile
 
-Start from the image your Holmes chart version runs. `helm show values robusta/holmes | grep -E '^(registry|image):'` prints it; chart 0.42.0 runs `robustadev/holmes:0.42.0`. The image is based on Alpine Linux, so install packages with `apk`.
+Start from the Holmes image your Robusta release runs, and put its tag in the `FROM` line below. `helm get manifest robusta | grep 'image: .*/holmes:'` prints it. The Robusta chart bundles its own version of the Holmes chart, so read the image from your release rather than from the Holmes chart. The image is based on Alpine Linux, so install packages with `apk`.
 
 ```dockerfile
 FROM robustadev/holmes:0.42.0
