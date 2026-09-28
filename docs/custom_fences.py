@@ -137,7 +137,7 @@ ROBUSTA_VALUES_CAPTION = "When using the **Robusta Helm Chart** (which includes 
 CLI_CONFIG_CAPTION = "Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:"
 SECRET_CAPTION = "Create a Kubernetes secret in the namespace Holmes runs in:"
 APPLY_CAPTION = "Apply the configuration:"
-HOLMES_UPGRADE_COMMAND = "helm upgrade holmesgpt robusta/holmes -f values.yaml"
+HOLMES_UPGRADE_COMMAND = "helm upgrade holmes robusta/holmes -f values.yaml"
 ROBUSTA_UPGRADE_COMMAND = "helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>"
 REFRESH_WARNING_INCLUDE = '--8<-- "snippets/toolset_refresh_warning.md"'
 

@@ -99,7 +99,7 @@ def test_toolset_config_renders_the_three_standard_tabs(convert):
             Apply the configuration:
 
             ```bash
-            helm upgrade holmesgpt robusta/holmes -f values.yaml
+            helm upgrade holmes robusta/holmes -f values.yaml
             ```
 
         === "Robusta Helm Chart"
@@ -162,7 +162,7 @@ def test_helm_values_without_a_secret_renders_the_two_helm_tabs(convert):
             Apply the configuration:
 
             ```bash
-            helm upgrade holmesgpt robusta/holmes -f values.yaml
+            helm upgrade holmes robusta/holmes -f values.yaml
             ```
 
         === "Robusta Helm Chart"
@@ -258,7 +258,7 @@ def test_env_vars_set_by_the_chart_are_not_secret_keys_and_chart_keys_stay_out_o
             Apply the configuration:
 
             ```bash
-            helm upgrade holmesgpt robusta/holmes -f values.yaml
+            helm upgrade holmes robusta/holmes -f values.yaml
             ```
 
         === "Robusta Helm Chart"
@@ -362,7 +362,7 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
             Apply the configuration:
 
             ```bash
-            helm upgrade holmesgpt robusta/holmes -f values.yaml
+            helm upgrade holmes robusta/holmes -f values.yaml
             ```
 
         === "Robusta Helm Chart"
@@ -726,7 +726,7 @@ TOKEN_TABS = """\
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
