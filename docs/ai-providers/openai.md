@@ -157,6 +157,9 @@ In Kubernetes, this reuses the `holmes-openai` secret created in the [Configurat
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
+    extraEnvVarsSecrets:
+      - holmes-openai
+
     modelList:
       gpt-5-minimal:
         api_key: "{{ env.OPENAI_API_KEY }}"
@@ -194,6 +197,9 @@ In Kubernetes, this reuses the `holmes-openai` secret created in the [Configurat
 
     ```yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-openai
+
       modelList:
         gpt-5-minimal:
           api_key: "{{ env.OPENAI_API_KEY }}"
