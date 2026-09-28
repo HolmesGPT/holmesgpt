@@ -1,9 +1,9 @@
 """
 Custom fences for the MkDocs documentation.
 
-Tab fences expand into tab markdown before any other fence or tab is rendered, so they render
-exactly as the same tabs written by hand, ids included. A fence may sit indented in a list or in
-a blockquote; it expands there.
+Each fence expands into markdown before any other fence or tab is rendered, so it renders exactly
+as the same markdown written by hand, tab ids included. A fence may sit indented in a list or in a
+blockquote; it expands there.
 
 - yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart
   tabs. The CLI tab shows the body's `toolsets` and `mcp_servers` keys for ~/.holmes/config.yaml.
@@ -12,6 +12,11 @@ a blockquote; it expands there.
 - robusta-region: 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
   sp.robusta.dev, each with the domains rewritten to the region's. Plain text renders as a code block
   (`{lang=<name>}` sets its language); a markdown link `[text](url)` renders as a clickable link.
+- multi-instance: the standard "Multiple Instances" section for a toolset. The body is YAML with
+  `toolset` (the toolset's config key), `config` (a single-instance config example), and optionally
+  `name` (the toolset's display name, the toolset key by default) and `list_tool` (the discovery
+  tool, `<toolset with / as _>_list_instances` by default). It links to the Multiple Instances page
+  with a path relative to the page.
 
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
 the chart's upgrade command.
@@ -42,30 +47,30 @@ text. A heading in an admonition, a tab, a list or a blockquote is not followed,
 the heading above it. MkDocs reports a link to a missing anchor only at INFO, so neither fails the
 build.
 
-A fence that cannot render as its tabs raises TabFenceError, which fails the build: a body that is
-not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, an option
-the fence does not take, a qualifier or page name that makes no valid Kubernetes secret name, a
-second secret of the same name on a page, a reuse whose creating fence sits under no heading, a
-fence with no closing line, and a secret with no page.
+A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
+not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, a
+multi-instance body without `toolset` or `config`, an option the fence does not take, a qualifier
+or page name that makes no valid Kubernetes secret name, a second secret of the same name on a page,
+a reuse whose creating fence sits under no heading, a fence with no closing line, and a secret or
+multi-instance link with no page.
 
-The page hook. Secrets are named after the page, and the page reaches the extension through this
-module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists this file under `hooks:`. An MkDocs
-config that sets its own `hooks:`, including one that INHERITs mkdocs.yml (the child's list
-replaces the parent's), must list this file too, or every fence that reads a secret fails the build.
-
-Superfences formatter:
-- multi-instance: the standard "Multiple Instances" section for a toolset.
+The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
+page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
+this file under `hooks:`. An MkDocs config that sets its own `hooks:`, including one that INHERITs
+mkdocs.yml (the child's list replaces the parent's), must list this file too, or every fence that
+reads a secret and every multi-instance fence fails the build.
 """
 
 import html
+import posixpath
 import re
+import textwrap
 from pathlib import PurePosixPath
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
 from markdown.extensions.toc import unique
 from markdown.preprocessors import Preprocessor
-from pymdownx.superfences import SuperFencesException
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -82,16 +87,24 @@ def _rewrite_robusta_domain(text: str, region_infix: str) -> str:
 # The name mkdocs.yml lists this module under in `markdown_extensions`; the hook
 # passes each page's path to the extension through this key of `mdx_configs`.
 EXTENSION_NAME = "docs.custom_fences"
+NO_PAGE = (
+    f"but no page was given to the {EXTENSION_NAME} extension: "
+    "list docs/custom_fences.py under hooks: in the MkDocs config"
+)
 
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
 REGION_FENCE = "robusta-region"
-# The header options each tab fence takes, as `{name=value}` after the fence name.
+MULTI_INSTANCE_FENCE = "multi-instance"
+# The header options each fence takes, as `{name=value}` after the fence name.
 FENCE_OPTIONS = {
     TOOLSET_CONFIG_FENCE: ("secret-qualifier",),
     HELM_VALUES_FENCE: ("secret-qualifier",),
     REGION_FENCE: ("lang",),
+    MULTI_INSTANCE_FENCE: (),
 }
+# The page every multi-instance section links to, as a path under docs/.
+MULTI_INSTANCE_PAGE = "data-sources/multi-instance-toolsets.md"
 
 # Top-level keys of a Holmes config body that the CLI reads from
 # ~/.holmes/config.yaml; every other top-level key is a chart value.
@@ -113,6 +126,9 @@ SETEXT_TEXT_RE = re.compile(
     r"^ {0,3}(?P<text>\S.*?)\s*(?:\{[^}]*#(?P<id>[\w-]+)[^}]*\})?\s*$"
 )
 SETEXT_UNDERLINE_RE = re.compile(r"^[=-]+ *$")
+# Characters Python-Markdown's backslash escapes cover, apart from `>`, which
+# html.escape already turns into an entity.
+MARKDOWN_ESCAPED_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!])")
 # Kubernetes names a Secret by a DNS-1123 subdomain; a qualifier is one label of it.
 DNS1123_LABEL = r"[a-z0-9]([-a-z0-9]*[a-z0-9])?"
 DNS1123_LABEL_RE = re.compile(rf"^{DNS1123_LABEL}$")
@@ -284,8 +300,58 @@ def _region_tabs(body: str, lang: str) -> str:
     )
 
 
+def _markdown_text(text: str) -> str:
+    """`text` as markdown that renders as exactly that text."""
+    return MARKDOWN_ESCAPED_RE.sub(r"\\\1", html.escape(text, quote=False))
+
+
+def _multi_instance_section(where: str, body: str, page: str) -> str:
+    """The standard "Multiple Instances" section for the toolset `body` names:
+    its config example nested under `instances:` twice, the tools multiple
+    instances add, and a link to the Multiple Instances page."""
+    try:
+        spec = yaml.safe_load(body)
+    except yaml.YAMLError as e:
+        raise TabFenceError(f"{where} is not valid YAML: {e}") from e
+    if not isinstance(spec, dict):
+        raise TabFenceError(f"{where} must be a YAML mapping")
+    toolset = str(spec.get("toolset", "")).strip()
+    config = str(spec.get("config", "")).strip()
+    if not toolset or not config:
+        raise TabFenceError(f"{where} requires the keys toolset and config")
+    name = _markdown_text(str(spec.get("name") or toolset).strip())
+    # The wrapper names the discovery tool by replacing '/' with '_' in the toolset name.
+    list_tool = spec.get("list_tool") or toolset.replace("/", "_") + "_list_instances"
+    if not page:
+        raise TabFenceError(
+            f"{where} links to the Multiple Instances page relative to the page, {NO_PAGE}"
+        )
+    fields = _indent(textwrap.dedent(config), " " * 10)
+    example = (
+        f"toolsets:\n  {toolset}:\n    enabled: true\n    config:\n      instances:\n"
+        f"        - name: prod\n{fields}\n        - name: staging\n{fields}"
+    )
+    link = posixpath.relpath(MULTI_INSTANCE_PAGE, posixpath.dirname(page) or ".")
+    return "\n\n".join(
+        [
+            f"The {name} toolset can connect to more than one {name} instance. "
+            "List each one under `instances:` with a unique `name`. Any config field "
+            "set outside `instances:` becomes a default that every instance inherits, "
+            "so shared settings only need to be written once.",
+            _code_block("yaml", example),
+            "When more than one instance is configured, HolmesGPT automatically adds "
+            f"an `instance` parameter to every {name} tool (so it can pick which "
+            f"instance to query) and a `{list_tool}` tool to list the configured "
+            "instances. With a single instance — including the flat config without "
+            "`instances:` — the tools are unchanged and fully backwards compatible.",
+            f"See [Multiple Instances]({link}) for the full behaviour, including "
+            "global defaults and health reporting.",
+        ]
+    )
+
+
 class TabFencePreprocessor(Preprocessor):
-    """Replace each tab fence with its tab group's markdown.
+    """Replace each fence with its markdown.
 
     Registered after pymdownx.snippets, so it also sees fences inside included
     snippet files, and before superfences and tabbed, which then render the
@@ -311,7 +377,7 @@ class TabFencePreprocessor(Preprocessor):
             info = match["info"].strip() if match else ""
             fence, _, header = info.partition(" ")
             if match and not end and fence in FENCE_OPTIONS:
-                # Superfences no longer knows these fences, so an unexpanded one
+                # Superfences does not know these fences, so an unexpanded one
                 # would render as plain code.
                 raise TabFenceError(
                     f"the {fence} fence on {self.page or 'this page'} has no closing "
@@ -332,6 +398,8 @@ class TabFencePreprocessor(Preprocessor):
                 options = self._options(where, fence, header.strip())
                 if fence == REGION_FENCE:
                     group = _region_tabs(body.strip(), options.get("lang", ""))
+                elif fence == MULTI_INSTANCE_FENCE:
+                    group = _multi_instance_section(where, body, self.page)
                 else:
                     group = self._group(where, fence, options, body.strip("\n"))
                 expansion = group.split("\n")
@@ -373,10 +441,16 @@ class TabFencePreprocessor(Preprocessor):
             for option in FENCE_OPTION_RE.finditer(text)
         }
         leftover = FENCE_OPTION_RE.sub("", text).strip()
-        unknown = sorted(set(options) - set(FENCE_OPTIONS[fence]))
-        if leftover or unknown:
+        allowed = FENCE_OPTIONS[fence]
+        if leftover or set(options) - set(allowed):
             raise TabFenceError(
-                f"{where} takes only the options {', '.join(FENCE_OPTIONS[fence])}: {header}"
+                f"{where} takes "
+                + (
+                    f"only the options {', '.join(allowed)}"
+                    if allowed
+                    else "no options"
+                )
+                + f": {header}"
             )
         return options
 
@@ -426,9 +500,7 @@ class TabFencePreprocessor(Preprocessor):
             return _deployment_group(fence, body, "", [], False)
         if not self.page:
             raise TabFenceError(
-                f"{where} reads a secret, which is named after the page, "
-                f"but no page was given to the {EXTENSION_NAME} extension: list "
-                "docs/custom_fences.py under hooks: in the MkDocs config"
+                f"{where} reads a secret, which is named after the page, {NO_PAGE}"
             )
 
         # A group whose keys a secret an earlier group created holds reuses that
@@ -514,98 +586,3 @@ def on_page_markdown(markdown, page, config, **kwargs):
     this event."""
     config["mdx_configs"].setdefault(EXTENSION_NAME, {})["page"] = page.file.src_uri
     return markdown
-
-
-# Central page that documents how multi-instance toolsets work. Linked from every
-# rendered ``multi-instance`` block so each toolset page doesn't repeat the prose.
-MULTI_INSTANCE_DOC_URL = "/data-sources/multi-instance-toolsets/"
-
-
-def _reindent(text: str, spaces: int) -> str:
-    """Dedent ``text`` to its common leading whitespace, then indent every
-    non-empty line by ``spaces``. Used to nest a flat config example under
-    ``instances:`` at the correct YAML depth."""
-    lines = text.strip("\n").split("\n")
-    nonempty = [ln for ln in lines if ln.strip()]
-    base = min((len(ln) - len(ln.lstrip()) for ln in nonempty), default=0)
-    pad = " " * spaces
-    return "\n".join(pad + ln[base:] if ln.strip() else "" for ln in lines)
-
-
-class MultiInstanceFenceError(SuperFencesException):
-    """Superfences catches any other exception a fence raises and renders the
-    block as plain code; this one fails the build."""
-
-
-def multi_instance_fence_format(source, language, css_class, options, md, **kwargs):
-    """Render the standard "Multiple Instances" section for a toolset.
-
-    The fence body is YAML with three keys:
-
-        ```multi-instance
-        toolset: grafana/dashboards   # the toolset key used in config examples
-        name: Grafana                 # human-readable name (optional; derived from toolset)
-        config: |                     # a single-instance config example for this toolset
-          api_url: <your grafana url>
-          api_key: <your api key>
-        ```
-
-    It emits a note admonition that:
-    - explains the toolset can connect to several instances via ``instances:``;
-    - shows the supplied config example nested under ``instances:`` (two entries);
-    - notes the auto-injected ``instance`` parameter and ``<toolset>_list_instances``
-      tool that appear when more than one instance is configured;
-    - links to the central Multiple Instances page for the full behaviour.
-
-    The same component renders identically for every toolset, so each page imports
-    it in one fenced block instead of repeating the prose.
-    """
-    try:
-        spec = yaml.safe_load(source) or {}
-    except yaml.YAMLError as e:
-        raise MultiInstanceFenceError(
-            f"multi-instance fence body is not valid YAML: {e}"
-        ) from e
-    if not isinstance(spec, dict):
-        raise MultiInstanceFenceError(
-            "multi-instance fence body must be a YAML mapping"
-        )
-    toolset = str(spec.get("toolset", "")).strip()
-    name = str(spec.get("name") or toolset or "this").strip()
-    config = str(spec.get("config", "")).strip()
-    if not toolset or not config:
-        raise MultiInstanceFenceError(
-            "multi-instance fence requires 'toolset' and 'config' keys in its YAML body"
-        )
-
-    # The wrapper names the discovery tool by replacing '/' with '_' in the toolset name.
-    list_tool = spec.get("list_tool") or (toolset.replace("/", "_") + "_list_instances")
-
-    fields = _reindent(config, 10)
-    yaml_example = (
-        "toolsets:\n"
-        f"  {toolset}:\n"
-        "    enabled: true\n"
-        "    config:\n"
-        "      instances:\n"
-        f"        - name: prod\n{fields}\n"
-        f"        - name: staging\n{fields}\n"
-    )
-
-    name_e = html.escape(name)
-    list_tool_e = html.escape(str(list_tool))
-    return (
-        f"<p>The {name_e} toolset can connect to more than one {name_e} instance. "
-        "List each one under <code>instances:</code> with a unique <code>name</code>. "
-        "Any config field set outside <code>instances:</code> becomes a default that "
-        "every instance inherits, so shared settings only need to be written once.</p>\n"
-        f'<pre><code class="language-yaml">{html.escape(yaml_example)}</code></pre>\n'
-        "<p>When more than one instance is configured, HolmesGPT automatically adds an "
-        f"<code>instance</code> parameter to every {name_e} tool (so it can pick which "
-        f"instance to query) and a <code>{list_tool_e}</code> tool to list the configured "
-        "instances. With a single instance — including the flat config without "
-        "<code>instances:</code> — the tools are unchanged and fully backwards "
-        "compatible.</p>\n"
-        f'<p>See <a href="{MULTI_INSTANCE_DOC_URL}">Multiple Instances</a> for the full '
-        "behaviour, including global defaults and health reporting.</p>"
-    )

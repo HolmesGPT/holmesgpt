@@ -477,7 +477,9 @@ QUALIFIED_PAGE = """\
     """
 
 
-def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(convert):
+def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(
+    convert,
+):
     fence = """\
         ```yaml-toolset-config
         # Set {{ env.IN_A_COMMENT }} first.
@@ -491,12 +493,9 @@ def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(co
         ```
         """
     shown = text(convert(fence))
-    assert re.findall(r"--from-literal=(\w+)=", shown) == 2 * [
-        "ZULU",
-        "IN_A_STRING",
-        "ALPHA",
-    ]
-    assert re.findall(r"export (\w+)=", shown) == ["ZULU", "IN_A_STRING", "ALPHA"]
+    keys = ["ZULU", "IN_A_STRING", "ALPHA"]
+    assert re.findall(r"--from-literal=(\w+)=", shown) == 2 * keys
+    assert re.findall(r"export (\w+)=", shown) == keys
 
 
 def test_a_heading_like_line_in_a_code_block_is_not_the_notes_section(convert):
@@ -685,6 +684,31 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "takes no secret-qualifier",
             id="qualifier-without-a-secret",
         ),
+        pytest.param(
+            "```multi-instance\ntoolset: [a\n```\n",
+            "is not valid YAML",
+            id="multi-instance-invalid-yaml",
+        ),
+        pytest.param(
+            "```multi-instance\n- a\n```\n",
+            "must be a YAML mapping",
+            id="multi-instance-not-a-mapping",
+        ),
+        pytest.param(
+            "```multi-instance\ntoolset: a\n```\n",
+            "requires the keys toolset and config",
+            id="multi-instance-without-config",
+        ),
+        pytest.param(
+            "```multi-instance\nconfig: |\n  a: 1\n```\n",
+            "requires the keys toolset and config",
+            id="multi-instance-without-toolset",
+        ),
+        pytest.param(
+            "```multi-instance {lang=yaml}\ntoolset: a\nconfig: |\n  a: 1\n```\n",
+            "takes no options",
+            id="multi-instance-option",
+        ),
         *(
             pytest.param(
                 X_FENCE.replace("values", f'values {{secret-qualifier="{qualifier}"}}'),
@@ -735,6 +759,70 @@ def test_a_fence_that_cannot_be_rendered_fails_the_build(convert, block, message
 def test_a_page_whose_name_makes_no_secret_name_fails_the_build(convert):
     with pytest.raises(TabFenceError, match="not a valid Kubernetes secret name"):
         convert(X_FENCE, page="data-sources/My_Page.md")
+
+
+def test_multi_instance_renders_the_section_as_written_by_hand(convert):
+    fence = """\
+        ## Multiple Instances
+
+        ```multi-instance
+        toolset: prometheus/metrics
+        name: Prometheus
+        config: |
+          prometheus_url: http://prometheus:9090
+
+          timeout: 30
+        ```
+        """
+    hand_written = """\
+        ## Multiple Instances
+
+        The Prometheus toolset can connect to more than one Prometheus instance. List each one under `instances:` with a unique `name`. Any config field set outside `instances:` becomes a default that every instance inherits, so shared settings only need to be written once.
+
+        ```yaml
+        toolsets:
+          prometheus/metrics:
+            enabled: true
+            config:
+              instances:
+                - name: prod
+                  prometheus_url: http://prometheus:9090
+
+                  timeout: 30
+                - name: staging
+                  prometheus_url: http://prometheus:9090
+
+                  timeout: 30
+        ```
+
+        When more than one instance is configured, HolmesGPT automatically adds an `instance` parameter to every Prometheus tool (so it can pick which instance to query) and a `prometheus_metrics_list_instances` tool to list the configured instances. With a single instance — including the flat config without `instances:` — the tools are unchanged and fully backwards compatible.
+
+        See [Multiple Instances](../multi-instance-toolsets.md) for the full behaviour, including global defaults and health reporting.
+        """
+    page = "data-sources/builtin-toolsets/prometheus.md"
+    assert convert(fence, page=page) == convert(hand_written, page=page)
+
+
+def test_multi_instance_links_relative_to_the_page_and_shows_its_names_as_written(
+    convert,
+):
+    fence = """\
+        ```multi-instance
+        toolset: a
+        name: "*A* <b>"
+        list_tool: find_a
+        config: |
+          x: 1
+        ```
+        """
+    html = convert(fence, page="data-sources/a.md")
+    assert 'href="multi-instance-toolsets.md"' in html
+    assert "The *A* &lt;b&gt; toolset" in html and "<code>find_a</code>" in html
+    assert 'href="data-sources/multi-instance-toolsets.md"' in convert(
+        fence, page="a.md"
+    )
+    with pytest.raises(TabFenceError, match="no page was given"):
+        convert(fence, page="")
 
 
 def test_robusta_region_renders_the_region_tabs_as_written_by_hand(convert):
@@ -831,3 +919,30 @@ def test_mkdocs_names_the_secret_after_the_page(tmp_path):
     build(load_config(str(tmp_path / "mkdocs.yml")))
     html = (tmp_path / "site" / "splunk" / "index.html").read_text()
     assert "kubectl create secret generic holmes-splunk" in text(html)
+
+
+def test_mkdocs_resolves_the_multi_instance_link_to_the_page(tmp_path):
+    docs = tmp_path / "docs"
+    (docs / "data-sources" / "builtin-toolsets").mkdir(parents=True)
+    (docs / "data-sources" / "multi-instance-toolsets.md").write_text(
+        "# Multiple Instances\n"
+    )
+    (docs / "data-sources" / "builtin-toolsets" / "a.md").write_text(
+        "# A\n\n```multi-instance\ntoolset: a\nconfig: |\n  x: 1\n```\n"
+    )
+    (tmp_path / "mkdocs.yml").write_text(
+        textwrap.dedent(f"""\
+            site_name: test
+            strict: true
+            markdown_extensions:
+              - docs.custom_fences
+              - pymdownx.superfences
+            hooks:
+              - {REPO / "docs" / "custom_fences.py"}
+            """)
+    )
+    build(load_config(str(tmp_path / "mkdocs.yml")))
+    html = (
+        tmp_path / "site" / "data-sources" / "builtin-toolsets" / "a" / "index.html"
+    ).read_text()
+    assert 'href="../../multi-instance-toolsets/"' in html
