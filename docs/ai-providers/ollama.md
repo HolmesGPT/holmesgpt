@@ -48,7 +48,7 @@ Configure HolmesGPT to use local models with Ollama.
         value: "http://ollama-service:11434"
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "ollama-llama3"  # This refers to the key name in modelList above
+        value: "ollama-llama3"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -99,7 +99,7 @@ Configure HolmesGPT to use local models with Ollama.
           value: "http://ollama-service:11434"
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "ollama-llama3"  # This refers to the key name in modelList above
+          value: "ollama-llama3"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:

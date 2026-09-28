@@ -46,7 +46,7 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
             key: openai-api-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "gpt-4.1"  # This refers to the key name in modelList above
+        value: "gpt-4.1"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -85,7 +85,7 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
               key: openai-api-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "gpt-4.1"  # This refers to the key name in modelList above
+          value: "gpt-4.1"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:

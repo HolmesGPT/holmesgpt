@@ -58,7 +58,7 @@ The examples below lead with the Anthropic option and include a GPT deployment a
             key: azure-api-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "azure-opus-4-7"  # This refers to the key name in modelList above
+        value: "azure-opus-4-7"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -98,7 +98,7 @@ The examples below lead with the Anthropic option and include a GPT deployment a
               key: azure-api-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "azure-opus-4-7"  # This refers to the key name in modelList above
+          value: "azure-opus-4-7"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:

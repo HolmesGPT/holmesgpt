@@ -62,7 +62,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
             key: aws-secret-access-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -118,7 +118,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
               key: aws-secret-access-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:

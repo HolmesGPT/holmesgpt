@@ -35,7 +35,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
             key: openrouter-api-key
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -74,7 +74,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
               key: openrouter-api-key
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -135,7 +135,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
         value: "https://openrouter.ai/api/v1"
       # Optional: Set default model (use modelList key name)
       - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList above
+        value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -178,7 +178,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
           value: "https://openrouter.ai/api/v1"
         # Optional: Set default model (use modelList key name)
         - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList above
+          value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
