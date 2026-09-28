@@ -425,7 +425,8 @@ def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
         "extraEnvVarsSecrets:\n  - holmes-victorialogs-y" in later
         and "kubectl" not in later
     )
-    assert 'href="#setup_1"' in html and 'href="#my-id"' in html
+    notes = re.findall(r"<p>Reuses .*?</p>", html)
+    assert ['href="#setup_1"' in notes[0], 'href="#my-id"' in notes[1]] == [True, True]
 
 
 QUALIFIED_PAGE = """\
