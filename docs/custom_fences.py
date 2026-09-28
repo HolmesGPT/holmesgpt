@@ -357,7 +357,7 @@ class TabFencePreprocessor(Preprocessor):
                         if fence == TOOLSET_CONFIG_FENCE
                         else "Reuses"
                     )
-                    + f" the `{secret}` Kubernetes secret created in the "
+                    + f" the `{secret}` secret created in the "
                     f"[{section[0]}](#{section[1]}) section above."
                 )
                 return note + "\n\n" + _deployment_group(fence, body, secret, [])

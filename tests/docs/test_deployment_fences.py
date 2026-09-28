@@ -324,7 +324,7 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
     hand_written_b = """\
         ## B
 
-        In Kubernetes, this reuses the `holmes-victorialogs` Kubernetes secret created in the [Set up A](#set-up-a) section above.
+        In Kubernetes, this reuses the `holmes-victorialogs` secret created in the [Set up A](#set-up-a) section above.
 
         === "Holmes CLI"
 
@@ -418,7 +418,7 @@ def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
     assert '<h2 id="setup_1">' in html and '<h2 id="my-id">' in html
     later = text(html.split('<h2 id="later">')[1])
     assert (
-        "Reuses the holmes-victorialogs Kubernetes secret created in the Setup section above"
+        "Reuses the holmes-victorialogs secret created in the Setup section above"
         in later
     )
     assert (
