@@ -460,6 +460,8 @@ def test_a_reusing_group_exports_the_keys_it_reads_in_the_secrets_order(convert)
     assert re.findall(r"export (\w+)=", cli) == ["ZULU", "MIKE"]
 
 
+X_FENCE = '```yaml-helm-values\nx: "{{ env.X }}"\n```\n'
+
 QUALIFIED_PAGE = """\
     ## Basic auth
 
@@ -475,6 +477,68 @@ QUALIFIED_PAGE = """\
     """
 
 
+def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(convert):
+    fence = """\
+        ```yaml-toolset-config
+        # Set {{ env.IN_A_COMMENT }} first.
+        toolsets:
+          x:
+            config:  # or {{ env.IN_A_TRAILING_COMMENT }}
+              zulu: "{{ env.ZULU }}"
+              note: "a # is not a comment in a string: {{ env.IN_A_STRING }}"
+              alpha: "{{ env.ALPHA }}"
+              again: "{{ env.ZULU }}"
+        ```
+        """
+    shown = text(convert(fence))
+    assert re.findall(r"--from-literal=(\w+)=", shown) == 2 * [
+        "ZULU",
+        "IN_A_STRING",
+        "ALPHA",
+    ]
+    assert re.findall(r"export (\w+)=", shown) == ["ZULU", "IN_A_STRING", "ALPHA"]
+
+
+@pytest.mark.parametrize(
+    "heading, anchor",
+    [
+        pytest.param("Setup\n=====", "setup", id="level-1"),
+        pytest.param("Setup\n-----", "setup", id="level-2"),
+        pytest.param("Set up {#custom}\n---", "custom", id="explicit-id"),
+        pytest.param("## Setup\n\nFirst line\nsecond line\n---", "setup", id="hr"),
+    ],
+)
+def test_the_reuse_note_names_a_setext_heading(convert, heading, anchor):
+    page = f"{heading}\n\n{X_FENCE}\n## Later\n\n{X_FENCE}"
+    html = convert(page)
+    note = re.findall(r"<p>Reuses .*?</p>", html)
+    assert len(note) == 1 and f'href="#{anchor}"' in note[0]
+    assert f'id="{anchor}"' in html
+
+
+def test_a_fence_in_a_blockquote_renders_as_tabs_written_in_it(convert):
+    def quoted(body):
+        return (
+            "> Intro\n>\n"
+            + textwrap.indent(body, "> ", lambda line: True).replace("> \n", ">\n")
+            + ">\n> After\n"
+        )
+
+    html = convert(quoted(TOKEN_FENCE))
+    assert html == convert(quoted(TOKEN_TABS))
+    assert html.count("<blockquote>") == 1 and html.count('<div class="tabbed-set') == 1
+
+
+def test_the_fences_expand_ahead_of_superfences_preserve_tabs(convert, site_config):
+    superfences = {
+        **site_config["mdx_configs"]["pymdownx.superfences"],
+        "preserve_tabs": True,
+    }
+    html = convert(TOKEN_FENCE, **{"pymdownx.superfences": superfences})
+    assert html == convert(TOKEN_TABS, **{"pymdownx.superfences": superfences})
+    assert html.count('<div class="tabbed-set') == 1
+
+
 def test_a_secret_qualifier_names_a_second_secret_on_the_page(convert):
     bearer = text(convert(QUALIFIED_PAGE).split('<h2 id="bearer-token">')[1])
     assert "kubectl create secret generic holmes-victorialogs-token" in bearer
@@ -483,7 +547,7 @@ def test_a_secret_qualifier_names_a_second_secret_on_the_page(convert):
 
 
 def test_a_second_secret_without_a_qualifier_fails_the_build(convert):
-    with pytest.raises(TabFenceError, match="secret-qualifier"):
+    with pytest.raises(TabFenceError, match="give it a secret-qualifier"):
         convert(QUALIFIED_PAGE.replace(" {secret-qualifier=token}", ""))
 
 
@@ -574,42 +638,81 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
 
 
 @pytest.mark.parametrize(
-    "block",
+    "block, message",
     [
-        pytest.param("```yaml-helm-values\nkey: [a\n```\n", id="invalid-yaml"),
-        pytest.param("```yaml-helm-values\n- a\n```\n", id="not-a-mapping"),
+        pytest.param(
+            "```yaml-helm-values\nkey: [a\n```\n",
+            "is not valid YAML",
+            id="invalid-yaml",
+        ),
+        pytest.param(
+            "```yaml-helm-values\n- a\n```\n",
+            "must be a YAML mapping",
+            id="not-a-mapping",
+        ),
         pytest.param(
             "```yaml-toolset-config\ncustomClusterRoleRules: []\n```\n",
+            "sets none of toolsets, mcp_servers",
             id="toolset-config-without-cli-keys",
         ),
         pytest.param(
-            "```yaml-helm-values title=x\nkey: 1\n```\n", id="options-without-braces"
+            "```yaml-helm-values title=x\nkey: 1\n```\n",
+            "takes options as",
+            id="options-without-braces",
         ),
         pytest.param(
-            "```yaml-helm-values {title=x}\nkey: 1\n```\n", id="unknown-option"
+            "```yaml-helm-values {title=x}\nkey: 1\n```\n",
+            "takes only the options secret-qualifier",
+            id="unknown-option",
         ),
         pytest.param(
             '```yaml-helm-values {secret-qualifier=a b}\nx: "{{ env.X }}"\n```\n',
+            "takes only the options secret-qualifier",
             id="option-leftover",
         ),
         pytest.param(
             "```yaml-helm-values {secret-qualifier=a}\nkey: 1\n```\n",
+            "takes no secret-qualifier",
             id="qualifier-without-a-secret",
         ),
+        *(
+            pytest.param(
+                X_FENCE.replace("values", f'values {{secret-qualifier="{qualifier}"}}'),
+                "takes a secret-qualifier of lowercase letters",
+                id=f"qualifier-{qualifier}",
+            )
+            for qualifier in ("My Token", "Token", "a_b", "a.b", "-a", "a-", "")
+        ),
         pytest.param(
-            '```yaml-helm-values\nx: "{{ env.X }}"\n```\n\n'
-            '## B\n\n```yaml-helm-values\nx: "{{ env.X }}"\n```\n',
+            f"{X_FENCE}\n## B\n\n{X_FENCE}",
+            "sits under no heading",
             id="reuse-of-a-secret-created-under-no-heading",
         ),
         pytest.param(
             "```robusta-region {secret-qualifier=a}\nhttps://api.robusta.dev\n```\n",
+            "takes only the options lang",
             id="region-option-it-does-not-take",
+        ),
+        pytest.param(
+            "```yaml-helm-values\nkey: 1\n",
+            "has no closing ``` line",
+            id="unclosed",
+        ),
+        pytest.param(
+            "> ```yaml-helm-values\n> key: 1\n```\n",
+            "has no closing ``` line",
+            id="closing-line-outside-the-blockquote",
         ),
     ],
 )
-def test_a_fence_that_cannot_be_rendered_fails_the_build(convert, block):
-    with pytest.raises(TabFenceError):
+def test_a_fence_that_cannot_be_rendered_fails_the_build(convert, block, message):
+    with pytest.raises(TabFenceError, match=re.escape(message)):
         convert(block)
+
+
+def test_a_page_whose_name_makes_no_secret_name_fails_the_build(convert):
+    with pytest.raises(TabFenceError, match="not a valid Kubernetes secret name"):
+        convert(X_FENCE, page="data-sources/My_Page.md")
 
 
 def test_robusta_region_renders_the_region_tabs_as_written_by_hand(convert):
@@ -682,7 +785,7 @@ def test_without_toc_headings_have_no_ids_for_a_reuse_note(monkeypatch):
 
 
 def test_a_secret_needs_the_page(convert):
-    with pytest.raises(TabFenceError):
+    with pytest.raises(TabFenceError, match="no page was given"):
         convert('```yaml-helm-values\nx: "{{ env.X }}"\n```\n', page="")
 
 

@@ -55,7 +55,8 @@ FENCE_OPTIONS = {
 CLI_CONFIG_KEYS = ("toolsets", "mcp_servers")
 
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-FENCE_START_RE = re.compile(r"^(?P<indent> *)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+# A fence's opening line; `indent` is the spaces and blockquote markers before it.
+FENCE_START_RE = re.compile(r"^(?P<indent>[ >]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
 FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
 FENCE_OPTION_RE = re.compile(
     r'(?P<name>[A-Za-z][\w-]*)=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+))'
@@ -64,6 +65,16 @@ FENCE_OPTION_RE = re.compile(
 HEADING_RE = re.compile(
     r"^#{1,6}\s+(?P<text>.*?)(?:\s+#+)?\s*(?:\{[^}]*#(?P<id>[\w-]+)[^}]*\})?\s*$"
 )
+# A setext heading's text line, with an optional attr_list id, and its underline.
+SETEXT_TEXT_RE = re.compile(
+    r"^ {0,3}(?P<text>\S.*?)\s*(?:\{[^}]*#(?P<id>[\w-]+)[^}]*\})?\s*$"
+)
+SETEXT_UNDERLINE_RE = re.compile(r"^[=-]+ *$")
+# Kubernetes names a Secret by a DNS-1123 subdomain; a qualifier is one label of it.
+DNS1123_LABEL = r"[a-z0-9]([-a-z0-9]*[a-z0-9])?"
+DNS1123_LABEL_RE = re.compile(rf"^{DNS1123_LABEL}$")
+DNS1123_SUBDOMAIN_RE = re.compile(rf"^{DNS1123_LABEL}(\.{DNS1123_LABEL})*$")
+DNS1123_SUBDOMAIN_MAX_LENGTH = 253
 
 HOLMES_VALUES_CAPTION = (
     "When using the **standalone Holmes Helm Chart**, update your `values.yaml`:"
@@ -86,8 +97,12 @@ def _code_block(language: str, text: str) -> str:
 
 
 def _indent(text: str, prefix: str) -> str:
-    """Prefix every non-empty line; empty lines stay empty."""
-    return "\n".join(prefix + line if line else "" for line in text.split("\n"))
+    """Prefix every non-empty line. An empty line gets the prefix without its
+    trailing spaces: empty for an indent, `>` for a blockquote, which a truly
+    empty line would end."""
+    return "\n".join(
+        prefix + line if line else prefix.rstrip() for line in text.split("\n")
+    )
 
 
 def _tab(label: str, elements: list) -> str:
@@ -195,10 +210,12 @@ def _fence_end(lines: list, start: int, indent: str, fence: str):
     """The index of the line closing the fence opened at `start`, or None.
 
     Follows superfences: the closing line is the opening fence string at the
-    opening indentation, and a non-empty line indented less ends the search."""
+    opening indentation, and a non-empty line indented less ends the search. In
+    a blockquote, the indentation holds its markers, and a line of the markers
+    alone is an empty line of the quote."""
     for i in range(start + 1, len(lines)):
         line = lines[i]
-        if not line.strip():
+        if not line.strip() or line.rstrip() == indent.rstrip():
             continue
         if not line.startswith(indent):
             return None
@@ -248,12 +265,21 @@ class TabFencePreprocessor(Preprocessor):
         while i < len(lines):
             match = FENCE_START_RE.match(lines[i])
             end = match and _fence_end(lines, i, match["indent"], match["fence"])
+            info = match["info"].strip() if match else ""
+            fence, _, header = info.partition(" ")
+            if match and not end and fence in FENCE_OPTIONS:
+                # Superfences no longer knows these fences, so an unexpanded one
+                # would render as plain code.
+                raise TabFenceError(
+                    f"the {fence} fence on {self.page or 'this page'} has no closing "
+                    f"{match['fence']} line with the opening line's indentation "
+                    f"{match['indent']!r} before it"
+                )
             if not end:
-                self._track_heading(lines[i])
+                self._track_heading(lines, i)
                 out.append(lines[i])
                 i += 1
                 continue
-            fence, _, header = match["info"].strip().partition(" ")
             if fence not in FENCE_OPTIONS:
                 out.extend(lines[i : end + 1])
             else:
@@ -265,18 +291,25 @@ class TabFencePreprocessor(Preprocessor):
                     group = _region_tabs(body.strip(), options.get("lang", ""))
                 else:
                     group = self._group(where, fence, options, body.strip("\n"))
-                expansion = ["", *_indent(group, indent).split("\n"), ""]
+                expansion = group.split("\n")
                 if "snippet" in self.md.preprocessors:
                     expansion = self.md.preprocessors["snippet"].parse_snippets(
                         expansion
                     )
-                out.extend(expansion)
+                expansion = ["", *expansion, ""]
+                out.extend(_indent("\n".join(expansion), indent).split("\n"))
             i = end + 1
         return out
 
-    def _track_heading(self, line: str) -> None:
-        """Follow the page's headings, giving each the id the toc extension gives it."""
-        heading = HEADING_RE.match(line)
+    def _track_heading(self, lines: list, i: int) -> None:
+        """Follow the page's headings, giving each the id the toc extension gives it.
+
+        `lines[i]` is an ATX heading, or the text of a setext heading when it
+        opens a block and the next line underlines it."""
+        heading = HEADING_RE.match(lines[i])
+        if not heading and (i == 0 or not lines[i - 1].strip()):
+            if i + 1 < len(lines) and SETEXT_UNDERLINE_RE.match(lines[i + 1]):
+                heading = SETEXT_TEXT_RE.match(lines[i])
         if not heading or "toc" not in self.md.treeprocessors:
             return
         toc = self.md.treeprocessors["toc"]
@@ -317,8 +350,9 @@ class TabFencePreprocessor(Preprocessor):
                 f"use {HELM_VALUES_FENCE} for chart-only values"
             )
 
-        # Every env var the body references and no additionalEnvVars entry sets
-        # is a key of the group's secret, which extraEnvVarsSecrets mounts whole.
+        # Every env var the body's values reference (not its comments) and no
+        # additionalEnvVars entry sets is a key of the group's secret, which
+        # extraEnvVarsSecrets mounts whole. The keys keep the body's order.
         set_by_chart = {
             entry.get("name")
             for entry in data.get("additionalEnvVars") or []
@@ -326,10 +360,21 @@ class TabFencePreprocessor(Preprocessor):
         }
         keys = [
             key
-            for key in dict.fromkeys(ENV_REFERENCE_RE.findall(body))
+            for key in dict.fromkeys(
+                reference
+                for token in yaml.scan(body)
+                if isinstance(token, yaml.ScalarToken)
+                for reference in ENV_REFERENCE_RE.findall(token.value)
+            )
             if key not in set_by_chart
         ]
         qualifier = options.get("secret-qualifier")
+        if qualifier is not None and not DNS1123_LABEL_RE.match(qualifier):
+            raise TabFenceError(
+                f"{where} takes a secret-qualifier of lowercase letters, digits and "
+                f"'-', starting and ending with a letter or digit, so the secret "
+                f"name is a valid Kubernetes name: {qualifier!r}"
+            )
         if not keys:
             if qualifier:
                 raise TabFenceError(
@@ -366,13 +411,22 @@ class TabFencePreprocessor(Preprocessor):
                     f"[{section[0]}](#{section[1]}) section above."
                 )
                 keys = [key for key in created if key in keys]  # the secret's order
-                return note + "\n\n" + _deployment_group(
-                    fence, body, secret, keys, False
+                return (
+                    note + "\n\n" + _deployment_group(fence, body, secret, keys, False)
                 )
 
         secret = f"holmes-{PurePosixPath(self.page).stem}"
         if qualifier:
             secret += f"-{qualifier}"
+        if (
+            not DNS1123_SUBDOMAIN_RE.match(secret)
+            or len(secret) > DNS1123_SUBDOMAIN_MAX_LENGTH
+        ):
+            raise TabFenceError(
+                f"{where} names its secret {secret} after the page's file name, and "
+                "that is not a valid Kubernetes secret name (a DNS-1123 subdomain "
+                f"of at most {DNS1123_SUBDOMAIN_MAX_LENGTH} characters)"
+            )
         if secret in self.secrets:
             raise TabFenceError(
                 f"{where} creates the secret {secret}, which an earlier group on the page "
@@ -393,12 +447,15 @@ class TabFencesExtension(Extension):
         super().__init__(**kwargs)
 
     def extendMarkdown(self, md):
-        # After pymdownx.snippets (32), before whitespace normalization (30) and
-        # superfences (25), as hand-written tabs in the page would be.
+        # After pymdownx.snippets (32), so a fence in an included file expands
+        # too. Before every other preprocessor that reads fences or the page's
+        # text: pymdownx.critic (31.1), the raw-block stash superfences adds
+        # with preserve_tabs (31.05), whitespace normalization (30) and
+        # superfences (25), which then see the expansion as hand-written tabs.
         md.preprocessors.register(
             TabFencePreprocessor(md, self.getConfig("page")),
             "tab_fences",
-            31,
+            31.5,
         )
 
 
