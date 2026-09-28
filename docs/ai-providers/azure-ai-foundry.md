@@ -79,7 +79,7 @@ The examples below lead with the Anthropic option and include a GPT deployment a
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -258,7 +258,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
 
 === "Holmes Helm Chart"
 
-    Holmes runs as the service account `holmesgpt-holmes-service-account` in the deployment `holmesgpt-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
+    Holmes runs as the service account `holmes-holmes-service-account` in the deployment `holmes-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -297,7 +297,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

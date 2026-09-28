@@ -116,7 +116,7 @@ In Kubernetes, when multiple providers are defined, users can specify the `model
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

@@ -63,7 +63,7 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

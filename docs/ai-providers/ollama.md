@@ -55,7 +55,7 @@ Configure HolmesGPT to use local models with Ollama.
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -130,7 +130,7 @@ If you hit compatibility issues with certain Ollama models via LiteLLM, you can 
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

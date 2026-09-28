@@ -89,7 +89,7 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -180,7 +180,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
 === "Holmes Helm Chart"
 
-    Holmes runs as the service account `holmesgpt-holmes-service-account`. Use it as `<service-account>` on this page.
+    Holmes runs as the service account `holmes-holmes-service-account`. Use it as `<service-account>` on this page.
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -208,7 +208,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

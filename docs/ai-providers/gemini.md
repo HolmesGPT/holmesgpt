@@ -64,7 +64,7 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

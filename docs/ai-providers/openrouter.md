@@ -55,7 +55,7 @@ The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -167,7 +167,7 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

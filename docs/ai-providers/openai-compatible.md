@@ -54,7 +54,7 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -128,7 +128,7 @@ If authentication is required, keep the API key in a secret instead of the `OPEN
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

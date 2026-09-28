@@ -66,7 +66,7 @@ Get a paid [OpenAI API key](https://help.openai.com/en/articles/4936850-where-do
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
@@ -188,7 +188,7 @@ In Kubernetes, this reuses the `holmes-openai` secret created in the [Configurat
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"

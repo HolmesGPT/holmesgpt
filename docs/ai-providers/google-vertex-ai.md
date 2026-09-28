@@ -81,7 +81,7 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
     Apply the configuration:
 
     ```bash
-    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
