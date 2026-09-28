@@ -499,6 +499,13 @@ def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(co
     assert re.findall(r"export (\w+)=", shown) == ["ZULU", "IN_A_STRING", "ALPHA"]
 
 
+def test_a_heading_like_line_in_a_code_block_is_not_the_notes_section(convert):
+    code = "```bash\n# not a heading\n```\n"
+    page = f"## Setup\n\n{code}\n{X_FENCE}\n## Later\n\n{X_FENCE}"
+    note = re.findall(r"<p>Reuses .*?</p>", convert(page))
+    assert len(note) == 1 and 'href="#setup">Setup</a>' in note[0]
+
+
 @pytest.mark.parametrize(
     "heading, anchor",
     [
@@ -527,6 +534,9 @@ def test_a_fence_in_a_blockquote_renders_as_tabs_written_in_it(convert):
     html = convert(quoted(TOKEN_FENCE))
     assert html == convert(quoted(TOKEN_TABS))
     assert html.count("<blockquote>") == 1 and html.count('<div class="tabbed-set') == 1
+    # A line of the quote's marker alone is an empty line of the body.
+    spaced = convert(quoted(TOKEN_FENCE.replace("mcp_servers:", "mcp_servers:\n")))
+    assert spaced.count('<div class="tabbed-set') == 1
 
 
 def test_the_fences_expand_ahead_of_superfences_preserve_tabs(convert, site_config):
@@ -689,6 +699,12 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             id="reuse-of-a-secret-created-under-no-heading",
         ),
         pytest.param(
+            f'## A\n\n{X_FENCE}\n## B\n\n```yaml-helm-values\nx: "{{{{ env.X }}}}"\n'
+            'y: "{{ env.Y }}"\n```\n',
+            "give it a secret-qualifier",
+            id="more-keys-than-the-earlier-secret-holds",
+        ),
+        pytest.param(
             "```robusta-region {secret-qualifier=a}\nhttps://api.robusta.dev\n```\n",
             "takes only the options lang",
             id="region-option-it-does-not-take",
@@ -697,6 +713,12 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "```yaml-helm-values\nkey: 1\n",
             "has no closing ``` line",
             id="unclosed",
+        ),
+        pytest.param(
+            "- Step 1\n\n    ```yaml-helm-values\n    key: 1\n\n"
+            "- Step 2\n\n    ```\n    key: 2\n    ```\n",
+            "has no closing ``` line",
+            id="a-less-indented-line-ends-the-fence",
         ),
         pytest.param(
             "> ```yaml-helm-values\n> key: 1\n```\n",
