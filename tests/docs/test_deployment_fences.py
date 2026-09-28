@@ -522,6 +522,56 @@ def test_the_reuse_note_names_a_setext_heading(convert, heading, anchor):
     assert f'id="{anchor}"' in html
 
 
+@pytest.mark.parametrize(
+    "above, anchor, link_text",
+    [
+        pytest.param(
+            "## Configure [Datadog](https://example.com)",
+            "configure-datadog",
+            "Configure Datadog",
+            id="link",
+        ),
+        pytest.param("## :material-cog: Setup", "setup", "Setup", id="emoji"),
+        pytest.param(
+            "## Setup <small>beta</small>", "setup-beta", "Setup beta", id="inline-html"
+        ),
+        pytest.param("## Setup {.beta}", "setup", "Setup", id="attr-list-class"),
+        pytest.param(
+            "## Use `holmes` config",
+            "use-holmes-config",
+            "Use holmes config",
+            id="code",
+        ),
+        pytest.param(
+            "## Setup\n\n<!--\n## Old section\n-->",
+            "setup",
+            "Setup",
+            id="heading-in-a-comment",
+        ),
+        pytest.param(
+            "!!! note\n    ## Setup\n\n    t\n\n## Setup",
+            "setup_1",
+            "Setup",
+            id="same-text-in-an-admonition",
+        ),
+        pytest.param(
+            '=== "A"\n\n    ## Setup\n\n    t\n\n## Setup',
+            "setup_1",
+            "Setup",
+            id="same-text-in-a-tab",
+        ),
+    ],
+)
+def test_the_reuse_note_links_to_the_heading_as_toc_renders_it(
+    convert, above, anchor, link_text
+):
+    html = convert(f"{above}\n\n{X_FENCE}\n## Later\n\n{X_FENCE}")
+    note = re.findall(r"<p>Reuses .*?</p>", html)
+    assert len(note) == 1 and f'<a href="#{anchor}">{link_text}</a>' in note[0]
+    assert re.search(rf'<h2[^>]* id="{anchor}"', html)
+    assert "TABFENCEGROUP" not in html
+
+
 def test_a_fence_in_a_blockquote_renders_as_tabs_written_in_it(convert):
     def quoted(body):
         return (
@@ -890,7 +940,7 @@ def test_without_toc_headings_have_no_ids_for_a_reuse_note(monkeypatch):
         extension_configs={"docs.custom_fences": {"page": "a.md"}},
     )
     fence = '```yaml-helm-values\nx: "{{ env.X }}"\n```\n'
-    with pytest.raises(TabFenceError, match="no heading"):
+    with pytest.raises(TabFenceError, match="its heading has no id"):
         md.convert(f"## A\n\n{fence}\n## B\n\n{fence}")
 
 

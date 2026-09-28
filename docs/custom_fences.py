@@ -39,20 +39,15 @@ of the group that creates it:
     Reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
 
 Above a yaml-toolset-config group, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
-The section is the last ATX or setext heading above the creating fence. Its link text is the
-heading's raw markdown, and its anchor is the toc extension's slug of that raw text (or the
-heading's `{#id}`), with toc's `_1` suffix for a repeated id. A heading whose text has markup (a
-link, an emoji, inline HTML) gets an anchor the page does not have, since toc slugs the rendered
-text. A heading in an admonition, a tab, a list or a blockquote is not followed, so the note names
-the heading above it. MkDocs reports a link to a missing anchor only at INFO, so neither fails the
-build.
+The section is the heading above the creating fence as toc renders it, wherever it sits: the link
+takes that heading's id and its table-of-contents text.
 
 A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
 not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, a
 multi-instance body without `toolset` or `config`, an option the fence does not take, a qualifier
 or page name that makes no valid Kubernetes secret name, a second secret of the same name on a page,
-a reuse whose creating fence sits under no heading, a fence with no closing line, and a secret or
-multi-instance link with no page.
+a reuse whose creating fence sits under no heading or under a heading without an id (toc gives
+headings their ids), a fence with no closing line, and a secret or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -69,8 +64,8 @@ from pathlib import PurePosixPath
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
-from markdown.extensions.toc import unique
 from markdown.preprocessors import Preprocessor
+from markdown.treeprocessors import Treeprocessor
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -117,15 +112,11 @@ FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
 FENCE_OPTION_RE = re.compile(
     r'(?P<name>[A-Za-z][\w-]*)=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+))'
 )
-# An ATX heading, with an optional attr_list id: `## Title {#id}`.
-HEADING_RE = re.compile(
-    r"^#{1,6}\s+(?P<text>.*?)(?:\s+#+)?\s*(?:\{[^}]*#(?P<id>[\w-]+)[^}]*\})?\s*$"
-)
-# A setext heading's text line, with an optional attr_list id, and its underline.
-SETEXT_TEXT_RE = re.compile(
-    r"^ {0,3}(?P<text>\S.*?)\s*(?:\{[^}]*#(?P<id>[\w-]+)[^}]*\})?\s*$"
-)
-SETEXT_UNDERLINE_RE = re.compile(r"^[=-]+ *$")
+# A paragraph the preprocessor puts before each deployment group, and the
+# anchor of a reuse note's link to the group that creates the secret; the
+# treeprocessor removes the first and resolves the second.
+GROUP_MARKER = "TABFENCEGROUP{}"
+GROUP_MARKER_RE = re.compile(r"^TABFENCEGROUP(\d+)$")
 # Characters Python-Markdown's backslash escapes cover, apart from `>`, which
 # html.escape already turns into an entity.
 MARKDOWN_ESCAPED_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!])")
@@ -365,11 +356,10 @@ class TabFencePreprocessor(Preprocessor):
 
     def run(self, lines):
         out: list = []
-        # The secrets deployment groups earlier on this page create: name -> (keys, section).
+        # The secrets deployment groups earlier on this page create: name -> (keys, group).
         self.secrets: dict = {}
-        # The last heading above the current line, as (text, id), and the ids used so far.
-        self.section = None
-        self.heading_ids: set = set()
+        # Each deployment group on the page, as the fence it came from, for errors.
+        self.groups: list = []
         i = 0
         while i < len(lines):
             match = FENCE_START_RE.match(lines[i])
@@ -385,7 +375,6 @@ class TabFencePreprocessor(Preprocessor):
                     f"{match['indent']!r} before it"
                 )
             if not end:
-                self._track_heading(lines, i)
                 out.append(lines[i])
                 i += 1
                 continue
@@ -401,7 +390,17 @@ class TabFencePreprocessor(Preprocessor):
                 elif fence == MULTI_INSTANCE_FENCE:
                     group = _multi_instance_section(where, body, self.page)
                 else:
-                    group = self._group(where, fence, options, body.strip("\n"))
+                    # The marker tells the treeprocessor where the group is.
+                    index = len(self.groups)
+                    first_line = next(line for line in body.split("\n") if line.strip())
+                    self.groups.append(
+                        f"the {fence} fence starting {first_line.strip()!r}"
+                    )
+                    group = (
+                        GROUP_MARKER.format(index)
+                        + "\n\n"
+                        + self._group(where, fence, options, body.strip("\n"), index)
+                    )
                 expansion = group.split("\n")
                 if "snippet" in self.md.preprocessors:
                     expansion = self.md.preprocessors["snippet"].parse_snippets(
@@ -411,22 +410,6 @@ class TabFencePreprocessor(Preprocessor):
                 out.extend(_indent("\n".join(expansion), indent).split("\n"))
             i = end + 1
         return out
-
-    def _track_heading(self, lines: list, i: int) -> None:
-        """Follow the page's headings, giving each the id the toc extension gives it.
-
-        `lines[i]` is an ATX heading, or the text of a setext heading when it
-        opens a block and the next line underlines it."""
-        heading = HEADING_RE.match(lines[i])
-        if not heading and (i == 0 or not lines[i - 1].strip()):
-            if i + 1 < len(lines) and SETEXT_UNDERLINE_RE.match(lines[i + 1]):
-                heading = SETEXT_TEXT_RE.match(lines[i])
-        if not heading or "toc" not in self.md.treeprocessors:
-            return
-        toc = self.md.treeprocessors["toc"]
-        text = heading["text"]
-        anchor = heading["id"] or toc.slugify(html.unescape(text), toc.sep)
-        self.section = (text, unique(anchor, self.heading_ids))
 
     @staticmethod
     def _options(where: str, fence: str, header: str) -> dict:
@@ -454,7 +437,9 @@ class TabFencePreprocessor(Preprocessor):
             )
         return options
 
-    def _group(self, where: str, fence: str, options: dict, body: str) -> str:
+    def _group(
+        self, where: str, fence: str, options: dict, body: str, index: int
+    ) -> str:
         try:
             data = yaml.safe_load(body)
         except yaml.YAMLError as e:
@@ -505,18 +490,13 @@ class TabFencePreprocessor(Preprocessor):
 
         # A group whose keys a secret an earlier group created holds reuses that
         # secret: its values still mount it, its Helm tabs have no secret step,
-        # its CLI tab still exports the keys, and a note names the section that
-        # creates it. The note holds only in Kubernetes, so above a Holmes CLI
-        # tab it says so.
+        # its CLI tab still exports the keys, and a note names the section of the
+        # group that creates it; the treeprocessor links it to that heading. The
+        # note holds only in Kubernetes, so above a Holmes CLI tab it says so.
         if not qualifier:
-            for secret, (created, section) in self.secrets.items():
+            for secret, (created, creator) in self.secrets.items():
                 if not set(keys) <= set(created):
                     continue
-                if section is None:
-                    raise TabFenceError(
-                        f"{where} reuses the secret {secret}, but the group that "
-                        "creates it sits under no heading for the note to name"
-                    )
                 note = (
                     (
                         "In Kubernetes, this reuses"
@@ -524,7 +504,7 @@ class TabFencePreprocessor(Preprocessor):
                         else "Reuses"
                     )
                     + f" the `{secret}` secret created in the "
-                    f"[{section[0]}](#{section[1]}) section above."
+                    f"[section](#{GROUP_MARKER.format(creator)}) section above."
                 )
                 keys = [key for key in created if key in keys]  # the secret's order
                 return (
@@ -548,8 +528,76 @@ class TabFencePreprocessor(Preprocessor):
                 f"{where} creates the secret {secret}, which an earlier group on the page "
                 "creates with other keys; give it a secret-qualifier"
             )
-        self.secrets[secret] = (keys, self.section)
+        self.secrets[secret] = (keys, index)
         return _deployment_group(fence, body, secret, keys, True)
+
+
+def _walk(parent):
+    """Each element below `parent` with its parent, in document order."""
+    for el in parent:
+        yield parent, el
+        yield from _walk(el)
+
+
+class TabFenceTreeprocessor(Treeprocessor):
+    """Place each deployment group under its heading, as toc rendered it.
+
+    Runs after toc, so every heading has its final id, whatever markup its text
+    has and wherever it sits (an admonition, a tab, a list). Each group's marker
+    paragraph is removed, and each reuse note's link gets the id and text of
+    the heading above the group that creates the secret."""
+
+    def __init__(self, md, fences: TabFencePreprocessor):
+        super().__init__(md)
+        self.fences = fences
+
+    def run(self, root):
+        headings: dict = {}  # group index -> the heading above it, or None
+        markers, links = [], []
+        heading = None
+        for parent, el in _walk(root):
+            if re.fullmatch(r"h[1-6]", str(el.tag)):
+                heading = el
+            marker = (
+                el.tag == "p" and not len(el) and GROUP_MARKER_RE.match(el.text or "")
+            )
+            if marker:
+                index = int(marker[1])
+                headings[index] = heading
+                markers.append((parent, el))
+            link = el.tag == "a" and GROUP_MARKER_RE.match(el.get("href", "")[1:])
+            if link:
+                links.append((el, int(link[1])))
+        for el, index in links:
+            heading = headings[index]
+            if heading is None or "id" not in heading.attrib:
+                raise TabFenceError(
+                    f"{self.fences.groups[index]} on {self.fences.page or 'this page'} "
+                    "creates a secret a later group reuses, but "
+                    + (
+                        "it sits under no heading"
+                        if heading is None
+                        else "its heading has no id (the toc extension gives it one)"
+                    )
+                    + " for the later group's note to link to"
+                )
+            el.set("href", "#" + heading.get("id"))
+            el.text = self._name(heading)
+        for parent, el in markers:
+            parent.remove(el)
+
+    def _name(self, heading) -> str:
+        """The heading's text, as the table of contents shows it."""
+
+        def tokens(items):
+            for item in items:
+                yield item
+                yield from tokens(item["children"])
+
+        for token in tokens(getattr(self.md, "toc_tokens", [])):
+            if token["id"] == heading.get("id"):
+                return html.unescape(token["name"])
+        return "".join(heading.itertext()).strip()
 
 
 class TabFencesExtension(Extension):
@@ -568,10 +616,12 @@ class TabFencesExtension(Extension):
         # text: pymdownx.critic (31.1), the raw-block stash superfences adds
         # with preserve_tabs (31.05), whitespace normalization (30) and
         # superfences (25), which then see the expansion as hand-written tabs.
-        md.preprocessors.register(
-            TabFencePreprocessor(md, self.getConfig("page")),
-            "tab_fences",
-            31.5,
+        fences = TabFencePreprocessor(md, self.getConfig("page"))
+        md.preprocessors.register(fences, "tab_fences", 31.5)
+        # After toc (5), which gives every heading its id and the table of
+        # contents its text, and before MkDocs validates the page's links (0).
+        md.treeprocessors.register(
+            TabFenceTreeprocessor(md, fences), "tab_fence_groups", 4.5
         )
 
 
