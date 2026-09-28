@@ -118,7 +118,7 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
 #### Option 2: API Key in the Configuration (Less Secure)
 
 !!! warning
-    This method stores the API key in plain text in your values file. Use Kubernetes Secrets for production environments.
+    This method stores the API key in plain text in your configuration. Use Kubernetes Secrets for production environments.
 
 === "Holmes Helm Chart"
 
