@@ -394,6 +394,89 @@ def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert)
     assert '<h2 id="set-up-a">' in first  # the note links to the heading's own id
 
 
+REUSE_FENCE = """\
+```yaml-toolset-config {reuse}
+mcp_servers:
+  b:
+    config:
+      token: "{{ env.TOKEN }}"
+```
+"""
+
+REUSE_TABS = """\
+=== "Holmes CLI"
+
+    Set the environment variable:
+
+    ```bash
+    export TOKEN=your-token
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+    ```yaml
+    mcp_servers:
+      b:
+        config:
+          token: "{{ env.TOKEN }}"
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-victorialogs
+
+    mcp_servers:
+      b:
+        config:
+          token: "{{ env.TOKEN }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-victorialogs
+
+      mcp_servers:
+        b:
+          config:
+            token: "{{ env.TOKEN }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+"""
+
+
+def test_a_reuse_fence_mounts_and_exports_the_secret_without_creating_it(convert):
+    assert convert(REUSE_FENCE) == convert(REUSE_TABS)
+
+
+def test_a_reuse_fence_with_a_qualifier_mounts_the_qualified_secret(convert):
+    qualified = REUSE_FENCE.replace("{reuse}", "{reuse secret-qualifier=token}")
+    shown = text(convert(qualified))
+    assert "extraEnvVarsSecrets:\n  - holmes-victorialogs-token" in shown
+    assert "kubectl" not in shown and "export TOKEN=your-token" in shown
+
+
 def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
     page = """\
         ## Setup
@@ -814,6 +897,21 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "```yaml-helm-values {secret-qualifier=a}\nkey: 1\n```\n",
             "takes no secret-qualifier",
             id="qualifier-without-a-secret",
+        ),
+        pytest.param(
+            "```yaml-helm-values {reuse}\nkey: 1\n```\n",
+            "reads no secret, so it takes no reuse",
+            id="reuse-without-a-secret",
+        ),
+        pytest.param(
+            X_FENCE.replace("values", "values {reuse=yes}"),
+            "takes reuse as a flag, {reuse}, with no value",
+            id="flag-with-a-value",
+        ),
+        pytest.param(
+            X_FENCE.replace("values", "values {secret-qualifier}"),
+            "takes secret-qualifier with a value, {secret-qualifier=<value>}",
+            id="option-without-a-value",
         ),
         pytest.param(
             X_FENCE.replace("values", "values {secret-qualifier=a secret-qualifier=b}"),

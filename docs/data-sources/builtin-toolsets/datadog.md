@@ -100,7 +100,9 @@ Query and analyze logs from Datadog, including historical data from terminated p
 
 **Configuration**
 
-```yaml-toolset-config
+In Kubernetes, this reuses the `holmes-datadog` secret created in the [2. Configure HolmesGPT](#2-configure-holmesgpt) section above.
+
+```yaml-toolset-config {reuse}
 toolsets:
   datadog/logs:
     enabled: true
@@ -144,7 +146,9 @@ Access and analyze metrics from your infrastructure and applications.
 
 **Configuration**
 
-```yaml-toolset-config
+In Kubernetes, this reuses the `holmes-datadog` secret created in the [2. Configure HolmesGPT](#2-configure-holmesgpt) section above.
+
+```yaml-toolset-config {reuse}
 toolsets:
   datadog/metrics:
     enabled: true
@@ -186,7 +190,9 @@ Analyze distributed traces to identify performance bottlenecks and latency issue
 
 **Configuration**
 
-```yaml-toolset-config
+In Kubernetes, this reuses the `holmes-datadog` secret created in the [2. Configure HolmesGPT](#2-configure-holmesgpt) section above.
+
+```yaml-toolset-config {reuse}
 toolsets:
   datadog/traces:
     enabled: true
@@ -223,7 +229,9 @@ Access general-purpose Datadog API endpoints for read-only operations including 
 
 **Configuration**
 
-```yaml-toolset-config
+In Kubernetes, this reuses the `holmes-datadog` secret created in the [2. Configure HolmesGPT](#2-configure-holmesgpt) section above.
+
+```yaml-toolset-config {reuse}
 toolsets:
   datadog/general:
     enabled: true

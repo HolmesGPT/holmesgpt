@@ -42,10 +42,15 @@ Above a yaml-toolset-config group, which has a CLI tab, it reads "In Kubernetes,
 The section is the heading above the creating fence as toc renders it, wherever it sits: the link
 takes that heading's id and its table-of-contents text.
 
+`{reuse}` marks a fence as reusing its secret, `holmes-<stem>` or with the fence's qualifier,
+without looking for the fence that creates it: its Helm tabs have no secret step, its values still
+list the secret, its CLI tab still exports the keys, and the note is written by hand above it.
+
 A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
 not valid YAML or not a mapping, a yaml-toolset-config body with neither `toolsets` nor
 `mcp_servers`, a multi-instance body without `toolset` or `config`, an option the fence does not
-take or an option set twice, a qualifier on a fence that reads no secret, a qualifier or page name
+take or an option set twice, a flag given a value or another option given none, a qualifier or
+`reuse` on a fence that reads no secret, a qualifier or page name
 that makes no valid Kubernetes secret name, a second secret of the same name on a page, a second
 deployment fence under a heading, a reuse whose creating fence sits under no heading or under a
 heading without an id (toc gives headings their ids), a robusta-region body with no Robusta host, a
@@ -93,13 +98,15 @@ TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
 REGION_FENCE = "robusta-region"
 MULTI_INSTANCE_FENCE = "multi-instance"
-# The header options each fence takes, as `{name=value}` after the fence name.
+# The header options each fence takes, as `{name=value}` after the fence name, or
+# `{name}` for a flag.
 FENCE_OPTIONS = {
-    TOOLSET_CONFIG_FENCE: ("secret-qualifier",),
-    HELM_VALUES_FENCE: ("secret-qualifier",),
+    TOOLSET_CONFIG_FENCE: ("secret-qualifier", "reuse"),
+    HELM_VALUES_FENCE: ("secret-qualifier", "reuse"),
     REGION_FENCE: ("lang",),
     MULTI_INSTANCE_FENCE: (),
 }
+FLAG_OPTIONS = ("reuse",)
 # The page every multi-instance section links to, as a path under docs/.
 MULTI_INSTANCE_PAGE = "data-sources/multi-instance-toolsets.md"
 
@@ -114,7 +121,7 @@ FENCE_START_RE = re.compile(r"^(?P<indent>[ >]*)(?P<fence>`{3,}|~{3,})(?P<info>.
 FENCE_INFO_RE = re.compile(r"^(?P<name>[^\s{]*)\s*(?P<header>.*)$")
 FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
 FENCE_OPTION_RE = re.compile(
-    r'(?P<name>[A-Za-z][\w-]*)=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+))'
+    r'(?P<name>[A-Za-z][\w-]*)(?:=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+)))?'
 )
 # A paragraph the preprocessor puts before each deployment group, and the
 # anchor of a reuse note's link to the group that creates the secret; the
@@ -452,6 +459,15 @@ class TabFencePreprocessor(Preprocessor):
             raise TabFenceError(
                 f"{where} sets the option {', '.join(repeated)} more than once: {header}"
             )
+        for name, value in options.items():
+            if name in FLAG_OPTIONS and value is not None:
+                raise TabFenceError(
+                    f"{where} takes {name} as a flag, {{{name}}}, with no value: {header}"
+                )
+            if name not in FLAG_OPTIONS and value is None:
+                raise TabFenceError(
+                    f"{where} takes {name} with a value, {{{name}=<value>}}: {header}"
+                )
         return options
 
     def _group(
@@ -488,6 +504,7 @@ class TabFencePreprocessor(Preprocessor):
             if key not in set_by_chart
         ]
         qualifier = options.get("secret-qualifier")
+        reuse = "reuse" in options
         if qualifier is not None and not DNS1123_LABEL_RE.match(qualifier):
             raise TabFenceError(
                 f"{where} takes a secret-qualifier of lowercase letters, digits and "
@@ -495,9 +512,10 @@ class TabFencePreprocessor(Preprocessor):
                 f"name is a valid Kubernetes name: {qualifier!r}"
             )
         if not keys:
-            if qualifier:
+            given = [name for name in ("secret-qualifier", "reuse") if name in options]
+            if given:
                 raise TabFenceError(
-                    f"{where} reads no secret, so it takes no secret-qualifier"
+                    f"{where} reads no secret, so it takes no {' or '.join(given)}"
                 )
             return _deployment_group(fence, body, "", [], False)
         if not self.page:
@@ -510,7 +528,7 @@ class TabFencePreprocessor(Preprocessor):
         # its CLI tab still exports the keys, and a note names the section of the
         # group that creates it; the treeprocessor links it to that heading. The
         # note holds only in Kubernetes, so above a Holmes CLI tab it says so.
-        if not qualifier:
+        if not qualifier and not reuse:
             for secret, (created, creator) in self.secrets.items():
                 if not set(keys) <= set(created):
                     continue
@@ -540,6 +558,10 @@ class TabFencePreprocessor(Preprocessor):
                 "that is not a valid Kubernetes secret name (a DNS-1123 subdomain "
                 f"of at most {DNS1123_SUBDOMAIN_MAX_LENGTH} characters)"
             )
+        if reuse:
+            # The note above the group, naming the section that creates the
+            # secret, is written by hand.
+            return _deployment_group(fence, body, secret, keys, False)
         if secret in self.secrets:
             raise TabFenceError(
                 f"{where} creates the secret {secret}, which an earlier group on the page "
