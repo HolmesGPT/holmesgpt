@@ -7,7 +7,7 @@ import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
 
-from docs.custom_fences import TabFenceError
+from docs.custom_fences import TabFenceError, TabFencePreprocessor
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -27,13 +27,16 @@ def site_config():
 def convert(site_config, monkeypatch):
     monkeypatch.chdir(REPO)  # pymdownx.snippets resolves base_path from the cwd
 
-    def convert(text, page="data-sources/builtin-toolsets/victorialogs.md", **mdx):
+    def convert(
+        text, page="data-sources/builtin-toolsets/victorialogs.md", dedent=True, **mdx
+    ):
         configs = {**site_config["mdx_configs"], **mdx}
         configs["docs.custom_fences"] = {"page": page}
         md = markdown.Markdown(
             extensions=site_config["markdown_extensions"], extension_configs=configs
         )
-        return md.convert(textwrap.dedent(text))
+        # dedent also empties whitespace-only lines.
+        return md.convert(textwrap.dedent(text) if dedent else text)
 
     return convert
 
@@ -525,6 +528,77 @@ def test_a_secret_qualifier_names_the_secret_after_the_page_and_the_qualifier(
     assert "extraEnvVarsSecrets:\n  - holmes-victorialogs-token" in shown
 
 
+def test_the_cli_tab_keeps_the_comments_and_blank_lines_of_the_keys_it_shows(
+    convert,
+):
+    fence = """\
+        ```yaml-toolset-config
+          # Enable both.
+        toolsets:
+          a:
+            enabled: true
+
+          b:
+            enabled: true
+        additionalEnvVars: []
+        mcp_servers:
+          c: {}
+        ```
+        """
+    cli = text(convert(fence)).split("Create the file if it doesn't exist:")[1]
+    assert cli.split("After making changes")[0].strip() == (
+        "# Enable both.\ntoolsets:\n  a:\n    enabled: true\n\n  b:\n"
+        "    enabled: true\nmcp_servers:\n  c: {}"
+    )
+
+
+def test_a_blank_line_between_keys_goes_with_the_key_below_it(convert):
+    fence = (
+        "```yaml-toolset-config\ntoolsets:\n  a: {}\n  \n"
+        "additionalEnvVars:\n  - x\n\nmcp_servers:\n  b: {}\n```\n"
+    )
+    shown = text(convert(fence, dedent=False))
+    cli = shown.split("Create the file if it doesn't exist:")[1]
+    assert cli.split("After making changes")[0].strip() == (
+        "toolsets:\n  a: {}\n\nmcp_servers:\n  b: {}"
+    )
+
+
+def test_the_expanded_cli_config_starts_at_its_first_line(convert):
+    # The expansion is markdown other renderers read too; a code block that
+    # starts with a blank line renders one there.
+    body = "additionalEnvVars: []\n\n# Datadog\ntoolsets:\n  a: {}"
+    lines = f"```yaml-toolset-config\n{body}\n```".split("\n")
+    expansion = "\n".join(TabFencePreprocessor(markdown.Markdown(), "a.md").run(lines))
+    assert "```yaml\n    # Datadog\n    toolsets:" in expansion
+
+
+def test_an_additional_env_var_that_is_not_a_mapping_sets_no_secret_key(convert):
+    fence = '```yaml-helm-values\nadditionalEnvVars:\n  - X\nx: "{{ env.X }}"\n```\n'
+    assert "--from-literal=X=your-x" in text(convert(fence))
+
+
+def test_blank_lines_around_the_body_are_not_part_of_it(convert):
+    padded = TOKEN_FENCE.replace("```yaml-helm-values\n", "```yaml-helm-values\n\n")
+    assert convert(padded.replace("\n```\n", "\n\n```\n")) == convert(TOKEN_TABS)
+
+
+def test_a_fence_needs_no_blank_lines_around_it(convert):
+    assert convert(f"Before\n{TOKEN_FENCE}After\n") == convert(
+        f"Before\n\n{TOKEN_TABS}\nAfter\n"
+    )
+
+    def in_list(group, gap):
+        return f"1. Step\n{gap}" + textwrap.indent(group, "    ") + f"{gap}2. Next\n"
+
+    assert convert(in_list(TOKEN_FENCE, "")) == convert(in_list(TOKEN_TABS, "\n"))
+
+
+def test_a_fence_shown_inside_a_code_block_stays_code(convert):
+    html = convert(f"````markdown\n{TOKEN_FENCE}````\n")
+    assert "yaml-helm-values" in html and "tabbed-set" not in html
+
+
 def test_a_fence_in_an_included_snippet_renders_as_on_the_page(convert, tmp_path):
     (tmp_path / "group.md").write_text(TOKEN_FENCE)
     snippets = {"pymdownx.snippets": {"base_path": [str(tmp_path), "docs"]}}
@@ -576,6 +650,21 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "```multi-instance\ntoolset: a\nconfig:\n  x: 1\n```\n",
             "takes config as a string, a YAML block scalar (config: |), not dict",
             id="multi-instance-config-not-a-string",
+        ),
+        pytest.param(
+            "```yaml-helm-values\n  key: 1\n```\n",
+            "indents its top-level keys past the fence: 'key: 1'",
+            id="indented-body",
+        ),
+        pytest.param(
+            X_FENCE.replace("values", "values {reuse, secret-qualifier=a}"),
+            "takes only the options secret-qualifier, reuse",
+            id="options-separated-by-a-comma",
+        ),
+        pytest.param(
+            "```multi-instance\ntoolset: a\nconfig:\n```\n",
+            "requires the keys toolset and config",
+            id="multi-instance-with-an-empty-config",
         ),
         pytest.param(
             "```yaml-helm-values title=x\nkey: 1\n```\n",
@@ -731,7 +820,7 @@ def test_multi_instance_links_relative_to_the_page_and_shows_its_names_as_writte
     fence = """\
         ```multi-instance
         toolset: a
-        name: "*A* <b>"
+        name: "*A* <b> _c_"
         list_tool: find_a
         config: |
           x: 1
@@ -739,7 +828,7 @@ def test_multi_instance_links_relative_to_the_page_and_shows_its_names_as_writte
         """
     html = convert(fence, page="data-sources/a.md")
     assert 'href="multi-instance-toolsets.md"' in html
-    assert "The *A* &lt;b&gt; toolset" in html and "<code>find_a</code>" in html
+    assert "The *A* &lt;b&gt; _c_ toolset" in html and "<code>find_a</code>" in html
     assert 'href="data-sources/multi-instance-toolsets.md"' in convert(
         fence, page="a.md"
     )

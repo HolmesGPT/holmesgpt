@@ -42,12 +42,13 @@ naming the section that creates the secret is written by hand above the fence:
 Above a yaml-toolset-config fence, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
 
 A fence that cannot render as written raises TabFenceError, which fails the build: an empty or
-blank body, a body that is not valid YAML or not a mapping, a yaml-toolset-config body with neither
-`toolsets` nor `mcp_servers`, a multi-instance body without `toolset` or `config` or whose `config`
-is not a string, options with no space after the fence name, an option the fence does not take or
-an option set twice, a flag given a value or another option given none, a qualifier or
-`reuse` on a fence that reads no secret, a qualifier or page name that makes no valid Kubernetes
-secret name, a fence with no closing line, and a secret or multi-instance link with no page.
+blank body, a body that is not valid YAML or not a mapping, a deployment body whose top-level keys
+are indented past the fence, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`,
+a multi-instance body without `toolset` or `config` or whose `config` is not a string, options
+with no space after the fence name, an option the fence does not take or an option set twice, a
+flag given a value or another option given none, a qualifier or `reuse` on a fence that reads no
+secret, a qualifier or page name that makes no valid Kubernetes secret name, a fence with no
+closing line, and a secret or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -246,18 +247,19 @@ def _cli_config(body: str) -> str:
     """The top-level keys of `body` the CLI reads, as the body has them.
 
     A key's block runs from its line to the next top-level key; blank lines and
-    column-0 comments directly above a key belong to that key."""
+    column-0 comments directly above a key, and every comment above the first
+    key, belong to that key."""
     blocks: list = []
     pending: list = []
     for line in body.split("\n"):
-        if not line.strip() or line.startswith("#"):
-            pending.append(line)
-        elif line[0] != " " or not blocks:
+        if line[:1] not in ("", " ", "#"):
             blocks.append([line.split(":", 1)[0].strip(), pending + [line]])
             pending = []
-        else:
+        elif line.strip() and line[0] == " " and blocks:
             blocks[-1][1] += pending + [line]
             pending = []
+        else:
+            pending.append(line)
     kept = "\n".join(
         line for key, lines in blocks if key in CLI_CONFIG_KEYS for line in lines
     )
@@ -518,6 +520,17 @@ class TabFencePreprocessor(Preprocessor):
             raise TabFenceError(f"{where} is not valid YAML: {e}") from e
         if not isinstance(data, dict):
             raise TabFenceError(f"{where} must be a YAML mapping")
+        # The values put extraEnvVarsSecrets at column 0 above the body, and the
+        # CLI tab picks the body's top-level keys by their column.
+        first_key = next(
+            line
+            for line in body.split("\n")
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        if first_key[0].isspace():
+            raise TabFenceError(
+                f"{where} indents its top-level keys past the fence: {first_key.strip()!r}"
+            )
         if fence == TOOLSET_CONFIG_FENCE and not set(data) & set(CLI_CONFIG_KEYS):
             raise TabFenceError(
                 f"{where} sets none of {', '.join(CLI_CONFIG_KEYS)}; "
