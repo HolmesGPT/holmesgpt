@@ -171,7 +171,7 @@ This tells HolmesGPT the actual context window size (1M tokens) so it can proper
 
 ### Using IRSA (IAM Roles for Service Accounts)
 
-If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate without static credentials. The AWS SDK picks up the role automatically when the pod's service account is annotated with the role ARN and the following environment variables are injected into the pod:
+If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate without static credentials. The IAM role's trust policy must allow your cluster's OIDC provider for the subject `system:serviceaccount:<namespace>:<service-account>`, the service account Holmes runs as. The AWS SDK picks up the role automatically when the pod's service account is annotated with the role ARN and the following environment variables are injected into the pod:
 
 | Variable | Description |
 |---|---|
@@ -179,6 +179,8 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 | `AWS_WEB_IDENTITY_TOKEN_FILE` | Path to the projected service account token |
 
 === "Holmes Helm Chart"
+
+    Holmes runs as the service account `holmesgpt-holmes-service-account`. Use it as `<service-account>` in the steps above.
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -210,6 +212,8 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
     ```
 
 === "Robusta Helm Chart"
+
+    Holmes runs as the service account `robusta-holmes-service-account`. Use it as `<service-account>` in the steps above.
 
     When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
@@ -287,32 +291,14 @@ You can enable various beta features in AWS Bedrock by setting custom headers.
 
 For example, to enable 1M context windows.
 
-You can enable ``Extra Headers`` in both the CLI (via env vars) and the Helm charts options.
+You can enable ``Extra Headers`` in the CLI (via env vars) or in a model's `modelList` entry.
 
 For the CLI:
 ```bash
 export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
 ```
 
-Or, for Helm:
-
-    # values.yaml
-    holmes:
-      ...
-      modelList:
-        ...
-        bedrock-claude-sonnet-4-1M-context:
-          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-          extra_headers:
-            anthropic-beta: context-1m-2025-08-07
-
+In Kubernetes, set `extra_headers` on the model's `modelList` entry, as the `bedrock-claude-sonnet-4-1M-context` model in the [Configuration](#configuration) section does.
 
 ## Additional Resources
 

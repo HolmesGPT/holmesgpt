@@ -223,7 +223,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 
 - AKS cluster with OIDC issuer and workload identity enabled
 - A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
-- A federated credential linking the managed identity to the Holmes ServiceAccount, which the chart names `<release>-holmes-service-account`
+- A federated credential linking the managed identity to the service account Holmes runs as, `<service-account>`
 
 #### Step 1: Set up the identity and federation
 
@@ -258,7 +258,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
 
 === "Holmes Helm Chart"
 
-    Holmes runs as the service account `holmesgpt-holmes-service-account`. Use it as `<service-account>` in the steps above.
+    Holmes runs as the service account `holmesgpt-holmes-service-account` in the deployment `holmesgpt-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -302,7 +302,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
 
 === "Robusta Helm Chart"
 
-    Holmes runs as the service account `robusta-holmes-service-account`. Use it as `<service-account>` in the steps above.
+    Holmes runs as the service account `robusta-holmes-service-account` in the deployment `robusta-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
 
     When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
@@ -352,8 +352,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
 kubectl describe pod -l app=holmes -n <namespace> | grep -A5 "AZURE_"
 
 # Test that the identity can obtain a token (from inside the pod).
-# The chart names the deployment <release>-holmes: holmesgpt-holmes for the install guide's release.
-kubectl exec -n <namespace> deploy/holmesgpt-holmes -- python -c "
+kubectl exec -n <namespace> deploy/<holmes-deployment> -- python -c "
 from azure.identity import DefaultAzureCredential
 token = DefaultAzureCredential().get_token('https://cognitiveservices.azure.com/.default')
 print('Token obtained, expires at:', token.expires_on)
