@@ -479,7 +479,7 @@ QUALIFIED_PAGE = """\
     """
 
 
-def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(
+def test_secret_keys_come_from_keys_and_values_in_body_order_and_not_from_comments(
     convert,
 ):
     fence = """\
@@ -492,10 +492,11 @@ def test_secret_keys_come_from_the_values_in_body_order_and_not_from_comments(
               note: "a # is not a comment in a string: {{ env.IN_A_STRING }}"
               alpha: "{{ env.ALPHA }}"
               again: "{{ env.ZULU }}"
+              "{{ env.IN_A_KEY }}": key
         ```
         """
     shown = text(convert(fence))
-    keys = ["ZULU", "IN_A_STRING", "ALPHA"]
+    keys = ["ZULU", "IN_A_STRING", "ALPHA", "IN_A_KEY"]
     assert re.findall(r"--from-literal=(\w+)=", shown) == 2 * keys
     assert re.findall(r"export (\w+)=", shown) == keys
 

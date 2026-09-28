@@ -21,7 +21,7 @@ blockquote; it expands there. Options go in braces after the fence name: `{name=
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
 the chart's upgrade command. Each deployment fence is the only one under its heading.
 
-Secrets. Every `{{ env.X }}` in a value of the body (not in a YAML comment) that no
+Secrets. Every `{{ env.X }}` in a key or value of the body (not in a YAML comment) that no
 `additionalEnvVars` entry sets by name is a key of the group's Kubernetes secret, in the order the
 body first references them. The secret is `holmes-<page file stem>`. The Helm tabs create it with
 `kubectl create secret generic`, one `--from-literal=X=your-x` per key, and list it under
@@ -29,12 +29,12 @@ body first references them. The secret is `holmes-<page file stem>`. The Helm ta
 
 `{secret-qualifier=<name>}` names the group's secret `holmes-<stem>-<name>`, for a group on the same
 page that needs a secret with other keys. `<name>` is lowercase letters, digits and `-`, starting
-and ending with a letter or digit.
+and ending with a letter or digit, and only a fence that reads a secret takes one.
 
 Reuse. A fence without a qualifier whose keys are all keys of a secret an earlier fence on the page
-created reuses that secret: its Helm tabs have no secret step, its values still list the secret, its
-CLI tab still exports the keys (in the secret's order), and a note above the group names the section
-of the group that creates it:
+created reuses the first such secret: its Helm tabs have no secret step, its values still list the
+secret, its CLI tab still exports the keys (in the secret's order), and a note above the group names
+the section of the group that creates it:
 
     Reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
 
@@ -43,12 +43,13 @@ The section is the heading above the creating fence as toc renders it, wherever 
 takes that heading's id and its table-of-contents text.
 
 A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
-not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, a
-multi-instance body without `toolset` or `config`, an option the fence does not take or an option
-set twice, a qualifier or page name that makes no valid Kubernetes secret name, a second secret of the same name on a page,
-a second deployment fence under a heading, a reuse whose creating fence sits under no heading or under a heading without an id (toc gives
-headings their ids), a robusta-region body with no Robusta host,
-a fence with no closing line, and a secret or multi-instance link with no page.
+not valid YAML or not a mapping, a yaml-toolset-config body with neither `toolsets` nor
+`mcp_servers`, a multi-instance body without `toolset` or `config`, an option the fence does not
+take or an option set twice, a qualifier on a fence that reads no secret, a qualifier or page name
+that makes no valid Kubernetes secret name, a second secret of the same name on a page, a second
+deployment fence under a heading, a reuse whose creating fence sits under no heading or under a
+heading without an id (toc gives headings their ids), a robusta-region body with no Robusta host, a
+fence with no closing line, and a secret or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
