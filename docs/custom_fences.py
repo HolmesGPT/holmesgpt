@@ -1,21 +1,21 @@
 """
 Custom fences for the MkDocs documentation.
 
-Deployment fences, expanded into tab markdown before any other fence or tab is
-rendered, so they render exactly as the same tabs written by hand:
+Tab fences, expanded into tab markdown before any other fence or tab is rendered,
+so they render exactly as the same tabs written by hand, ids included:
 - yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart tabs.
 - yaml-helm-values: a Holmes chart values body, for chart-only settings. Holmes Helm Chart and Robusta
   Helm Chart tabs.
+- robusta-region: 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
+  sp.robusta.dev, each with the domains rewritten to the region's. Plain text renders as a code block
+  (`{lang=<name>}` sets its language); a markdown link `[text](url)` renders as a clickable link.
 
-Superfences formatters:
-- robusta-region: Creates 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
-  sp.robusta.dev. Plain URLs render as code blocks; markdown links `[text](url)` render as clickable links.
+Superfences formatter:
 - multi-instance: the standard "Multiple Instances" section for a toolset.
 """
 
 import html
 import re
-import uuid
 from pathlib import PurePosixPath
 
 import yaml  # type: ignore
@@ -42,10 +42,12 @@ EXTENSION_NAME = "docs.custom_fences"
 
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
-# The header options each deployment fence takes, as `{name=value}` after the fence name.
+REGION_FENCE = "robusta-region"
+# The header options each tab fence takes, as `{name=value}` after the fence name.
 FENCE_OPTIONS = {
     TOOLSET_CONFIG_FENCE: ("secret-qualifier",),
     HELM_VALUES_FENCE: ("secret-qualifier",),
+    REGION_FENCE: ("lang",),
 }
 
 # Top-level keys of a Holmes config body that the CLI reads from
@@ -75,8 +77,8 @@ ROBUSTA_UPGRADE_COMMAND = "helm upgrade robusta robusta/robusta -f generated_val
 REFRESH_WARNING_INCLUDE = '--8<-- "snippets/toolset_refresh_warning.md"'
 
 
-class DeploymentFenceError(Exception):
-    """A deployment fence that cannot be rendered; raised from a preprocessor, it fails the build."""
+class TabFenceError(Exception):
+    """A tab fence that cannot be rendered; raised from a preprocessor, it fails the build."""
 
 
 def _code_block(language: str, text: str) -> str:
@@ -201,12 +203,30 @@ def _fence_end(lines: list, start: int, indent: str, fence: str):
     return None
 
 
-class DeploymentFencePreprocessor(Preprocessor):
-    """Replace each deployment fence with its tab group's markdown.
+def _region_tabs(body: str, lang: str) -> str:
+    """US, EU and AP tabs, each with `body` rewritten to the region's domains:
+    as a paragraph when `body` is a markdown link, as a code block otherwise."""
+    is_link = MARKDOWN_LINK_RE.match(body)
+    return "\n\n".join(
+        _tab(
+            region,
+            [
+                _rewrite_robusta_domain(body, infix)
+                if is_link
+                else _code_block(lang, _rewrite_robusta_domain(body, infix))
+            ],
+        )
+        for region, infix in ROBUSTA_REGIONS
+    )
+
+
+class TabFencePreprocessor(Preprocessor):
+    """Replace each tab fence with its tab group's markdown.
 
     Registered after pymdownx.snippets, so it also sees fences inside included
     snippet files, and before superfences and tabbed, which then render the
-    group as they render hand-written tabs. The snippet includes the group
+    group as they render hand-written tabs: tab ids come from tabbed's slugs,
+    as every other tab on the page gets them. The snippet includes the group
     itself carries are expanded by the snippets extension's own parser."""
 
     def __init__(self, md, page: str):
@@ -237,7 +257,10 @@ class DeploymentFencePreprocessor(Preprocessor):
                 body = "\n".join(line[len(indent) :] for line in lines[i + 1 : end])
                 where = f"the {fence} fence on {self.page or 'this page'}"
                 options = self._options(where, fence, header.strip())
-                group = self._group(where, fence, options, body.strip("\n"))
+                if fence == REGION_FENCE:
+                    group = _region_tabs(body.strip(), options.get("lang", ""))
+                else:
+                    group = self._group(where, fence, options, body.strip("\n"))
                 expansion = ["", *_indent(group, indent).split("\n"), ""]
                 if "snippet" in self.md.preprocessors:
                     expansion = self.md.preprocessors["snippet"].parse_snippets(
@@ -261,9 +284,7 @@ class DeploymentFencePreprocessor(Preprocessor):
     def _options(where: str, fence: str, header: str) -> dict:
         match = FENCE_OPTIONS_RE.match(header)
         if header and not match:
-            raise DeploymentFenceError(
-                f"{where} takes options as {{name=value}}: {header}"
-            )
+            raise TabFenceError(f"{where} takes options as {{name=value}}: {header}")
         text = match["options"] if match else ""
         options = {
             option["name"]: option["quoted"]
@@ -274,7 +295,7 @@ class DeploymentFencePreprocessor(Preprocessor):
         leftover = FENCE_OPTION_RE.sub("", text).strip()
         unknown = sorted(set(options) - set(FENCE_OPTIONS[fence]))
         if leftover or unknown:
-            raise DeploymentFenceError(
+            raise TabFenceError(
                 f"{where} takes only the options {', '.join(FENCE_OPTIONS[fence])}: {header}"
             )
         return options
@@ -283,11 +304,11 @@ class DeploymentFencePreprocessor(Preprocessor):
         try:
             data = yaml.safe_load(body)
         except yaml.YAMLError as e:
-            raise DeploymentFenceError(f"{where} is not valid YAML: {e}") from e
+            raise TabFenceError(f"{where} is not valid YAML: {e}") from e
         if not isinstance(data, dict):
-            raise DeploymentFenceError(f"{where} must be a YAML mapping")
+            raise TabFenceError(f"{where} must be a YAML mapping")
         if fence == TOOLSET_CONFIG_FENCE and not set(data) & set(CLI_CONFIG_KEYS):
-            raise DeploymentFenceError(
+            raise TabFenceError(
                 f"{where} sets none of {', '.join(CLI_CONFIG_KEYS)}; "
                 f"use {HELM_VALUES_FENCE} for chart-only values"
             )
@@ -307,12 +328,12 @@ class DeploymentFencePreprocessor(Preprocessor):
         qualifier = options.get("secret-qualifier")
         if not keys:
             if qualifier:
-                raise DeploymentFenceError(
+                raise TabFenceError(
                     f"{where} reads no secret, so it takes no secret-qualifier"
                 )
             return _deployment_group(fence, body, "", [])
         if not self.page:
-            raise DeploymentFenceError(
+            raise TabFenceError(
                 f"{where} reads a secret, which is named after the page, "
                 f"but no page was given to the {EXTENSION_NAME} extension"
             )
@@ -324,7 +345,7 @@ class DeploymentFencePreprocessor(Preprocessor):
                 if not set(keys) <= created:
                     continue
                 if section is None:
-                    raise DeploymentFenceError(
+                    raise TabFenceError(
                         f"{where} reuses the secret {secret}, but the group that "
                         "creates it sits under no heading for the note to name"
                     )
@@ -338,7 +359,7 @@ class DeploymentFencePreprocessor(Preprocessor):
         if qualifier:
             secret += f"-{qualifier}"
         if secret in self.secrets:
-            raise DeploymentFenceError(
+            raise TabFenceError(
                 f"{where} creates the secret {secret}, which an earlier group on the page "
                 "creates with other keys; give it a secret-qualifier"
             )
@@ -346,7 +367,7 @@ class DeploymentFencePreprocessor(Preprocessor):
         return _deployment_group(fence, body, secret, keys)
 
 
-class DeploymentFencesExtension(Extension):
+class TabFencesExtension(Extension):
     def __init__(self, **kwargs):
         self.config = {
             "page": [
@@ -360,104 +381,23 @@ class DeploymentFencesExtension(Extension):
         # After pymdownx.snippets (32), before whitespace normalization (30) and
         # superfences (25), as hand-written tabs in the page would be.
         md.preprocessors.register(
-            DeploymentFencePreprocessor(md, self.getConfig("page")),
-            "deployment_fences",
+            TabFencePreprocessor(md, self.getConfig("page")),
+            "tab_fences",
             31,
         )
 
 
 def makeExtension(**kwargs):
-    return DeploymentFencesExtension(**kwargs)
+    return TabFencesExtension(**kwargs)
 
 
 def on_page_markdown(markdown, page, config, **kwargs):
-    """MkDocs hook: give the deployment fences the path of the page being built.
+    """MkDocs hook: give the tab fences the path of the page being built.
 
     MkDocs builds each page's Markdown instance from `mdx_configs` right after
     this event, and passes no page to extensions otherwise."""
     config["mdx_configs"].setdefault(EXTENSION_NAME, {})["page"] = page.file.src_uri
     return markdown
-
-
-def robusta_region_fence_format(source, language, css_class, options, md, **kwargs):
-    """
-    Render the source as three tabs (US, EU, AP), rewriting `api.robusta.dev`,
-    `platform.robusta.dev` and `sp.robusta.dev` to the regional subdomain in each tab.
-
-    Auto-detects two input shapes:
-
-    1. A markdown link `[text](url)` (with optional `{...}` attribute list) →
-       renders as a clickable link per region.
-    2. Anything else → renders as a code block per region. Pass `lang=<name>`
-       in the fence options to set syntax highlighting (e.g. `lang=yaml`).
-
-    Usage:
-
-        ```robusta-region
-        https://api.robusta.dev/litellm/model_prices_and_context_window.json
-        ```
-
-        ```robusta-region
-        [platform.robusta.dev](https://platform.robusta.dev/)
-        ```
-
-        ````robusta-region lang=yaml
-        holmes:
-          additionalEnvVars:
-            - name: ROBUSTA_API_ENDPOINT
-              value: "https://api.robusta.dev"
-        ````
-    """
-    inner = source.strip()
-    # Inline `{lang=yaml}` attrs arrive via kwargs['attrs']; config-level options
-    # come from mkdocs.yml (currently unused).
-    attrs = kwargs.get("attrs") or {}
-    inner_lang = attrs.get("lang") or (options or {}).get("lang") or ""
-    lang_class_attr = (
-        f' class="language-{html.escape(inner_lang)}"' if inner_lang else ""
-    )
-
-    link_match = MARKDOWN_LINK_RE.match(inner)
-
-    tab_group_id = str(uuid.uuid4()).replace("-", "_")
-    group_name = f"__tabbed_{tab_group_id}"
-
-    inputs_html = ""
-    labels_html = ""
-    blocks_html = ""
-
-    for index, (region_name, region_infix) in enumerate(ROBUSTA_REGIONS, start=1):
-        tab_id = f"{group_name}_{index}"
-        checked_attr = ' checked="checked"' if index == 1 else ""
-        inputs_html += (
-            f'<input{checked_attr} id="{tab_id}" name="{group_name}" type="radio">\n'
-        )
-        labels_html += f'<label for="{tab_id}">{region_name}</label>\n'
-
-        if link_match:
-            link_text, link_url, _attrs = link_match.groups()
-            regional_text = _rewrite_robusta_domain(link_text, region_infix)
-            regional_url = _rewrite_robusta_domain(link_url, region_infix)
-            inner_html = (
-                f'<p><a href="{html.escape(regional_url)}">'
-                f"{html.escape(regional_text)}</a></p>"
-            )
-        else:
-            regional_content = _rewrite_robusta_domain(inner, region_infix)
-            inner_html = (
-                f"<pre><code{lang_class_attr}>{html.escape(regional_content)}"
-                "</code></pre>"
-            )
-
-        blocks_html += f'<div class="tabbed-block">{inner_html}</div>\n'
-
-    return (
-        '<div class="tabbed-set" data-tabs="1:3">\n'
-        f"{inputs_html}"
-        f'<div class="tabbed-labels">\n{labels_html}</div>\n'
-        f'<div class="tabbed-content">\n{blocks_html}</div>\n'
-        "</div>"
-    )
 
 
 # Central page that documents how multi-instance toolsets work. Linked from every

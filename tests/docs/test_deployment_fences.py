@@ -7,7 +7,7 @@ import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
 
-from docs.custom_fences import DeploymentFenceError
+from docs.custom_fences import TabFenceError
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -438,7 +438,7 @@ def test_a_secret_qualifier_names_a_second_secret_on_the_page(convert):
 
 
 def test_a_second_secret_without_a_qualifier_fails_the_build(convert):
-    with pytest.raises(DeploymentFenceError, match="secret-qualifier"):
+    with pytest.raises(TabFenceError, match="secret-qualifier"):
         convert(QUALIFIED_PAGE.replace(" {secret-qualifier=token}", ""))
 
 
@@ -556,11 +556,73 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             '## B\n\n```yaml-helm-values\nx: "{{ env.X }}"\n```\n',
             id="reuse-of-a-secret-created-under-no-heading",
         ),
+        pytest.param(
+            "```robusta-region {secret-qualifier=a}\nhttps://api.robusta.dev\n```\n",
+            id="region-option-it-does-not-take",
+        ),
     ],
 )
 def test_a_fence_that_cannot_be_rendered_fails_the_build(convert, block):
-    with pytest.raises(DeploymentFenceError):
+    with pytest.raises(TabFenceError):
         convert(block)
+
+
+def test_robusta_region_renders_the_region_tabs_as_written_by_hand(convert):
+    fence = """\
+        ## Selecting a Region
+
+        ```robusta-region {lang=yaml}
+        url: "https://api.robusta.dev/api"
+        ```
+
+        1. Open the platform:
+
+            ```robusta-region
+            [platform.robusta.dev](https://platform.robusta.dev/)
+            ```
+        """
+    hand_written = """\
+        ## Selecting a Region
+
+        === "US"
+
+            ```yaml
+            url: "https://api.robusta.dev/api"
+            ```
+
+        === "EU"
+
+            ```yaml
+            url: "https://api.eu.robusta.dev/api"
+            ```
+
+        === "AP"
+
+            ```yaml
+            url: "https://api.ap.robusta.dev/api"
+            ```
+
+        1. Open the platform:
+
+            === "US"
+
+                [platform.robusta.dev](https://platform.robusta.dev/)
+
+            === "EU"
+
+                [platform.eu.robusta.dev](https://platform.eu.robusta.dev/)
+
+            === "AP"
+
+                [platform.ap.robusta.dev](https://platform.ap.robusta.dev/)
+        """
+    html = convert(fence)
+    assert html == convert(hand_written)
+    assert html == convert(fence)  # the same page always gets the same tab ids
+    assert (
+        'id="selecting-a-region-eu"' in html and 'id="selecting-a-region-eu_1"' in html
+    )
+    assert 'href="https://platform.ap.robusta.dev/"' in html
 
 
 def test_without_toc_headings_have_no_ids_for_a_reuse_note(monkeypatch):
@@ -570,12 +632,12 @@ def test_without_toc_headings_have_no_ids_for_a_reuse_note(monkeypatch):
         extension_configs={"docs.custom_fences": {"page": "a.md"}},
     )
     fence = '```yaml-helm-values\nx: "{{ env.X }}"\n```\n'
-    with pytest.raises(DeploymentFenceError, match="no heading"):
+    with pytest.raises(TabFenceError, match="no heading"):
         md.convert(f"## A\n\n{fence}\n## B\n\n{fence}")
 
 
 def test_a_secret_needs_the_page(convert):
-    with pytest.raises(DeploymentFenceError):
+    with pytest.raises(TabFenceError):
         convert('```yaml-helm-values\nx: "{{ env.X }}"\n```\n', page="")
 
 
