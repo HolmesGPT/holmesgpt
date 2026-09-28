@@ -19,7 +19,8 @@ blockquote; it expands there. Options go in braces after the fence name: `{name=
   with a path relative to the page.
 
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
-the chart's upgrade command. Each deployment fence is the only one under its heading.
+the chart's upgrade command. A fence renders from its own body and options and the page's path, and
+reads nothing else on the page.
 
 Secrets. Every `{{ env.X }}` in a key or value of the body (not in a YAML comment) that no
 `additionalEnvVars` entry sets by name is a key of the group's Kubernetes secret, in the order the
@@ -29,32 +30,23 @@ body first references them. The secret is `holmes-<page file stem>`. The Helm ta
 
 `{secret-qualifier=<name>}` names the group's secret `holmes-<stem>-<name>`, for a group on the same
 page that needs a secret with other keys. `<name>` is lowercase letters, digits and `-`, starting
-and ending with a letter or digit, and only a fence that reads a secret takes one.
+and ending with a letter or digit.
 
-Reuse. A fence without a qualifier whose keys are all keys of a secret an earlier fence on the page
-created reuses the first such secret: its Helm tabs have no secret step, its values still list the
-secret, its CLI tab still exports the keys (in the secret's order), and a note above the group names
-the section of the group that creates it:
+`{reuse}` is for a group whose secret an earlier group on the page creates: its Helm tabs have no
+secret step, its values still list the secret, and its CLI tab still exports the keys. The note
+naming the section that creates the secret is written by hand above the fence:
 
     Reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
 
-Above a yaml-toolset-config group, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
-The section is the heading above the creating fence as toc renders it, wherever it sits: the link
-takes that heading's id and its table-of-contents text.
-
-`{reuse}` marks a fence as reusing its secret, `holmes-<stem>` or with the fence's qualifier,
-without looking for the fence that creates it: its Helm tabs have no secret step, its values still
-list the secret, its CLI tab still exports the keys, and the note is written by hand above it.
+Above a yaml-toolset-config fence, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
 
 A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
 not valid YAML or not a mapping, a yaml-toolset-config body with neither `toolsets` nor
 `mcp_servers`, a multi-instance body without `toolset` or `config`, an option the fence does not
 take or an option set twice, a flag given a value or another option given none, a qualifier or
-`reuse` on a fence that reads no secret, a qualifier or page name
-that makes no valid Kubernetes secret name, a second secret of the same name on a page, a second
-deployment fence under a heading, a reuse whose creating fence sits under no heading or under a
-heading without an id (toc gives headings their ids), a robusta-region body with no Robusta host, a
-fence with no closing line, and a secret or multi-instance link with no page.
+`reuse` on a fence that reads no secret, a qualifier or page name that makes no valid Kubernetes
+secret name, a robusta-region body with no Robusta host, a fence with no closing line, and a secret
+or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -72,7 +64,6 @@ from pathlib import PurePosixPath
 import yaml  # type: ignore
 from markdown.extensions import Extension
 from markdown.preprocessors import Preprocessor
-from markdown.treeprocessors import Treeprocessor
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -123,11 +114,6 @@ FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
 FENCE_OPTION_RE = re.compile(
     r'(?P<name>[A-Za-z][\w-]*)(?:=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+)))?'
 )
-# A paragraph the preprocessor puts before each deployment group, and the
-# anchor of a reuse note's link to the group that creates the secret; the
-# treeprocessor removes the first and resolves the second.
-GROUP_MARKER = "TABFENCEGROUP{}"
-GROUP_MARKER_RE = re.compile(r"^TABFENCEGROUP(\d+)$")
 # Characters Python-Markdown's backslash escapes cover, apart from `>`, which
 # html.escape already turns into an entity.
 MARKDOWN_ESCAPED_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!])")
@@ -373,10 +359,6 @@ class TabFencePreprocessor(Preprocessor):
 
     def run(self, lines):
         out: list = []
-        # The secrets deployment groups earlier on this page create: name -> (keys, group).
-        self.secrets: dict = {}
-        # Each deployment group on the page, as the fence it came from, for errors.
-        self.groups: list = []
         i = 0
         while i < len(lines):
             match = FENCE_START_RE.match(lines[i])
@@ -407,17 +389,7 @@ class TabFencePreprocessor(Preprocessor):
                 elif fence == MULTI_INSTANCE_FENCE:
                     group = _multi_instance_section(where, body, self.page)
                 else:
-                    # The marker tells the treeprocessor where the group is.
-                    index = len(self.groups)
-                    first_line = next(line for line in body.split("\n") if line.strip())
-                    self.groups.append(
-                        f"the {fence} fence starting {first_line.strip()!r}"
-                    )
-                    group = (
-                        GROUP_MARKER.format(index)
-                        + "\n\n"
-                        + self._group(where, fence, options, body.strip("\n"), index)
-                    )
+                    group = self._group(where, fence, options, body.strip("\n"))
                 expansion = group.split("\n")
                 if "snippet" in self.md.preprocessors:
                     expansion = self.md.preprocessors["snippet"].parse_snippets(
@@ -470,9 +442,7 @@ class TabFencePreprocessor(Preprocessor):
                 )
         return options
 
-    def _group(
-        self, where: str, fence: str, options: dict, body: str, index: int
-    ) -> str:
+    def _group(self, where: str, fence: str, options: dict, body: str) -> str:
         try:
             data = yaml.safe_load(body)
         except yaml.YAMLError as e:
@@ -504,7 +474,6 @@ class TabFencePreprocessor(Preprocessor):
             if key not in set_by_chart
         ]
         qualifier = options.get("secret-qualifier")
-        reuse = "reuse" in options
         if qualifier is not None and not DNS1123_LABEL_RE.match(qualifier):
             raise TabFenceError(
                 f"{where} takes a secret-qualifier of lowercase letters, digits and "
@@ -523,29 +492,6 @@ class TabFencePreprocessor(Preprocessor):
                 f"{where} reads a secret, which is named after the page, {NO_PAGE}"
             )
 
-        # A group whose keys a secret an earlier group created holds reuses that
-        # secret: its values still mount it, its Helm tabs have no secret step,
-        # its CLI tab still exports the keys, and a note names the section of the
-        # group that creates it; the treeprocessor links it to that heading. The
-        # note holds only in Kubernetes, so above a Holmes CLI tab it says so.
-        if not qualifier and not reuse:
-            for secret, (created, creator) in self.secrets.items():
-                if not set(keys) <= set(created):
-                    continue
-                note = (
-                    (
-                        "In Kubernetes, this reuses"
-                        if fence == TOOLSET_CONFIG_FENCE
-                        else "Reuses"
-                    )
-                    + f" the `{secret}` secret created in the "
-                    f"[section](#{GROUP_MARKER.format(creator)}) section above."
-                )
-                keys = [key for key in created if key in keys]  # the secret's order
-                return (
-                    note + "\n\n" + _deployment_group(fence, body, secret, keys, False)
-                )
-
         secret = f"holmes-{PurePosixPath(self.page).stem}"
         if qualifier:
             secret += f"-{qualifier}"
@@ -558,95 +504,7 @@ class TabFencePreprocessor(Preprocessor):
                 "that is not a valid Kubernetes secret name (a DNS-1123 subdomain "
                 f"of at most {DNS1123_SUBDOMAIN_MAX_LENGTH} characters)"
             )
-        if reuse:
-            # The note above the group, naming the section that creates the
-            # secret, is written by hand.
-            return _deployment_group(fence, body, secret, keys, False)
-        if secret in self.secrets:
-            raise TabFenceError(
-                f"{where} creates the secret {secret}, which an earlier group on the page "
-                "creates with other keys; give it a secret-qualifier"
-            )
-        self.secrets[secret] = (keys, index)
-        return _deployment_group(fence, body, secret, keys, True)
-
-
-def _walk(parent):
-    """Each element below `parent` with its parent, in document order."""
-    for el in parent:
-        yield parent, el
-        yield from _walk(el)
-
-
-class TabFenceTreeprocessor(Treeprocessor):
-    """Place each deployment group under its heading, as toc rendered it.
-
-    Runs after toc, so every heading has its final id, whatever markup its text
-    has and wherever it sits (an admonition, a tab, a list). Each group's marker
-    paragraph is removed; a second group under the heading of an earlier one
-    fails the build; and each reuse note's link gets the id and text of the
-    heading above the group that creates the secret."""
-
-    def __init__(self, md, fences: TabFencePreprocessor):
-        super().__init__(md)
-        self.fences = fences
-
-    def run(self, root):
-        headings: dict = {}  # group index -> the heading above it, or None
-        groups: dict = {}  # id(heading) -> the first group under it
-        markers, links = [], []
-        heading = None
-        for parent, el in _walk(root):
-            if re.fullmatch(r"h[1-6]", str(el.tag)):
-                heading = el
-            marker = (
-                el.tag == "p" and not len(el) and GROUP_MARKER_RE.match(el.text or "")
-            )
-            if marker:
-                index = int(marker[1])
-                first = groups.setdefault(id(heading), index)
-                if first != index:
-                    raise TabFenceError(
-                        f"{self.fences.groups[index]} on {self.fences.page or 'this page'} "
-                        f"sits under the same heading as {self.fences.groups[first]} "
-                        f"({self._name(heading) if heading is not None else 'no heading'}); "
-                        "give each deployment tab group a heading of its own"
-                    )
-                headings[index] = heading
-                markers.append((parent, el))
-            link = el.tag == "a" and GROUP_MARKER_RE.match(el.get("href", "")[1:])
-            if link:
-                links.append((el, int(link[1])))
-        for el, index in links:
-            heading = headings[index]
-            if heading is None or "id" not in heading.attrib:
-                raise TabFenceError(
-                    f"{self.fences.groups[index]} on {self.fences.page or 'this page'} "
-                    "creates a secret a later group reuses, but "
-                    + (
-                        "it sits under no heading"
-                        if heading is None
-                        else "its heading has no id (the toc extension gives it one)"
-                    )
-                    + " for the later group's note to link to"
-                )
-            el.set("href", "#" + heading.get("id"))
-            el.text = self._name(heading)
-        for parent, el in markers:
-            parent.remove(el)
-
-    def _name(self, heading) -> str:
-        """The heading's text, as the table of contents shows it."""
-
-        def tokens(items):
-            for item in items:
-                yield item
-                yield from tokens(item["children"])
-
-        for token in tokens(getattr(self.md, "toc_tokens", [])):
-            if token["id"] == heading.get("id"):
-                return html.unescape(token["name"])
-        return "".join(heading.itertext()).strip()
+        return _deployment_group(fence, body, secret, keys, "reuse" not in options)
 
 
 class TabFencesExtension(Extension):
@@ -665,12 +523,8 @@ class TabFencesExtension(Extension):
         # text: pymdownx.critic (31.1), the raw-block stash superfences adds
         # with preserve_tabs (31.05), whitespace normalization (30) and
         # superfences (25), which then see the expansion as hand-written tabs.
-        fences = TabFencePreprocessor(md, self.getConfig("page"))
-        md.preprocessors.register(fences, "tab_fences", 31.5)
-        # After toc (5), which gives every heading its id and the table of
-        # contents its text, and before MkDocs validates the page's links (0).
-        md.treeprocessors.register(
-            TabFenceTreeprocessor(md, fences), "tab_fence_groups", 4.5
+        md.preprocessors.register(
+            TabFencePreprocessor(md, self.getConfig("page")), "tab_fences", 31.5
         )
 
 

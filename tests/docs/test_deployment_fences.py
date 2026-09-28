@@ -301,99 +301,6 @@ def test_env_vars_set_by_the_chart_are_not_secret_keys_and_chart_keys_stay_out_o
     assert convert(fence, page=page) == convert(hand_written, page=page)
 
 
-def test_a_group_reading_an_earlier_groups_secret_reuses_it_with_a_note(convert):
-    page = """\
-        ## Set up A
-
-        ```yaml-helm-values
-        mcp_servers:
-          a:
-            config:
-              token: "{{ env.TOKEN }}"
-        ```
-
-        ## B
-
-        ```yaml-toolset-config
-        mcp_servers:
-          b:
-            config:
-              token: "{{ env.TOKEN }}"
-        ```
-        """
-    hand_written_b = """\
-        ## B
-
-        In Kubernetes, this reuses the `holmes-victorialogs` secret created in the [Set up A](#set-up-a) section above.
-
-        === "Holmes CLI"
-
-            Set the environment variable:
-
-            ```bash
-            export TOKEN=your-token
-            ```
-
-            Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-            ```yaml
-            mcp_servers:
-              b:
-                config:
-                  token: "{{ env.TOKEN }}"
-            ```
-
-            --8<-- "snippets/toolset_refresh_warning.md"
-
-        === "Holmes Helm Chart"
-
-            When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-            ```yaml
-            extraEnvVarsSecrets:
-              - holmes-victorialogs
-
-            mcp_servers:
-              b:
-                config:
-                  token: "{{ env.TOKEN }}"
-            ```
-
-            Apply the configuration:
-
-            ```bash
-            helm upgrade holmes robusta/holmes -f values.yaml
-            ```
-
-        === "Robusta Helm Chart"
-
-            When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-            ```yaml
-            holmes:
-              extraEnvVarsSecrets:
-                - holmes-victorialogs
-
-              mcp_servers:
-                b:
-                  config:
-                    token: "{{ env.TOKEN }}"
-            ```
-
-            Apply the configuration:
-
-            ```bash
-            helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-            ```
-        """
-    html = convert(page)
-    group_a = page.split("        ## B")[0]
-    assert html == convert(group_a + hand_written_b)
-    first = html.split('<h2 id="b">')[0]
-    assert text(first).count("kubectl create secret generic holmes-victorialogs") == 2
-    assert '<h2 id="set-up-a">' in first  # the note links to the heading's own id
-
-
 REUSE_FENCE = """\
 ```yaml-toolset-config {reuse}
 mcp_servers:
@@ -477,89 +384,7 @@ def test_a_reuse_fence_with_a_qualifier_mounts_the_qualified_secret(convert):
     assert "kubectl" not in shown and "export TOKEN=your-token" in shown
 
 
-def test_the_reuse_note_links_to_the_id_the_heading_gets(convert):
-    page = """\
-        ## Setup
-
-        ## Setup
-
-        ```yaml-helm-values
-        x: "{{ env.X }}"
-        ```
-
-        ## Custom {#my-id}
-
-        ```yaml-helm-values {secret-qualifier=y}
-        y: "{{ env.Y }}"
-        ```
-
-        ## Later
-
-        ```yaml-helm-values
-        x: "{{ env.X }}"
-        ```
-
-        ### Later Y
-
-        ```yaml-helm-values
-        y: "{{ env.Y }}"
-        ```
-        """
-    html = convert(page)
-    assert '<h2 id="setup_1">' in html and '<h2 id="my-id">' in html
-    later = text(html.split('<h2 id="later">')[1])
-    assert (
-        "Reuses the holmes-victorialogs secret created in the Setup section above"
-        in later
-    )
-    assert (
-        "extraEnvVarsSecrets:\n  - holmes-victorialogs-y" in later
-        and "kubectl" not in later
-    )
-    notes = re.findall(r"<p>Reuses .*?</p>", html)
-    assert ['href="#setup_1"' in notes[0], 'href="#my-id"' in notes[1]] == [True, True]
-
-
-def test_a_reusing_group_exports_the_keys_it_reads_in_the_secrets_order(convert):
-    page = """\
-        ## A
-
-        ```yaml-helm-values
-        x: "{{ env.ZULU }}"
-        y: "{{ env.ALPHA }}"
-        z: "{{ env.MIKE }}"
-        ```
-
-        ## B
-
-        ```yaml-toolset-config
-        toolsets:
-          b:
-            config:
-              m: "{{ env.MIKE }}"
-              z: "{{ env.ZULU }}"
-        ```
-        """
-    cli = text(convert(page).split('<h2 id="b">')[1]).split("Add the following")[0]
-    assert "Set the environment variables:" in cli
-    assert re.findall(r"export (\w+)=", cli) == ["ZULU", "MIKE"]
-
-
 X_FENCE = '```yaml-helm-values\nx: "{{ env.X }}"\n```\n'
-
-QUALIFIED_PAGE = """\
-    ## Basic auth
-
-    ```yaml-helm-values
-    password: "{{ env.PASSWORD }}"
-    ```
-
-    ## Bearer token
-
-    ```yaml-helm-values {secret-qualifier=token}
-    token: "{{ env.TOKEN }}"
-    ```
-    """
 
 
 def test_secret_keys_come_from_keys_and_values_in_body_order_and_not_from_comments(
@@ -582,148 +407,6 @@ def test_secret_keys_come_from_keys_and_values_in_body_order_and_not_from_commen
     keys = ["ZULU", "IN_A_STRING", "ALPHA", "IN_A_KEY"]
     assert re.findall(r"--from-literal=(\w+)=", shown) == 2 * keys
     assert re.findall(r"export (\w+)=", shown) == keys
-
-
-def test_a_heading_like_line_in_a_code_block_is_not_the_notes_section(convert):
-    code = "```bash\n# not a heading\n```\n"
-    page = f"## Setup\n\n{code}\n{X_FENCE}\n## Later\n\n{X_FENCE}"
-    note = re.findall(r"<p>Reuses .*?</p>", convert(page))
-    assert len(note) == 1 and 'href="#setup">Setup</a>' in note[0]
-
-
-@pytest.mark.parametrize(
-    "heading, anchor",
-    [
-        pytest.param("Setup\n=====", "setup", id="level-1"),
-        pytest.param("Setup\n-----", "setup", id="level-2"),
-        pytest.param("Set up {#custom}\n---", "custom", id="explicit-id"),
-        pytest.param("## Setup\n\nFirst line\nsecond line\n---", "setup", id="hr"),
-    ],
-)
-def test_the_reuse_note_names_a_setext_heading(convert, heading, anchor):
-    page = f"{heading}\n\n{X_FENCE}\n## Later\n\n{X_FENCE}"
-    html = convert(page)
-    note = re.findall(r"<p>Reuses .*?</p>", html)
-    assert len(note) == 1 and f'href="#{anchor}"' in note[0]
-    assert f'id="{anchor}"' in html
-
-
-@pytest.mark.parametrize(
-    "above, anchor, link_text",
-    [
-        pytest.param(
-            "## Configure [Datadog](https://example.com)",
-            "configure-datadog",
-            "Configure Datadog",
-            id="link",
-        ),
-        pytest.param("## :material-cog: Setup", "setup", "Setup", id="emoji"),
-        pytest.param(
-            "## Setup <small>beta</small>", "setup-beta", "Setup beta", id="inline-html"
-        ),
-        pytest.param("## Setup {.beta}", "setup", "Setup", id="attr-list-class"),
-        pytest.param(
-            "## Use `holmes` config",
-            "use-holmes-config",
-            "Use holmes config",
-            id="code",
-        ),
-        pytest.param(
-            "## Logs & Metrics", "logs-metrics", "Logs &amp; Metrics", id="ampersand"
-        ),
-        pytest.param(
-            "## Logs &amp; Metrics",
-            "logs-metrics",
-            "Logs &amp; Metrics",
-            id="entity-reference",
-        ),
-        pytest.param("## Setup ##", "setup", "Setup", id="closing-hashes"),
-        pytest.param(
-            "## Setup\n\n<!--\n## Old section\n-->",
-            "setup",
-            "Setup",
-            id="heading-in-a-comment",
-        ),
-        pytest.param(
-            "## Setup\n\n    indented code\n---",
-            "setup",
-            "Setup",
-            id="indented-line-above-a-rule",
-        ),
-        pytest.param(
-            "!!! note\n    ## Setup\n\n    t\n\n## Setup",
-            "setup_1",
-            "Setup",
-            id="same-text-in-an-admonition",
-        ),
-        pytest.param(
-            '=== "A"\n\n    ## Setup\n\n    t\n\n## Setup',
-            "setup_1",
-            "Setup",
-            id="same-text-in-a-tab",
-        ),
-    ],
-)
-def test_the_reuse_note_links_to_the_heading_as_toc_renders_it(
-    convert, above, anchor, link_text
-):
-    html = convert(f"{above}\n\n{X_FENCE}\n## Later\n\n{X_FENCE}")
-    note = re.findall(r"<p>Reuses .*?</p>", html)
-    assert len(note) == 1 and f'<a href="#{anchor}">{link_text}</a>' in note[0]
-    assert re.search(rf'<h2[^>]* id="{anchor}"', html)
-    assert "TABFENCEGROUP" not in html
-
-
-def test_a_second_deployment_group_under_a_heading_fails_the_build(convert):
-    page = f"## Setup\n\n{X_FENCE}\n```yaml-toolset-config\ntoolsets:\n  a: {{}}\n```\n"
-    with pytest.raises(
-        TabFenceError,
-        match=re.escape(
-            "the yaml-toolset-config fence starting 'toolsets:' on "
-            "data-sources/builtin-toolsets/victorialogs.md sits under the same heading "
-            """as the yaml-helm-values fence starting 'x: "{{ env.X }}"' (Setup)"""
-        ),
-    ):
-        convert(page)
-    with pytest.raises(TabFenceError, match=re.escape("(no heading)")):
-        convert(f"{X_FENCE}\n{X_FENCE}")
-
-
-def test_a_qualified_group_creates_its_own_secret_even_when_an_earlier_one_holds_its_keys(
-    convert,
-):
-    page = f"## A\n\n{X_FENCE}\n## B\n\n" + X_FENCE.replace(
-        "values", "values {secret-qualifier=q}"
-    )
-    b = text(convert(page).split('<h2 id="b">')[1])
-    assert "kubectl create secret generic holmes-victorialogs-q" in b
-    assert "Reuses" not in b
-
-
-def test_a_group_reuses_the_first_earlier_secret_that_holds_its_keys(convert):
-    page = """\
-        ## A
-
-        ```yaml-helm-values
-        x: "{{ env.X }}"
-        y: "{{ env.Y }}"
-        ```
-
-        ## B
-
-        ```yaml-helm-values {secret-qualifier=b}
-        x: "{{ env.X }}"
-        ```
-
-        ## C
-
-        ```yaml-helm-values
-        x: "{{ env.X }}"
-        ```
-        """
-    note = re.findall(r"<p>Reuses .*?</p>", convert(page))
-    assert len(note) == 1
-    assert "<code>holmes-victorialogs</code>" in note[0] and 'href="#a"' in note[0]
 
 
 def test_a_tilde_fence_renders_as_a_backtick_fence(convert):
@@ -760,18 +443,6 @@ def test_the_fences_expand_ahead_of_superfences_preserve_tabs(convert, site_conf
     html = convert(TOKEN_FENCE, **{"pymdownx.superfences": superfences})
     assert html == convert(TOKEN_TABS, **{"pymdownx.superfences": superfences})
     assert html.count('<div class="tabbed-set') == 1
-
-
-def test_a_secret_qualifier_names_a_second_secret_on_the_page(convert):
-    bearer = text(convert(QUALIFIED_PAGE).split('<h2 id="bearer-token">')[1])
-    assert "kubectl create secret generic holmes-victorialogs-token" in bearer
-    assert "extraEnvVarsSecrets:\n  - holmes-victorialogs-token" in bearer
-    assert "holmes-victorialogs\n" not in bearer and "Reuses" not in bearer
-
-
-def test_a_second_secret_without_a_qualifier_fails_the_build(convert):
-    with pytest.raises(TabFenceError, match="give it a secret-qualifier"):
-        convert(QUALIFIED_PAGE.replace(" {secret-qualifier=token}", ""))
 
 
 TOKEN_FENCE = """\
@@ -841,6 +512,22 @@ TOKEN_TABS = """\
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 """
+
+
+def test_a_fence_renders_the_same_whatever_the_page_holds_around_it(convert):
+    def page(group):
+        return f"## A\n\n{group}\n{group}\n## B\n\n{group}"
+
+    assert convert(page(TOKEN_FENCE)) == convert(page(TOKEN_TABS))
+
+
+def test_a_secret_qualifier_names_the_secret_after_the_page_and_the_qualifier(
+    convert,
+):
+    fence = X_FENCE.replace("values", "values {secret-qualifier=token}")
+    shown = text(convert(fence))
+    assert "kubectl create secret generic holmes-victorialogs-token" in shown
+    assert "extraEnvVarsSecrets:\n  - holmes-victorialogs-token" in shown
 
 
 def test_a_fence_in_an_included_snippet_renders_as_on_the_page(convert, tmp_path):
@@ -960,17 +647,6 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
                 id=f"qualifier-{qualifier}",
             )
             for qualifier in ("My Token", "Token", "a_b", "a.b", "-a", "a-", "")
-        ),
-        pytest.param(
-            f"{X_FENCE}\n## B\n\n{X_FENCE}",
-            "sits under no heading",
-            id="reuse-of-a-secret-created-under-no-heading",
-        ),
-        pytest.param(
-            f'## A\n\n{X_FENCE}\n## B\n\n```yaml-helm-values\nx: "{{{{ env.X }}}}"\n'
-            'y: "{{ env.Y }}"\n```\n',
-            "give it a secret-qualifier",
-            id="more-keys-than-the-earlier-secret-holds",
         ),
         pytest.param(
             "```robusta-region {secret-qualifier=a}\nhttps://api.robusta.dev\n```\n",
@@ -1125,17 +801,6 @@ def test_robusta_region_renders_the_region_tabs_as_written_by_hand(convert):
         'id="selecting-a-region-eu"' in html and 'id="selecting-a-region-eu_1"' in html
     )
     assert 'href="https://platform.ap.robusta.dev/"' in html
-
-
-def test_without_toc_headings_have_no_ids_for_a_reuse_note(monkeypatch):
-    monkeypatch.chdir(REPO)
-    md = markdown.Markdown(
-        extensions=["docs.custom_fences", "pymdownx.superfences", "pymdownx.tabbed"],
-        extension_configs={"docs.custom_fences": {"page": "a.md"}},
-    )
-    fence = '```yaml-helm-values\nx: "{{ env.X }}"\n```\n'
-    with pytest.raises(TabFenceError, match="its heading has no id"):
-        md.convert(f"## A\n\n{fence}\n## B\n\n{fence}")
 
 
 def test_a_secret_needs_the_page(convert):
