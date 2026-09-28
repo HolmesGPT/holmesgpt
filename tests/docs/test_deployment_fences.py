@@ -589,6 +589,11 @@ def test_a_second_deployment_group_under_a_heading_fails_the_build(convert):
         convert(f"{X_FENCE}\n{X_FENCE}")
 
 
+def test_options_may_follow_the_fence_name_without_a_space(convert):
+    fence = X_FENCE.replace("values", "values{secret-qualifier=q}")
+    assert "holmes-victorialogs-q" in text(convert(fence))
+
+
 def test_a_fence_in_a_blockquote_renders_as_tabs_written_in_it(convert):
     def quoted(body):
         return (
@@ -750,6 +755,16 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "```yaml-helm-values {secret-qualifier=a}\nkey: 1\n```\n",
             "takes no secret-qualifier",
             id="qualifier-without-a-secret",
+        ),
+        pytest.param(
+            X_FENCE.replace("values", "values {secret-qualifier=a secret-qualifier=b}"),
+            "sets the option secret-qualifier more than once",
+            id="repeated-option",
+        ),
+        pytest.param(
+            "```robusta-region\nhttps://docs.example.com/x\n```\n",
+            "holds no Robusta host",
+            id="region-without-a-robusta-host",
         ),
         pytest.param(
             "```multi-instance\ntoolset: [a\n```\n",

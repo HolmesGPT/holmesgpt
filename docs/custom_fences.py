@@ -3,7 +3,7 @@ Custom fences for the MkDocs documentation.
 
 Each fence expands into markdown before any other fence or tab is rendered, so it renders exactly
 as the same markdown written by hand, tab ids included. A fence may sit indented in a list or in a
-blockquote; it expands there.
+blockquote; it expands there. Options go in braces after the fence name: `{name=value}`.
 
 - yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart
   tabs. The CLI tab shows the body's `toolsets` and `mcp_servers` keys for ~/.holmes/config.yaml.
@@ -27,9 +27,9 @@ body first references them. The secret is `holmes-<page file stem>`. The Helm ta
 `kubectl create secret generic`, one `--from-literal=X=your-x` per key, and list it under
 `extraEnvVarsSecrets`, which mounts each key as an env var; the CLI tab exports the same variables.
 
-`{secret-qualifier=<name>}` after the fence name names the group's secret `holmes-<stem>-<name>`,
-for a group on the same page that needs a secret with other keys. `<name>` is lowercase letters,
-digits and `-`, starting and ending with a letter or digit.
+`{secret-qualifier=<name>}` names the group's secret `holmes-<stem>-<name>`, for a group on the same
+page that needs a secret with other keys. `<name>` is lowercase letters, digits and `-`, starting
+and ending with a letter or digit.
 
 Reuse. A fence without a qualifier whose keys are all keys of a secret an earlier fence on the page
 created reuses that secret: its Helm tabs have no secret step, its values still list the secret, its
@@ -44,10 +44,11 @@ takes that heading's id and its table-of-contents text.
 
 A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
 not a YAML mapping, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`, a
-multi-instance body without `toolset` or `config`, an option the fence does not take, a qualifier
-or page name that makes no valid Kubernetes secret name, a second secret of the same name on a page,
+multi-instance body without `toolset` or `config`, an option the fence does not take or an option
+set twice, a qualifier or page name that makes no valid Kubernetes secret name, a second secret of the same name on a page,
 a second deployment fence under a heading, a reuse whose creating fence sits under no heading or under a heading without an id (toc gives
-headings their ids), a fence with no closing line, and a secret or multi-instance link with no page.
+headings their ids), a robusta-region body with no Robusta host,
+a fence with no closing line, and a secret or multi-instance link with no page.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -60,6 +61,7 @@ import html
 import posixpath
 import re
 import textwrap
+from collections import Counter
 from pathlib import PurePosixPath
 
 import yaml  # type: ignore
@@ -108,6 +110,8 @@ CLI_CONFIG_KEYS = ("toolsets", "mcp_servers")
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 # A fence's opening line; `indent` is the spaces and blockquote markers before it.
 FENCE_START_RE = re.compile(r"^(?P<indent>[ >]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+# The info string: the fence name, then its header, with or without a space between.
+FENCE_INFO_RE = re.compile(r"^(?P<name>[^\s{]*)\s*(?P<header>.*)$")
 FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
 FENCE_OPTION_RE = re.compile(
     r'(?P<name>[A-Za-z][\w-]*)=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+))'
@@ -274,9 +278,14 @@ def _fence_end(lines: list, start: int, indent: str, fence: str):
     return None
 
 
-def _region_tabs(body: str, lang: str) -> str:
+def _region_tabs(where: str, body: str, lang: str) -> str:
     """US, EU and AP tabs, each with `body` rewritten to the region's domains:
     as a paragraph when `body` is a markdown link, as a code block otherwise."""
+    if not ROBUSTA_DOMAIN_RE.search(body):
+        raise TabFenceError(
+            f"{where} holds no Robusta host (api., platform. or sp.robusta.dev), "
+            "so its region tabs would all be the same"
+        )
     is_link = MARKDOWN_LINK_RE.match(body)
     return "\n\n".join(
         _tab(
@@ -364,8 +373,8 @@ class TabFencePreprocessor(Preprocessor):
         while i < len(lines):
             match = FENCE_START_RE.match(lines[i])
             end = match and _fence_end(lines, i, match["indent"], match["fence"])
-            info = match["info"].strip() if match else ""
-            fence, _, header = info.partition(" ")
+            info = FENCE_INFO_RE.match(match["info"].strip() if match else "")
+            fence, header = info["name"], info["header"]
             if match and not end and fence in FENCE_OPTIONS:
                 # Superfences does not know these fences, so an unexpanded one
                 # would render as plain code.
@@ -384,9 +393,9 @@ class TabFencePreprocessor(Preprocessor):
                 indent = match["indent"]
                 body = "\n".join(line[len(indent) :] for line in lines[i + 1 : end])
                 where = f"the {fence} fence on {self.page or 'this page'}"
-                options = self._options(where, fence, header.strip())
+                options = self._options(where, fence, header)
                 if fence == REGION_FENCE:
-                    group = _region_tabs(body.strip(), options.get("lang", ""))
+                    group = _region_tabs(where, body.strip(), options.get("lang", ""))
                 elif fence == MULTI_INSTANCE_FENCE:
                     group = _multi_instance_section(where, body, self.page)
                 else:
@@ -417,11 +426,12 @@ class TabFencePreprocessor(Preprocessor):
         if header and not match:
             raise TabFenceError(f"{where} takes options as {{name=value}}: {header}")
         text = match["options"] if match else ""
+        found = list(FENCE_OPTION_RE.finditer(text))
         options = {
             option["name"]: option["quoted"]
             if option["quoted"] is not None
             else option["bare"]
-            for option in FENCE_OPTION_RE.finditer(text)
+            for option in found
         }
         leftover = FENCE_OPTION_RE.sub("", text).strip()
         allowed = FENCE_OPTIONS[fence]
@@ -434,6 +444,12 @@ class TabFencePreprocessor(Preprocessor):
                     else "no options"
                 )
                 + f": {header}"
+            )
+        counts = Counter(option["name"] for option in found)
+        repeated = [name for name, count in counts.items() if count > 1]
+        if repeated:
+            raise TabFenceError(
+                f"{where} sets the option {', '.join(repeated)} more than once: {header}"
             )
         return options
 
