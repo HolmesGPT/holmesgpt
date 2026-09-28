@@ -414,11 +414,6 @@ def test_a_tilde_fence_renders_as_a_backtick_fence(convert):
     assert convert(tilde) == convert(TOKEN_TABS)
 
 
-def test_options_may_follow_the_fence_name_without_a_space(convert):
-    fence = X_FENCE.replace("values", "values{secret-qualifier=q}")
-    assert "holmes-victorialogs-q" in text(convert(fence))
-
-
 def test_a_fence_in_a_blockquote_renders_as_tabs_written_in_it(convert):
     def quoted(body):
         return (
@@ -564,6 +559,23 @@ def test_an_indented_fence_renders_as_indented_tabs(convert):
             "```yaml-toolset-config\ncustomClusterRoleRules: []\n```\n",
             "sets none of toolsets, mcp_servers",
             id="toolset-config-without-cli-keys",
+        ),
+        *(
+            pytest.param(
+                f"```{fence}\n{body}```\n", "is empty", id=f"{fence}-{name}-body"
+            )
+            for fence in ("yaml-toolset-config", "yaml-helm-values", "multi-instance")
+            for name, body in (("empty", ""), ("blank", "  \n\n"))
+        ),
+        pytest.param(
+            X_FENCE.replace("values", "values{secret-qualifier=q}"),
+            "takes its options after a space: yaml-helm-values{secret-qualifier=q}",
+            id="options-with-no-space-after-the-name",
+        ),
+        pytest.param(
+            "```multi-instance\ntoolset: a\nconfig:\n  x: 1\n```\n",
+            "takes config as a string, a YAML block scalar (config: |), not dict",
+            id="multi-instance-config-not-a-string",
         ),
         pytest.param(
             "```yaml-helm-values title=x\nkey: 1\n```\n",

@@ -17,7 +17,8 @@ robusta-region is a superfences custom fence, registered in mkdocs.yml. The othe
 markdown before any other fence or tab is rendered, so each renders exactly as the same markdown
 written by hand, tab ids included. Each renders from its own body and options and the page's path,
 and reads nothing else on the page. A fence may sit indented in a list or in a blockquote; it
-expands there. Options go in braces after the fence name: `{name=value}`, or `{name}` for a flag.
+expands there. Options go in braces after the fence name and a space: `{name=value}`, or `{name}`
+for a flag.
 
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
 the chart's upgrade command.
@@ -40,10 +41,11 @@ naming the section that creates the secret is written by hand above the fence:
 
 Above a yaml-toolset-config fence, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
 
-A fence that cannot render as written raises TabFenceError, which fails the build: a body that is
-not valid YAML or not a mapping, a yaml-toolset-config body with neither `toolsets` nor
-`mcp_servers`, a multi-instance body without `toolset` or `config`, an option the fence does not
-take or an option set twice, a flag given a value or another option given none, a qualifier or
+A fence that cannot render as written raises TabFenceError, which fails the build: an empty or
+blank body, a body that is not valid YAML or not a mapping, a yaml-toolset-config body with neither
+`toolsets` nor `mcp_servers`, a multi-instance body without `toolset` or `config` or whose `config`
+is not a string, options with no space after the fence name, an option the fence does not take or
+an option set twice, a flag given a value or another option given none, a qualifier or
 `reuse` on a fence that reads no secret, a qualifier or page name that makes no valid Kubernetes
 secret name, a fence with no closing line, and a secret or multi-instance link with no page.
 
@@ -187,8 +189,8 @@ CLI_CONFIG_KEYS = ("toolsets", "mcp_servers")
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 # A fence's opening line; `indent` is the spaces and blockquote markers before it.
 FENCE_START_RE = re.compile(r"^(?P<indent>[ >]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
-# The info string: the fence name, then its header, with or without a space between.
-FENCE_INFO_RE = re.compile(r"^(?P<name>[^\s{]*)\s*(?P<header>.*)$")
+# The info string: the fence name, then its header; `space` is what separates them.
+FENCE_INFO_RE = re.compile(r"^(?P<name>[^\s{]*)(?P<space>\s*)(?P<header>.*)$")
 FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
 FENCE_OPTION_RE = re.compile(
     r'(?P<name>[A-Za-z][\w-]*)(?:=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+)))?'
@@ -366,7 +368,13 @@ def _multi_instance_section(where: str, body: str, page: str) -> str:
     if not isinstance(spec, dict):
         raise TabFenceError(f"{where} must be a YAML mapping")
     toolset = str(spec.get("toolset", "")).strip()
-    config = str(spec.get("config", "")).strip()
+    config = spec.get("config") or ""
+    if not isinstance(config, str):
+        raise TabFenceError(
+            f"{where} takes config as a string, a YAML block scalar (config: |), "
+            f"not {type(config).__name__}"
+        )
+    config = config.strip()
     if not toolset or not config:
         raise TabFenceError(f"{where} requires the keys toolset and config")
     name = _markdown_text(str(spec.get("name") or toolset).strip())
@@ -440,6 +448,12 @@ class TabFencePreprocessor(Preprocessor):
                 indent = match["indent"]
                 body = "\n".join(line[len(indent) :] for line in lines[i + 1 : end])
                 where = f"the {fence} fence on {self.page or 'this page'}"
+                if header and not info["space"]:
+                    raise TabFenceError(
+                        f"{where} takes its options after a space: {match['info'].strip()}"
+                    )
+                if not body.strip():
+                    raise TabFenceError(f"{where} is empty")
                 options = self._options(where, fence, header)
                 if fence == MULTI_INSTANCE_FENCE:
                     group = _multi_instance_section(where, body, self.page)
