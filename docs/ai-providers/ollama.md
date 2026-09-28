@@ -14,7 +14,7 @@ Configure HolmesGPT to use local models with Ollama.
 ## Configuration
 
 !!! note "Ollama Service"
-    You'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
+    In Kubernetes, you'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
 
 === "Holmes CLI"
 

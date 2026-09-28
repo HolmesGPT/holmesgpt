@@ -132,7 +132,7 @@ holmes ask "what pods are failing?" --model="gpt-5"
 
 When using GPT-5 models, you can control the reasoning effort level. This allows you to balance between response quality and processing time/cost.
 
-Reuses the `holmes-openai` Kubernetes secret created in the [Configuration](#configuration) section above.
+In Kubernetes, this reuses the `holmes-openai` secret created in the [Configuration](#configuration) section above.
 
 === "Holmes CLI"
 

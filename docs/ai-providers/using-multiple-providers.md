@@ -6,7 +6,7 @@ Define multiple model configurations and switch between them by name. This is us
 
 Define the models in a model list, each with the credentials its provider needs. Keep only the models of the providers you use: HolmesGPT fails to load the model list when a model reads an environment variable (`{{ env.VAR_NAME }}`) that is not set. In Kubernetes, the secret then holds only the keys those models read.
 
-When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+In Kubernetes, when multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
 
 === "Holmes CLI"
 
