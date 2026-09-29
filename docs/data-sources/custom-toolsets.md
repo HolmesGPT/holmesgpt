@@ -533,8 +533,6 @@ docker push your-registry/holmes-custom:latest
     ```yaml
     registry: your-registry
     image: holmes-custom:latest
-    toolsets:
-      # Your custom toolset configuration
     ```
 
     Apply the configuration:
@@ -551,8 +549,6 @@ docker push your-registry/holmes-custom:latest
     holmes:
       registry: your-registry
       image: holmes-custom:latest
-      toolsets:
-        # Your custom toolset configuration
     ```
 
     Apply the configuration:
