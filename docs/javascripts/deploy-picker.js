@@ -37,7 +37,6 @@ const SHARED_KEY = "holmesgpt-tab-pref";
 const DEPLOYMENTS = {
   "holmes-cli": "Holmes OSS — CLI",
   "holmes-helm-chart": "Holmes OSS — Helm Chart",
-  "robusta-helm-chart": "HolmesGPT Enterprise — Robusta Helm Chart",
 };
 
 function slugify(text) {

@@ -221,22 +221,6 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
     The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
 
-=== "Robusta Helm Chart"
-
-    Add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        kubernetesRemediation:
-          enabled: true
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## GPU node diagnostics
 

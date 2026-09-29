@@ -142,12 +142,6 @@ Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the 
     certificate: "<base64-encoded CA cert>"
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      certificate: "<base64-encoded CA cert>"
-    ```
 
 ### API Server HTTPS (`HOLMES_SSL_*`)
 

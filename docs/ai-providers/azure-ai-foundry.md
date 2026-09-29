@@ -78,46 +78,6 @@ The examples below lead with the Anthropic option and include a GPT deployment a
       model: "azure-opus-4-7"  # This refers to the key name in modelList above
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=azure-api-key="your-azure-api-key" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: AZURE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: azure-api-key
-
-      # Configure at least one model using modelList
-      modelList:
-        # Anthropic model on Azure AI Foundry (recommended)
-        azure-opus-4-7:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: anthropic/claude-opus-4-7
-          api_base: https://XXXX.services.ai.azure.com/anthropic
-          temperature: 1
-
-        # Azure OpenAI-style deployment (e.g. GPT-5.4)
-        azure-gpt-5-4:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: azure/my-gpt-5.4-deployment
-          api_base: https://YYYY.cognitiveservices.azure.com/
-          api_version: "2025-04-01-preview"
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "azure-opus-4-7"  # This refers to the key name in modelList above
-    ```
 
 ## Using CLI Parameters
 
@@ -284,44 +244,6 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 
     Note that `api_key` is omitted from the `modelList` entries — authentication is handled entirely by the workload identity token.
 
-=== "Robusta Helm Chart"
-
-    **Configure Helm Values:**
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: AZURE_AD_TOKEN_AUTH
-          value: "true"
-        - name: AZURE_CLIENT_ID
-          value: "<managed-identity-client-id>"
-        - name: AZURE_TENANT_ID
-          value: "<tenant-id>"
-
-      serviceAccount:
-        annotations:
-          azure.workload.identity/client-id: "<managed-identity-client-id>"
-
-      podLabels:
-        azure.workload.identity/use: "true"
-
-      modelList:
-        # Anthropic model on Azure AI Foundry (recommended)
-        azure-opus-4-7:
-          model: anthropic/claude-opus-4-7
-          api_base: https://XXXX.services.ai.azure.com/anthropic
-          temperature: 1
-
-        # Azure OpenAI-style deployment (e.g. GPT-5.4)
-        azure-gpt-5-4:
-          model: azure/my-gpt-5.4-deployment
-          api_base: https://YYYY.cognitiveservices.azure.com/
-          api_version: "2025-04-01-preview"
-
-      config:
-        model: "azure-opus-4-7"
-    ```
 
 ### Troubleshooting
 

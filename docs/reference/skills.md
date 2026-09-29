@@ -58,33 +58,6 @@ Repo URLs must be `https://`. SSH URLs (`git@github.com:org/repo.git`) are not s
 
     That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
 
-=== "Robusta Helm Chart"
-
-    **1. Create a Secret with a GitHub Personal Access Token.** Use a fine-grained PAT scoped to a single repo with `Contents: Read`:
-
-    ```bash
-    kubectl create secret generic holmes-skills-git-credentials \
-      -n <robusta-namespace> \
-      --from-literal=token='<PAT>'
-    ```
-
-    For a public repo, omit the Secret and the `tokenSecret` block below.
-
-    **2. Add the repo to your `generated_values.yaml`:**
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      skillRepos:
-        - url: https://github.com/<org>/<repo>.git
-          branch: main        # optional; defaults to the repo's default branch
-          subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
-          tokenSecret:
-            name: holmes-skills-git-credentials
-            key: token
-    ```
-
-    That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
 
 === "Holmes CLI"
 
@@ -140,36 +113,6 @@ Create the App, generate a private key, and install it on your skills repo by fo
 
     For GitHub Enterprise Server, add `apiUrl: https://<ghe-host>/api/v3` under `githubApp`.
 
-=== "Robusta Helm Chart"
-
-    **1. Create a Secret with the App's private key:**
-
-    ```bash
-    kubectl create secret generic holmes-github-app \
-      -n <robusta-namespace> \
-      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
-    ```
-
-    **2. Add the repo to your `generated_values.yaml`:**
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      skillRepos:
-        - url: https://github.com/<org>/<repo>.git
-          branch: main        # optional; defaults to the repo's default branch
-          subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
-          githubApp:
-            appId: "<YOUR_APP_ID>"
-            installationId: "<YOUR_INSTALLATION_ID>"
-            privateKeySecret:
-              name: holmes-github-app
-              key: GITHUB_APP_PRIVATE_KEY
-    ```
-
-    That's it — Holmes keeps the repo in sync, minting a fresh installation token whenever the cached one nears expiry. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
-
-    For GitHub Enterprise Server, add `apiUrl: https://<ghe-host>/api/v3` under `githubApp`.
 
 === "Holmes CLI"
 
@@ -222,34 +165,6 @@ Same pattern as GitHub — only the credentials differ. Bitbucket uses a [Reposi
 
     That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
 
-=== "Robusta Helm Chart"
-
-    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
-
-    ```bash
-    kubectl create secret generic holmes-skills-git-credentials \
-      -n <robusta-namespace> \
-      --from-literal=token='<repository-access-token>'
-    ```
-
-    For a public repo, omit the Secret and the `tokenSecret`/`username` entries below.
-
-    **2. Add the repo to your `generated_values.yaml`:**
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      skillRepos:
-        - url: https://bitbucket.org/<workspace>/<repo>.git
-          branch: main        # optional; defaults to the repo's default branch
-          subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
-          username: x-token-auth
-          tokenSecret:
-            name: holmes-skills-git-credentials
-            key: token
-    ```
-
-    That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
 
 === "Holmes CLI"
 
@@ -309,39 +224,6 @@ Define skills directly in your Helm values. The chart creates a ConfigMap, mount
           3. Check namespace events
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      customSkills:
-        dns-troubleshooting:
-          content: |
-            ---
-            description: Troubleshoot DNS resolution failures in the cluster
-            ---
-
-            ## Goal
-            Diagnose DNS issues.
-
-            ## Workflow
-            1. Check CoreDNS pods in kube-system
-            2. Test DNS resolution from an affected pod
-            3. Check NetworkPolicies for blocked egress to kube-system
-        pod-restart-quickcheck:
-          content: |
-            ---
-            description: Quick diagnosis for CrashLoopBackOff / restarting pods
-            ---
-
-            ## Goal
-            Identify why a pod is restarting.
-
-            ## Workflow
-            1. Inspect pod status and restart count
-            2. Pull previous container logs
-            3. Check namespace events
-    ```
 
 ### ConfigMap or Secret (advanced)
 
@@ -382,36 +264,6 @@ Each directory must contain skills in `<skill-name>/SKILL.md` layout. Since Kube
 
     Skills from all paths are merged. If two paths define the same skill name, the later one wins. Changes to mounted ConfigMaps/Secrets only take effect after a Holmes pod restart — roll the Deployment after updating skill files.
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    enableHolmesGPT: true
-    holmes:
-      additionalVolumes:
-        - name: skills-frontend
-          configMap:
-            name: holmes-skills-frontend
-            items:
-              - key: dns-troubleshooting.SKILL.md
-                path: dns-troubleshooting/SKILL.md
-              - key: pod-restart-quickcheck.SKILL.md
-                path: pod-restart-quickcheck/SKILL.md
-        - name: skills-backend
-          configMap:
-            name: holmes-skills-backend
-      additionalVolumeMounts:
-        - name: skills-frontend
-          mountPath: /etc/holmes/skills-frontend
-          readOnly: true
-        - name: skills-backend
-          mountPath: /etc/holmes/skills-backend
-          readOnly: true
-      customSkillPaths:
-        - /etc/holmes/skills-frontend
-        - /etc/holmes/skills-backend
-    ```
-
-    Skills from all paths are merged. If two paths define the same skill name, the later one wins. Changes to mounted ConfigMaps/Secrets only take effect after a Holmes pod restart — roll the Deployment after updating skill files.
 
 Holmes scans each path up to 2 levels deep for `SKILL.md` files.
 

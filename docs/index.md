@@ -25,14 +25,6 @@ While the operator itself runs in Kubernetes, health checks can query any data s
 
     [:octicons-arrow-right-24: Install](installation/cli-installation.md)
 
--   :material-web:{ .lg .middle } **[Install UI/TUI](installation/ui-installation.md)**
-
-    ---
-
-    Use through a web interface or K9s plugin
-
-    [:octicons-arrow-right-24: Install](installation/ui-installation.md)
-
 -   :material-chart-line:{ .lg .middle } **[View Benchmarks](development/evaluations/index.md)**
 
     ---

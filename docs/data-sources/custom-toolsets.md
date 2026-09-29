@@ -57,46 +57,6 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
     holmes toolset refresh
     ```
 
-=== "Robusta Helm Chart"
-
-    **Helm Values:**
-
-    ```yaml
-    holmes:
-      customToolsets:
-        grafana:
-          description: "View and suggest Grafana dashboards"
-          prerequisites: "Grafana instance accessible from HolmesGPT"
-          tags: [monitoring, observability]
-          installation: |
-            1. Ensure Grafana is accessible from HolmesGPT
-            2. Configure Grafana API credentials if authentication is required
-          tools:
-            - name: view_dashboard
-              description: "View a specific Grafana dashboard by ID or name"
-              command: |
-                curl -s "{{ grafana_url }}/api/dashboards/uid/{{ dashboard_uid }}" \
-                  -H "Authorization: Bearer {{ grafana_token }}"
-
-            - name: search_dashboards
-              description: "Search for dashboards related to specific keywords"
-              command: |
-                curl -s "{{ grafana_url }}/api/search?query={{ search_query }}" \
-                  -H "Authorization: Bearer {{ grafana_token }}"
-    ```
-
-    **Environment Variables:**
-
-    ```bash
-    export GRAFANA_URL="http://grafana.monitoring.svc.cluster.local:3000"
-    export GRAFANA_TOKEN="your-grafana-api-token"
-    ```
-
-    **Helm Upgrade:**
-
-    ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
 
 ### Example 2: Kubernetes Diagnostics Toolset
 
@@ -148,47 +108,6 @@ This example creates a toolset with advanced diagnostic tools for Kubernetes clu
     holmes toolset refresh
     ```
 
-=== "Robusta Helm Chart"
-
-    **Helm Values:**
-
-    ```yaml
-    holmes:
-      customToolsets:
-        k8s-diagnostics:
-          description: "Advanced Kubernetes diagnostic tools"
-          prerequisites: "kubectl access to the cluster"
-          tags: [kubernetes, diagnostics]
-          installation: |
-            1. Ensure kubectl is configured with cluster access
-            2. Verify necessary RBAC permissions are in place
-          tools:
-            - name: check_node_pressure
-              description: "Check for node pressure conditions and resource usage"
-              command: |
-                kubectl get nodes -o json | jq -r '
-                  .items[] |
-                  select(.status.conditions[]? | select(.type == "MemoryPressure" or .type == "DiskPressure" or .type == "PIDPressure") | .status == "True") |
-                  .metadata.name + ": " + (.status.conditions[] | select(.type == "MemoryPressure" or .type == "DiskPressure" or .type == "PIDPressure") | .type + " = " + .status)
-                '
-
-            - name: analyze_pod_distribution
-              description: "Analyze pod distribution across nodes in a namespace"
-              command: |
-                kubectl get pods -n {{ namespace }} -o wide --no-headers |
-                awk '{print $7}' | sort | uniq -c | sort -nr
-
-            - name: check_resource_quotas
-              description: "Check resource quota usage in a namespace"
-              command: |
-                kubectl describe resourcequota -n {{ namespace }}
-    ```
-
-    **Helm Upgrade:**
-
-    ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
 
 ### Example 3: GitHub Toolset
 
@@ -245,52 +164,6 @@ This example shows how to create a toolset for fetching information from GitHub 
     holmes toolset refresh
     ```
 
-=== "Robusta Helm Chart"
-
-    **Helm Values:**
-
-    ```yaml
-    holmes:
-      customToolsets:
-        github:
-          description: "Fetch information from GitHub repositories"
-          prerequisites: "GitHub API token with repository access"
-          tags: [source-control, github]
-          installation: |
-            1. Create a GitHub personal access token
-            2. Set the token as an environment variable
-            3. Ensure network access to GitHub API
-          tools:
-            - name: get_repository_info
-              description: "Get information about a GitHub repository"
-              command: |
-                curl -s -H "Authorization: token {{ github_token }}" \
-                  "https://api.github.com/repos/{{ owner }}/{{ repo }}"
-
-            - name: get_recent_commits
-              description: "Get recent commits from a repository"
-              command: |
-                curl -s -H "Authorization: token {{ github_token }}" \
-                  "https://api.github.com/repos/{{ owner }}/{{ repo }}/commits?per_page={{ limit | default(10) }}"
-
-            - name: search_issues
-              description: "Search for issues in a repository"
-              command: |
-                curl -s -H "Authorization: token {{ github_token }}" \
-                  "https://api.github.com/search/issues?q=repo:{{ owner }}/{{ repo }}+{{ search_query }}"
-    ```
-
-    **Environment Variables:**
-
-    ```bash
-    export GITHUB_TOKEN="your-github-personal-access-token"
-    ```
-
-    **Helm Upgrade:**
-
-    ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
 
 ## Reference
 

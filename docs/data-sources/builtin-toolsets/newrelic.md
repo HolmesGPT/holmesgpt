@@ -73,39 +73,6 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
           enable_multi_account: false  # Optional: set to true to query across multiple accounts
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your User API Key:
-
-    ```bash
-    kubectl create secret generic newrelic-credentials \
-      --from-literal=api-key=your-new-relic-user-api-key \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: NEW_RELIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: newrelic-credentials
-              key: api-key
-      toolsets:
-        newrelic:
-          enabled: true
-          config:
-            api_key: "{{ env.NEW_RELIC_API_KEY }}"
-            account_id: "<your New Relic account ID>"
-            is_eu_datacenter: false  # Set to true if using New Relic EU region
-            enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 ## Multiple Instances
 

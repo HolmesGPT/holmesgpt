@@ -22,19 +22,6 @@ Retrieve your Slab [API token](https://help.slab.com/en/articles/6545629-develop
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: SLAB_API_KEY
-              value: "<your Slab API key>"
-        toolsets:
-            slab:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 To test, run:
 

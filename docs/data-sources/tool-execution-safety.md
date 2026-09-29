@@ -96,24 +96,6 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
     helm upgrade holmes robusta/holmes -f values.yaml -n <namespace>
     ```
 
-=== "Robusta Helm Chart"
-
-    When using the Robusta Helm Chart (which includes HolmesGPT as a sub-chart), env vars for Holmes are nested under the `holmes:` key. Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: TOOL_MEMORY_LIMIT_MB
-          value: "2000"
-    ```
-
-    Apply with:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml -n <namespace>
-    ```
-
-    The value flows through to the Holmes pod automatically — no other changes required.
 
 !!! note "Keep the pod memory limit in sync"
     Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. For the Robusta chart, pod resources live under `holmes.resources` in `generated_values.yaml`. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).

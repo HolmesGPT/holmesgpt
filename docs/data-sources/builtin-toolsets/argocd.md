@@ -64,25 +64,6 @@ HolmesGPT needs permission to establish a port-forward to ArgoCD. The configurat
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        customClusterRoleRules:
-            - apiGroups: [""]
-              resources: ["pods/portforward"]
-              verbs: ["create"]
-        additionalEnvVars:
-            - name: ARGOCD_AUTH_TOKEN
-              value: "<your-argocd-token>"
-            - name: ARGOCD_OPTS
-              value: "--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
-        toolsets:
-            argocd/core:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 !!! note
 
@@ -121,21 +102,6 @@ This is the recommended approach if your ArgoCD is reachable through a public DN
     holmes ask "Which ArgoCD applications are failing and why?"
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: ARGOCD_AUTH_TOKEN
-              value: "<your-argocd-token>"
-            - name: ARGOCD_SERVER
-              value: "argocd.example.com"
-        toolsets:
-            argocd/core:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 !!! note
 

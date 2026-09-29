@@ -63,22 +63,6 @@ Templates can reference:
             X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        customer_data:
-          description: "Customer data API"
-          config:
-            url: "http://customer-api:8000/mcp"
-            mode: streamable-http
-            extra_headers:
-              X-Tenant-Id: "{{ request_context.headers['X-Tenant-Id'] }}"
-              X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-    ```
 
 See [MCP Servers -- Dynamic Headers](remote-mcp-servers.md#advanced-configuration) for the full MCP configuration reference.
 
@@ -120,24 +104,6 @@ See [MCP Servers -- Dynamic Headers](remote-mcp-servers.md#advanced-configuratio
               methods: ["GET"]
     ```
 
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      toolsets:
-        internal-api:
-          type: http
-          enabled: true
-          config:
-            extra_headers:
-              X-Request-Id: "{{ request_context.headers['X-Request-Id'] }}"
-              X-Api-Key: "{{ env.INTERNAL_API_KEY }}"
-            endpoints:
-              - hosts: ["internal-api.corp.net"]
-                methods: ["GET"]
-    ```
 
 The rendered headers are merged into every outgoing request after the endpoint's own authentication headers, so they can override defaults when needed.
 
@@ -165,20 +131,6 @@ YAML tool commands and scripts are Jinja2 templates. The variables `request_cont
     holmes ask "fetch data from the internal API" --custom-toolsets=toolsets.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      customToolsets:
-        internal-api:
-          name: "internal-api"
-          tools:
-            - name: "fetch_data"
-              description: "Fetch data from internal API"
-              command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
-    ```
 
 See [Custom Toolsets](custom-toolsets.md) for the full YAML toolset reference.
 
@@ -223,27 +175,6 @@ The following example shows how ServiceNow Tables, one toolset that supports hea
           api_url: "https://instance.service-now.com"
     ```
 
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: SERVICENOW_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: servicenow-credentials
-              key: api-key
-
-      toolsets:
-        servicenow/tables:
-          config:
-            extra_headers:
-              X-Correlation-Id: "{{ request_context.headers['X-Correlation-Id'] }}"
-            api_key: "{{ env.SERVICENOW_API_KEY }}"
-            api_url: "https://instance.service-now.com"
-    ```
 
 For a reference implementation showing how to add `extra_headers` support to a Python toolset, see [`servicenow_tables.py`](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/servicenow_tables/servicenow_tables.py).
 

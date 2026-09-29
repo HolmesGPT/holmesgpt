@@ -81,46 +81,6 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` �
           prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Coralogix API key:
-
-    ```bash
-    kubectl create secret generic coralogix-api-key \
-      --from-literal=api-key=your-coralogix-api-key \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CORALOGIX_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: coralogix-api-key
-              key: api-key
-      toolsets:
-        coralogix:
-          enabled: true
-          config:
-            api_key: "{{ env.CORALOGIX_API_KEY }}"
-            domain: "eu2.coralogix.com"
-            team_slug: "your-company-name"
-
-        prometheus/metrics:
-          enabled: true
-          subtype: coralogix
-          config:
-            additional_headers:
-              Authorization: "Bearer {{ env.CORALOGIX_API_KEY }}"
-            prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 **Note**: Both toolsets use the same API key. Helm-tab users only need to create one Kubernetes secret — the env var feeds both the `coralogix` toolset's `api_key` field and the Prometheus toolset's `Authorization` header.
 
@@ -134,36 +94,3 @@ config: |
   domain: "eu2.coralogix.com"
 ```
 
-## Recommended: Customize Coralogix Instructions
-
-By specifying details about your Coralogix metrics, logs, and traces, you can significantly speed up and improve investigations. This allows Holmes to work with your environment directly, rather than spending time discovering labels, mappings, and metric names on its own.
-
-To configure this:
-
-1. Open the Robusta platform — pick your region:
-
-    ```robusta-region
-    [platform.robusta.dev](https://platform.robusta.dev/)
-    ```
-
-2. Navigate to **Settings → AI Assistant → AI Customization**
-3. Add your labels and metric details
-4. Save your changes
-
-### Example Custom Instructions
-
-Below is an example of how your custom instructions might look, based on the labels and metrics used in your environment:
-
-```text
-# Coralogix details
-
-For Coralogix, use the following label mappings for logs:
-- pod: k8s.pod_name
-- namespace: k8s.namespace_name
-- service: k8s.service_name
-- deployment: k8s.deployment_name
-
-Custom Coralogix metrics:
-- payments_failures: tracks payment processing failures
-- api_latency_p95: 95th percentile API latency
-```

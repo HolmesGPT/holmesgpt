@@ -112,64 +112,6 @@ chgrp holmes-group /path/to/database.db
           connection_url: "sqlite:////data/cache.db"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Using mounted volume:**
-
-    ```yaml
-    holmes:
-      extraVolumes:
-        - name: sqlite-db
-          hostPath:
-            path: /path/on/host/database.db
-            type: File
-
-      extraVolumeMounts:
-        - name: sqlite-db
-          mountPath: /data/database.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/database.db"
-          llm_instructions: "Application database mounted from host"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      extraVolumes:
-        - name: app-db
-          hostPath:
-            path: /data/app.db
-            type: File
-        - name: cache-db
-          hostPath:
-            path: /data/cache.db
-            type: File
-
-      extraVolumeMounts:
-        - name: app-db
-          mountPath: /data/app.db
-          readOnly: true
-        - name: cache-db
-          mountPath: /data/cache.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/app.db"
-
-        cache-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/cache.db"
-    ```
 
 ## Configuration Options
 

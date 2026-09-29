@@ -148,62 +148,6 @@ For Azure SQL Database, see the [Azure SQL Database](#azure-sql-database) sectio
           connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: SQLSERVER_URL
-          valueFrom:
-            secretKeyRef:
-              name: sqlserver-credentials
-              key: url
-
-      toolsets:
-        sqlserver-prod:
-          type: database
-          config:
-            connection_url: "{{ env.SQLSERVER_URL }}"
-          llm_instructions: "Production SQL Server database with application data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: PROD_SQLSERVER_URL
-          valueFrom:
-            secretKeyRef:
-              name: sqlserver-prod
-              key: url
-        - name: ANALYTICS_SQLSERVER_URL
-          valueFrom:
-            secretKeyRef:
-              name: sqlserver-analytics
-              key: url
-
-      toolsets:
-        sqlserver-prod:
-          type: database
-          config:
-            connection_url: "{{ env.PROD_SQLSERVER_URL }}"
-
-        sqlserver-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
-    ```
 
 ## Azure SQL Database
 

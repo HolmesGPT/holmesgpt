@@ -61,35 +61,6 @@ Browse the full list of available models at [github.com/marketplace/models](http
       model: "gpt-4-1"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=github-api-key="your-github-token" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: GITHUB_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: github-api-key
-
-      modelList:
-        gpt-4o:
-          api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/gpt-4o
-          temperature: 0
-
-      config:
-        model: "gpt-4o"
-    ```
 
 ## Additional Resources
 

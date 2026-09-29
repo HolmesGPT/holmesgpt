@@ -179,32 +179,6 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Sentry auth token:
-
-    ```bash
-    kubectl create secret generic sentry-mcp-token \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
-      -n <NAMESPACE>
-    ```
-
-    Then add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        sentry:
-          enabled: true
-          auth:
-            secretName: "sentry-mcp-token"
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## Available Tools
 

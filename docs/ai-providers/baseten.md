@@ -50,40 +50,6 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
       model: "glm-5-3"  # modelList key name
     ```
 
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-file=baseten-api-key=/path/to/baseten-api-key \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: BASETEN_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: baseten-api-key
-
-      modelList:
-        glm-5-3:
-          model: baseten/zai-org/GLM-5.3
-        kimi-k3:
-          model: baseten/moonshotai/Kimi-K3
-          # Kimi K3 is not in LiteLLM's registry yet; see "Models missing from LiteLLM" below.
-          input_cost_per_token: 0.000003
-          output_cost_per_token: 0.000015
-          custom_args:
-            max_context_size: 1048576
-
-      config:
-        model: "glm-5-3"  # modelList key name
-    ```
 
 ## Models missing from LiteLLM
 

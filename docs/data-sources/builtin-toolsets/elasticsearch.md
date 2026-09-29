@@ -86,50 +86,6 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your credentials:
-
-    ```bash
-    kubectl create secret generic elasticsearch-credentials \
-      --from-literal=api-key=your-api-key \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: ELASTICSEARCH_URL
-          value: "https://your-cluster.es.cloud.io:443"
-        - name: ELASTICSEARCH_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: elasticsearch-credentials
-              key: api-key
-      toolsets:
-        elasticsearch/data:
-          enabled: true
-          config:
-            api_url: "{{ env.ELASTICSEARCH_URL }}"
-            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
-            # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
-        elasticsearch/cluster:
-          enabled: true
-          config:
-            api_url: "{{ env.ELASTICSEARCH_URL }}"
-            api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
-            # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
 
 !!! tip "Enable only what you need"
     You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.
@@ -210,45 +166,6 @@ For Elasticsearch clusters that require client certificate authentication (commo
           client_key: "/etc/elasticsearch/certs/tls.key"
     ```
 
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret containing the client certificates:
-
-    ```bash
-    kubectl create secret generic elasticsearch-client-certs \
-      --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: ELASTICSEARCH_URL
-          value: "https://elasticsearch.jaeger.svc:9200"
-
-      additionalVolumes:
-        - name: es-certs
-          secret:
-            secretName: elasticsearch-client-certs
-
-      additionalVolumeMounts:
-        - name: es-certs
-          mountPath: /etc/elasticsearch/certs
-          readOnly: true
-
-      toolsets:
-        elasticsearch/data:
-          enabled: true
-          config:
-            api_url: "{{ env.ELASTICSEARCH_URL }}"
-            client_cert: "/etc/elasticsearch/certs/tls.crt"
-            client_key: "/etc/elasticsearch/certs/tls.key"
-    ```
 
 If Elasticsearch uses a private CA, use the global [`certificate`](../../reference/helm-configuration.md) Helm value (or `CERTIFICATE` env var for CLI) to trust it. This applies to all outbound HTTPS requests, not just Elasticsearch. See [Environment Variables](../../reference/environment-variables.md#certificate) for details.
 

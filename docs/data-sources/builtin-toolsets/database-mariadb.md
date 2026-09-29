@@ -113,62 +113,6 @@ FLUSH PRIVILEGES;
           connection_url: "{{ env.CACHE_MARIADB_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic mariadb-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-credentials
-              key: url
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.MARIADB_URL }}"
-          llm_instructions: "Application database with user and session data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: APP_MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-app
-              key: url
-        - name: CACHE_MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-cache
-              key: url
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.APP_MARIADB_URL }}"
-
-        cache-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.CACHE_MARIADB_URL }}"
-    ```
 
 ## Configuration Options
 

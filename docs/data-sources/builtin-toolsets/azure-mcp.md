@@ -211,84 +211,6 @@ Choose an authentication method based on your environment:
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    Update your `generated_values.yaml` with the appropriate authentication method:
-
-    **Workload Identity (Recommended for AKS)**
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        azure:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "azure-api-mcp-sa"
-            annotations:
-              azure.workload.identity/client-id: "YOUR_CLIENT_ID"
-              azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
-
-          config:
-            tenantId: "YOUR_TENANT_ID"
-            subscriptionId: "YOUR_SUBSCRIPTION_ID"
-            authMethod: "workload-identity"
-            clientId: "YOUR_CLIENT_ID"
-            readOnlyMode: true
-    ```
-
-    **Service Principal** (for non-AKS clusters):
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        azure:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "azure-api-mcp-sa"
-
-          config:
-            tenantId: "YOUR_TENANT_ID"
-            subscriptionId: "YOUR_SUBSCRIPTION_ID"
-            authMethod: "service-principal"
-            readOnlyMode: true
-
-          secretName: "azure-mcp-creds"
-    ```
-
-    Create the secret before deploying:
-
-    ```bash
-    kubectl create secret generic azure-mcp-creds \
-      --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
-      --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
-      -n YOUR_NAMESPACE
-    ```
-
-    **Managed Identity** (AKS with node-level managed identity):
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        azure:
-          enabled: true
-
-          config:
-            tenantId: "YOUR_TENANT_ID"
-            subscriptionId: "YOUR_SUBSCRIPTION_ID"
-            authMethod: "managed-identity"
-            clientId: "YOUR_MANAGED_IDENTITY_CLIENT_ID"
-            readOnlyMode: true
-    ```
-
-    For additional options, see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ### Creating a Service Principal (non-AKS clusters)
 
@@ -437,22 +359,6 @@ Add an `mcp_servers` entry pointing at the new Service, then upgrade the release
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        azure_api_prod:
-          description: "Azure API MCP Server (prod account) - comprehensive Azure service access. Execute any Azure CLI commands."
-          config:
-            url: "http://azure-prod-service.monitoring.svc.cluster.local:8000/mcp"
-            mode: streamable-http
-            icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 Once Holmes restarts, the account is available as the `azure_api_prod` toolset. To add another account, download a **fresh copy** of the manifest and repeat from Step 2 with a **different** unique name (e.g. `dev`) and a new `mcp_servers` key.
 

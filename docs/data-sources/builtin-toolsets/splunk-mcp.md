@@ -88,48 +88,6 @@ Before configuring Holmes to connect to Splunk MCP, you need to:
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Splunk token:
-
-    ```bash
-    kubectl create secret generic splunk-mcp-token \
-      --from-literal=token=<YOUR_TOKEN> \
-      -n <NAMESPACE>
-    ```
-
-    Then add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: SPLUNK_MCP_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: splunk-mcp-token
-              key: token
-
-      mcp_servers:
-        splunk:
-          description: "Splunk MCP server for log analysis and investigation"
-          config:
-            url: "https://your-splunk-instance:8089/services/mcp/"
-            mode: streamable-http
-            headers:
-              Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
-            # verify_ssl: false # Uncomment if using self-signed certificates:
-            # You can modify the llm_instructions according to the data stored in Splunk in your organization 
-            llm_instructions: |
-              Use SPL (Search Processing Language) for queries.
-              Always specify a time range to limit results. Always limit large result sets.
-              Use Splunk to fetch logs and traces. Splunk contains historical data as well
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## Available Tools
 

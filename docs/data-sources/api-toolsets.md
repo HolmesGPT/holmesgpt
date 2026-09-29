@@ -171,50 +171,6 @@ This example shows how to use an HTTP connector with Atlassian Confluence to sea
     holmes ask "search Confluence for runbooks about database issues" --custom-toolsets=toolsets.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    **Helm Values:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CONFLUENCE_BASE_URL
-          value: https://yourcompany.atlassian.net
-        - name: CONFLUENCE_USER
-          value: your-email@example.com
-        - name: CONFLUENCE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: confluence-credentials
-              key: api-key
-
-      toolsets:
-        confluence-api:
-          type: http
-          enabled: true
-          config:
-            endpoints:
-              - hosts:
-                  - "*.atlassian.net"
-                paths: ["*"]
-                methods: ["GET", "PUT", "POST", "DELETE"]
-                auth:
-                  type: basic
-                  username: "{{ env.CONFLUENCE_USER }}"
-                  password: "{{ env.CONFLUENCE_API_KEY }}"
-            verify_ssl: true
-            timeout_seconds: 30
-          llm_instructions: |
-            ### Confluence REST API
-            You can query Confluence using the REST API.
-            The base URL is: {{ env.CONFLUENCE_BASE_URL }}
-            Common endpoints:
-            - GET /wiki/rest/api/content/search?cql={query} - Search using CQL
-            - GET /wiki/rest/api/content/{contentId}?expand=ancestors - Get page with ancestor hierarchy
-
-            To get parent page information, use the expand parameter: `?expand=ancestors`
-            The ancestors array will contain the parent page details.
-    ```
 
 ## Tool Naming
 

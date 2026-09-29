@@ -120,62 +120,6 @@ GRANT SELECT ON system.* TO holmes_readonly;
           connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic clickhouse-credentials \
-      --from-literal=url='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CLICKHOUSE_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-credentials
-              key: url
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_URL }}"
-          llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CLICKHOUSE_ANALYTICS_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-analytics
-              key: url
-        - name: CLICKHOUSE_LOGS_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-logs
-              key: url
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
-
-        clickhouse-logs:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
-    ```
 
 ## Configuration Options
 

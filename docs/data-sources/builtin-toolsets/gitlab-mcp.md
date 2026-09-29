@@ -172,32 +172,6 @@ You need a GitLab Personal Access Token (PAT).
     helm upgrade --install holmes robusta/holmes -f values.yaml
     ```
 
-=== "Robusta Helm Chart"
-
-    **Basic Configuration**
-
-    ```bash
-    kubectl create secret generic gitlab-mcp-token \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
-      -n <NAMESPACE>
-    ```
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gitlabMcp:
-          enabled: true
-          auth:
-            secretName: "gitlab-mcp-token"
-    ```
-
-    Then deploy or upgrade:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
 
 ## Self-Hosted GitLab
 

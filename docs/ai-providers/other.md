@@ -94,52 +94,6 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
           max_context_size: 98304  # Override context window to 98k tokens
     ```
 
-=== "Robusta Helm Chart"
-
-    **Option 1: Using Kubernetes Secret (Recommended):**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=novita-api-key="your-novita-api-key" \
-      -n <namespace>
-    ```
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: NOVITA_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: novita-api-key
-
-      modelList:
-        deepseek-terminus:
-          model: novita/deepseek/deepseek-v3.1-terminus
-          api_key: "{{ env.NOVITA_API_KEY }}"
-          custom_args:
-            max_context_size: 98304  # Override context window to 98k tokens
-    ```
-
-    **Option 2: Direct Value (Less Secure):**
-
-    !!! warning
-        This method stores the API key in plain text in your values file. Use Kubernetes Secrets for production environments.
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: NOVITA_API_KEY
-          value: "your-novita-api-key"  # API key directly in values file
-
-      modelList:
-        deepseek-terminus:
-          model: novita/deepseek/deepseek-v3.1-terminus
-          api_key: "{{ env.NOVITA_API_KEY }}"
-          custom_args:
-            max_context_size: 98304  # Override context window to 98k tokens
-    ```
 
 ## General Model Configuration Parameters
 

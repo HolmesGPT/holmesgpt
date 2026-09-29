@@ -15,8 +15,6 @@ nav:
     - "Why HolmesGPT": why-holmesgpt.md
     - Installation:
           - "CLI": installation/cli-installation.md
-          - "Web UI (3rd party)": installation/ui-installation.md
-          - "Slack Bot (3rd party)": installation/slack-installation.md
           - "Backstage (3rd party)": installation/backstage-integration.md
           - "K9s": installation/k9s-installation.md
           - "Helm Chart": installation/kubernetes-installation.md
@@ -45,7 +43,6 @@ nav:
           - OpenAI: ai-providers/openai.md
           - "OpenAI-Compatible": ai-providers/openai-compatible.md
           - Other: ai-providers/other.md
-          - "Robusta AI": ai-providers/robusta-ai.md
           - "Using Multiple Providers": ai-providers/using-multiple-providers.md
     - "Data Sources":
           - "Overview": data-sources/index.md
@@ -92,7 +89,6 @@ nav:
                 - "Prefect (MCP)": data-sources/builtin-toolsets/prefect-mcp.md
                 - "Prometheus": data-sources/builtin-toolsets/prometheus.md
                 - "RabbitMQ": data-sources/builtin-toolsets/rabbitmq.md
-                - "Robusta": data-sources/builtin-toolsets/robusta.md
                 - "Sentry (MCP)": data-sources/builtin-toolsets/sentry-mcp.md
                 - "ServiceNow": data-sources/builtin-toolsets/servicenow.md
                 - "Slab": data-sources/builtin-toolsets/slab.md

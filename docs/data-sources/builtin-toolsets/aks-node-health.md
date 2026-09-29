@@ -37,18 +37,6 @@ By enabling this toolset, HolmesGPT will be able to perform specialized health c
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        aks/node-health:
-          enabled: true
-          config:
-            subscription_id: "<your Azure subscription ID>"
-            resource_group: "<your AKS resource group>"
-            cluster_name: "<your AKS cluster name>"
-    ```
 
 ## Advanced Configuration
 

@@ -55,24 +55,6 @@ All database connectors use `type: database` and share the same configuration pa
         llm_instructions: "Production PostgreSQL database"
     ```
 
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
 
 ## Configuration Options
 

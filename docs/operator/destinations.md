@@ -254,4 +254,3 @@ Possible notification statuses:
 - **[Health Checks](health-checks.md)** - Learn about creating HealthCheck resources
 - **[Scheduled Health Checks](scheduled-health-checks.md)** - Set up recurring checks with destinations
 - **[Configuration](configuration.md)** - Advanced operator configuration
-- **[Slack Installation](../installation/slack-installation.md)** - Detailed Slack setup guide
