@@ -133,7 +133,9 @@ This script creates a managed identity, assigns RBAC roles, configures federated
 
 ### Step 2: Deploy with Helm
 
-Choose an authentication method based on your environment. For additional options, see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
+Choose an authentication method based on your environment.
+
+For additional options, see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
 
 #### Workload Identity (Recommended for AKS)
 
