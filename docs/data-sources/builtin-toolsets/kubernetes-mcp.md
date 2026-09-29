@@ -477,19 +477,23 @@ Your AKS cluster must be configured for Azure AD authentication. Follow the [Mic
 6. Under **Certificates & Secrets**, create a new client secret and copy the value
 7. From the **Overview** page, note your **Application (client) ID** and **Directory (tenant) ID**
 
-### Step 3: Deploy
+### Step 3: Store the client secret
 
-The secret holds the Entra ID client secret you copied in Step 2.6. Its key becomes the `MCP_OAUTH_CLIENT_SECRET` env var on the Holmes pod, which the values reference via `{{ env.MCP_OAUTH_CLIENT_SECRET }}` so the secret never appears in the chart values. Replace `<TENANT_ID>` and `<CLIENT_ID>` in the values.
+Create a Kubernetes secret, in the namespace Holmes runs in, with the Entra ID client secret you copied in Step 2.6. Its key becomes the `MCP_OAUTH_CLIENT_SECRET` env var on the Holmes pod, which the values in Step 4 reference via `{{ env.MCP_OAUTH_CLIENT_SECRET }}` so the secret never appears in the chart values.
+
+```bash
+kubectl create secret generic holmes-kubernetes-mcp \
+  --from-literal=MCP_OAUTH_CLIENT_SECRET='<CLIENT_SECRET>' \
+  -n <namespace>
+```
+
+### Step 4: Deploy
+
+Reuses the `holmes-kubernetes-mcp` secret created in the [Step 3: Store the client secret](#step-3-store-the-client-secret) section above.
+
+Replace `<TENANT_ID>` and `<CLIENT_ID>` in the values.
 
 === "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kubernetes-mcp \
-      --from-literal=MCP_OAUTH_CLIENT_SECRET='<CLIENT_SECRET>' \
-      -n <namespace>
-    ```
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -542,14 +546,6 @@ The secret holds the Entra ID client secret you copied in Step 2.6. Its key beco
 
 === "Robusta Helm Chart"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kubernetes-mcp \
-      --from-literal=MCP_OAUTH_CLIENT_SECRET='<CLIENT_SECRET>' \
-      -n <namespace>
-    ```
-
     When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
@@ -600,7 +596,7 @@ The secret holds the Entra ID client secret you copied in Step 2.6. Its key beco
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-### Step 4: Verify
+### Step 5: Verify
 
 ```bash
 kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=k8s-mcp-server
