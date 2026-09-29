@@ -212,7 +212,7 @@ The Basic auth credentials are `<instance_id>:<cloud_access_policy_token>` base6
     Set the environment variable:
 
     ```bash
-    export GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)"
+    export GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')"
     ```
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -236,7 +236,7 @@ The Basic auth credentials are `<instance_id>:<cloud_access_policy_token>` base6
 
     ```bash
     kubectl create secret generic holmes-prometheus \
-      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)" \
+      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')" \
       -n <namespace>
     ```
 
@@ -268,7 +268,7 @@ The Basic auth credentials are `<instance_id>:<cloud_access_policy_token>` base6
 
     ```bash
     kubectl create secret generic holmes-prometheus \
-      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64)" \
+      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')" \
       -n <namespace>
     ```
 
