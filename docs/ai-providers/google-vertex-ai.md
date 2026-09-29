@@ -22,30 +22,26 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create the Kubernetes secrets in the namespace Holmes runs in:
+
     ```bash
-    # First, encode your service account JSON key
-    kubectl create secret generic holmes-secrets \
+    kubectl create secret generic holmes-google-vertex-ai \
+      --from-literal=VERTEXAI_PROJECT="your-project-id" \
+      --from-literal=VERTEXAI_LOCATION="us-central1" \
+      -n <namespace>
+
+    kubectl create secret generic holmes-google-vertex-ai-credentials \
       --from-file=google-credentials=path/to/service-account-key.json \
-      --from-literal=vertexai-project="your-project-id" \
-      --from-literal=vertexai-location="us-central1" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-google-vertex-ai
+
     additionalEnvVars:
-      - name: VERTEXAI_PROJECT
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: vertexai-project
-      - name: VERTEXAI_LOCATION
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: vertexai-location
       - name: GOOGLE_APPLICATION_CREDENTIALS
         value: "/etc/google-credentials/google-credentials"
       # Optional: Set default model (use modelList key name)
@@ -57,7 +53,7 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
     additionalVolumes:
       - name: google-credentials
         secret:
-          secretName: holmes-secrets
+          secretName: holmes-google-vertex-ai-credentials
           items:
             - key: google-credentials
               path: google-credentials
@@ -82,33 +78,35 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
         temperature: 1
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create the Kubernetes secrets in the namespace Holmes runs in:
+
     ```bash
-    # First, encode your service account JSON key
-    kubectl create secret generic robusta-holmes-secret \
+    kubectl create secret generic holmes-google-vertex-ai \
+      --from-literal=VERTEXAI_PROJECT="your-project-id" \
+      --from-literal=VERTEXAI_LOCATION="us-central1" \
+      -n <namespace>
+
+    kubectl create secret generic holmes-google-vertex-ai-credentials \
       --from-file=google-credentials=path/to/service-account-key.json \
-      --from-literal=vertexai-project="your-project-id" \
-      --from-literal=vertexai-location="us-central1" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-google-vertex-ai
+
       additionalEnvVars:
-        - name: VERTEXAI_PROJECT
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: vertexai-project
-        - name: VERTEXAI_LOCATION
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: vertexai-location
         - name: GOOGLE_APPLICATION_CREDENTIALS
           value: "/etc/google-credentials/google-credentials"
         # Optional: Set default model (use modelList key name)
@@ -120,7 +118,7 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
       additionalVolumes:
         - name: google-credentials
           secret:
-            secretName: robusta-holmes-secret
+            secretName: holmes-google-vertex-ai-credentials
             items:
               - key: google-credentials
                 path: google-credentials
@@ -143,6 +141,12 @@ Configure HolmesGPT to use Google Vertex AI with Gemini models.
           vertex_location: "{{ env.VERTEXAI_LOCATION }}"
           model: vertex_ai/gemini-1.5-flash
           temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Using CLI Parameters
