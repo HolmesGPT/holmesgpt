@@ -32,6 +32,8 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
 ## Configuration
 
+In Kubernetes, the defaults work out of the box once enabled (plug-and-play). The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
+
 === "Holmes CLI"
 
     **Step 1: Create RBAC Resources**
@@ -205,7 +207,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
 === "Holmes Helm Chart"
 
-    The defaults work out of the box once enabled (plug-and-play). Add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
@@ -213,17 +215,15 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
         enabled: true
     ```
 
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
-
-    The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
 
 === "Robusta Helm Chart"
 
-    Add the following to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -232,10 +232,10 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
           enabled: true
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## GPU node diagnostics
