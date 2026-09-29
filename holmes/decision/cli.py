@@ -54,9 +54,11 @@ def investigate(
     database_url: str = typer.Option("", envvar="HOLMES_DECISION_DATABASE_URL", show_default=False),
     jev_model: str = typer.Option("jev-latest", envvar="HOLMES_JEV_MODEL"),
     allow_tool: Optional[list[str]] = typer.Option(None, "--allow-tool", help="Repeat to restrict this session's tool names"),
+    retry_safe_tool: Optional[list[str]] = typer.Option(None, "--retry-safe-tool", help="Explicitly attest a tool is read-only and safe to retry; repeat per tool"),
     max_steps: int = typer.Option(20, min=1, max=100),
     max_tool_calls: int = typer.Option(10, min=1, max=100),
     max_reasoning_calls: int = typer.Option(5, min=1, max=30),
+    max_tool_attempts: int = typer.Option(3, min=1, max=5, help="Maximum attempts per logical call, including the first"),
     max_seconds: float = typer.Option(300, min=1, max=3600),
     min_confidence: float = typer.Option(0.65, min=0, max=1),
     events: bool = typer.Option(False, help="Print durable progress events to stderr as JSONL"),
@@ -75,7 +77,8 @@ def investigate(
         llm.args.setdefault("timeout", 60)
         llm.args.setdefault("num_retries", 1)
         gateway = HolmesTools(config, llm, DEFAULT_CLI_USER,
-                              set(allow_tool) if allow_tool else None)
+                              set(allow_tool) if allow_tool else None,
+                              retry_safe_tools=set(retry_safe_tool or []))
         agent = DecisionAgent(
             HolmesReasoner(llm), provider, gateway, store,
             on_event=(lambda event: typer.echo(json.dumps(event), err=True)) if events else None,
@@ -83,6 +86,7 @@ def investigate(
         result = agent.run(DecisionState(question=question, budget=Budget(
             max_steps=max_steps, max_tool_calls=max_tool_calls,
             max_reasoning_calls=max_reasoning_calls, max_seconds=max_seconds,
+            max_tool_attempts=max_tool_attempts,
             min_confidence=min_confidence,
         )))
         _print_result(result, as_json)

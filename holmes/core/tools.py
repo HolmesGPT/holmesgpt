@@ -41,6 +41,7 @@ from rich.console import Console
 from rich.table import Table
 
 from holmes.core.llm import LLM
+from holmes.core.tool_errors import ToolErrorKind
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.core.transformers import (
     Transformer,
@@ -97,6 +98,9 @@ class StructuredToolResult(BaseModel):
     schema_version: str = "robusta:v1.0.0"
     status: StructuredToolResultStatus
     error: Optional[str] = None
+    # Internal transport metadata; keep the existing public result wire format.
+    error_kind: Optional[ToolErrorKind] = Field(default=None, exclude=True)
+    retry_after_seconds: Optional[float] = Field(default=None, ge=0, le=3600, exclude=True)
     return_code: Optional[int] = None
     data: Optional[Any] = None
     images: Optional[List[Dict[str, str]]] = None

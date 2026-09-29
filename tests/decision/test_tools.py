@@ -1,6 +1,6 @@
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from holmes.config import Config, _toolset_tools_changed
 from holmes.core.llm import LLM
@@ -11,7 +11,7 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.decision.models import Candidate
 from holmes.decision.tools import HolmesTools
-from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
 
 
 class ProbeTool(Tool):
@@ -68,6 +68,10 @@ def test_holmes_approval_and_session_allowlist_are_preserved():
     gateway = gateway_for(toolset)
     candidate = Candidate(id="q", tool="query", arguments={}, purpose="inspect", direction="metrics")
     assert gateway.execute(candidate).status == "approval_required"
+    assert not gateway.catalog()[0].retry_safe
+    gateway.retry_safe_tools = {"query"}
+    assert gateway.catalog()[0].retry_safe
+    assert gateway.execute(candidate).status == "approval_required"
     gateway.allowed_tools = {"another_tool"}
     assert gateway.catalog() == []
     assert gateway.execute(candidate).status == "approval_required"
@@ -92,3 +96,12 @@ def test_real_mcp_stdio_discovery_and_invocation():
     assert result.status == "success", result.error
     assert '"db_pool_pending":47' in result.data.replace(" ", "")
     assert '"simulated":true' in result.data.replace(" ", "").lower()
+
+    # Preserve typed transport metadata across RemoteMCPTool's exception handler.
+    with patch.object(RemoteMCPTool, "_invoke_async", new=AsyncMock(side_effect=TimeoutError("transport timed out"))):
+        timed_out = gateway.execute(Candidate(
+            id="retry-metrics", tool="service_metrics", arguments={"service": "checkout", "minutes": 15},
+            purpose="inspect pool pressure", direction="database",
+        ))
+    assert timed_out.status == "error"
+    assert timed_out.error_kind == "timeout"

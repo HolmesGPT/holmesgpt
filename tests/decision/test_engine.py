@@ -5,7 +5,7 @@ import pytest
 from holmes.decision.demo import DemoDecisionProvider, DemoReasoner, DemoTools
 from holmes.decision.engine import DecisionAgent, READ_EVIDENCE
 from holmes.decision.models import (
-    Budget, Candidate, Claim, Decision, DecisionState, Diagnosis,
+    Budget, Candidate, Claim, Decision, DecisionState, DiagnosisDraft,
     ReasoningResult, TaskMemory, ToolOutput,
 )
 from holmes.decision.store import EvidenceStore
@@ -24,7 +24,7 @@ def test_full_investigation_persists_memory_raw_evidence_and_direction_changes(s
     result = DecisionAgent(DemoReasoner(), DemoDecisionProvider(), DemoTools(), store).run(state)
     assert result.state.status == "completed"
     assert result.state.tool_calls == 4
-    assert result.state.reasoning_calls == 2  # Four tool calls do not require four LLM rounds.
+    assert result.state.reasoning_calls == 1  # Final memory is refreshed in the report call.
     saved = store.load(state.task_id)
     assert len(saved.memory.facts) == 4
     evidence_id = saved.evidence[0]["id"]
@@ -41,7 +41,7 @@ def test_low_confidence_never_executes_and_stops_at_reasoning_budget(store):
     result = DecisionAgent(DemoReasoner(), decisions, tools, store).run(
         DecisionState(question="timeout", budget=Budget(max_reasoning_calls=2))
     )
-    assert result.state.stop_reason == "reasoning_budget"
+    assert result.state.stop_reason == "low_confidence"
     tools.execute.assert_not_called()
     assert sum(e["kind"] == "low_confidence" for e in store.audit(result.state.task_id)) == 2
 
@@ -60,7 +60,7 @@ def test_invalid_actions_are_rejected_before_decision_and_execution(store, candi
         DecisionState(question="timeout", budget=Budget(max_reasoning_calls=1))
     )
     tools.execute.assert_not_called()
-    provider.decide.assert_not_called()
+    assert set(provider.decide.call_args.args[1]) == {"finish", "need_input"}
     assert result.state.history[0].feedback
 
 
@@ -102,23 +102,24 @@ def test_repeated_proposals_execute_once(store):
     assert tools.execute.call_count == 1
 
 
-def test_repeated_identical_outputs_trigger_no_progress_stop(store):
+def test_identical_outputs_from_distinct_queries_are_independent_coverage(store):
     tools = Mock(wraps=DemoTools())
     tools.execute.return_value = ToolOutput(status="success", data="unchanged")
     result = DecisionAgent(DemoReasoner(), DemoDecisionProvider(), tools, store).run(
         DecisionState(question="timeout", budget=Budget(max_no_progress=2))
     )
-    assert result.state.stop_reason == "no_progress"
-    assert result.state.tool_calls == 3
+    assert result.state.status == "completed"
+    assert result.state.tool_calls == 4
 
 
 def test_tool_exception_becomes_durable_error_and_never_confirms_a_cause(store):
     tools = Mock(wraps=DemoTools())
     tools.execute.side_effect = TimeoutError("source query timed out")
-    result = DecisionAgent(DemoReasoner(), DemoDecisionProvider(), tools, store).run(
+    result = DecisionAgent(DemoReasoner(), DemoDecisionProvider(), tools, store, retry_wait=lambda _: 0).run(
         DecisionState(question="timeout", budget=Budget(max_no_progress=1))
     )
-    assert result.state.stop_reason == "no_progress"
+    assert result.state.tool_calls == 10
+    assert len({item["tool"] for item in result.state.evidence}) == 4
     record = store.get_evidence(result.state.task_id, result.state.evidence[0]["id"])
     assert record.output.status == "error"
     assert "timed out" in record.output.error
@@ -146,7 +147,7 @@ def test_decision_service_failure_is_visible_and_not_silently_replaced(store):
 
 def test_report_with_hallucinated_evidence_is_rejected(store):
     reasoner = Mock(wraps=DemoReasoner())
-    reasoner.report.return_value = Diagnosis(summary="definitely fixed", causes=[
+    reasoner.report.return_value = DiagnosisDraft(memory=TaskMemory(), causes=[
         Claim(text="root cause", evidence_ids=["invented"])
     ])
     result = DecisionAgent(reasoner, DemoDecisionProvider(), DemoTools(), store).run(DecisionState(question="timeout"))
@@ -159,7 +160,7 @@ def test_time_budget_is_rechecked_after_slow_decision(store):
     now = [0.0]
     provider = Mock()
 
-    def decide(state):
+    def decide(state, actions):
         now[0] = 100
         return Decision(choice="call:service_logs", confidence=1)
 
@@ -176,7 +177,7 @@ def test_tool_call_budget_is_enforced(store):
     result = DecisionAgent(DemoReasoner(), DemoDecisionProvider(), DemoTools(), store).run(
         DecisionState(question="timeout", budget=Budget(max_tool_calls=2))
     )
-    assert result.state.stop_reason == "tool_budget"
+    assert result.state.status == "completed"
     assert result.state.tool_calls == 2
 
 
@@ -215,11 +216,16 @@ def test_evidence_reader_page_reaches_model_without_second_truncation(store):
         return ReasoningResult(memory=TaskMemory())
 
     reasoner.reason.side_effect = reason
-    reasoner.report.side_effect = lambda state: Diagnosis(
-        summary="Attempt to cite the reader instead of the observation",
+    reasoner.report.side_effect = lambda state: DiagnosisDraft(
+        memory=TaskMemory(),
         causes=[Claim(text="cause", evidence_ids=[state.evidence[1]["id"]])],
     )
-    result = DecisionAgent(reasoner, DemoDecisionProvider(), tools, store).run(DecisionState(question="timeout"))
+    provider = Mock()
+    provider.decide.side_effect = lambda state, actions: Decision(
+        choice=next((key for key in actions if key.startswith("call:")),
+                    "reason" if len(state.evidence) < 2 else "finish"), confidence=1,
+    )
+    result = DecisionAgent(reasoner, provider, tools, store).run(DecisionState(question="timeout"))
     assert result.state.evidence[0]["truncated"]
     page = result.state.evidence[1]
     assert not page["truncated"]

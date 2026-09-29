@@ -8,9 +8,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from holmes.core.tool_errors import ToolErrorKind
+
 
 TaskStatus = Literal["running", "completed", "needs_input", "stopped", "failed"]
+TerminalStatus = Literal["completed", "needs_input", "stopped", "failed"]
 ToolStatus = Literal["success", "no_data", "error", "approval_required"]
+DiagnosisOutcome = Literal["legacy_unverified", "candidate_causes", "insufficient_evidence", "invalid_report"]
 
 
 def utc_now() -> datetime:
@@ -31,6 +35,8 @@ class ToolSpec(Record):
     description: str
     parameters: dict[str, Any]
     source: str
+    # Set by operator configuration, never by an LLM or remote tool description.
+    retry_safe: bool = False
 
     @property
     def version(self) -> str:
@@ -48,7 +54,7 @@ class Candidate(Record):
 
     @property
     def fingerprint(self) -> str:
-        return fingerprint({"tool": self.tool, "arguments": self.arguments})
+        return fingerprint({"tool": self.tool, "version": self.tool_version, "arguments": self.arguments})
 
 
 class Claim(Record):
@@ -87,6 +93,8 @@ class ToolOutput(Record):
     status: ToolStatus
     data: Any = None
     error: str | None = None
+    error_kind: ToolErrorKind | None = None
+    retry_after_seconds: float | None = Field(default=None, ge=0, le=3600)
 
 
 class Evidence(Record):
@@ -98,6 +106,8 @@ class Evidence(Record):
     collected_at: datetime = Field(default_factory=utc_now)
     elapsed_seconds: float = 0
     output: ToolOutput
+    attempt_id: str = ""
+    attempt_no: int = 0
 
     def summary(self, max_chars: int = 3000) -> dict[str, Any]:
         raw = self.output.model_dump_json()
@@ -108,6 +118,9 @@ class Evidence(Record):
             "arguments": self.arguments,
             "collected_at": self.collected_at.isoformat(),
             "status": self.output.status,
+            "attempt_id": self.attempt_id,
+            "attempt_no": self.attempt_no,
+            "error_kind": self.output.error_kind,
             "preview": raw[:max_chars],
             "truncated": len(raw) > max_chars,
             "total_chars": len(raw),
@@ -122,6 +135,10 @@ class ActionRecord(Record):
     fingerprint: str = ""
     evidence_id: str | None = None
     status: str
+    attempt_id: str = ""
+    attempt_no: int = 0
+    error_kind: ToolErrorKind | None = None
+    retry_exhausted: bool = False
     feedback: str = Field(default="", max_length=2000)
 
 
@@ -132,6 +149,7 @@ class Budget(Record):
     max_seconds: float = Field(default=300, gt=0, le=3600)
     min_confidence: float = Field(default=0.65, ge=0, le=1)
     max_no_progress: int = Field(default=3, ge=1, le=20)
+    max_tool_attempts: int = Field(default=3, ge=1, le=5)
 
 
 class DecisionState(Record):
@@ -150,6 +168,8 @@ class DecisionState(Record):
     no_progress: int = 0
     direction: str = ""
     status: TaskStatus = "running"
+    # A terminal request is committed with the validated report, not before it.
+    pending_status: TerminalStatus | None = None
     stop_reason: str = ""
     revision: int = 0
     created_at: datetime = Field(default_factory=utc_now)
@@ -163,16 +183,29 @@ class DecisionState(Record):
         return result
 
 
-class Diagnosis(Record):
-    summary: str = Field(min_length=1, max_length=12000)
+class DiagnosisDraft(Record):
+    """LLM output has no free-text summary or model-selected outcome."""
+
+    memory: TaskMemory
     causes: list[Claim] = Field(default_factory=list, max_length=20)
     verification_steps: list[str] = Field(default_factory=list, max_length=30)
     limitations: list[str] = Field(default_factory=list, max_length=20)
 
     def validate_references(self, known_ids: set[str]) -> None:
+        self.memory.validate_references(known_ids)
         for cause in self.causes:
             if not cause.evidence_ids or not set(cause.evidence_ids) <= known_ids:
                 raise ValueError("Every reported cause must cite known evidence")
+
+
+class Diagnosis(Record):
+    # Preserve the stored v1 shape; new output is rendered from DiagnosisDraft.
+    summary: str = Field(min_length=1, max_length=12000)
+    causes: list[Claim] = Field(default_factory=list, max_length=20)
+    verification_steps: list[str] = Field(default_factory=list, max_length=30)
+    limitations: list[str] = Field(default_factory=list, max_length=20)
+    schema_version: int = 1
+    outcome: DiagnosisOutcome = "legacy_unverified"
 
 
 class InvestigationResult(Record):
