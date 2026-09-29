@@ -18,6 +18,8 @@ Configure them via the `extra_headers` field in your model list configuration, o
 
 ## Configuration
 
+In Kubernetes, Holmes can't complete the device authorization from inside a pod: authorize once with the Holmes CLI, then give Holmes the token file LiteLLM stored at `~/.config/litellm/github_copilot/access-token`. To re-authenticate, delete that file, run the Holmes CLI again, recreate the secret and restart the Holmes pod.
+
 === "Holmes CLI"
 
     **Create `~/.holmes/model_list.yaml`:**
@@ -50,6 +52,14 @@ Configure them via the `extra_headers` field in your model list configuration, o
 
 === "Holmes Helm Chart"
 
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-github-copilot \
+      --from-file=access-token=$HOME/.config/litellm/github_copilot/access-token \
+      -n <namespace>
+    ```
+
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
@@ -65,6 +75,21 @@ Configure them via the `extra_headers` field in your model list configuration, o
     additionalEnvVars:
       - name: MODEL
         value: "copilot-claude"
+      - name: GITHUB_COPILOT_ACCESS_TOKEN_FILE
+        value: "/etc/github-copilot/access-token"
+      # LiteLLM writes its short-lived Copilot key here; /tmp is writable in the pod
+      - name: GITHUB_COPILOT_TOKEN_DIR
+        value: "/tmp/github-copilot"
+
+    additionalVolumes:
+      - name: github-copilot-token
+        secret:
+          secretName: holmes-github-copilot
+
+    additionalVolumeMounts:
+      - name: github-copilot-token
+        mountPath: /etc/github-copilot
+        readOnly: true
     ```
 
     Apply the configuration:
@@ -74,6 +99,14 @@ Configure them via the `extra_headers` field in your model list configuration, o
     ```
 
 === "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-github-copilot \
+      --from-file=access-token=$HOME/.config/litellm/github_copilot/access-token \
+      -n <namespace>
+    ```
 
     When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
@@ -91,6 +124,21 @@ Configure them via the `extra_headers` field in your model list configuration, o
       additionalEnvVars:
         - name: MODEL
           value: "copilot-claude"
+        - name: GITHUB_COPILOT_ACCESS_TOKEN_FILE
+          value: "/etc/github-copilot/access-token"
+        # LiteLLM writes its short-lived Copilot key here; /tmp is writable in the pod
+        - name: GITHUB_COPILOT_TOKEN_DIR
+          value: "/tmp/github-copilot"
+
+      additionalVolumes:
+        - name: github-copilot-token
+          secret:
+            secretName: holmes-github-copilot
+
+      additionalVolumeMounts:
+        - name: github-copilot-token
+          mountPath: /etc/github-copilot
+          readOnly: true
     ```
 
     Apply the configuration:

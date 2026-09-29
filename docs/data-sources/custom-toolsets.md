@@ -59,15 +59,36 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
 
 === "Robusta Helm Chart"
 
+    **Create Kubernetes Secret:**
+
+    ```bash
+    kubectl create secret generic grafana-credentials \
+      --from-literal=url="http://grafana.monitoring.svc.cluster.local:3000" \
+      --from-literal=token="your-grafana-api-token" \
+      -n <namespace>
+    ```
+
     **Helm Values:**
 
     ```yaml
     holmes:
+      additionalEnvVars:
+        - name: GRAFANA_URL
+          valueFrom:
+            secretKeyRef:
+              name: grafana-credentials
+              key: url
+        - name: GRAFANA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: grafana-credentials
+              key: token
+
       toolsets:
         grafana:
           description: "View and suggest Grafana dashboards"
           prerequisites:
-            - command: "curl --version"
+            - env: [GRAFANA_URL, GRAFANA_TOKEN]
           installation_instructions: |
             1. Ensure Grafana is accessible from HolmesGPT
             2. Configure Grafana API credentials if authentication is required
@@ -75,21 +96,14 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
             - name: view_dashboard
               description: "View a specific Grafana dashboard by ID or name"
               command: |
-                curl -s "{{ grafana_url }}/api/dashboards/uid/{{ dashboard_uid }}" \
-                  -H "Authorization: Bearer {{ grafana_token }}"
+                curl -s "${GRAFANA_URL}/api/dashboards/uid/{{ dashboard_uid }}" \
+                  -H "Authorization: Bearer ${GRAFANA_TOKEN}"
 
             - name: search_dashboards
               description: "Search for dashboards related to specific keywords"
               command: |
-                curl -s "{{ grafana_url }}/api/search?query={{ search_query }}" \
-                  -H "Authorization: Bearer {{ grafana_token }}"
-    ```
-
-    **Environment Variables:**
-
-    ```bash
-    export GRAFANA_URL="http://grafana.monitoring.svc.cluster.local:3000"
-    export GRAFANA_TOKEN="your-grafana-api-token"
+                curl -s "${GRAFANA_URL}/api/search?query={{ search_query }}" \
+                  -H "Authorization: Bearer ${GRAFANA_TOKEN}"
     ```
 
     **Helm Upgrade:**
@@ -247,15 +261,30 @@ This example shows how to create a toolset for fetching information from GitHub 
 
 === "Robusta Helm Chart"
 
+    **Create Kubernetes Secret:**
+
+    ```bash
+    kubectl create secret generic github-credentials \
+      --from-literal=token="your-github-personal-access-token" \
+      -n <namespace>
+    ```
+
     **Helm Values:**
 
     ```yaml
     holmes:
+      additionalEnvVars:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-credentials
+              key: token
+
       toolsets:
         github:
           description: "Fetch information from GitHub repositories"
           prerequisites:
-            - command: "curl --version"
+            - env: [GITHUB_TOKEN]
           installation_instructions: |
             1. Create a GitHub personal access token
             2. Set the token as an environment variable
@@ -264,26 +293,20 @@ This example shows how to create a toolset for fetching information from GitHub 
             - name: get_repository_info
               description: "Get information about a GitHub repository"
               command: |
-                curl -s -H "Authorization: token {{ github_token }}" \
+                curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
                   "https://api.github.com/repos/{{ owner }}/{{ repo }}"
 
             - name: get_recent_commits
               description: "Get recent commits from a repository"
               command: |
-                curl -s -H "Authorization: token {{ github_token }}" \
+                curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
                   "https://api.github.com/repos/{{ owner }}/{{ repo }}/commits?per_page={{ limit | default(10) }}"
 
             - name: search_issues
               description: "Search for issues in a repository"
               command: |
-                curl -s -H "Authorization: token {{ github_token }}" \
+                curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
                   "https://api.github.com/search/issues?q=repo:{{ owner }}/{{ repo }}+{{ search_query }}"
-    ```
-
-    **Environment Variables:**
-
-    ```bash
-    export GITHUB_TOKEN="your-github-personal-access-token"
     ```
 
     **Helm Upgrade:**
