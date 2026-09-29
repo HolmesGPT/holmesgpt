@@ -25,10 +25,11 @@ By enabling this toolset, HolmesGPT will be able to use [Inspektor Gadget](https
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Robusta Helm Chart"
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    # values.yaml
     customClusterRoleRules:
       - apiGroups: [""]
         resources: ["pods", "pods/attach"]
@@ -36,6 +37,27 @@ By enabling this toolset, HolmesGPT will be able to use [Inspektor Gadget](https
     additionalEnvVars:
       - name: ENABLE_INSPEKTOR_GADGET
         value: "true"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      customClusterRoleRules:
+        - apiGroups: [""]
+          resources: ["pods", "pods/attach"]
+          verbs: ["create"]
+      additionalEnvVars:
+        - name: ENABLE_INSPEKTOR_GADGET
+          value: "true"
     ```
 
     Apply the configuration:
