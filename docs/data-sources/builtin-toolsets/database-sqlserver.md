@@ -66,34 +66,6 @@ Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewri
           connection_url: "{{ env.SQLSERVER_URL }}"
     ```
 
-    **TLS encryption:**
-
-    Encryption is controlled by the `verify_ssl` option (default: `true`). When `true`, connections use TLS with certificate verification — this is what Azure SQL and other TLS-enforcing servers need. Set it to `false` for servers with self-signed certificates, which disables TLS entirely:
-
-    ```yaml
-    toolsets:
-      sqlserver-dev:
-        type: database
-        config:
-          connection_url: "mssql+pytds://user:pass@server:1433/db"
-          verify_ssl: false  # self-signed certificate
-    ```
-
-    **Servers with an internal or private CA:**
-
-    If your SQL Server's certificate is issued by a private CA, keep `verify_ssl: true` and add the CA to Holmes's trust store with the base64-encoded `certificate` Helm value (the `CERTIFICATE` environment variable). This keeps connections encrypted *and* verified, and applies to every Holmes integration, not just this toolset:
-
-    ```bash
-    base64 -w0 internal-ca.pem   # value for the setting below
-    ```
-
-    ```yaml
-    # values.yaml
-    certificate: "<base64-encoded CA certificate>"
-    ```
-
-    Servers that require encryption cannot be reached with `verify_ssl: false`, so this is the correct option for a private-CA deployment.
-
 === "Holmes Helm Chart"
 
     Create a Kubernetes secret in the namespace Holmes runs in:
@@ -220,6 +192,57 @@ Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewri
           type: database
           config:
             connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+## TLS encryption
+
+Encryption is controlled by the `verify_ssl` option (default: `true`). When `true`, connections use TLS with certificate verification — this is what Azure SQL and other TLS-enforcing servers need. Set it to `false` for servers with self-signed certificates, which disables TLS entirely.
+
+### Servers with an internal or private CA
+
+If your SQL Server's certificate is issued by a private CA, keep `verify_ssl: true` and add the CA to Holmes's trust store. This keeps connections encrypted *and* verified, and applies to every Holmes integration, not just this toolset. Servers that require encryption cannot be reached with `verify_ssl: false`, so this is the correct option for a private-CA deployment.
+
+Encode the CA certificate:
+
+```bash
+base64 -w0 internal-ca.pem
+```
+
+=== "Holmes CLI"
+
+    Set the environment variable:
+
+    ```bash
+    export CERTIFICATE="<base64-encoded CA certificate>"
+    ```
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    certificate: "<base64-encoded CA certificate>"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      certificate: "<base64-encoded CA certificate>"
     ```
 
     Apply the configuration:
