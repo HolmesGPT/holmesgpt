@@ -48,11 +48,21 @@ PAGES = sorted(
 )
 
 
+class FenceError(Exception):
+    """A code fence the check cannot skip reliably."""
+
+    def __init__(self, line, message):
+        super().__init__(message)
+        self.line = line
+
+
 def tab_groups(lines, offset=0):
     """Yield (line number, labels, [(label, first body line number, body)]) for
     every tab group, nested groups included."""
     i = 0
     while i < len(lines):
+        if lines[i].strip().startswith("~~~"):
+            raise FenceError(offset + i + 1, "a `~~~` code fence; use backticks")
         fence = CODE_FENCE_RE.match(lines[i].strip())
         if fence:
             # Skip code blocks and deployment fences: a tab label inside one is not a tab.
@@ -62,8 +72,10 @@ def tab_groups(lines, offset=0):
                     for j in range(i + 1, len(lines))
                     if lines[j].strip() == fence["fence"]
                 ),
-                len(lines),
+                None,
             )
+            if closing is None:
+                raise FenceError(offset + i + 1, "code block with no closing fence of the same length")
             i = closing + 1
             continue
         match = TAB_RE.match(lines[i])
@@ -154,7 +166,11 @@ def holmes_tab_problems(first, body):
 def page_problems(path):
     rel = path.relative_to(DOCS).as_posix()
     problems = []
-    for number, labels, tabs in tab_groups(path.read_text().split("\n")):
+    try:
+        groups = list(tab_groups(path.read_text().split("\n")))
+    except FenceError as e:
+        return [f"{rel}:{e.line}: {e}"]
+    for number, labels, tabs in groups:
         deployment = [label for label in labels if label in DEPLOYMENT_LABELS]
         if not deployment:
             for label in labels:
