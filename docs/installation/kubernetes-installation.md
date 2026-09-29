@@ -200,6 +200,8 @@ curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
 
 ## Upgrading
 
+Use the release name you installed with; `helm list -A` shows it.
+
 ```bash
 helm repo update
 helm upgrade holmes robusta/holmes -f values.yaml
