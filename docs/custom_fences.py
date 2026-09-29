@@ -3,8 +3,6 @@ Custom fences for the MkDocs documentation.
 
 - yaml-toolset-config: a Holmes config body, `toolsets:` and its content. Holmes CLI, Holmes Helm
   Chart and Robusta Helm Chart tabs. The CLI tab shows the body for ~/.holmes/config.yaml.
-- yaml-helm-values: a Holmes chart values body, for chart-only settings. Holmes Helm Chart and
-  Robusta Helm Chart tabs.
 - robusta-region: Creates 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
   sp.robusta.dev. Plain URLs render as code blocks; markdown links `[text](url)` render as clickable links.
 - multi-instance: the standard "Multiple Instances" section for a toolset. The body is YAML with
@@ -12,7 +10,7 @@ Custom fences for the MkDocs documentation.
   config example, a block scalar). It links to the Multiple Instances page with a path relative to
   the page.
 
-robusta-region is a superfences custom fence, registered in mkdocs.yml. The other three expand into
+robusta-region is a superfences custom fence, registered in mkdocs.yml. The other two expand into
 markdown before any other fence or tab is rendered, so each renders exactly as the same markdown
 written by hand, tab ids included. Each renders from its own body and options and the page's path,
 and reads nothing else on the page.
@@ -25,13 +23,12 @@ name, and closed by the first line of three backticks:
     ```yaml-toolset-config {secret-qualifier=<name>}
     ```multi-instance
 
-`yaml-helm-values` takes the same forms as `yaml-toolset-config`. The body of a deployment fence is
-a block mapping whose first key starts at the first column; a `yaml-toolset-config` body has
-`toolsets` as its only key. A `multi-instance` body has `toolset`, `name` and `config`. Any other form of
-these three fences fails the build with a message naming the page and the line, and so does a page
+The body of a `yaml-toolset-config` fence is a block mapping whose first key starts at the first
+column, with `toolsets` as its only key. A `multi-instance` body has `toolset`, `name` and `config`.
+Any other form of these two fences fails the build with a message naming the page and the line, and so does a page
 whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`).
 
-Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
+Each Helm tab of a `yaml-toolset-config` fence shows the values (under `holmes:` in the Robusta tab) and
 the chart's upgrade command.
 
 Secrets. Every `{{ env.X }}` in the body is a key of the group's Kubernetes secret, in the order the
@@ -46,9 +43,7 @@ page that needs a secret with other keys. `<name>` is lowercase letters and digi
 secret step, its values still list the secret, and its CLI tab still exports the keys. The note
 naming the section that creates the secret is written by hand above the fence:
 
-    Reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
-
-Above a yaml-toolset-config fence, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
+    In Kubernetes, this reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -169,21 +164,20 @@ NO_PAGE = (
 )
 
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
-HELM_VALUES_FENCE = "yaml-helm-values"
 MULTI_INSTANCE_FENCE = "multi-instance"
 # The page every multi-instance section links to, as a path under docs/.
 MULTI_INSTANCE_PAGE = "data-sources/multi-instance-toolsets.md"
 
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-# A line that opens one of the three fences in any form ...
+# A line that opens one of the two fences in any form ...
 FENCE_OPENING_RE = re.compile(
     r"^[ \t>]*(?:`{3,}|~{3,})\s*\.?"
-    rf"(?:{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE}|{MULTI_INSTANCE_FENCE})"
+    rf"(?:{TOOLSET_CONFIG_FENCE}|{MULTI_INSTANCE_FENCE})"
 )
 # ... and the forms pages write.
 SUPPORTED_OPENING_RE = re.compile(
     rf"^```(?:(?P<multi>{MULTI_INSTANCE_FENCE})"
-    rf"|(?P<deployment>{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE})"
+    rf"|(?P<deployment>{TOOLSET_CONFIG_FENCE})"
     r"(?: \{(?P<option>reuse|secret-qualifier=(?P<qualifier>[a-z0-9]+(?:-[a-z0-9]+)*))\})?)$"
 )
 CLOSING_LINE = "```"
@@ -223,9 +217,7 @@ def _secret_placeholder(key: str) -> str:
     return "your-" + key.lower().replace("_", "-")
 
 
-def _deployment_group(
-    fence: str, body: str, secret: str, keys: list, creates_secret: bool
-) -> str:
+def _deployment_group(body: str, secret: str, keys: list, creates_secret: bool) -> str:
     """The tab group of the deployment tab standard for one fence body.
 
     `secret` is the secret the values mount, "" for none, and `keys` are the env
@@ -253,19 +245,17 @@ def _deployment_group(
             ),
         ]
 
-    tabs = []
-    if fence == TOOLSET_CONFIG_FENCE:
-        tabs.append(
-            _tab(
-                "Holmes CLI",
-                exports
-                + [
-                    CLI_CONFIG_CAPTION,
-                    _code_block("yaml", body),
-                    REFRESH_WARNING_INCLUDE,
-                ],
-            )
+    tabs = [
+        _tab(
+            "Holmes CLI",
+            exports
+            + [
+                CLI_CONFIG_CAPTION,
+                _code_block("yaml", body),
+                REFRESH_WARNING_INCLUDE,
+            ],
         )
+    ]
     tabs.append(
         _tab(
             "Holmes Helm Chart",
@@ -345,21 +335,18 @@ def _multi_instance_section(body: str, page: str):
 def _deployment_section(opening, body: str, page: str):
     """The tab group for a deployment fence body, or None if the body is not a
     supported form."""
-    fence = opening["deployment"]
     data = _block_mapping(body)
-    if data is None or (fence == TOOLSET_CONFIG_FENCE and set(data) != {"toolsets"}):
+    if data is None or set(data) != {"toolsets"}:
         return None
     # Every env var the body references is a key of the group's secret, which
     # extraEnvVarsSecrets mounts whole. The keys keep the body's order.
     keys = list(dict.fromkeys(ENV_REFERENCE_RE.findall(body)))
     if not keys:
-        return (
-            None if opening["option"] else _deployment_group(fence, body, "", [], False)
-        )
+        return None if opening["option"] else _deployment_group(body, "", [], False)
     secret = f"holmes-{PurePosixPath(page).stem}"
     if opening["qualifier"]:
         secret += f"-{opening['qualifier']}"
-    return _deployment_group(fence, body, secret, keys, opening["option"] != "reuse")
+    return _deployment_group(body, secret, keys, opening["option"] != "reuse")
 
 
 class TabFencePreprocessor(Preprocessor):
