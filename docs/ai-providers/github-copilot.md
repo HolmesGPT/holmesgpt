@@ -18,7 +18,7 @@ Configure them via the `extra_headers` field in your model list configuration, o
 
 ## Configuration
 
-In Kubernetes, Holmes can't complete the device authorization from inside a pod: authorize once with the Holmes CLI, then give Holmes the token file LiteLLM stored at `~/.config/litellm/github_copilot/access-token`. To re-authenticate, delete that file, run the Holmes CLI again, recreate the secret and restart the Holmes pod.
+In Kubernetes, Holmes can't complete the device authorization from inside a pod: authorize once with the Holmes CLI, then give Holmes the token file LiteLLM stored at `~/.config/litellm/github_copilot/access-token`. To re-authenticate, delete that file and run the Holmes CLI again, then delete the secret with `kubectl delete secret holmes-github-copilot -n <namespace>`, create it again and restart the Holmes pod.
 
 === "Holmes CLI"
 
