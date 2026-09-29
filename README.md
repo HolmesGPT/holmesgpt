@@ -1,3 +1,22 @@
+# 通用服务智能排障 Agent | LLM + Jev Decision Model + MCP
+
+This personal fork extends HolmesGPT with `holmes decision`: an evidence-backed
+investigation mode that separates LLM reasoning from Jev action selection.
+It adds structured task memory, PostgreSQL evidence/checkpoint storage, bounded
+execution, and schema-aware MCP tool refresh while reusing Holmes' tool ecosystem.
+
+- **Run an offline simulation:** `poetry run holmes decision demo`
+- **Connect real models and data sources:** [setup, architecture and examples](docs/reference/decision-agent.md)
+- **Inspect an investigation:** `holmes decision inspect TASK_ID` and `holmes decision evidence TASK_ID EVIDENCE_ID`
+
+Live mode requires a TypeSafe API key, an LLM provider key, and a database URL.
+The offline demo uses explicit deterministic fixtures and SQLite. Performance
+improvements and production diagnosis accuracy require evaluation on real workloads.
+
+The upstream HolmesGPT documentation and Apache-2.0 attribution follow below.
+
+---
+
 <div align="center">
   <h1 align="center">HolmesGPT — The CNCF SRE Agent</h1>
 

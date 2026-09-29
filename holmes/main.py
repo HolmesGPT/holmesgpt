@@ -62,6 +62,7 @@ from holmes.common.cli_commons import (
     opt_verbose,
 )
 from holmes.toolset_config_tui import run_toolset_config_tui
+from holmes.decision.cli import decision_app
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
 
@@ -90,6 +91,7 @@ toolset_app = typer.Typer(
 app.add_typer(toolset_app, name="toolset")
 
 app.add_typer(checks_app, name="checks")
+app.add_typer(decision_app, name="decision")
 
 
 # Common cli options defined in holmes.common.cli_commons:

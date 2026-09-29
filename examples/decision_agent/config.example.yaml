@@ -1,0 +1,9 @@
+# Run from the repository root after `poetry install`.
+model: anthropic/claude-sonnet-4-5-20250929
+mcp_servers:
+  service-observability:
+    description: Local simulated logs, metrics, config and instance data
+    config:
+      mode: stdio
+      command: python
+      args: [examples/decision_agent/mcp_server.py]

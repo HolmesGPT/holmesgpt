@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import os.path
@@ -73,11 +74,12 @@ def _parse_custom_skill_paths_env() -> List[str]:
 def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
     """Stable signature of a toolset's tools for change detection.
 
-    Includes tool name and description so additions, removals, and description
-    edits all trigger an executor swap.
+    Includes the exposed schema so parameter-only MCP changes also invalidate
+    cached executors and pending decision-agent calls.
     """
     return frozenset(
-        (tool.name, tool.description or "") for tool in (toolset.tools or [])
+        (tool.name, json.dumps(tool.get_openai_format(), sort_keys=True))
+        for tool in (toolset.tools or [])
     )
 
 
