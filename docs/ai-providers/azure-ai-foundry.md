@@ -215,7 +215,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 
     - AKS cluster with OIDC issuer and workload identity enabled
     - A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
-    - A federated credential linking the managed identity to the Holmes ServiceAccount, which the chart names `<release>-holmes-service-account` (`holmes-holmes-service-account` for the install guide's `holmes` release)
+    - A federated credential linking the managed identity to the Holmes ServiceAccount, which the chart names `<release>-holmes-service-account` by default (`holmes-holmes-service-account` for the install guide's `holmes` release). If you set `customServiceAccountName`, the credential's subject uses that name; with `createServiceAccount: false`, Holmes runs as the namespace's `default` ServiceAccount
 
     **Set up the identity and federation:**
 
