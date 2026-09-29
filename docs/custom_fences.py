@@ -274,9 +274,9 @@ def multi_instance_fence_format(source, language, css_class, options, md, **kwar
         raise MultiInstanceFenceError(
             "multi-instance fence body must be a YAML mapping"
         )
-    toolset = str(spec.get("toolset", "")).strip()
+    toolset = str(spec.get("toolset") or "").strip()
     name = str(spec.get("name") or toolset or "this").strip()
-    config = str(spec.get("config", "")).strip()
+    config = str(spec.get("config") or "").strip()
     if not toolset or not config:
         raise MultiInstanceFenceError(
             "multi-instance fence requires 'toolset' and 'config' keys in its YAML body"
