@@ -19,10 +19,17 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 ## Installation
 
 1. **Add the Helm repository:**
-   ```bash
-   helm repo add robusta https://robusta-charts.storage.googleapis.com
-   helm repo update
-   ```
+
+    === "Helm Repo"
+        ```bash
+        helm repo add robusta https://robusta-charts.storage.googleapis.com
+        helm repo update
+        ```
+
+    === "OCI Registry"
+        ```bash
+        # No helm repo add needed — OCI registries are pulled directly
+        ```
 
 2. **Create `values.yaml` file:**
 
@@ -129,9 +136,16 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
         > **Configuration Guide:** Each AI provider requires different environment variables. See the [AI Providers documentation](../ai-providers/index.md) for the specific environment variables needed for your chosen provider, then add them to the `additionalEnvVars` section as shown above. For a complete list of all environment variables, see the [Environment Variables Reference](../reference/environment-variables.md). For advanced multiple provider setup, see [Using Multiple Providers](../ai-providers/using-multiple-providers.md).
 
 3. **Install HolmesGPT:**
-   ```bash
-   helm install holmesgpt robusta/holmes -f values.yaml
-   ```
+
+    === "Helm Repo"
+        ```bash
+        helm install holmesgpt robusta/holmes -f values.yaml
+        ```
+
+    === "OCI Registry"
+        ```bash
+        helm install holmesgpt oci://ghcr.io/holmesgpt/charts/holmes -f values.yaml
+        ```
 
 ## Usage
 
@@ -200,10 +214,16 @@ curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
 
 ## Upgrading
 
-```bash
-helm repo update
-helm upgrade holmesgpt robusta/holmes -f values.yaml
-```
+=== "Helm Repo"
+    ```bash
+    helm repo update
+    helm upgrade holmesgpt robusta/holmes -f values.yaml
+    ```
+
+=== "OCI Registry"
+    ```bash
+    helm upgrade holmesgpt oci://ghcr.io/holmesgpt/charts/holmes -f values.yaml
+    ```
 
 ## Uninstalling
 
