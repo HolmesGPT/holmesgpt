@@ -205,7 +205,7 @@ Choose an authentication method based on your environment. For additional option
     Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic holmes-azure-mcp \
+    kubectl create secret generic azure-mcp-creds \
       --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
       --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
       -n <namespace>
@@ -228,7 +228,7 @@ Choose an authentication method based on your environment. For additional option
           authMethod: "service-principal"
           readOnlyMode: true
 
-        secretName: "holmes-azure-mcp"
+        secretName: "azure-mcp-creds"
     ```
 
     Apply the configuration:
@@ -242,7 +242,7 @@ Choose an authentication method based on your environment. For additional option
     Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic holmes-azure-mcp \
+    kubectl create secret generic azure-mcp-creds \
       --from-literal=AZURE_CLIENT_ID=YOUR_CLIENT_ID \
       --from-literal=AZURE_CLIENT_SECRET=YOUR_CLIENT_SECRET \
       -n <namespace>
@@ -266,7 +266,7 @@ Choose an authentication method based on your environment. For additional option
             authMethod: "service-principal"
             readOnlyMode: true
 
-          secretName: "holmes-azure-mcp"
+          secretName: "azure-mcp-creds"
     ```
 
     Apply the configuration:
@@ -357,7 +357,7 @@ Then:
       --scope /subscriptions/YOUR_SUBSCRIPTION_ID
     ```
 
-2. Put `appId`/`password` into the `holmes-azure-mcp` secret and set `tenantId`/`subscriptionId` in the **Service Principal** Helm values from [Step 2](#step-2-deploy-with-helm).
+2. Put `appId`/`password` into the `azure-mcp-creds` secret and set `tenantId`/`subscriptionId` in the **Service Principal** Helm values from [Step 2](#step-2-deploy-with-helm).
 
 ### Multi-Subscription Access
 
