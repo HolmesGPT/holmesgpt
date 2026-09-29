@@ -37,21 +37,21 @@ toolsets:
     config:
       api_key: "{{ env.DATADOG_API_KEY }}"
       app_key: "{{ env.DATADOG_APP_KEY }}"
-      api_url: https://api.datadoghq.com
+      api_url: https://api.datadoghq.com  # Change for EU/other regions
 
   datadog/traces:
     enabled: true
     config:
       api_key: "{{ env.DATADOG_API_KEY }}"
       app_key: "{{ env.DATADOG_APP_KEY }}"
-      api_url: https://api.datadoghq.com
+      api_url: https://api.datadoghq.com  # Change for EU/other regions
 
   datadog/general:
     enabled: true
     config:
       api_key: "{{ env.DATADOG_API_KEY }}"
       app_key: "{{ env.DATADOG_APP_KEY }}"
-      api_url: https://api.datadoghq.com
+      api_url: https://api.datadoghq.com  # Change for EU/other regions
 ```
 
 ### 3. Test It Works
