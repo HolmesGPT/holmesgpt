@@ -32,6 +32,12 @@ FLUSH PRIVILEGES;
 
 ## Configuration
 
+**Connection URL format:**
+
+```
+mysql+pymysql://[username]:[password]@[host]:[port]/[database]
+```
+
 === "Holmes CLI"
 
     **~/.holmes/config.yaml:**
@@ -61,30 +67,21 @@ FLUSH PRIVILEGES;
           connection_url: "{{ env.MYSQL_URL }}"
     ```
 
-    **Connection URL format:**
-    ```
-    mysql+pymysql://[username]:[password]@[host]:[port]/[database]
-    ```
-
 === "Holmes Helm Chart"
 
-    **Step 1: Create secret with credentials**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic mysql-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
-      -n holmes
+    kubectl create secret generic holmes-database-mysql \
+      --from-literal=MYSQL_URL='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
+      -n <namespace>
     ```
 
-    **Step 2: Configure in values.yaml**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: MYSQL_URL
-        valueFrom:
-          secretKeyRef:
-            name: mysql-credentials
-            key: url
+    extraEnvVarsSecrets:
+      - holmes-database-mysql
 
     toolsets:
       orders-mysql:
@@ -94,20 +91,61 @@ FLUSH PRIVILEGES;
         llm_instructions: "Orders database with customer and product data"
     ```
 
-    **Multiple instances:**
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-mysql \
+      --from-literal=MYSQL_URL='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: ORDERS_MYSQL_URL
-        valueFrom:
-          secretKeyRef:
-            name: mysql-orders
-            key: url
-      - name: ANALYTICS_MYSQL_URL
-        valueFrom:
-          secretKeyRef:
-            name: mysql-analytics
-            key: url
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-database-mysql
+
+      toolsets:
+        orders-mysql:
+          type: database
+          config:
+            connection_url: "{{ env.MYSQL_URL }}"
+          llm_instructions: "Orders database with customer and product data"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Multiple instances
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-mysql-instances \
+      --from-literal=ORDERS_MYSQL_URL='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
+      --from-literal=ANALYTICS_MYSQL_URL='mysql+pymysql://analyst:pass@analytics-mysql.internal:3306/analytics' \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-database-mysql-instances
 
     toolsets:
       orders-mysql:
@@ -121,50 +159,29 @@ FLUSH PRIVILEGES;
           connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic mysql-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    **Step 2: Configure in values.yaml**
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-mysql-instances \
+      --from-literal=ORDERS_MYSQL_URL='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
+      --from-literal=ANALYTICS_MYSQL_URL='mysql+pymysql://analyst:pass@analytics-mysql.internal:3306/analytics' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-credentials
-              key: url
-
-      toolsets:
-        orders-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.MYSQL_URL }}"
-          llm_instructions: "Orders database with customer and product data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: ORDERS_MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-orders
-              key: url
-        - name: ANALYTICS_MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-analytics
-              key: url
+      extraEnvVarsSecrets:
+        - holmes-database-mysql-instances
 
       toolsets:
         orders-mysql:
@@ -176,6 +193,12 @@ FLUSH PRIVILEGES;
           type: database
           config:
             connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Configuration Options
