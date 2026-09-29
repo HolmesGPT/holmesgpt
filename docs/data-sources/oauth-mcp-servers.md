@@ -9,6 +9,8 @@ Some MCP servers support OAuth-based authentication natively — you only need t
 
 To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true` in the server's config:
 
+In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
+
 === "Holmes CLI"
 
     Set the `CUSTOM_TOOLSET_LOCATION` environment variable pointing to a YAML file with your MCP server configuration:
@@ -96,6 +98,8 @@ CLI users can skip this step.
     | AP | `https://platform.ap.robusta.dev/**` |
 
 ### Step 2: Configure HolmesGPT
+
+In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
 
 === "Holmes CLI"
 
