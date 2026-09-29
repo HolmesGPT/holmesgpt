@@ -50,6 +50,16 @@ Configure them via the `extra_headers` field in your model list configuration, o
 
 === "Holmes Helm Chart"
 
+    Holmes can't complete the device authorization from inside a pod. Authorize once with the Holmes CLI (see the Holmes CLI tab), then give Holmes the token file LiteLLM stored at `~/.config/litellm/github_copilot/access-token`.
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic holmes-github-copilot \
+      --from-file=access-token=$HOME/.config/litellm/github_copilot/access-token \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
     ```yaml
     # values.yaml
     modelList:
@@ -64,10 +74,37 @@ Configure them via the `extra_headers` field in your model list configuration, o
     additionalEnvVars:
       - name: MODEL
         value: "copilot-claude"
+      - name: GITHUB_COPILOT_ACCESS_TOKEN_FILE
+        value: "/etc/github-copilot/access-token"
+      # LiteLLM writes its short-lived Copilot key here; /tmp is writable in the pod
+      - name: GITHUB_COPILOT_TOKEN_DIR
+        value: "/tmp/github-copilot"
+
+    additionalVolumes:
+      - name: github-copilot-token
+        secret:
+          secretName: holmes-github-copilot
+
+    additionalVolumeMounts:
+      - name: github-copilot-token
+        mountPath: /etc/github-copilot
+        readOnly: true
     ```
+
+    To re-authenticate, delete `~/.config/litellm/github_copilot/access-token`, run the Holmes CLI again, recreate the secret and restart the Holmes pod.
 
 === "Robusta Helm Chart"
 
+    Holmes can't complete the device authorization from inside a pod. Authorize once with the Holmes CLI (see the Holmes CLI tab), then give Holmes the token file LiteLLM stored at `~/.config/litellm/github_copilot/access-token`.
+
+    **Create Kubernetes Secret:**
+    ```bash
+    kubectl create secret generic holmes-github-copilot \
+      --from-file=access-token=$HOME/.config/litellm/github_copilot/access-token \
+      -n <namespace>
+    ```
+
+    **Configure Helm Values:**
     ```yaml
     # values.yaml
     holmes:
@@ -83,7 +120,24 @@ Configure them via the `extra_headers` field in your model list configuration, o
       additionalEnvVars:
         - name: MODEL
           value: "copilot-claude"
+        - name: GITHUB_COPILOT_ACCESS_TOKEN_FILE
+          value: "/etc/github-copilot/access-token"
+        # LiteLLM writes its short-lived Copilot key here; /tmp is writable in the pod
+        - name: GITHUB_COPILOT_TOKEN_DIR
+          value: "/tmp/github-copilot"
+
+      additionalVolumes:
+        - name: github-copilot-token
+          secret:
+            secretName: holmes-github-copilot
+
+      additionalVolumeMounts:
+        - name: github-copilot-token
+          mountPath: /etc/github-copilot
+          readOnly: true
     ```
+
+    To re-authenticate, delete `~/.config/litellm/github_copilot/access-token`, run the Holmes CLI again, recreate the secret and restart the Holmes pod.
 
 ## Additional Resources
 
