@@ -23,8 +23,7 @@ import colorlog
 import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
-from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
-from holmes.core.oauth_utils import _get_token_manager
+from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_oauth_callback
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -68,6 +67,7 @@ from holmes.core.prompt import PromptComponent
 from holmes.core.tool_calling_llm import RelayRefusal
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
+from holmes.core.self_logs import install_memory_log_handler
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     refresh_platform_mcp_tools,
@@ -139,6 +139,8 @@ def init_logging():
 
 
 init_logging()
+# Fallback source for the platform's Holmes logs view when the k8s API is denied.
+install_memory_log_handler()
 
 # Initialize tracer — auto-detects OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set
 server_tracer = TracingFactory.create_tracer(trace_type=os.environ.get("HOLMES_TRACE_BACKEND"))
@@ -480,8 +482,7 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
         bool(request.code_verifier), request.redirect_uri,
     )
     try:
-        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
-        return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
+        return handle_oauth_callback(request, config, dal)
     except OAuthConfigLookupError as e:
         logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
         raise HTTPException(status_code=400, detail=e.detail)
