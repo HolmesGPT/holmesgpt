@@ -45,6 +45,12 @@ Store the encoded credential securely for use in the configuration below.
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64)"
+    ```
+
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
@@ -55,7 +61,7 @@ Store the encoded credential securely for use in the configuration below.
           url: "https://your-jenkins-instance/mcp-server/mcp"
           mode: streamable-http
           headers:
-            Authorization: "Basic <base64_encoded_credentials>"
+            Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
           verify_ssl: false  # Set to true if using valid SSL certificates
         icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
         llm_instructions: |
@@ -63,34 +69,23 @@ Store the encoded credential securely for use in the configuration below.
           Use pagination for large result sets to avoid token overflow.
     ```
 
-    Replace `<base64_encoded_credentials>` with your encoded `username:api_token`.
-
     --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    # Encode your credentials
-    JENKINS_AUTH=$(echo -n "username:api_token" | base64)
-
-    # Create the secret
-    kubectl create secret generic jenkins-credentials \
-      --from-literal=token="$JENKINS_AUTH" \
+    kubectl create secret generic holmes-jenkins-mcp \
+      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64)" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: JENKINS_AUTH_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: jenkins-credentials
-            key: token
+    extraEnvVarsSecrets:
+      - holmes-jenkins-mcp
 
     mcp_servers:
       jenkins:
@@ -100,44 +95,35 @@ Store the encoded credential securely for use in the configuration below.
           mode: streamable-http
           headers:
             Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-          verify_ssl: false
+          verify_ssl: false  # Set to true if using valid SSL certificates
         icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
         llm_instructions: |
           When investigating build failures, start with recent build status and then examine console output.
           Use pagination for large result sets to avoid token overflow.
     ```
 
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    # Encode your credentials
-    JENKINS_AUTH=$(echo -n "username:api_token" | base64)
-
-    # Create the secret
-    kubectl create secret generic jenkins-credentials \
-      --from-literal=token="$JENKINS_AUTH" \
+    kubectl create secret generic holmes-jenkins-mcp \
+      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64)" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    # generated_values.yaml
     holmes:
-      additionalEnvVars:
-        - name: JENKINS_AUTH_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: jenkins-credentials
-              key: token
+      extraEnvVarsSecrets:
+        - holmes-jenkins-mcp
 
       mcp_servers:
         jenkins:
@@ -147,17 +133,17 @@ Store the encoded credential securely for use in the configuration below.
             mode: streamable-http
             headers:
               Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-            verify_ssl: false
+            verify_ssl: false  # Set to true if using valid SSL certificates
           icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
           llm_instructions: |
             When investigating build failures, start with recent build status and then examine console output.
             Use pagination for large result sets to avoid token overflow.
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 !!! warning "MCP endpoint path"
