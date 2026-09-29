@@ -15,14 +15,14 @@ The official Google Cloud MCP servers run locally on your machine via `npx`. Aut
 
 **Prerequisites:** Node.js must be installed.
 
-**Step 1: Authenticate**
+### Step 1: Authenticate
 
 ```bash
 gcloud auth login
 gcloud auth application-default login
 ```
 
-**Step 2: Add to `~/.holmes/config.yaml`**
+### Step 2: Add to `~/.holmes/config.yaml`
 
 ```yaml
 mcp_servers:
@@ -48,7 +48,7 @@ mcp_servers:
 
 You can use all three servers together or pick only the ones you need.
 
-**Step 3: Test it**
+### Step 3: Test it
 
 ```bash
 holmes ask "List all GKE clusters in my project"
@@ -73,7 +73,7 @@ CLUSTER_NAME=your-cluster-name
 REGION=your-region
 ```
 
-**Step 1: Enable Workload Identity on Your Cluster**
+#### Step 1: Enable Workload Identity on Your Cluster
 
 ```bash
 gcloud container clusters update ${CLUSTER_NAME} \
@@ -82,7 +82,7 @@ gcloud container clusters update ${CLUSTER_NAME} \
   --region ${REGION}
 ```
 
-**Step 2: Enable Workload Identity on Node Pools**
+#### Step 2: Enable Workload Identity on Node Pools
 
 Repeat for each node pool where Holmes pods may run, replacing `<node-pool-name>` with your node pool name:
 
@@ -94,7 +94,7 @@ gcloud container node-pools update <node-pool-name> \
   --region ${REGION}
 ```
 
-**Step 3: Create and Configure GCP Service Account**
+#### Step 3: Create and Configure GCP Service Account
 
 ```bash
 # Create service account
@@ -124,7 +124,7 @@ done
 
     **Security Boundaries:** Read-only metadata access. Cannot read storage objects, secret values, or modify resources.
 
-**Step 4: Bind Kubernetes Service Account to GCP Service Account**
+#### Step 4: Bind Kubernetes Service Account to GCP Service Account
 
 Replace `<namespace>` with the Kubernetes namespace where Holmes will be deployed:
 
@@ -135,7 +135,7 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
   --member "serviceAccount:${PROJECT_ID}.svc.id.goog[<namespace>/gcp-mcp-sa]"
 ```
 
-**Step 5: Deploy with Helm**
+#### Step 5: Deploy with Helm
 
 === "Holmes Helm Chart"
 
