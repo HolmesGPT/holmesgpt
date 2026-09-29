@@ -9,7 +9,9 @@ Some MCP servers support OAuth-based authentication natively — you only need t
 
 To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true` in the server's config:
 
-=== "Robusta CLI"
+In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
+
+=== "Holmes CLI"
 
     Set the `CUSTOM_TOOLSET_LOCATION` environment variable pointing to a YAML file with your MCP server configuration:
 
@@ -33,9 +35,30 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
             enabled: true
     ```
 
-=== "Robusta Helm Chart with Platform"
+=== "Holmes Helm Chart"
 
-    Add the MCP servers to your `generated_values.yaml`. Make sure `enableHolmesGPT` is set to `true` and SaaS is enabled:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcp_servers:
+      my-server:
+        description: "Description of the MCP server"
+        config:
+          mode: streamable-http
+          url: https://example.com/mcp
+          oauth:
+            enabled: true
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -49,8 +72,10 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
               enabled: true
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Example: Atlassian
@@ -58,7 +83,25 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
 !!! tip "Running Holmes headlessly?"
     OAuth requires a browser consent screen. To connect the same Atlassian Rovo MCP server with a static credential instead, see [Atlassian Rovo (MCP)](builtin-toolsets/atlassian-rovo-mcp.md).
 
-=== "Robusta CLI"
+### Step 1: Set up the Atlassian side
+
+CLI users can skip this step.
+
+1. Go to [https://admin.atlassian.com/](https://admin.atlassian.com/) and select your organization
+2. Navigate to **Rovo** → **Rovo MCP Server**
+3. Click **Add domain** and enter your Robusta platform URL, matching your region:
+
+    | Region | URL |
+    |--------|-----|
+    | US (default) | `https://platform.robusta.dev/**` |
+    | EU | `https://platform.eu.robusta.dev/**` |
+    | AP | `https://platform.ap.robusta.dev/**` |
+
+### Step 2: Configure HolmesGPT
+
+In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
+
+=== "Holmes CLI"
 
     ```yaml
     mcp_servers:
@@ -71,21 +114,29 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
             enabled: true
     ```
 
-=== "Robusta Helm Chart with Platform"
+=== "Holmes Helm Chart"
 
-    **Before configuring Holmes, set up the Atlassian side:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
-    1. Go to [https://admin.atlassian.com/](https://admin.atlassian.com/) and select your organization
-    2. Navigate to **Rovo** → **Rovo MCP Server**
-    3. Click **Add domain** and enter your Robusta platform URL, matching your region:
+    ```yaml
+    mcp_servers:
+      atlassian:
+        config:
+          mode: streamable-http
+          url: https://mcp.atlassian.com/v1/mcp
+          oauth:
+            enabled: true
+    ```
 
-        | Region | URL |
-        |--------|-----|
-        | US (default) | `https://platform.robusta.dev/**` |
-        | EU | `https://platform.eu.robusta.dev/**` |
-        | AP | `https://platform.ap.robusta.dev/**` |
+    Apply the configuration:
 
-    **Update your values and helm install or upgrade:**
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -96,6 +147,12 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
             url: https://mcp.atlassian.com/v1/mcp
             oauth:
               enabled: true
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## How It Works

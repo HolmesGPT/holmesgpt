@@ -59,6 +59,8 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
 ### Using a Personal Access Token
 
+#### Basic Configuration
+
 === "Holmes CLI"
 
     For CLI usage, you need to deploy the GitHub MCP server first, then configure Holmes to connect to it.
@@ -172,65 +174,48 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
     ```
 
     Then update the URL in config.yaml to:
+
     ```yaml
     url: "http://localhost:8000/sse"
     ```
 
 === "Holmes Helm Chart"
 
-    **Basic Configuration**
-
-    First, create a Kubernetes secret with your GitHub PAT:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic github-mcp-token \
+    kubectl create secret generic holmes-github-mcp \
       --from-literal=token=<YOUR_GITHUB_PAT> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
       github:
         enabled: true
         auth:
-          secretName: "github-mcp-token"
+          secretName: "holmes-github-mcp"
     ```
 
-    **GitHub Enterprise Configuration**
-
-    For GitHub Enterprise Server, add the `host` configuration:
-
-    ```yaml
-    mcpAddons:
-      github:
-        enabled: true
-        auth:
-          secretName: "github-mcp-token"
-        config:
-          host: "https://github.mycompany.com"
-    ```
-
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Basic Configuration**
-
-    First, create a Kubernetes secret with your GitHub PAT:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic github-mcp-token \
+    kubectl create secret generic holmes-github-mcp \
       --from-literal=token=<YOUR_GITHUB_PAT> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -238,10 +223,44 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
         github:
           enabled: true
           auth:
-            secretName: "github-mcp-token"
+            secretName: "holmes-github-mcp"
     ```
 
-    **GitHub Enterprise Configuration**
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+#### GitHub Enterprise Configuration
+
+Reuses the `holmes-github-mcp` secret created in the [Basic Configuration](#basic-configuration) section above.
+
+For GitHub Enterprise Server, add the `host` configuration:
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "holmes-github-mcp"
+        config:
+          host: "https://github.mycompany.com"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -249,22 +268,22 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
         github:
           enabled: true
           auth:
-            secretName: "github-mcp-token"
+            secretName: "holmes-github-mcp"
           config:
             host: "https://github.mycompany.com"
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ### Using a GitHub App
 
 Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This deploys the `github-app-mcp` image which wraps the official GitHub MCP server with automatic installation token generation and caching — including support for a single App installed on **multiple organizations** (see "Multi-organization support" below).
 
-**Step 1: Create a GitHub App**
+#### Step 1: Create a GitHub App
 
 Follow [Creating a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) with these settings:
 
@@ -280,11 +299,11 @@ Follow [Creating a GitHub App](https://docs.github.com/en/apps/creating-github-a
     - **Pull requests**: Read and write
 - Click **Create GitHub App**
 
-**Step 2: Generate a private key**
+#### Step 2: Generate a private key
 
 On the App settings page, scroll to **Private keys** and click **Generate a private key**. A `.pem` file will be downloaded. See [Managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps) for details.
 
-**Step 3: Install the App**
+#### Step 3: Install the App
 
 Install the App on your organization or repositories:
 
@@ -297,11 +316,13 @@ Note the **Installation ID** from the URL after installation: `https://github.co
 
 To reach more than one organization from a single deployment, see [Multi-organization support (alpha)](#multi-organization-support-alpha).
 
-**Step 4: Note the App ID**
+#### Step 4: Note the App ID
 
 Find the **App ID** on the App's settings page (under "About").
 
-**Step 5: Configure Holmes**
+#### Step 5: Configure Holmes
+
+With the chart, a self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
 
 === "Holmes CLI"
 
@@ -381,17 +402,17 @@ Find the **App ID** on the App's settings page (under "About").
 
 === "Holmes Helm Chart"
 
-    **Create the Kubernetes secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic holmes-github-app \
+    kubectl create secret generic holmes-github-mcp-app \
       --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
       --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    **Add to your `values.yaml`:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
@@ -399,28 +420,28 @@ Find the **App ID** on the App's settings page (under "About").
         enabled: true
         auth:
           githubApp:
-            secretName: "holmes-github-app"
+            secretName: "holmes-github-mcp-app"
     ```
 
-    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Create the Kubernetes secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic holmes-github-app \
+    kubectl create secret generic holmes-github-mcp-app \
       --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
       --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    **Add to your `generated_values.yaml`:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -429,13 +450,13 @@ Find the **App ID** on the App's settings page (under "About").
           enabled: true
           auth:
             githubApp:
-              secretName: "holmes-github-app"
+              secretName: "holmes-github-mcp-app"
     ```
 
-    A self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 #### Multi-organization support (alpha)
@@ -450,7 +471,7 @@ mcpAddons:
     enabled: true
     auth:
       githubApp:
-        secretName: "holmes-github-app"
+        secretName: "holmes-github-mcp-app"
         multiOrg: true    # alpha
 ```
 
@@ -531,7 +552,7 @@ mcpAddons:
   github:
     enabled: true
     auth:
-      secretName: "github-mcp-token"
+      secretName: "holmes-github-mcp"
     config:
       # Only enable specific toolsets
       toolsets: "pull_requests,actions"
@@ -544,7 +565,7 @@ mcpAddons:
   github:
     enabled: true
     auth:
-      secretName: "github-mcp-token"
+      secretName: "holmes-github-mcp"
     config:
       # `tools` is a hard allowlist — `toolsets` is ignored when this is set.
       tools: "get_file_contents,list_commits,list_workflow_runs,get_job_logs"
@@ -598,8 +619,11 @@ holmes ask "List the recent commits in the owner/repo repository"
 **Solution:** Verify the secret exists and contains a valid PAT
 
 ```bash
-# Check secret exists
-kubectl get secret github-mcp-token -n YOUR_NAMESPACE
+# Check secret exists (Helm deployments)
+kubectl get secret holmes-github-mcp -n YOUR_NAMESPACE
+
+# Check secret exists (manual CLI deployments)
+kubectl get secret github-mcp-token -n holmes-mcp
 
 # Verify PAT has correct permissions (test locally with your token)
 curl -H "Authorization: token <YOUR_GITHUB_PAT>" https://api.github.com/user
@@ -637,17 +661,21 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Solution:** Provide your organization's CA certificate to properly validate the connection:
 
-**Step 1:** Create a Kubernetes secret with your CA certificate:
+#### Step 1: Create a Kubernetes secret with your CA certificate
+
+Create it in the namespace the GitHub MCP server runs in: the namespace Holmes runs in with the chart, `holmes-mcp` for a manual deployment.
 
 ```bash
 kubectl create secret generic github-ca-cert \
   --from-file=ca.crt=/path/to/your/ca-certificate.crt \
-  -n <NAMESPACE>
+  -n <namespace>
 ```
 
-**Step 2:** Configure the GitHub MCP addon to use the CA certificate:
+#### Step 2: Configure the GitHub MCP addon to use the CA certificate
 
-=== "Holmes CLI (Manual Deployment)"
+With the chart, this reuses the `holmes-github-mcp` secret created in the [Basic Configuration](#basic-configuration) section above.
+
+=== "Holmes CLI"
 
     Add volume, volumeMount, and environment variables to your deployment:
 
@@ -680,12 +708,14 @@ kubectl create secret generic github-ca-cert \
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
     mcpAddons:
       github:
         enabled: true
         auth:
-          secretName: "github-mcp-token"
+          secretName: "holmes-github-mcp"
         config:
           host: "https://github.mycompany.com"
           customCACert:
@@ -694,7 +724,15 @@ kubectl create secret generic github-ca-cert \
             # secretKey: "ca.crt"           # default
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -702,11 +740,19 @@ kubectl create secret generic github-ca-cert \
         github:
           enabled: true
           auth:
-            secretName: "github-mcp-token"
+            secretName: "holmes-github-mcp"
           config:
             host: "https://github.mycompany.com"
             customCACert:
               enabled: true
+              # secretName: "github-ca-cert"  # default
+              # secretKey: "ca.crt"           # default
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ### Tool Not Found Errors
