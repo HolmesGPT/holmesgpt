@@ -89,10 +89,10 @@ You should receive a JSON response. If you get an authentication error, check yo
         enabled: true
         config:
           api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-          api_key: "{{ env.SERVICENOW_API_KEY }}"
+          api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
           # Alternative: use basic auth instead of api_key
           # username: "your-username"
-          # password: "{{ env.SERVICENOW_PASSWORD }}"
+          # password: "your-password"
 
           # Optional
           api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
@@ -129,10 +129,10 @@ You should receive a JSON response. If you get an authentication error, check yo
         enabled: true
         config:
           api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-          api_key: "{{ env.SERVICENOW_API_KEY }}"
+          api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
           # Alternative: use basic auth instead of api_key
           # username: "your-username"
-          # password: "{{ env.SERVICENOW_PASSWORD }}"
+          # password: "your-password"
 
           # Optional
           api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
@@ -168,10 +168,10 @@ You should receive a JSON response. If you get an authentication error, check yo
           enabled: true
           config:
             api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-            api_key: "{{ env.SERVICENOW_API_KEY }}"
+            api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
             # Alternative: use basic auth instead of api_key
             # username: "your-username"
-            # password: "{{ env.SERVICENOW_PASSWORD }}"
+            # password: "your-password"
 
             # Optional
             api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)

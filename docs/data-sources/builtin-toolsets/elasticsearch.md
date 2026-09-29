@@ -36,16 +36,16 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
-          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+          # username: "elastic"
+          # password: "your-password"
       elasticsearch/cluster:
         enabled: true
         config:
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
-          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+          # username: "elastic"
+          # password: "your-password"
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -74,16 +74,16 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
-          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+          # username: "elastic"
+          # password: "your-password"
       elasticsearch/cluster:
         enabled: true
         config:
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
-          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+          # username: "elastic"
+          # password: "your-password"
     ```
 
     Apply the configuration:
@@ -117,16 +117,16 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
             api_url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
             # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+            # username: "elastic"
+            # password: "your-password"
         elasticsearch/cluster:
           enabled: true
           config:
             api_url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
             # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+            # username: "elastic"
+            # password: "your-password"
     ```
 
     Apply the configuration:

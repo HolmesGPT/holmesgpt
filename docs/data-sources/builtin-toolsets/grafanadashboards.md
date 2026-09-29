@@ -28,7 +28,7 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
         enabled: true
         config:
           api_key: "{{ env.GRAFANA_API_KEY }}"
-          api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
+          api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net, or http://localhost:3000 for a local Grafana
           # Optional: Additional headers for all requests
           # additional_headers:
           #   X-Custom-Header: "custom-value"
@@ -63,7 +63,7 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
         enabled: true
         config:
           api_key: "{{ env.GRAFANA_API_KEY }}"
-          api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
+          api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net, or http://localhost:3000 for a local Grafana
           # Optional: Additional headers for all requests
           # additional_headers:
           #   X-Custom-Header: "custom-value"
@@ -97,7 +97,7 @@ For visual rendering, the [Grafana Image Renderer](https://grafana.com/grafana/p
           enabled: true
           config:
             api_key: "{{ env.GRAFANA_API_KEY }}"
-            api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net
+            api_url: <your grafana url>  # e.g. https://acme-corp.grafana.net, or http://localhost:3000 for a local Grafana
             # Optional: Additional headers for all requests
             # additional_headers:
             #   X-Custom-Header: "custom-value"
