@@ -274,13 +274,15 @@ def multi_instance_fence_format(source, language, css_class, options, md, **kwar
         raise MultiInstanceFenceError(
             "multi-instance fence body must be a YAML mapping"
         )
-    toolset = str(spec.get("toolset") or "").strip()
-    name = str(spec.get("name") or toolset or "this").strip()
-    config = str(spec.get("config") or "").strip()
-    if not toolset or not config:
+    toolset, config = spec.get("toolset"), spec.get("config")
+    if not (isinstance(toolset, str) and toolset.strip()) or not (
+        isinstance(config, str) and config.strip()
+    ):
         raise MultiInstanceFenceError(
-            "multi-instance fence requires 'toolset' and 'config' keys in its YAML body"
+            "multi-instance fence requires 'toolset' and 'config' strings in its YAML body"
         )
+    toolset, config = toolset.strip(), config.strip()
+    name = str(spec.get("name") or toolset).strip()
 
     # The wrapper names the discovery tool by replacing '/' with '_' in the toolset name.
     list_tool = spec.get("list_tool") or (toolset.replace("/", "_") + "_list_instances")
