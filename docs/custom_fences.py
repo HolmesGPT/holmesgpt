@@ -1,37 +1,46 @@
 """
 Custom fences for the MkDocs documentation.
 
-- yaml-toolset-config: a Holmes config body. Holmes CLI, Holmes Helm Chart and Robusta Helm Chart
-  tabs. The CLI tab shows the body's `toolsets` and `mcp_servers` keys for ~/.holmes/config.yaml.
+- yaml-toolset-config: a Holmes config body, `toolsets:` and its content. Holmes CLI, Holmes Helm
+  Chart and Robusta Helm Chart tabs. The CLI tab shows the body for ~/.holmes/config.yaml.
 - yaml-helm-values: a Holmes chart values body, for chart-only settings. Holmes Helm Chart and
   Robusta Helm Chart tabs.
 - robusta-region: Creates 3 tabs (US, EU, AP) for any text containing api.robusta.dev, platform.robusta.dev, or
   sp.robusta.dev. Plain URLs render as code blocks; markdown links `[text](url)` render as clickable links.
 - multi-instance: the standard "Multiple Instances" section for a toolset. The body is YAML with
-  `toolset` (the toolset's config key), `config` (a single-instance config example), and optionally
-  `name` (the toolset's display name, the toolset key by default) and `list_tool` (the discovery
-  tool, `<toolset with / as _>_list_instances` by default). It links to the Multiple Instances page
-  with a path relative to the page.
+  `toolset` (the toolset's config key), `name` (its display name) and `config` (a single-instance
+  config example, a block scalar). It links to the Multiple Instances page with a path relative to
+  the page.
 
 robusta-region is a superfences custom fence, registered in mkdocs.yml. The other three expand into
 markdown before any other fence or tab is rendered, so each renders exactly as the same markdown
 written by hand, tab ids included. Each renders from its own body and options and the page's path,
-and reads nothing else on the page. A fence may sit indented in a list or in a blockquote; it
-expands there. Options go in braces after the fence name and a space: `{name=value}`, or `{name}`
-for a flag.
+and reads nothing else on the page.
+
+Supported forms. Write the fence at the start of a line, opened by three backticks and the fence
+name, and closed by the first line of three backticks:
+
+    ```yaml-toolset-config
+    ```yaml-toolset-config {reuse}
+    ```yaml-toolset-config {secret-qualifier=<name>}
+    ```multi-instance
+
+`yaml-helm-values` takes the same forms as `yaml-toolset-config`. The body of a deployment fence is
+a block mapping whose first key starts at the first column; a `yaml-toolset-config` body has
+`toolsets` as its only key. A `multi-instance` body has `toolset`, `name` and `config`. Any other form of
+these three fences fails the build with a message naming the page and the line, and so does a page
+whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`).
 
 Each Helm tab of the two deployment fences shows the values (under `holmes:` in the Robusta tab) and
 the chart's upgrade command.
 
-Secrets. Every `{{ env.X }}` in a key or value of the body (not in a YAML comment) that no
-`additionalEnvVars` entry sets by name is a key of the group's Kubernetes secret, in the order the
+Secrets. Every `{{ env.X }}` in the body is a key of the group's Kubernetes secret, in the order the
 body first references them. The secret is `holmes-<page file stem>`. The Helm tabs create it with
 `kubectl create secret generic`, one `--from-literal=X=your-x` per key, and list it under
 `extraEnvVarsSecrets`, which mounts each key as an env var; the CLI tab exports the same variables.
 
 `{secret-qualifier=<name>}` names the group's secret `holmes-<stem>-<name>`, for a group on the same
-page that needs a secret with other keys. `<name>` is lowercase letters, digits and `-`, starting
-and ending with a letter or digit.
+page that needs a secret with other keys. `<name>` is lowercase letters and digits, joined by `-`.
 
 `{reuse}` is for a group whose secret an earlier group on the page creates: its Helm tabs have no
 secret step, its values still list the secret, and its CLI tab still exports the keys. The note
@@ -41,27 +50,17 @@ naming the section that creates the secret is written by hand above the fence:
 
 Above a yaml-toolset-config fence, which has a CLI tab, it reads "In Kubernetes, this reuses ...".
 
-A fence that cannot render as written raises TabFenceError, which fails the build: an empty or
-blank body, a body that is not valid YAML or not a mapping, a deployment body whose top-level keys
-are indented past the fence, a yaml-toolset-config body with neither `toolsets` nor `mcp_servers`,
-a multi-instance body without `toolset` or `config` or whose `config` is not a string, options
-with no space after the fence name, an option the fence does not take or an option set twice, a
-flag given a value or another option given none, a qualifier or `reuse` on a fence that reads no
-secret, a qualifier or page name that makes no valid Kubernetes secret name, a fence with no
-closing line, and a secret or multi-instance link with no page.
-
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
 this file under `hooks:`. An MkDocs config that sets its own `hooks:`, including one that INHERITs
-mkdocs.yml (the child's list replaces the parent's), must list this file too, or every fence that
-reads a secret and every multi-instance fence fails the build.
+mkdocs.yml (the child's list replaces the parent's), must list this file too, or every fence fails
+the build.
 """
 
 import html
 import posixpath
 import re
 import uuid
-from collections import Counter
 from pathlib import PurePosixPath
 
 import yaml  # type: ignore
@@ -172,38 +171,22 @@ NO_PAGE = (
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
 MULTI_INSTANCE_FENCE = "multi-instance"
-# The header options each fence takes, as `{name=value}` after the fence name, or
-# `{name}` for a flag.
-FENCE_OPTIONS = {
-    TOOLSET_CONFIG_FENCE: ("secret-qualifier", "reuse"),
-    HELM_VALUES_FENCE: ("secret-qualifier", "reuse"),
-    MULTI_INSTANCE_FENCE: (),
-}
-FLAG_OPTIONS = ("reuse",)
 # The page every multi-instance section links to, as a path under docs/.
 MULTI_INSTANCE_PAGE = "data-sources/multi-instance-toolsets.md"
 
-# Top-level keys of a Holmes config body that the CLI reads from
-# ~/.holmes/config.yaml; every other top-level key is a chart value.
-CLI_CONFIG_KEYS = ("toolsets", "mcp_servers")
-
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-# A fence's opening line; `indent` is the spaces and blockquote markers before it.
-FENCE_START_RE = re.compile(r"^(?P<indent>[ >]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
-# The info string: the fence name, then its header; `space` is what separates them.
-FENCE_INFO_RE = re.compile(r"^(?P<name>[^\s{]*)(?P<space>\s*)(?P<header>.*)$")
-FENCE_OPTIONS_RE = re.compile(r"^\{(?P<options>[^}]*)\}$")
-FENCE_OPTION_RE = re.compile(
-    r'(?P<name>[A-Za-z][\w-]*)(?:=(?:"(?P<quoted>[^"]*)"|(?P<bare>[^\s"]+)))?'
+# A line that opens one of the three fences in any form ...
+FENCE_OPENING_RE = re.compile(
+    r"^[ \t>]*(?:`{3,}|~{3,})\s*\.?"
+    rf"(?:{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE}|{MULTI_INSTANCE_FENCE})"
 )
-# Characters Python-Markdown's backslash escapes cover, apart from `>`, which
-# html.escape already turns into an entity.
-MARKDOWN_ESCAPED_RE = re.compile(r"([\\`*_{}\[\]()#+\-.!])")
-# Kubernetes names a Secret by a DNS-1123 subdomain; a qualifier is one label of it.
-DNS1123_LABEL = r"[a-z0-9]([-a-z0-9]*[a-z0-9])?"
-DNS1123_LABEL_RE = re.compile(rf"^{DNS1123_LABEL}$")
-DNS1123_SUBDOMAIN_RE = re.compile(rf"^{DNS1123_LABEL}(\.{DNS1123_LABEL})*$")
-DNS1123_SUBDOMAIN_MAX_LENGTH = 253
+# ... and the forms pages write.
+SUPPORTED_OPENING_RE = re.compile(
+    rf"^```(?:(?P<multi>{MULTI_INSTANCE_FENCE})"
+    rf"|(?P<deployment>{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE})"
+    r"(?: \{(?P<option>reuse|secret-qualifier=(?P<qualifier>[a-z0-9]+(?:-[a-z0-9]+)*))\})?)$"
+)
+CLOSING_LINE = "```"
 
 HOLMES_VALUES_CAPTION = (
     "When using the **standalone Holmes Helm Chart**, update your `values.yaml`:"
@@ -214,6 +197,7 @@ SECRET_CAPTION = "Create a Kubernetes secret in the namespace Holmes runs in:"
 APPLY_CAPTION = "Apply the configuration:"
 HOLMES_UPGRADE_COMMAND = "helm upgrade holmes robusta/holmes -f values.yaml"
 ROBUSTA_UPGRADE_COMMAND = "helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>"
+MULTI_INSTANCE_LEAD = "List each one under `instances:` with a unique `name`."
 REFRESH_WARNING_INCLUDE = '--8<-- "snippets/toolset_refresh_warning.md"'
 
 
@@ -226,12 +210,8 @@ def _code_block(language: str, text: str) -> str:
 
 
 def _indent(text: str, prefix: str) -> str:
-    """Prefix every non-empty line. An empty line gets the prefix without its
-    trailing spaces: empty for an indent, `>` for a blockquote, which a truly
-    empty line would end."""
-    return "\n".join(
-        prefix + line if line else prefix.rstrip() for line in text.split("\n")
-    )
+    """Prefix every non-empty line."""
+    return "\n".join(prefix + line if line else line for line in text.split("\n"))
 
 
 def _tab(label: str, elements: list) -> str:
@@ -241,29 +221,6 @@ def _tab(label: str, elements: list) -> str:
 def _secret_placeholder(key: str) -> str:
     """The value a reader replaces: `DATADOG_API_KEY` gives `your-datadog-api-key`."""
     return "your-" + key.lower().replace("_", "-")
-
-
-def _cli_config(body: str) -> str:
-    """The top-level keys of `body` the CLI reads, as the body has them.
-
-    A key's block runs from its line to the next top-level key; blank lines and
-    column-0 comments directly above a key, and every comment above the first
-    key, belong to that key."""
-    blocks: list = []
-    pending: list = []
-    for line in body.split("\n"):
-        if line[:1] not in ("", " ", "#"):
-            blocks.append([line.split(":", 1)[0].strip(), pending + [line]])
-            pending = []
-        elif line.strip() and line[0] == " " and blocks:
-            blocks[-1][1] += pending + [line]
-            pending = []
-        else:
-            pending.append(line)
-    kept = "\n".join(
-        line for key, lines in blocks if key in CLI_CONFIG_KEYS for line in lines
-    )
-    return kept.strip("\n")
 
 
 def _deployment_group(
@@ -304,7 +261,7 @@ def _deployment_group(
                 exports
                 + [
                     CLI_CONFIG_CAPTION,
-                    _code_block("yaml", _cli_config(body)),
+                    _code_block("yaml", body),
                     REFRESH_WARNING_INCLUDE,
                 ],
             )
@@ -336,67 +293,41 @@ def _deployment_group(
     return "\n\n".join(tabs)
 
 
-def _fence_end(lines: list, start: int, indent: str, fence: str):
-    """The index of the line closing the fence opened at `start`, or None.
-
-    Follows superfences: the closing line is the opening fence string at the
-    opening indentation, and a non-empty line indented less ends the search. In
-    a blockquote, the indentation holds its markers, and a line of the markers
-    alone is an empty line of the quote."""
-    for i in range(start + 1, len(lines)):
-        line = lines[i]
-        if not line.strip() or line.rstrip() == indent.rstrip():
-            continue
-        if not line.startswith(indent):
-            return None
-        if line[len(indent) :].rstrip() == fence:
-            return i
-    return None
-
-
-def _markdown_text(text: str) -> str:
-    """`text` as markdown that renders as exactly that text."""
-    return MARKDOWN_ESCAPED_RE.sub(r"\\\1", html.escape(text, quote=False))
-
-
-def _multi_instance_section(where: str, body: str, page: str) -> str:
-    """The standard "Multiple Instances" section for the toolset `body` names:
-    its config example nested under `instances:` twice, the tools multiple
-    instances add, and a link to the Multiple Instances page."""
+def _block_mapping(body: str):
+    """The mapping `body` loads as, if it is a block mapping whose first key starts at
+    the first column, else None."""
     try:
-        spec = yaml.safe_load(body)
-    except yaml.YAMLError as e:
-        raise TabFenceError(f"{where} is not valid YAML: {e}") from e
-    if not isinstance(spec, dict):
-        raise TabFenceError(f"{where} must be a YAML mapping")
-    toolset = str(spec.get("toolset", "")).strip()
-    config = spec.get("config") or ""
-    if not isinstance(config, str):
-        raise TabFenceError(
-            f"{where} takes config as a string, a YAML block scalar (config: |), "
-            f"not {type(config).__name__}"
-        )
+        data = yaml.safe_load(body)
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) and re.match(r"[A-Za-z_]", body) else None
+
+
+def _multi_instance_section(body: str, page: str):
+    """The standard "Multiple Instances" section for the toolset `body` names, or
+    None if the body is not a supported form: its config example nested under
+    `instances:` twice, the tools multiple instances add, and a link to the
+    Multiple Instances page."""
+    spec = _block_mapping(body)
+    if spec is None or set(spec) != {"toolset", "name", "config"}:
+        return None
+    toolset, name, config = spec["toolset"], spec["name"], spec["config"]
+    if not all(isinstance(value, str) and value.strip() for value in spec.values()):
+        return None
     config = config.strip()
-    if not toolset or not config:
-        raise TabFenceError(f"{where} requires the keys toolset and config")
-    name = _markdown_text(str(spec.get("name") or toolset).strip())
     # The wrapper names the discovery tool by replacing '/' with '_' in the toolset name.
-    list_tool = spec.get("list_tool") or toolset.replace("/", "_") + "_list_instances"
-    if not page:
-        raise TabFenceError(
-            f"{where} links to the Multiple Instances page relative to the page, {NO_PAGE}"
-        )
+    list_tool = toolset.replace("/", "_") + "_list_instances"
     # `config` is a YAML block scalar, which YAML has already dedented.
     fields = _indent(config, " " * 10)
     example = (
         f"toolsets:\n  {toolset}:\n    enabled: true\n    config:\n      instances:\n"
         f"        - name: prod\n{fields}\n        - name: staging\n{fields}"
     )
-    link = posixpath.relpath(MULTI_INSTANCE_PAGE, posixpath.dirname(page) or ".")
+    link = posixpath.relpath(MULTI_INSTANCE_PAGE, posixpath.dirname(page))
     return "\n\n".join(
         [
             f"The {name} toolset can connect to more than one {name} instance. "
-            "List each one under `instances:` with a unique `name`. Any config field "
+            f"{MULTI_INSTANCE_LEAD} Any config field "
             "set outside `instances:` becomes a default that every instance inherits, "
             "so shared settings only need to be written once.",
             _code_block("yaml", example),
@@ -409,6 +340,26 @@ def _multi_instance_section(where: str, body: str, page: str) -> str:
             "global defaults and health reporting.",
         ]
     )
+
+
+def _deployment_section(opening, body: str, page: str):
+    """The tab group for a deployment fence body, or None if the body is not a
+    supported form."""
+    fence = opening["deployment"]
+    data = _block_mapping(body)
+    if data is None or (fence == TOOLSET_CONFIG_FENCE and set(data) != {"toolsets"}):
+        return None
+    # Every env var the body references is a key of the group's secret, which
+    # extraEnvVarsSecrets mounts whole. The keys keep the body's order.
+    keys = list(dict.fromkeys(ENV_REFERENCE_RE.findall(body)))
+    if not keys:
+        return (
+            None if opening["option"] else _deployment_group(fence, body, "", [], False)
+        )
+    secret = f"holmes-{PurePosixPath(page).stem}"
+    if opening["qualifier"]:
+        secret += f"-{opening['qualifier']}"
+    return _deployment_group(fence, body, secret, keys, opening["option"] != "reuse")
 
 
 class TabFencePreprocessor(Preprocessor):
@@ -428,165 +379,35 @@ class TabFencePreprocessor(Preprocessor):
         out: list = []
         i = 0
         while i < len(lines):
-            match = FENCE_START_RE.match(lines[i])
-            end = match and _fence_end(lines, i, match["indent"], match["fence"])
-            info = FENCE_INFO_RE.match(match["info"].strip() if match else "")
-            fence, header = info["name"], info["header"]
-            if match and not end and fence in FENCE_OPTIONS:
-                # Superfences does not know these fences, so an unexpanded one
-                # would render as plain code.
-                raise TabFenceError(
-                    f"the {fence} fence on {self.page or 'this page'} has no closing "
-                    f"{match['fence']} line with the opening line's indentation "
-                    f"{match['indent']!r} before it"
-                )
-            if not end:
+            if not FENCE_OPENING_RE.match(lines[i]):
                 out.append(lines[i])
                 i += 1
                 continue
-            if fence not in FENCE_OPTIONS:
-                out.extend(lines[i : end + 1])
-            else:
-                indent = match["indent"]
-                body = "\n".join(line[len(indent) :] for line in lines[i + 1 : end])
-                where = f"the {fence} fence on {self.page or 'this page'}"
-                if header and not info["space"]:
-                    raise TabFenceError(
-                        f"{where} takes its options after a space: {match['info'].strip()}"
-                    )
-                if not body.strip():
-                    raise TabFenceError(f"{where} is empty")
-                options = self._options(where, fence, header)
-                if fence == MULTI_INSTANCE_FENCE:
-                    group = _multi_instance_section(where, body, self.page)
-                else:
-                    group = self._group(where, fence, options, body.strip("\n"))
-                expansion = group.split("\n")
-                if "snippet" in self.md.preprocessors:
-                    expansion = self.md.preprocessors["snippet"].parse_snippets(
-                        expansion
-                    )
-                expansion = ["", *expansion, ""]
-                out.extend(_indent("\n".join(expansion), indent).split("\n"))
+            if not self.page:
+                raise TabFenceError(f"a custom fence needs the page's path, {NO_PAGE}")
+            opening = SUPPORTED_OPENING_RE.match(lines[i])
+            end = next(
+                (j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None
+            )
+            group = None
+            if opening and end:
+                body = "\n".join(lines[i + 1 : end]).strip("\n")
+                group = (
+                    _multi_instance_section(body, self.page)
+                    if opening["multi"]
+                    else _deployment_section(opening, body, self.page)
+                )
+            if group is None:
+                raise TabFenceError(
+                    f"{self.page}:{i + 1}: unsupported form of a custom fence: "
+                    f"{lines[i].strip()!r}. See the docstring of docs/custom_fences.py "
+                    "for the supported forms"
+                )
+            expansion = group.split("\n")
+            expansion = self.md.preprocessors["snippet"].parse_snippets(expansion)
+            out.extend(["", *expansion, ""])
             i = end + 1
         return out
-
-    @staticmethod
-    def _options(where: str, fence: str, header: str) -> dict:
-        match = FENCE_OPTIONS_RE.match(header)
-        if header and not match:
-            raise TabFenceError(f"{where} takes options as {{name=value}}: {header}")
-        text = match["options"] if match else ""
-        found = list(FENCE_OPTION_RE.finditer(text))
-        options = {
-            option["name"]: option["quoted"]
-            if option["quoted"] is not None
-            else option["bare"]
-            for option in found
-        }
-        leftover = FENCE_OPTION_RE.sub("", text).strip()
-        allowed = FENCE_OPTIONS[fence]
-        if leftover or set(options) - set(allowed):
-            raise TabFenceError(
-                f"{where} takes "
-                + (
-                    f"only the options {', '.join(allowed)}"
-                    if allowed
-                    else "no options"
-                )
-                + f": {header}"
-            )
-        counts = Counter(option["name"] for option in found)
-        repeated = [name for name, count in counts.items() if count > 1]
-        if repeated:
-            raise TabFenceError(
-                f"{where} sets the option {', '.join(repeated)} more than once: {header}"
-            )
-        for name, value in options.items():
-            if name in FLAG_OPTIONS and value is not None:
-                raise TabFenceError(
-                    f"{where} takes {name} as a flag, {{{name}}}, with no value: {header}"
-                )
-            if name not in FLAG_OPTIONS and value is None:
-                raise TabFenceError(
-                    f"{where} takes {name} with a value, {{{name}=<value>}}: {header}"
-                )
-        return options
-
-    def _group(self, where: str, fence: str, options: dict, body: str) -> str:
-        try:
-            data = yaml.safe_load(body)
-        except yaml.YAMLError as e:
-            raise TabFenceError(f"{where} is not valid YAML: {e}") from e
-        if not isinstance(data, dict):
-            raise TabFenceError(f"{where} must be a YAML mapping")
-        # The values put extraEnvVarsSecrets at column 0 above the body, and the
-        # CLI tab picks the body's top-level keys by their column.
-        first_key = next(
-            line
-            for line in body.split("\n")
-            if line.strip() and not line.lstrip().startswith("#")
-        )
-        if first_key[0].isspace():
-            raise TabFenceError(
-                f"{where} indents its top-level keys past the fence: {first_key.strip()!r}"
-            )
-        if fence == TOOLSET_CONFIG_FENCE and not set(data) & set(CLI_CONFIG_KEYS):
-            raise TabFenceError(
-                f"{where} sets none of {', '.join(CLI_CONFIG_KEYS)}; "
-                f"use {HELM_VALUES_FENCE} for chart-only values"
-            )
-
-        # Every env var the body's values reference (not its comments) and no
-        # additionalEnvVars entry sets is a key of the group's secret, which
-        # extraEnvVarsSecrets mounts whole. The keys keep the body's order.
-        set_by_chart = {
-            entry.get("name")
-            for entry in data.get("additionalEnvVars") or []
-            if isinstance(entry, dict)
-        }
-        keys = [
-            key
-            for key in dict.fromkeys(
-                reference
-                for token in yaml.scan(body)
-                if isinstance(token, yaml.ScalarToken)
-                for reference in ENV_REFERENCE_RE.findall(token.value)
-            )
-            if key not in set_by_chart
-        ]
-        qualifier = options.get("secret-qualifier")
-        if qualifier is not None and not DNS1123_LABEL_RE.match(qualifier):
-            raise TabFenceError(
-                f"{where} takes a secret-qualifier of lowercase letters, digits and "
-                f"'-', starting and ending with a letter or digit, so the secret "
-                f"name is a valid Kubernetes name: {qualifier!r}"
-            )
-        if not keys:
-            given = [name for name in ("secret-qualifier", "reuse") if name in options]
-            if given:
-                raise TabFenceError(
-                    f"{where} reads no secret, so it takes no {' or '.join(given)}"
-                )
-            return _deployment_group(fence, body, "", [], False)
-        if not self.page:
-            raise TabFenceError(
-                f"{where} reads a secret, which is named after the page, {NO_PAGE}"
-            )
-
-        secret = f"holmes-{PurePosixPath(self.page).stem}"
-        if qualifier:
-            secret += f"-{qualifier}"
-        if (
-            not DNS1123_SUBDOMAIN_RE.match(secret)
-            or len(secret) > DNS1123_SUBDOMAIN_MAX_LENGTH
-        ):
-            raise TabFenceError(
-                f"{where} names its secret {secret} after the page's file name, and "
-                "that is not a valid Kubernetes secret name (a DNS-1123 subdomain "
-                f"of at most {DNS1123_SUBDOMAIN_MAX_LENGTH} characters)"
-            )
-        return _deployment_group(fence, body, secret, keys, "reuse" not in options)
 
 
 class TabFencesExtension(Extension):
@@ -621,3 +442,41 @@ def on_page_markdown(markdown, page, config, **kwargs):
     this event."""
     config["mdx_configs"].setdefault(EXTENSION_NAME, {})["page"] = page.file.src_uri
     return markdown
+
+
+# Text an expansion contains, which a page shows literally when its markdown is
+# rendered as text.
+EXPANSION_MARKERS = (
+    HOLMES_VALUES_CAPTION,
+    ROBUSTA_VALUES_CAPTION,
+    CLI_CONFIG_CAPTION.partition(". Create")[0],
+    MULTI_INSTANCE_LEAD,
+)
+TAB_MARKDOWN_RE = re.compile(r'(?m)^\s*=== "')
+
+
+def _text(rendered: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", rendered))
+
+
+def unrendered_expansion(output: str) -> bool:
+    """Whether the rendered page shows fence or tab markdown as text: a tab label
+    line outside a code block, or a caption of an expansion anywhere."""
+    outside_code = re.sub(r"<pre\b.*?</pre>", "", output, flags=re.S)
+    return bool(TAB_MARKDOWN_RE.search(_text(outside_code))) or any(
+        marker in _text(output) for marker in EXPANSION_MARKERS
+    )
+
+
+def on_post_page(output, page, config, **kwargs):
+    """MkDocs hook: fail a page that shows a fence's markdown instead of its tabs.
+
+    The raw lines of a page cannot show the contexts that leave the markdown of
+    an expansion on the page as text: raw HTML, and a code block that holds the
+    fence."""
+    if unrendered_expansion(output):
+        raise TabFenceError(
+            f"{page.file.src_uri} shows the markdown of a tab fence instead of tabs; "
+            "a fence must stand at the start of a line, outside raw HTML and code blocks"
+        )
+    return output
