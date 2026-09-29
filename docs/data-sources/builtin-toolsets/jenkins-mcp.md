@@ -48,7 +48,7 @@ Store the encoded credential securely for use in the configuration below.
     Set the environment variable:
 
     ```bash
-    export JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64)"
+    export JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')"
     ```
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -77,7 +77,7 @@ Store the encoded credential securely for use in the configuration below.
 
     ```bash
     kubectl create secret generic holmes-jenkins-mcp \
-      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64)" \
+      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')" \
       -n <namespace>
     ```
 
@@ -114,7 +114,7 @@ Store the encoded credential securely for use in the configuration below.
 
     ```bash
     kubectl create secret generic holmes-jenkins-mcp \
-      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64)" \
+      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')" \
       -n <namespace>
     ```
 
