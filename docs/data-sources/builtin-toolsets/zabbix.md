@@ -26,6 +26,12 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export ZABBIX_TOKEN="your-zabbix-api-token"
+    ```
+
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
@@ -50,34 +56,23 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
           Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
     ```
 
-    Set the environment variable:
-
-    ```bash
-    export ZABBIX_TOKEN="your-zabbix-api-token"
-    ```
-
     --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic zabbix-credentials \
-      --from-literal=token="your-zabbix-api-token" \
+    kubectl create secret generic holmes-zabbix \
+      --from-literal=ZABBIX_TOKEN="your-zabbix-api-token" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: ZABBIX_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: zabbix-credentials
-            key: token
+    extraEnvVarsSecrets:
+      - holmes-zabbix
 
     toolsets:
       zabbix:
@@ -100,33 +95,28 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
           Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
     ```
 
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic zabbix-credentials \
-      --from-literal=token="your-zabbix-api-token" \
+    kubectl create secret generic holmes-zabbix \
+      --from-literal=ZABBIX_TOKEN="your-zabbix-api-token" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    # generated_values.yaml
     holmes:
-      additionalEnvVars:
-        - name: ZABBIX_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: zabbix-credentials
-              key: token
+      extraEnvVarsSecrets:
+        - holmes-zabbix
 
       toolsets:
         zabbix:
@@ -149,10 +139,10 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
             Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Testing the Connection
