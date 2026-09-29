@@ -258,7 +258,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
 
 === "Holmes Helm Chart"
 
-    Holmes runs as the service account `holmes-holmes-service-account` in the deployment `holmes-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
+    Holmes runs as the service account `holmes-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account) in the deployment `holmes-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -302,7 +302,7 @@ Note that `api_key` is omitted from the `modelList` entries — authentication i
 
 === "Robusta Helm Chart"
 
-    Holmes runs as the service account `robusta-holmes-service-account` in the deployment `robusta-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
+    Holmes runs as the service account `robusta-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account) in the deployment `robusta-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
 
     When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 

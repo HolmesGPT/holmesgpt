@@ -180,7 +180,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
 === "Holmes Helm Chart"
 
-    Holmes runs as the service account `holmes-holmes-service-account`. Use it as `<service-account>` on this page.
+    Holmes runs as the service account `holmes-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account). Use it as `<service-account>` on this page.
 
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
@@ -213,7 +213,7 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
 === "Robusta Helm Chart"
 
-    Holmes runs as the service account `robusta-holmes-service-account`. Use it as `<service-account>` on this page.
+    Holmes runs as the service account `robusta-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account). Use it as `<service-account>` on this page.
 
     When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 

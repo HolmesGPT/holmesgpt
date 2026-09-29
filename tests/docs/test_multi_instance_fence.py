@@ -40,6 +40,8 @@ def test_renders_the_config_under_each_instance():
     [
         pytest.param("toolset: prometheus/metrics\n", id="missing-config"),
         pytest.param("config: |\n  prometheus_url: x\n", id="missing-toolset"),
+        pytest.param("toolset:\nconfig: |\n  prometheus_url: x\n", id="null-toolset"),
+        pytest.param("toolset: prometheus/metrics\nconfig:\n", id="null-config"),
         pytest.param("toolset: [prometheus\n", id="invalid-yaml"),
         pytest.param("- prometheus/metrics\n", id="not-a-mapping"),
     ],
