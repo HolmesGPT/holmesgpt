@@ -91,7 +91,7 @@ Configure them via the `extra_headers` field in your model list configuration, o
         readOnly: true
     ```
 
-    To re-authenticate, delete `~/.config/litellm/github_copilot/access-token`, run the Holmes CLI again, recreate the secret and restart the Holmes pod.
+    To re-authenticate, delete `~/.config/litellm/github_copilot/access-token` and run the Holmes CLI again, then delete the secret with `kubectl delete secret holmes-github-copilot -n <namespace>`, create it again with the command above and restart the Holmes pod.
 
 === "Robusta Helm Chart"
 
@@ -137,7 +137,7 @@ Configure them via the `extra_headers` field in your model list configuration, o
           readOnly: true
     ```
 
-    To re-authenticate, delete `~/.config/litellm/github_copilot/access-token`, run the Holmes CLI again, recreate the secret and restart the Holmes pod.
+    To re-authenticate, delete `~/.config/litellm/github_copilot/access-token` and run the Holmes CLI again, then delete the secret with `kubectl delete secret holmes-github-copilot -n <namespace>`, create it again with the command above and restart the Holmes pod.
 
 ## Additional Resources
 
