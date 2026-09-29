@@ -27,7 +27,7 @@ HolmesGPT needs read access to Crossplane CRDs. If you use Kubernetes RBAC, ensu
 
 === "Holmes CLI"
 
-    Add the following to **~/.holmes/config.yaml**:
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     toolsets:
@@ -43,20 +43,45 @@ HolmesGPT needs read access to Crossplane CRDs. If you use Kubernetes RBAC, ensu
     holmes ask "Which Crossplane managed resources are failing and why?"
     ```
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    customClusterRoleRules:
+        - apiGroups: ["pkg.crossplane.io"]
+          resources: ["providers", "providerrevisions"]
+          verbs: ["get", "list"]
+        - apiGroups: ["apiextensions.crossplane.io"]
+          resources: ["compositeresourcedefinitions", "compositions"]
+          verbs: ["get", "list"]
+    toolsets:
+        crossplane/core:
+            enabled: true
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-        customClusterRoleRules:
-            - apiGroups: ["pkg.crossplane.io"]
-              resources: ["providers", "providerrevisions"]
-              verbs: ["get", "list"]
-            - apiGroups: ["apiextensions.crossplane.io"]
-              resources: ["compositeresourcedefinitions", "compositions"]
-              verbs: ["get", "list"]
-        toolsets:
-            crossplane/core:
-                enabled: true
+      customClusterRoleRules:
+          - apiGroups: ["pkg.crossplane.io"]
+            resources: ["providers", "providerrevisions"]
+            verbs: ["get", "list"]
+          - apiGroups: ["apiextensions.crossplane.io"]
+            resources: ["compositeresourcedefinitions", "compositions"]
+            verbs: ["get", "list"]
+      toolsets:
+          crossplane/core:
+              enabled: true
     ```
 
     Apply the configuration:
