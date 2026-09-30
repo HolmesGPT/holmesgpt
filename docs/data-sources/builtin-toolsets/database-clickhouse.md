@@ -19,6 +19,7 @@ GRANT SELECT ON information_schema.* TO holmes_readonly;
 ```
 
 **For all databases:**
+
 ```sql
 CREATE USER holmes_readonly IDENTIFIED BY 'your_secure_password';
 GRANT SELECT ON *.* TO holmes_readonly;
