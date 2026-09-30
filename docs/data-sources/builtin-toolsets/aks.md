@@ -11,6 +11,8 @@ By enabling this toolset, HolmesGPT will be able to interact with Azure Kubernet
 2. Appropriate Azure RBAC permissions for AKS clusters
 3. Access to the target AKS cluster
 
+In Kubernetes, the Holmes container image does not include the Azure CLI, so this toolset fails its prerequisite checks (`az account show`, `az aks --help`) in the Holmes pod. It works in Kubernetes only when Holmes runs from a custom image that adds the Azure CLI and signs it in to Azure. The [Azure MCP](azure-mcp.md) integration runs its own server and needs neither.
+
 ## Configuration
 
 === "Holmes CLI"

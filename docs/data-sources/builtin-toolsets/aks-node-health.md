@@ -12,6 +12,8 @@ By enabling this toolset, HolmesGPT will be able to perform specialized health c
 3. Access to the target AKS cluster
 4. Node-level access permissions
 
+In Kubernetes, the Holmes container image does not include the Azure CLI, so this toolset fails its prerequisite checks (`az account show`, `az aks --help`) in the Holmes pod. It works in Kubernetes only when Holmes runs from a custom image that adds the Azure CLI and signs it in to Azure. The [Azure MCP](azure-mcp.md) integration runs its own server and needs neither.
+
 ## Configuration
 
 === "Holmes CLI"
