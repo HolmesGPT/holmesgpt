@@ -104,7 +104,7 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
 Choose your installation method.
 
-In Kubernetes, for additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
+In Kubernetes, for additional options (resources, network policy, node selectors), see `mcpAddons.aws` in the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml).
 
 === "Holmes CLI"
 
