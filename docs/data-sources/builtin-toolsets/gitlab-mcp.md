@@ -33,7 +33,7 @@ You need a GitLab Personal Access Token (PAT).
     kubectl create namespace holmes-mcp
 
     kubectl create secret generic gitlab-mcp-token \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
+      --from-literal=token="<YOUR_GITLAB_PAT>" \
       -n holmes-mcp
     ```
 
@@ -150,7 +150,7 @@ You need a GitLab Personal Access Token (PAT).
 
     ```bash
     kubectl create secret generic holmes-gitlab-mcp \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
+      --from-literal=token="<YOUR_GITLAB_PAT>" \
       -n <namespace>
     ```
 
@@ -176,7 +176,7 @@ You need a GitLab Personal Access Token (PAT).
 
     ```bash
     kubectl create secret generic holmes-gitlab-mcp \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
+      --from-literal=token="<YOUR_GITLAB_PAT>" \
       -n <namespace>
     ```
 

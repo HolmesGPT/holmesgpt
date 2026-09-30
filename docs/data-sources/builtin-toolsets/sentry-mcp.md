@@ -34,7 +34,7 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
     kubectl create namespace holmes-mcp
 
     kubectl create secret generic sentry-mcp-token \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
+      --from-literal=token="<YOUR_SENTRY_AUTH_TOKEN>" \
       -n holmes-mcp
     ```
 
@@ -133,7 +133,7 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
 
     ```bash
     kubectl create secret generic holmes-sentry-mcp \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
+      --from-literal=token="<YOUR_SENTRY_AUTH_TOKEN>" \
       -n <namespace>
     ```
 
@@ -159,7 +159,7 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
 
     ```bash
     kubectl create secret generic holmes-sentry-mcp \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
+      --from-literal=token="<YOUR_SENTRY_AUTH_TOKEN>" \
       -n <namespace>
     ```
 

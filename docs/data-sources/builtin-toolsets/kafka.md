@@ -37,7 +37,7 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
     ```bash
     kubectl create secret generic holmes-kafka \
       --from-literal=KAFKA_USERNAME=kafka-plaintext-user \
-      --from-literal=KAFKA_PASSWORD=<your-password> \
+      --from-literal=KAFKA_PASSWORD="<your-password>" \
       -n <namespace>
     ```
 
@@ -73,7 +73,7 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
     ```bash
     kubectl create secret generic holmes-kafka \
       --from-literal=KAFKA_USERNAME=kafka-plaintext-user \
-      --from-literal=KAFKA_PASSWORD=<your-password> \
+      --from-literal=KAFKA_PASSWORD="<your-password>" \
       -n <namespace>
     ```
 
@@ -230,7 +230,7 @@ In Kubernetes, this also reuses the `holmes-kafka-tls` secret created in the [mT
 
     ```bash
     export KAFKA_USERNAME=kafka-plaintext-user
-    export KAFKA_PASSWORD=<your-password>
+    export KAFKA_PASSWORD="<your-password>"
     ```
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:

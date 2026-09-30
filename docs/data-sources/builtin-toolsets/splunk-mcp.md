@@ -70,7 +70,7 @@ Replace:
     Set the environment variable:
 
     ```bash
-    export SPLUNK_MCP_TOKEN=<YOUR_TOKEN>
+    export SPLUNK_MCP_TOKEN="<YOUR_TOKEN>"
     ```
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -100,7 +100,7 @@ Replace:
 
     ```bash
     kubectl create secret generic holmes-splunk-mcp \
-      --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN> \
+      --from-literal=SPLUNK_MCP_TOKEN="<YOUR_TOKEN>" \
       -n <namespace>
     ```
 
@@ -138,7 +138,7 @@ Replace:
 
     ```bash
     kubectl create secret generic holmes-splunk-mcp \
-      --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN> \
+      --from-literal=SPLUNK_MCP_TOKEN="<YOUR_TOKEN>" \
       -n <namespace>
     ```
 
