@@ -116,29 +116,20 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
 
 === "Holmes Helm Chart"
 
-    Create a secret holding one base64 credential per token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic atlassian-mcp-credentials \
-      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')" \
-      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')" \
-      -n <NAMESPACE>
+    kubectl create secret generic holmes-atlassian-rovo-mcp \
+      --from-literal=ATLASSIAN_MCP_JIRA="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')" \
+      --from-literal=ATLASSIAN_MCP_CONFLUENCE="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')" \
+      -n <namespace>
     ```
 
-    Then add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: ATLASSIAN_MCP_JIRA
-        valueFrom:
-          secretKeyRef:
-            name: atlassian-mcp-credentials
-            key: jira
-      - name: ATLASSIAN_MCP_CONFLUENCE
-        valueFrom:
-          secretKeyRef:
-            name: atlassian-mcp-credentials
-            key: confluence
+    extraEnvVarsSecrets:
+      - holmes-atlassian-rovo-mcp
 
     mcp_servers:
       atlassian-jira:
@@ -165,36 +156,29 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
           Use this to look up runbooks and architecture docs in Confluence.
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    Create a secret holding one base64 credential per token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic atlassian-mcp-credentials \
-      --from-literal=jira="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')" \
-      --from-literal=confluence="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')" \
-      -n <NAMESPACE>
+    kubectl create secret generic holmes-atlassian-rovo-mcp \
+      --from-literal=ATLASSIAN_MCP_JIRA="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')" \
+      --from-literal=ATLASSIAN_MCP_CONFLUENCE="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')" \
+      -n <namespace>
     ```
 
-    Then add the following to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: ATLASSIAN_MCP_JIRA
-          valueFrom:
-            secretKeyRef:
-              name: atlassian-mcp-credentials
-              key: jira
-        - name: ATLASSIAN_MCP_CONFLUENCE
-          valueFrom:
-            secretKeyRef:
-              name: atlassian-mcp-credentials
-              key: confluence
+      extraEnvVarsSecrets:
+        - holmes-atlassian-rovo-mcp
 
       mcp_servers:
         atlassian-jira:
@@ -205,6 +189,9 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
             headers:
               Authorization: "Basic {{ env.ATLASSIAN_MCP_JIRA }}"
             icon_url: "https://cdn.simpleicons.org/jira/0052CC"
+          llm_instructions: |
+            Use this to search Jira for tickets describing the same symptoms before
+            concluding an investigation.
 
         atlassian-confluence:
           description: "Confluence pages via the Atlassian Rovo MCP server"
@@ -214,10 +201,14 @@ Because a scoped token covers one app, register one `mcp_servers` entry per toke
             headers:
               Authorization: "Basic {{ env.ATLASSIAN_MCP_CONFLUENCE }}"
             icon_url: "https://cdn.simpleicons.org/confluence/172B4D"
+          llm_instructions: |
+            Use this to look up runbooks and architecture docs in Confluence.
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 The `{{ env.* }}` placeholders are resolved when Holmes loads its configuration, so the tokens themselves never have to appear in your values file or config file.

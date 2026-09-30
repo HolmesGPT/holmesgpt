@@ -12,7 +12,7 @@ The AWS MCP server gives Holmes **read-only access to any AWS API** you permit v
 ### Step 1: Set Up IAM Permissions
 
 !!! tip "CLI users can skip this step"
-    If you're using Holmes CLI (local stdio mode), the MCP server uses your local AWS credentials directly. Skip to [Step 2](#step-2-deploy-aws-mcp) and select the "Holmes CLI" tab.
+    If you're using Holmes CLI (local stdio mode), the MCP server uses your local AWS credentials directly. Skip to [Step 2](#step-2-deploy-aws-mcp).
 
 The AWS MCP server requires read-only permissions across AWS services. We provide a default IAM policy that works for most users. You can customize it to restrict access if needed.
 
@@ -31,7 +31,6 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
     # 2. Create IAM policy and role
     # IMPORTANT: --namespace must match the namespace where Holmes is deployed
-    # (e.g., "robusta" for Robusta Helm chart, or the release namespace for Holmes Helm chart)
     ./setup-irsa.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION --namespace YOUR_NAMESPACE
     ```
 
@@ -60,8 +59,7 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
     Service account names by installation method:
 
-    - Holmes Helm Chart: `aws-api-mcp-sa`
-    - Robusta Helm Chart: `aws-api-mcp-sa`
+    - Kubernetes: `aws-api-mcp-sa` (the chart's `mcpAddons.aws.serviceAccount.name`)
     - CLI deployment: `aws-mcp-sa` (as defined in the manifest)
 
     ```bash
@@ -104,7 +102,9 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
 ### Step 2: Deploy AWS MCP
 
-Choose your installation method:
+Choose your installation method.
+
+In Kubernetes, for additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
 
 === "Holmes CLI"
 
@@ -168,9 +168,7 @@ Choose your installation method:
 
 === "Holmes Helm Chart"
 
-    **Step 2a: Update your values.yaml**
-
-    Add the AWS MCP addon configuration:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
@@ -187,29 +185,15 @@ Choose your installation method:
           region: "us-east-1"  # Change to your AWS region
     ```
 
-    For additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
-
-    **Step 2b: Deploy Holmes**
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-    **Step 2c: Verify the deployment**
-
-    ```bash
-    # Check that the MCP server pod is running
-    kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
-
-    # Check the logs for any errors
-    kubectl logs -l app.kubernetes.io/name=aws-mcp-server
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Step 2a: Update your Helm values**
-
-    Add the Holmes MCP addon configuration under the `holmes` section:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -227,27 +211,29 @@ Choose your installation method:
             region: "us-east-1"  # Change to your AWS region
     ```
 
-    For additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
-
-    **Step 2b: Deploy Robusta**
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-    **Step 2c: Verify the deployment**
+**Step 3: Verify the deployment**
 
-    ```bash
-    # Check that the MCP server pod is running
-    kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
+In Kubernetes, check that the MCP server pod is running and its logs show no errors:
 
-    # Check the logs for any errors
-    kubectl logs -l app.kubernetes.io/name=aws-mcp-server
-    ```
+```bash
+# Check that the MCP server pod is running
+kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
+
+# Check the logs for any errors
+kubectl logs -l app.kubernetes.io/name=aws-mcp-server
+```
 
 ## Multi-Account Setup
 
 If you have a single Holmes agent that needs to query AWS resources across multiple accounts (e.g., a staging account and a production account), use this setup instead of the single account setup above.
+
+Multi-account mode is not currently supported for CLI deployments. Use the [Single Account Setup](#single-account-setup) instead, or deploy Holmes via Helm.
 
 !!! note "Alternative: One agent per account"
     You can also deploy a separate Holmes agent in each AWS account. If you use [Robusta](https://home.robusta.dev/), you can manage a fleet of agents across environments from a single pane of glass. The multi-account setup below is for when you want **one agent** to reach into **multiple accounts**.
@@ -355,13 +341,9 @@ aws eks describe-cluster --name <cluster-name> --query "cluster.identity.oidc.is
 
 Once the IAM roles are set up, configure the Helm chart to enable multi-account mode:
 
-=== "Holmes CLI"
-
-    Multi-account mode is not currently supported for CLI deployments. Use the [Single Account Setup](#single-account-setup) instead, or deploy Holmes via Helm.
-
 === "Holmes Helm Chart"
 
-    Add the following configuration to your `values.yaml` file:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
@@ -397,9 +379,15 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
           # annotations are ignored when multiAccount is enabled
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    Add the following configuration to your Helm values:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -434,6 +422,12 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
           serviceAccount:
             create: true
             # annotations are ignored when multiAccount is enabled
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Example Usage
