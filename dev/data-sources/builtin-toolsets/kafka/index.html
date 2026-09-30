@@ -5859,9 +5859,9 @@
 </span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="w">            </span><span class="nt">sasl_mechanism</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SCRAM-SHA-512</span>
 </span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">            </span><span class="nt">security_protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SASL_PLAINTEXT</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>
@@ -6051,9 +6051,9 @@
 </span><span id="__span-15-36"><a id="__codelineno-15-36" name="__codelineno-15-36" href="#__codelineno-15-36"></a><span class="w">            </span><span class="nt">ssl_client_cert_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/kafka-tls/client.pem</span>
 </span><span id="__span-15-37"><a id="__codelineno-15-37" name="__codelineno-15-37" href="#__codelineno-15-37"></a><span class="w">            </span><span class="nt">ssl_client_key_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/kafka-tls/client.key</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>
@@ -6164,9 +6164,9 @@
 </span><span id="__span-22-28"><a id="__codelineno-22-28" name="__codelineno-22-28" href="#__codelineno-22-28"></a><span class="w">            </span><span class="nt">ssl_client_cert</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.KAFKA_CLIENT_CERT_BASE64</span><span class="nv"> </span><span class="s">}}&quot;</span>
 </span><span id="__span-22-29"><a id="__codelineno-22-29" name="__codelineno-22-29" href="#__codelineno-22-29"></a><span class="w">            </span><span class="nt">ssl_client_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.KAFKA_CLIENT_KEY_BASE64</span><span class="nv"> </span><span class="s">}}&quot;</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>

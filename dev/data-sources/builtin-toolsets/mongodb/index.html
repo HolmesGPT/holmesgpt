@@ -5754,9 +5754,9 @@
 </span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">      </span><span class="nt">connection_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.ANALYTICS_MONGO_URL</span><span class="nv"> </span><span class="s">}}&quot;</span>
 </span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">llm_instructions</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Analytics</span><span class="nv"> </span><span class="s">MongoDB</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">reporting&quot;</span>
 </span></code></pre></div>
-<p>After making changes to your configuration, run:
+<p>After making changes to your configuration, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
-</span></code></pre></div></p>
+</span></code></pre></div>
 <p><strong>Connection URL format:</strong></p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>mongodb://[username]:[password]@[host]:[port]/[database]
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>mongodb+srv://[username]:[password]@[cluster].mongodb.net/[database]
@@ -5855,9 +5855,9 @@
 </span><span id="__span-9-22"><a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
 </span><span id="__span-9-23"><a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">        </span><span class="nt">connection_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.ANALYTICS_MONGO_URL</span><span class="nv"> </span><span class="s">}}&quot;</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>

@@ -5704,9 +5704,9 @@
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="nt">crossplane/core</span><span class="p">:</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span></code></pre></div>
-<p>After making changes to your configuration, run:
+<p>After making changes to your configuration, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
-</span></code></pre></div></p>
+</span></code></pre></div>
 <p>To test, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Which Crossplane managed resources are failing and why?&quot;</span>
 </span></code></pre></div>
@@ -5724,9 +5724,9 @@
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">        </span><span class="nt">crossplane/core</span><span class="p">:</span>
 </span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">            </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>

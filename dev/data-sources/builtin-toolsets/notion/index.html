@@ -5755,9 +5755,9 @@
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">            </span><span class="nt">additional_headers</span><span class="p">:</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">                </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Bearer {{ env.NOTION_AUTH }}</span>
 </span></code></pre></div></p>
-<p>After making changes to your configuration, run:
+<p>After making changes to your configuration, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
-</span></code></pre></div></p>
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">holmes</span><span class="p">:</span>
@@ -5771,9 +5771,9 @@
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">                </span><span class="nt">additional_headers</span><span class="p">:</span>
 </span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">                    </span><span class="nt">Authorization</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Bearer {{ env.NOTION_AUTH }}</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>

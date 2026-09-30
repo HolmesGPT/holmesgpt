@@ -5728,9 +5728,9 @@
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">      </span><span class="nt">resource_group</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;your</span><span class="nv"> </span><span class="s">AKS</span><span class="nv"> </span><span class="s">resource</span><span class="nv"> </span><span class="s">group&gt;&quot;</span><span class="w"> </span><span class="c1"># Optional</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="nt">cluster_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;your</span><span class="nv"> </span><span class="s">AKS</span><span class="nv"> </span><span class="s">cluster</span><span class="nv"> </span><span class="s">name&gt;&quot;</span><span class="w"> </span><span class="c1"># Optional</span>
 </span></code></pre></div>
-<p>After making changes to your configuration, run:
+<p>After making changes to your configuration, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
-</span></code></pre></div></p>
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">holmes</span><span class="p">:</span>
@@ -5742,9 +5742,9 @@
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">        </span><span class="nt">resource_group</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;your</span><span class="nv"> </span><span class="s">AKS</span><span class="nv"> </span><span class="s">resource</span><span class="nv"> </span><span class="s">group&gt;&quot;</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">        </span><span class="nt">cluster_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&lt;your</span><span class="nv"> </span><span class="s">AKS</span><span class="nv"> </span><span class="s">cluster</span><span class="nv"> </span><span class="s">name&gt;&quot;</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>

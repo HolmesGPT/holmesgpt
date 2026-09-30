@@ -5901,6 +5901,10 @@
 <p><strong>Install HolmesGPT:</strong>
    <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>helm<span class="w"> </span>install<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
 </span></code></pre></div></p>
+<div class="admonition note">
+<p class="admonition-title">The namespace Holmes runs in</p>
+<p>This command installs Holmes into the namespace of your current kubectl context, <code>default</code> unless you set another. <code>helm list -A</code> shows the namespace of each release. Every Kubernetes secret your values read, through <code>extraEnvVarsSecrets</code> or <code>additionalEnvVars</code>, must be in that namespace: if one is missing, the Holmes pod does not start. It stays in <code>CreateContainerConfigError</code>, and its events show <code>Error: secret "&lt;name&gt;" not found</code>. An <code>additionalEnvVars</code> entry whose <code>secretKeyRef</code> sets <code>optional: true</code> is the exception: the pod starts without that secret.</p>
+</div>
 </li>
 </ol>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>

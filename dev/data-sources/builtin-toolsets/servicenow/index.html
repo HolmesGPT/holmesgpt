@@ -5963,9 +5963,9 @@
 </span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="nt">health_check_table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sys_user</span><span class="w">  </span><span class="c1"># Table used to verify connectivity on startup (default: sys_user)</span>
 </span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">      </span><span class="nt">api_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v2</span><span class="w">  </span><span class="c1"># Table API version: &#39;v2&#39; (default) or &#39;&#39; for unversioned path</span>
 </span></code></pre></div>
-<p>After making changes to your configuration, run:
+<p>After making changes to your configuration, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
-</span></code></pre></div></p>
+</span></code></pre></div>
 <p>To test, run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;Show me all change requests from the last 24 hours&quot;</span>
 </span></code></pre></div>
@@ -6037,9 +6037,9 @@
 </span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="w">        </span><span class="nt">health_check_table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sys_user</span><span class="w">  </span><span class="c1"># Table used to verify connectivity on startup (default: sys_user)</span>
 </span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">        </span><span class="nt">api_version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">v2</span><span class="w">  </span><span class="c1"># Table API version: &#39;v2&#39; (default) or &#39;&#39; for unversioned path</span>
 </span></code></pre></div>
-<p>Update your Helm values and run a Helm upgrade:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>--values<span class="o">=</span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
-</span></code></pre></div></p>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>
@@ -6072,20 +6072,20 @@
 </table>
 <h2 id="multiple-instances">Multiple Instances<a class="headerlink" href="#multiple-instances" title="Permanent link">&para;</a></h2>
 <p>The ServiceNow toolset can connect to more than one ServiceNow instance. List each one under <code>instances:</code> with a unique <code>name</code>. Any config field set outside <code>instances:</code> becomes a default that every instance inherits, so shared settings only need to be written once.</p>
-<pre><code class="language-yaml">toolsets:
-  servicenow/tables:
-    enabled: true
-    config:
-      instances:
-        - name: prod
-          api_url: &lt;your servicenow instance URL&gt;
-          api_key: &lt;your servicenow API key&gt;
-        - name: staging
-          api_url: &lt;your servicenow instance URL&gt;
-          api_key: &lt;your servicenow API key&gt;
-</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">servicenow/tables</span><span class="p">:</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">      </span><span class="nt">instances</span><span class="p">:</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prod</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">          </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your servicenow instance URL&gt;</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">          </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your servicenow API key&gt;</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">staging</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">          </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your servicenow instance URL&gt;</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">          </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;your servicenow API key&gt;</span>
+</span></code></pre></div>
 <p>When more than one instance is configured, HolmesGPT automatically adds an <code>instance</code> parameter to every ServiceNow tool (so it can pick which instance to query) and a <code>servicenow_tables_list_instances</code> tool to list the configured instances. With a single instance — including the flat config without <code>instances:</code> — the tools are unchanged and fully backwards compatible.</p>
-<p>See <a href="/data-sources/multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
+<p>See <a href="../../multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
 <h2 id="capabilities">Capabilities<a class="headerlink" href="#capabilities" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

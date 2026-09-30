@@ -5900,177 +5900,167 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="2-configure-holmesgpt-holmes-cli" name="__tabbed_1" type="radio" /><input id="2-configure-holmesgpt-holmes-helm-chart" name="__tabbed_1" type="radio" /><input id="2-configure-holmesgpt-robusta-helm-chart" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="2-configure-holmesgpt-holmes-cli">Holmes CLI</label><label for="2-configure-holmesgpt-holmes-helm-chart">Holmes Helm Chart</label><label for="2-configure-holmesgpt-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>Set environment variables:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-datadog-api-key&quot;</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span><span class="s2">&quot;your-datadog-app-key&quot;</span>
-</span></code></pre></div></p>
-<p>Add to your config file:
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># anchors: is ignored by Holmes — use it to define reusable YAML blocks</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">anchors</span><span class="p">:</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">dd_config</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;dd_config</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span><span class="nt">datadog/general</span><span class="p">:</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="nv">*dd_config</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="nv">*dd_config</span>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">  </span><span class="nt">datadog/metrics</span><span class="p">:</span>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="nv">*dd_config</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nt">datadog/traces</span><span class="p">:</span>
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span><span class="w"> </span><span class="nv">*dd_config</span>
-</span></code></pre></div></p>
+<p>Set the environment variables:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key
+</span></code></pre></div>
+<p>Add the following to <strong>~/.holmes/config.yaml</strong>. Create the file if it doesn't exist:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="c1"># Enable all Datadog toolsets</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nt">datadog/metrics</span><span class="p">:</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">  </span><span class="nt">datadog/traces</span><span class="p">:</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">  </span><span class="nt">datadog/general</span><span class="p">:</span>
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span></code></pre></div>
+<p>After making changes to your configuration, run:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>First, create a Kubernetes secret with your API keys:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>holmes-datadog-secrets<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--from-literal<span class="o">=</span>datadog-api-key<span class="o">=</span>your-datadog-api-key<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--from-literal<span class="o">=</span>datadog-app-key<span class="o">=</span>your-datadog-app-key<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>-n<span class="w"> </span>holmes
-</span></code></pre></div></p>
-<div class="admonition note">
-<p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
-</div>
-<p>Then add to your Holmes Helm values:
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Load API keys from secret</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DATADOG_API_KEY</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog-secrets</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datadog-api-key</span>
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DATADOG_APP_KEY</span>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">valueFrom</span><span class="p">:</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">      </span><span class="nt">secretKeyRef</span><span class="p">:</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog-secrets</span>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">        </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datadog-app-key</span>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>
-</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">  </span><span class="c1"># Enable all Datadog toolsets</span>
-</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
-</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
-</span><span id="__span-3-22"><a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a>
-</span><span id="__span-3-23"><a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="w">  </span><span class="nt">datadog/metrics</span><span class="p">:</span>
-</span><span id="__span-3-24"><a id="__codelineno-3-24" name="__codelineno-3-24" href="#__codelineno-3-24"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-3-25"><a id="__codelineno-3-25" name="__codelineno-3-25" href="#__codelineno-3-25"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-3-26"><a id="__codelineno-3-26" name="__codelineno-3-26" href="#__codelineno-3-26"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-27"><a id="__codelineno-3-27" name="__codelineno-3-27" href="#__codelineno-3-27"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-28"><a id="__codelineno-3-28" name="__codelineno-3-28" href="#__codelineno-3-28"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
-</span><span id="__span-3-29"><a id="__codelineno-3-29" name="__codelineno-3-29" href="#__codelineno-3-29"></a>
-</span><span id="__span-3-30"><a id="__codelineno-3-30" name="__codelineno-3-30" href="#__codelineno-3-30"></a><span class="w">  </span><span class="nt">datadog/traces</span><span class="p">:</span>
-</span><span id="__span-3-31"><a id="__codelineno-3-31" name="__codelineno-3-31" href="#__codelineno-3-31"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-3-32"><a id="__codelineno-3-32" name="__codelineno-3-32" href="#__codelineno-3-32"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-3-33"><a id="__codelineno-3-33" name="__codelineno-3-33" href="#__codelineno-3-33"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-34"><a id="__codelineno-3-34" name="__codelineno-3-34" href="#__codelineno-3-34"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-35"><a id="__codelineno-3-35" name="__codelineno-3-35" href="#__codelineno-3-35"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
-</span><span id="__span-3-36"><a id="__codelineno-3-36" name="__codelineno-3-36" href="#__codelineno-3-36"></a>
-</span><span id="__span-3-37"><a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a><span class="w">  </span><span class="nt">datadog/general</span><span class="p">:</span>
-</span><span id="__span-3-38"><a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-3-39"><a id="__codelineno-3-39" name="__codelineno-3-39" href="#__codelineno-3-39"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-3-40"><a id="__codelineno-3-40" name="__codelineno-3-40" href="#__codelineno-3-40"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-41"><a id="__codelineno-3-41" name="__codelineno-3-41" href="#__codelineno-3-41"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-3-42"><a id="__codelineno-3-42" name="__codelineno-3-42" href="#__codelineno-3-42"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
-</span></code></pre></div></p>
+<p>Create a Kubernetes secret in the namespace Holmes runs in:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>holmes-datadog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>-n<span class="w"> </span>&lt;namespace&gt;
+</span></code></pre></div>
+<p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="c1"># Enable all Datadog toolsets</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">  </span><span class="nt">datadog/metrics</span><span class="p">:</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">  </span><span class="nt">datadog/traces</span><span class="p">:</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-25"><a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-4-26"><a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>
+</span><span id="__span-4-27"><a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a><span class="w">  </span><span class="nt">datadog/general</span><span class="p">:</span>
+</span><span id="__span-4-28"><a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-29"><a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-4-30"><a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-31"><a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-4-32"><a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span></code></pre></div>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>First, create a Kubernetes secret with your API keys:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>holmes-datadog-secrets<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--from-literal<span class="o">=</span>datadog-api-key<span class="o">=</span>your-datadog-api-key<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--from-literal<span class="o">=</span>datadog-app-key<span class="o">=</span>your-datadog-app-key<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>-n<span class="w"> </span>default
-</span></code></pre></div></p>
-<div class="admonition note">
-<p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
-</div>
-<p>Then add to your Robusta Helm values:
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">holmes</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="c1"># Load API keys from secret</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">additionalEnvVars</span><span class="p">:</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DATADOG_API_KEY</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="nt">valueFrom</span><span class="p">:</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">        </span><span class="nt">secretKeyRef</span><span class="p">:</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog-secrets</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">          </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datadog-api-key</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DATADOG_APP_KEY</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">      </span><span class="nt">valueFrom</span><span class="p">:</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">        </span><span class="nt">secretKeyRef</span><span class="p">:</span>
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">          </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog-secrets</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">          </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">datadog-app-key</span>
-</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>
-</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
-</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="c1"># Enable all Datadog toolsets</span>
-</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">    </span><span class="nt">datadog/logs</span><span class="p">:</span>
-</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-21"><a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-22"><a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
-</span><span id="__span-5-23"><a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a>
-</span><span id="__span-5-24"><a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="w">    </span><span class="nt">datadog/metrics</span><span class="p">:</span>
-</span><span id="__span-5-25"><a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-5-26"><a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-5-27"><a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-28"><a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-29"><a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
-</span><span id="__span-5-30"><a id="__codelineno-5-30" name="__codelineno-5-30" href="#__codelineno-5-30"></a>
-</span><span id="__span-5-31"><a id="__codelineno-5-31" name="__codelineno-5-31" href="#__codelineno-5-31"></a><span class="w">    </span><span class="nt">datadog/traces</span><span class="p">:</span>
-</span><span id="__span-5-32"><a id="__codelineno-5-32" name="__codelineno-5-32" href="#__codelineno-5-32"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-5-33"><a id="__codelineno-5-33" name="__codelineno-5-33" href="#__codelineno-5-33"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-5-34"><a id="__codelineno-5-34" name="__codelineno-5-34" href="#__codelineno-5-34"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-35"><a id="__codelineno-5-35" name="__codelineno-5-35" href="#__codelineno-5-35"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-36"><a id="__codelineno-5-36" name="__codelineno-5-36" href="#__codelineno-5-36"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
-</span><span id="__span-5-37"><a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a>
-</span><span id="__span-5-38"><a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a><span class="w">    </span><span class="nt">datadog/general</span><span class="p">:</span>
-</span><span id="__span-5-39"><a id="__codelineno-5-39" name="__codelineno-5-39" href="#__codelineno-5-39"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-5-40"><a id="__codelineno-5-40" name="__codelineno-5-40" href="#__codelineno-5-40"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-5-41"><a id="__codelineno-5-41" name="__codelineno-5-41" href="#__codelineno-5-41"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-42"><a id="__codelineno-5-42" name="__codelineno-5-42" href="#__codelineno-5-42"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span id="__span-5-43"><a id="__codelineno-5-43" name="__codelineno-5-43" href="#__codelineno-5-43"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
-</span></code></pre></div></p>
+<p>Create a Kubernetes secret in the namespace Holmes runs in:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>create<span class="w"> </span>secret<span class="w"> </span>generic<span class="w"> </span>holmes-datadog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--from-literal<span class="o">=</span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>-n<span class="w"> </span>&lt;namespace&gt;
+</span></code></pre></div>
+<p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="c1"># Enable all Datadog toolsets</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="nt">datadog/metrics</span><span class="p">:</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-18"><a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-19"><a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-7-20"><a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a>
+</span><span id="__span-7-21"><a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a><span class="w">    </span><span class="nt">datadog/traces</span><span class="p">:</span>
+</span><span id="__span-7-22"><a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-7-23"><a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-7-24"><a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-25"><a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-26"><a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span><span id="__span-7-27"><a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a>
+</span><span id="__span-7-28"><a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a><span class="w">    </span><span class="nt">datadog/general</span><span class="p">:</span>
+</span><span id="__span-7-29"><a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-7-30"><a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-7-31"><a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-32"><a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-7-33"><a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span><span class="w">  </span><span class="c1"># Change for EU/other regions</span>
+</span></code></pre></div>
+<p>Apply the configuration:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
 </div>
 <h3 id="3-test-it-works">3. Test It Works<a class="headerlink" href="#3-test-it-works" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Test logs</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me recent logs from Datadog&quot;</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Test metrics</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;list available Datadog metrics&quot;</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1"># Test general API</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;list Datadog monitors&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Test logs</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me recent logs from Datadog&quot;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Test metrics</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;list available Datadog metrics&quot;</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># Test general API</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;list Datadog monitors&quot;</span>
 </span></code></pre></div>
 <p>That's it! You're now connected to Datadog with all toolsets enabled.</p>
 <h2 id="multiple-instances">Multiple Instances<a class="headerlink" href="#multiple-instances" title="Permanent link">&para;</a></h2>
 <p>The Datadog toolset can connect to more than one Datadog instance. List each one under <code>instances:</code> with a unique <code>name</code>. Any config field set outside <code>instances:</code> becomes a default that every instance inherits, so shared settings only need to be written once.</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/logs:
-    enabled: true
-    config:
-      instances:
-        - name: prod
-          api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-          app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-          api_url: https://api.datadoghq.com
-        - name: staging
-          api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-          app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-          api_url: https://api.datadoghq.com
-</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">      </span><span class="nt">instances</span><span class="p">:</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prod</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">          </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="w">          </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">          </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">staging</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">          </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">          </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">          </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span></code></pre></div>
 <p>When more than one instance is configured, HolmesGPT automatically adds an <code>instance</code> parameter to every Datadog tool (so it can pick which instance to query) and a <code>datadog_logs_list_instances</code> tool to list the configured instances. With a single instance — including the flat config without <code>instances:</code> — the tools are unchanged and fully backwards compatible.</p>
-<p>See <a href="/data-sources/multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
+<p>See <a href="../../multi-instance-toolsets/">Multiple Instances</a> for the full behaviour, including global defaults and health reporting.</p>
 <h2 id="available-toolsets">Available Toolsets<a class="headerlink" href="#available-toolsets" title="Permanent link">&para;</a></h2>
 <p>HolmesGPT provides four specialized Datadog toolsets:</p>
 <table>
@@ -6108,79 +6098,85 @@
 <h3 id="datadog-logs">Datadog Logs<a class="headerlink" href="#datadog-logs" title="Permanent link">&para;</a></h3>
 <p>Query and analyze logs from Datadog, including historical data from terminated pods.</p>
 <p><strong>Configuration</strong></p>
-<p>
-<div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c_1" name="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c" type="radio">
-<input id="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c_2" name="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c" type="radio">
-<input id="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c_3" name="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c" type="radio">
-<div class="tabbed-labels">
-<label for="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c_1">Holmes CLI</label>
-<label for="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c_2">Holmes Helm Chart</label>
-<label for="__tabbed_3b9598e7_dfe9_4dad_81e6_813b0730971c_3">Robusta Helm Chart</label>
-</div>
+<p>In Kubernetes, this reuses the <code>holmes-datadog</code> secret created in the <a href="#2-configure-holmesgpt">2. Configure HolmesGPT</a> section above.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="datadog-logs-holmes-cli" name="__tabbed_2" type="radio" /><input id="datadog-logs-holmes-helm-chart" name="__tabbed_2" type="radio" /><input id="datadog-logs-robusta-helm-chart" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="datadog-logs-holmes-cli">Holmes CLI</label><label for="datadog-logs-holmes-helm-chart">Holmes Helm Chart</label><label for="datadog-logs-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
+<p>Set the environment variables:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key
+</span></code></pre></div>
 <p>Add the following to <strong>~/.holmes/config.yaml</strong>. Create the file if it doesn't exist:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/logs:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-      # Optional: Log search configuration
-      indexes: [&quot;*&quot;]  # Log indexes to search (default: [&quot;*&quot;])
-      compact_logs: True # Reduces log metadata and tags to save LLM context space.
-      storage_tier: indexes  # Options: indexes, online-archives, flex (default: indexes)
-      default_limit: 100  # Max logs to retrieve in a query (default: 100)
-
-</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">      </span><span class="c1"># Optional: Log search configuration</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">      </span><span class="nt">indexes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Log indexes to search (default: [&quot;*&quot;])</span>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">      </span><span class="nt">compact_logs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span><span class="w"> </span><span class="c1"># Reduces log metadata and tags to save LLM context space.</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">      </span><span class="nt">storage_tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">indexes</span><span class="w">  </span><span class="c1"># Options: indexes, online-archives, flex (default: indexes)</span>
+</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">      </span><span class="nt">default_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">  </span><span class="c1"># Max logs to retrieve in a query (default: 100)</span>
+</span></code></pre></div>
+<p>After making changes to your configuration, run:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/logs:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-      # Optional: Log search configuration
-      indexes: [&quot;*&quot;]  # Log indexes to search (default: [&quot;*&quot;])
-      compact_logs: True # Reduces log metadata and tags to save LLM context space.
-      storage_tier: indexes  # Options: indexes, online-archives, flex (default: indexes)
-      default_limit: 100  # Max logs to retrieve in a query (default: 100)
-
-</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="w">  </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a><span class="w">      </span><span class="c1"># Optional: Log search configuration</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a><span class="w">      </span><span class="nt">indexes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Log indexes to search (default: [&quot;*&quot;])</span>
+</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a><span class="w">      </span><span class="nt">compact_logs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span><span class="w"> </span><span class="c1"># Reduces log metadata and tags to save LLM context space.</span>
+</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a><span class="w">      </span><span class="nt">storage_tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">indexes</span><span class="w">  </span><span class="c1"># Options: indexes, online-archives, flex (default: indexes)</span>
+</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a><span class="w">      </span><span class="nt">default_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">  </span><span class="c1"># Max logs to retrieve in a query (default: 100)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes robusta/holmes --values=values.yaml</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
-<pre><code class="language-yaml">holmes:
-  toolsets:
-    datadog/logs:
-      enabled: true
-      config:
-        api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-        app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-        api_url: https://api.datadoghq.com
-        timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-        # Optional: Log search configuration
-        indexes: [&quot;*&quot;]  # Log indexes to search (default: [&quot;*&quot;])
-        compact_logs: True # Reduces log metadata and tags to save LLM context space.
-        storage_tier: indexes  # Options: indexes, online-archives, flex (default: indexes)
-        default_limit: 100  # Max logs to retrieve in a query (default: 100)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">    </span><span class="nt">datadog/logs</span><span class="p">:</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">        </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">        </span><span class="c1"># Optional: Log search configuration</span>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">        </span><span class="nt">indexes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Log indexes to search (default: [&quot;*&quot;])</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">        </span><span class="nt">compact_logs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span><span class="w"> </span><span class="c1"># Reduces log metadata and tags to save LLM context space.</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="w">        </span><span class="nt">storage_tier</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">indexes</span><span class="w">  </span><span class="c1"># Options: indexes, online-archives, flex (default: indexes)</span>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="w">        </span><span class="nt">default_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">  </span><span class="c1"># Max logs to retrieve in a query (default: 100)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=&lt;YOUR_CLUSTER_NAME&gt;</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
-</div></p>
+</div>
 <p><strong>Capabilities</strong></p>
 <table>
 <thead>
@@ -6197,78 +6193,88 @@
 </tbody>
 </table>
 <p><strong>Example Usage</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Get logs for a specific pod</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me logs for pod payment-service in namespace production&quot;</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Search for errors in the last hour</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;find all error logs in the last hour&quot;</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1"># Historical logs from deleted pods</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me logs from the crashed pod that was running yesterday&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Get logs for a specific pod</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me logs for pod payment-service in namespace production&quot;</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="c1"># Search for errors in the last hour</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;find all error logs in the last hour&quot;</span>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># Historical logs from deleted pods</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me logs from the crashed pod that was running yesterday&quot;</span>
 </span></code></pre></div>
 <h3 id="datadog-metrics">Datadog Metrics<a class="headerlink" href="#datadog-metrics" title="Permanent link">&para;</a></h3>
 <p>Access and analyze metrics from your infrastructure and applications.</p>
 <p><strong>Configuration</strong></p>
-<p>
-<div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6_1" name="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6" type="radio">
-<input id="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6_2" name="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6" type="radio">
-<input id="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6_3" name="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6" type="radio">
-<div class="tabbed-labels">
-<label for="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6_1">Holmes CLI</label>
-<label for="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6_2">Holmes Helm Chart</label>
-<label for="__tabbed_c4aadb94_3878_4167_98c5_8bc2fdcb9ee6_3">Robusta Helm Chart</label>
-</div>
+<p>In Kubernetes, this reuses the <code>holmes-datadog</code> secret created in the <a href="#2-configure-holmesgpt">2. Configure HolmesGPT</a> section above.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="datadog-metrics-holmes-cli" name="__tabbed_3" type="radio" /><input id="datadog-metrics-holmes-helm-chart" name="__tabbed_3" type="radio" /><input id="datadog-metrics-robusta-helm-chart" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="datadog-metrics-holmes-cli">Holmes CLI</label><label for="datadog-metrics-holmes-helm-chart">Holmes Helm Chart</label><label for="datadog-metrics-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
+<p>Set the environment variables:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key
+</span></code></pre></div>
 <p>Add the following to <strong>~/.holmes/config.yaml</strong>. Create the file if it doesn't exist:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/metrics:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-      # Optional
-      default_limit: 100  # Max data points to retrieve (default: 100)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span><span class="nt">datadog/metrics</span><span class="p">:</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>
+</span><span id="__span-20-10"><a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a><span class="w">      </span><span class="c1"># Optional</span>
+</span><span id="__span-20-11"><a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a><span class="w">      </span><span class="nt">default_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">  </span><span class="c1"># Max data points to retrieve (default: 100)</span>
+</span></code></pre></div>
+<p>After making changes to your configuration, run:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/metrics:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-      # Optional
-      default_limit: 100  # Max data points to retrieve (default: 100)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a><span class="w">  </span><span class="nt">datadog/metrics</span><span class="p">:</span>
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-22-9"><a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-22-10"><a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-22-11"><a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-22-12"><a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a>
+</span><span id="__span-22-13"><a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a><span class="w">      </span><span class="c1"># Optional</span>
+</span><span id="__span-22-14"><a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a><span class="w">      </span><span class="nt">default_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">  </span><span class="c1"># Max data points to retrieve (default: 100)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes robusta/holmes --values=values.yaml</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
-<pre><code class="language-yaml">holmes:
-  toolsets:
-    datadog/metrics:
-      enabled: true
-      config:
-        api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-        app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-        api_url: https://api.datadoghq.com
-        timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-        # Optional
-        default_limit: 100  # Max data points to retrieve (default: 100)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="w">  </span><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a>
+</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">    </span><span class="nt">datadog/metrics</span><span class="p">:</span>
+</span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-24-9"><a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-24-10"><a id="__codelineno-24-10" name="__codelineno-24-10" href="#__codelineno-24-10"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-24-11"><a id="__codelineno-24-11" name="__codelineno-24-11" href="#__codelineno-24-11"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-24-12"><a id="__codelineno-24-12" name="__codelineno-24-12" href="#__codelineno-24-12"></a><span class="w">        </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-24-13"><a id="__codelineno-24-13" name="__codelineno-24-13" href="#__codelineno-24-13"></a>
+</span><span id="__span-24-14"><a id="__codelineno-24-14" name="__codelineno-24-14" href="#__codelineno-24-14"></a><span class="w">        </span><span class="c1"># Optional</span>
+</span><span id="__span-24-15"><a id="__codelineno-24-15" name="__codelineno-24-15" href="#__codelineno-24-15"></a><span class="w">        </span><span class="nt">default_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">  </span><span class="c1"># Max data points to retrieve (default: 100)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=&lt;YOUR_CLUSTER_NAME&gt;</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
-</div></p>
+</div>
 <p><strong>Capabilities</strong></p>
 <table>
 <thead>
@@ -6297,69 +6303,79 @@
 </tbody>
 </table>
 <p><strong>Example Usage</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># List available metrics</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what metrics are available for my application?&quot;</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Query CPU usage</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me CPU usage for the payment service over the last 6 hours&quot;</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># Custom application metrics</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;analyze the payment_processing_time metric for anomalies&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># List available metrics</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what metrics are available for my application?&quot;</span>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="c1"># Query CPU usage</span>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me CPU usage for the payment service over the last 6 hours&quot;</span>
+</span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a>
+</span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="c1"># Custom application metrics</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;analyze the payment_processing_time metric for anomalies&quot;</span>
 </span></code></pre></div>
 <h3 id="datadog-traces">Datadog Traces<a class="headerlink" href="#datadog-traces" title="Permanent link">&para;</a></h3>
 <p>Analyze distributed traces to identify performance bottlenecks and latency issues.</p>
 <p><strong>Configuration</strong></p>
-<p>
-<div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2_1" name="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2" type="radio">
-<input id="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2_2" name="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2" type="radio">
-<input id="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2_3" name="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2" type="radio">
-<div class="tabbed-labels">
-<label for="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2_1">Holmes CLI</label>
-<label for="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2_2">Holmes Helm Chart</label>
-<label for="__tabbed_ec4028fc_d198_472e_8124_8812c22f71b2_3">Robusta Helm Chart</label>
-</div>
+<p>In Kubernetes, this reuses the <code>holmes-datadog</code> secret created in the <a href="#2-configure-holmesgpt">2. Configure HolmesGPT</a> section above.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:3"><input checked="checked" id="datadog-traces-holmes-cli" name="__tabbed_4" type="radio" /><input id="datadog-traces-holmes-helm-chart" name="__tabbed_4" type="radio" /><input id="datadog-traces-robusta-helm-chart" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="datadog-traces-holmes-cli">Holmes CLI</label><label for="datadog-traces-holmes-helm-chart">Holmes Helm Chart</label><label for="datadog-traces-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
+<p>Set the environment variables:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key
+</span></code></pre></div>
 <p>Add the following to <strong>~/.holmes/config.yaml</strong>. Create the file if it doesn't exist:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/traces:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="nt">datadog/traces</span><span class="p">:</span>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-28-6"><a id="__codelineno-28-6" name="__codelineno-28-6" href="#__codelineno-28-6"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-28-7"><a id="__codelineno-28-7" name="__codelineno-28-7" href="#__codelineno-28-7"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-28-8"><a id="__codelineno-28-8" name="__codelineno-28-8" href="#__codelineno-28-8"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span></code></pre></div>
+<p>After making changes to your configuration, run:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/traces:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>
+</span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-30-5"><a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a><span class="w">  </span><span class="nt">datadog/traces</span><span class="p">:</span>
+</span><span id="__span-30-6"><a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-30-7"><a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-30-9"><a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-30-10"><a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-30-11"><a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes robusta/holmes --values=values.yaml</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
-<pre><code class="language-yaml">holmes:
-  toolsets:
-    datadog/traces:
-      enabled: true
-      config:
-        api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-        app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-        api_url: https://api.datadoghq.com
-        timeout_seconds: 60  # Timeout in seconds (default: 60)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-32-2"><a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="w">  </span><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-32-3"><a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-32-4"><a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a>
+</span><span id="__span-32-5"><a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-32-6"><a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a><span class="w">    </span><span class="nt">datadog/traces</span><span class="p">:</span>
+</span><span id="__span-32-7"><a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-32-8"><a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-32-9"><a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-32-10"><a id="__codelineno-32-10" name="__codelineno-32-10" href="#__codelineno-32-10"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-32-11"><a id="__codelineno-32-11" name="__codelineno-32-11" href="#__codelineno-32-11"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-32-12"><a id="__codelineno-32-12" name="__codelineno-32-12" href="#__codelineno-32-12"></a><span class="w">        </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=&lt;YOUR_CLUSTER_NAME&gt;</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
-</div></p>
+</div>
 <p><strong>Capabilities</strong></p>
 <table>
 <thead>
@@ -6380,81 +6396,91 @@
 </tbody>
 </table>
 <p><strong>Example Usage</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Find slow requests</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;find traces where the checkout service took longer than 5 seconds&quot;</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Analyze specific trace</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;analyze trace ID abc123 for performance issues&quot;</span>
-</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
-</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># Service dependencies</span>
-</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me traces involving both payment and inventory services&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="c1"># Find slow requests</span>
+</span><span id="__span-34-2"><a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;find traces where the checkout service took longer than 5 seconds&quot;</span>
+</span><span id="__span-34-3"><a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>
+</span><span id="__span-34-4"><a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a><span class="c1"># Analyze specific trace</span>
+</span><span id="__span-34-5"><a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;analyze trace ID abc123 for performance issues&quot;</span>
+</span><span id="__span-34-6"><a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>
+</span><span id="__span-34-7"><a id="__codelineno-34-7" name="__codelineno-34-7" href="#__codelineno-34-7"></a><span class="c1"># Service dependencies</span>
+</span><span id="__span-34-8"><a id="__codelineno-34-8" name="__codelineno-34-8" href="#__codelineno-34-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me traces involving both payment and inventory services&quot;</span>
 </span></code></pre></div>
 <h3 id="datadog-general">Datadog General<a class="headerlink" href="#datadog-general" title="Permanent link">&para;</a></h3>
 <p>Access general-purpose Datadog API endpoints for read-only operations including monitors, dashboards, SLOs, incidents, synthetics, and more.</p>
 <p><strong>Configuration</strong></p>
-<p>
-<div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7_1" name="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7" type="radio">
-<input id="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7_2" name="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7" type="radio">
-<input id="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7_3" name="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7" type="radio">
-<div class="tabbed-labels">
-<label for="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7_1">Holmes CLI</label>
-<label for="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7_2">Holmes Helm Chart</label>
-<label for="__tabbed_d67cba3a_1b82_45de_9320_03edff4a83f7_3">Robusta Helm Chart</label>
-</div>
+<p>In Kubernetes, this reuses the <code>holmes-datadog</code> secret created in the <a href="#2-configure-holmesgpt">2. Configure HolmesGPT</a> section above.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="datadog-general-holmes-cli" name="__tabbed_5" type="radio" /><input id="datadog-general-holmes-helm-chart" name="__tabbed_5" type="radio" /><input id="datadog-general-robusta-helm-chart" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="datadog-general-holmes-cli">Holmes CLI</label><label for="datadog-general-holmes-helm-chart">Holmes Helm Chart</label><label for="datadog-general-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
+<p>Set the environment variables:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_API_KEY</span><span class="o">=</span>your-datadog-api-key
+</span><span id="__span-35-2"><a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">DATADOG_APP_KEY</span><span class="o">=</span>your-datadog-app-key
+</span></code></pre></div>
 <p>Add the following to <strong>~/.holmes/config.yaml</strong>. Create the file if it doesn't exist:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/general:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-      # Optional
-      max_response_size: 10485760  # Max response size in bytes (default: 10MB)
-      allow_custom_endpoints: false  # Allow non-whitelisted endpoints (default: false)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-36-2"><a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a><span class="w">  </span><span class="nt">datadog/general</span><span class="p">:</span>
+</span><span id="__span-36-3"><a id="__codelineno-36-3" name="__codelineno-36-3" href="#__codelineno-36-3"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-36-4"><a id="__codelineno-36-4" name="__codelineno-36-4" href="#__codelineno-36-4"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-36-5"><a id="__codelineno-36-5" name="__codelineno-36-5" href="#__codelineno-36-5"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-36-6"><a id="__codelineno-36-6" name="__codelineno-36-6" href="#__codelineno-36-6"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-36-7"><a id="__codelineno-36-7" name="__codelineno-36-7" href="#__codelineno-36-7"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-36-8"><a id="__codelineno-36-8" name="__codelineno-36-8" href="#__codelineno-36-8"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-36-9"><a id="__codelineno-36-9" name="__codelineno-36-9" href="#__codelineno-36-9"></a>
+</span><span id="__span-36-10"><a id="__codelineno-36-10" name="__codelineno-36-10" href="#__codelineno-36-10"></a><span class="w">      </span><span class="c1"># Optional</span>
+</span><span id="__span-36-11"><a id="__codelineno-36-11" name="__codelineno-36-11" href="#__codelineno-36-11"></a><span class="w">      </span><span class="nt">max_response_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10485760</span><span class="w">  </span><span class="c1"># Max response size in bytes (default: 10MB)</span>
+</span><span id="__span-36-12"><a id="__codelineno-36-12" name="__codelineno-36-12" href="#__codelineno-36-12"></a><span class="w">      </span><span class="nt">allow_custom_endpoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Allow non-whitelisted endpoints (default: false)</span>
+</span></code></pre></div>
+<p>After making changes to your configuration, run:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>holmes<span class="w"> </span>toolset<span class="w"> </span>refresh
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
-<pre><code class="language-yaml">toolsets:
-  datadog/general:
-    enabled: true
-    config:
-      api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-      app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-      api_url: https://api.datadoghq.com
-      timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-      # Optional
-      max_response_size: 10485760  # Max response size in bytes (default: 10MB)
-      allow_custom_endpoints: false  # Allow non-whitelisted endpoints (default: false)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-38-2"><a id="__codelineno-38-2" name="__codelineno-38-2" href="#__codelineno-38-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-38-3"><a id="__codelineno-38-3" name="__codelineno-38-3" href="#__codelineno-38-3"></a>
+</span><span id="__span-38-4"><a id="__codelineno-38-4" name="__codelineno-38-4" href="#__codelineno-38-4"></a><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-38-5"><a id="__codelineno-38-5" name="__codelineno-38-5" href="#__codelineno-38-5"></a><span class="w">  </span><span class="nt">datadog/general</span><span class="p">:</span>
+</span><span id="__span-38-6"><a id="__codelineno-38-6" name="__codelineno-38-6" href="#__codelineno-38-6"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-38-7"><a id="__codelineno-38-7" name="__codelineno-38-7" href="#__codelineno-38-7"></a><span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-38-8"><a id="__codelineno-38-8" name="__codelineno-38-8" href="#__codelineno-38-8"></a><span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-38-9"><a id="__codelineno-38-9" name="__codelineno-38-9" href="#__codelineno-38-9"></a><span class="w">      </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-38-10"><a id="__codelineno-38-10" name="__codelineno-38-10" href="#__codelineno-38-10"></a><span class="w">      </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-38-11"><a id="__codelineno-38-11" name="__codelineno-38-11" href="#__codelineno-38-11"></a><span class="w">      </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-38-12"><a id="__codelineno-38-12" name="__codelineno-38-12" href="#__codelineno-38-12"></a>
+</span><span id="__span-38-13"><a id="__codelineno-38-13" name="__codelineno-38-13" href="#__codelineno-38-13"></a><span class="w">      </span><span class="c1"># Optional</span>
+</span><span id="__span-38-14"><a id="__codelineno-38-14" name="__codelineno-38-14" href="#__codelineno-38-14"></a><span class="w">      </span><span class="nt">max_response_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10485760</span><span class="w">  </span><span class="c1"># Max response size in bytes (default: 10MB)</span>
+</span><span id="__span-38-15"><a id="__codelineno-38-15" name="__codelineno-38-15" href="#__codelineno-38-15"></a><span class="w">      </span><span class="nt">allow_custom_endpoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Allow non-whitelisted endpoints (default: false)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes robusta/holmes --values=values.yaml</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>holmes<span class="w"> </span>robusta/holmes<span class="w"> </span>-f<span class="w"> </span>values.yaml
+</span></code></pre></div>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
-<pre><code class="language-yaml">holmes:
-  toolsets:
-    datadog/general:
-      enabled: true
-      config:
-        api_key: &quot;{{ env.DATADOG_API_KEY }}&quot;
-        app_key: &quot;{{ env.DATADOG_APP_KEY }}&quot;
-        api_url: https://api.datadoghq.com
-        timeout_seconds: 60  # Timeout in seconds (default: 60)
-
-        # Optional
-        max_response_size: 10485760  # Max response size in bytes (default: 10MB)
-        allow_custom_endpoints: false  # Allow non-whitelisted endpoints (default: false)</code></pre>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="nt">holmes</span><span class="p">:</span>
+</span><span id="__span-40-2"><a id="__codelineno-40-2" name="__codelineno-40-2" href="#__codelineno-40-2"></a><span class="w">  </span><span class="nt">extraEnvVarsSecrets</span><span class="p">:</span>
+</span><span id="__span-40-3"><a id="__codelineno-40-3" name="__codelineno-40-3" href="#__codelineno-40-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">holmes-datadog</span>
+</span><span id="__span-40-4"><a id="__codelineno-40-4" name="__codelineno-40-4" href="#__codelineno-40-4"></a>
+</span><span id="__span-40-5"><a id="__codelineno-40-5" name="__codelineno-40-5" href="#__codelineno-40-5"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
+</span><span id="__span-40-6"><a id="__codelineno-40-6" name="__codelineno-40-6" href="#__codelineno-40-6"></a><span class="w">    </span><span class="nt">datadog/general</span><span class="p">:</span>
+</span><span id="__span-40-7"><a id="__codelineno-40-7" name="__codelineno-40-7" href="#__codelineno-40-7"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-40-8"><a id="__codelineno-40-8" name="__codelineno-40-8" href="#__codelineno-40-8"></a><span class="w">      </span><span class="nt">config</span><span class="p">:</span>
+</span><span id="__span-40-9"><a id="__codelineno-40-9" name="__codelineno-40-9" href="#__codelineno-40-9"></a><span class="w">        </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_API_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-40-10"><a id="__codelineno-40-10" name="__codelineno-40-10" href="#__codelineno-40-10"></a><span class="w">        </span><span class="nt">app_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">env.DATADOG_APP_KEY</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span id="__span-40-11"><a id="__codelineno-40-11" name="__codelineno-40-11" href="#__codelineno-40-11"></a><span class="w">        </span><span class="nt">api_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://api.datadoghq.com</span>
+</span><span id="__span-40-12"><a id="__codelineno-40-12" name="__codelineno-40-12" href="#__codelineno-40-12"></a><span class="w">        </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">  </span><span class="c1"># Timeout in seconds (default: 60)</span>
+</span><span id="__span-40-13"><a id="__codelineno-40-13" name="__codelineno-40-13" href="#__codelineno-40-13"></a>
+</span><span id="__span-40-14"><a id="__codelineno-40-14" name="__codelineno-40-14" href="#__codelineno-40-14"></a><span class="w">        </span><span class="c1"># Optional</span>
+</span><span id="__span-40-15"><a id="__codelineno-40-15" name="__codelineno-40-15" href="#__codelineno-40-15"></a><span class="w">        </span><span class="nt">max_response_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10485760</span><span class="w">  </span><span class="c1"># Max response size in bytes (default: 10MB)</span>
+</span><span id="__span-40-16"><a id="__codelineno-40-16" name="__codelineno-40-16" href="#__codelineno-40-16"></a><span class="w">        </span><span class="nt">allow_custom_endpoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Allow non-whitelisted endpoints (default: false)</span>
+</span></code></pre></div>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=&lt;YOUR_CLUSTER_NAME&gt;</code></pre>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>helm<span class="w"> </span>upgrade<span class="w"> </span>robusta<span class="w"> </span>robusta/robusta<span class="w"> </span>-f<span class="w"> </span>generated_values.yaml<span class="w"> </span>--set<span class="w"> </span><span class="nv">clusterName</span><span class="o">=</span>&lt;YOUR_CLUSTER_NAME&gt;
+</span></code></pre></div>
 </div>
 </div>
-</div></p>
+</div>
 <p><strong>Capabilities</strong></p>
 <table>
 <thead>
@@ -6494,20 +6520,20 @@
 <li><strong>Organizations &amp; Teams</strong>: Query organizational structure</li>
 </ul>
 <p><strong>Example Usage</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># List all monitors</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me all Datadog monitors&quot;</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Get dashboard details</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;retrieve my application dashboard from Datadog&quot;</span>
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># Check SLO status</span>
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what&#39;s the current status of our API availability SLO?&quot;</span>
-</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>
-</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="c1"># Search incidents</span>
-</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;find recent incidents in Datadog&quot;</span>
-</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a>
-</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="c1"># Get synthetic test results</span>
-</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me the latest synthetic test results for our homepage&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="c1"># List all monitors</span>
+</span><span id="__span-42-2"><a id="__codelineno-42-2" name="__codelineno-42-2" href="#__codelineno-42-2"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me all Datadog monitors&quot;</span>
+</span><span id="__span-42-3"><a id="__codelineno-42-3" name="__codelineno-42-3" href="#__codelineno-42-3"></a>
+</span><span id="__span-42-4"><a id="__codelineno-42-4" name="__codelineno-42-4" href="#__codelineno-42-4"></a><span class="c1"># Get dashboard details</span>
+</span><span id="__span-42-5"><a id="__codelineno-42-5" name="__codelineno-42-5" href="#__codelineno-42-5"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;retrieve my application dashboard from Datadog&quot;</span>
+</span><span id="__span-42-6"><a id="__codelineno-42-6" name="__codelineno-42-6" href="#__codelineno-42-6"></a>
+</span><span id="__span-42-7"><a id="__codelineno-42-7" name="__codelineno-42-7" href="#__codelineno-42-7"></a><span class="c1"># Check SLO status</span>
+</span><span id="__span-42-8"><a id="__codelineno-42-8" name="__codelineno-42-8" href="#__codelineno-42-8"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;what&#39;s the current status of our API availability SLO?&quot;</span>
+</span><span id="__span-42-9"><a id="__codelineno-42-9" name="__codelineno-42-9" href="#__codelineno-42-9"></a>
+</span><span id="__span-42-10"><a id="__codelineno-42-10" name="__codelineno-42-10" href="#__codelineno-42-10"></a><span class="c1"># Search incidents</span>
+</span><span id="__span-42-11"><a id="__codelineno-42-11" name="__codelineno-42-11" href="#__codelineno-42-11"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;find recent incidents in Datadog&quot;</span>
+</span><span id="__span-42-12"><a id="__codelineno-42-12" name="__codelineno-42-12" href="#__codelineno-42-12"></a>
+</span><span id="__span-42-13"><a id="__codelineno-42-13" name="__codelineno-42-13" href="#__codelineno-42-13"></a><span class="c1"># Get synthetic test results</span>
+</span><span id="__span-42-14"><a id="__codelineno-42-14" name="__codelineno-42-14" href="#__codelineno-42-14"></a>holmes<span class="w"> </span>ask<span class="w"> </span><span class="s2">&quot;show me the latest synthetic test results for our homepage&quot;</span>
 </span></code></pre></div>
 
 
