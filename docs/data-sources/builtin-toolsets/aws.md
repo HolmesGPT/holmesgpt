@@ -57,10 +57,7 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
     **Create the IAM role:**
 
-    Service account names by installation method:
-
-    - Kubernetes: `aws-api-mcp-sa` (the chart's `mcpAddons.aws.serviceAccount.name`)
-    - CLI deployment: `aws-mcp-sa` (as defined in the manifest)
+    The MCP server runs as the service account `aws-api-mcp-sa` (the chart's `mcpAddons.aws.serviceAccount.name`). Use it as `SERVICE_ACCOUNT_NAME` below.
 
     ```bash
     # Get your OIDC provider URL
