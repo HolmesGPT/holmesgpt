@@ -10,6 +10,8 @@ By enabling this toolset, HolmesGPT will be able to interact with Cilium CNI and
 4. `hubble` CLI tool installed and configured (for Hubble tools)
 5. Appropriate RBAC permissions for Cilium resources
 
+In Kubernetes, the Holmes container image includes neither the `cilium` nor the `hubble` CLI, so these toolsets fail their prerequisite checks (`cilium status`, `hubble version` and `hubble status`) in the Holmes pod. They work in Kubernetes only when Holmes runs from a custom image that adds both CLIs.
+
 ## Configuration
 
 === "Holmes CLI"
