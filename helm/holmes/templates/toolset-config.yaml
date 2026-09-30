@@ -1,4 +1,4 @@
-{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
+{{- if or (.Values.toolsets | not | empty) .Values.mcpAddons.aws.enabled .Values.mcpAddons.gcp.enabled .Values.mcpAddons.azure.enabled .Values.mcpAddons.github.enabled .Values.mcpAddons.gitlabMcp.enabled .Values.mcpAddons.circleciMcp.enabled .Values.mcpAddons.sentry.enabled .Values.mcpAddons.prefect.enabled .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetes.enabled .Values.mcpAddons.confluenceMcp.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -137,6 +137,23 @@ data:
       )
     }}
     {{- $mcpServers = merge $mcpServers $gitlabMcpServers }}
+    {{- end }}
+    {{- if .Values.mcpAddons.circleciMcp.enabled }}
+    {{- $circleciMcpServers := dict "circleci" (dict
+        "description" "CircleCI CI/CD - pipelines, workflows, jobs, logs, artifacts, and deployments"
+        "config" (dict
+          "url" "https://mcp.circleci.com/v1/mcp"
+          "mode" "streamable-http"
+          "icon_url" "https://cdn.simpleicons.org/circleci/343434"
+          "health_check_tool" "get_me"
+          "extra_headers" (dict
+            "Authorization" "Bearer {{ env.CIRCLECI_API_TOKEN }}"
+          )
+        )
+        "llm_instructions" (include "holmes.circleciMcp.llmInstructions" . | trim)
+      )
+    }}
+    {{- $mcpServers = merge $mcpServers $circleciMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.sentry.enabled }}
     {{- $sentryMcpServers := dict "sentry" (dict
