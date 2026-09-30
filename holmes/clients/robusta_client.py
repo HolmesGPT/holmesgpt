@@ -13,14 +13,21 @@ from tenacity import (
 )
 
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
+from holmes.version import get_version
 
 HOLMES_GET_INFO_URL = f"{ROBUSTA_API_ENDPOINT}/api/holmes/get_info"
+SUPABASE_KEYS_URL = f"{ROBUSTA_API_ENDPOINT}/api/config/supabase-keys"
 TIMEOUT = 0.5
 
 # 429/5xx (gateway blips, overload) heal on retry; 4xx (bad token, unknown
 # account) doesn't, and retrying it would only delay startup.
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 FETCH_MODELS_ATTEMPTS = 5
+
+# The v3 catalog is an envelope that carries the account's opt-out. A platform
+# that does not serve it answers 404, the fetch fails like any other client
+# error, and the registry loads its legacy single-model entry.
+MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +45,14 @@ class RobustaModel(BaseModel):
 
 
 class RobustaModelsResponse(BaseModel):
+    # Relay's v3 envelope carries the account's effective catalog plus the
+    # flag that explains it: `robusta_ai_disabled` tells an agent that an
+    # empty catalog is the account's choice rather than a relay blip, so it
+    # must not fall back to the legacy Robusta entry. The envelope's other
+    # fields are the platform's own bookkeeping and are dropped here.
+    model_config = ConfigDict(extra="ignore")
     models: Dict[str, RobustaModel]
+    robusta_ai_disabled: bool = False
 
 
 def _is_retryable_fetch_error(exc: BaseException) -> bool:
@@ -67,6 +81,32 @@ def _log_fetch_retry(retry_state: RetryCallState) -> None:
     )
 
 
+@retry(
+    retry=retry_if_exception(_is_retryable_fetch_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=10),
+    reraise=True,
+)
+def _request_supabase_api_key(params: dict) -> Optional[str]:
+    response = requests.get(SUPABASE_KEYS_URL, params=params, timeout=10)
+    response.raise_for_status()
+    return response.json().get("api_key")
+
+
+def fetch_supabase_api_key(account_id: str, cluster: str) -> Optional[str]:
+    params = {
+        "account_id": account_id,
+        "cluster": cluster,
+        "component": "holmes",
+        "component_version": get_version(),
+    }
+    try:
+        return _request_supabase_api_key(params)
+    except Exception as e:
+        logger.warning(f"Failed to fetch the api key from relay: {e}")
+        return None
+
+
 # The model list is fetched once, at startup: losing that single request to a
 # transient relay/gateway blip degrades the agent to the legacy single-model
 # fallback for the pod's whole life (ROB-795). Retries stay bounded because
@@ -81,12 +121,12 @@ def _log_fetch_retry(retry_state: RetryCallState) -> None:
 )
 def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
     resp = requests.post(
-        f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v2",
+        MODELS_URL,
         json={"session_token": token, "account_id": account_id},
         timeout=10,
     )
     resp.raise_for_status()
-    return RobustaModelsResponse(models=resp.json())
+    return RobustaModelsResponse.model_validate(resp.json())
 
 
 def fetch_robusta_models(

@@ -39,13 +39,19 @@ All database connectors use `type: database` and share the same configuration pa
 
 === "Holmes Helm Chart"
 
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-connectors \
+      --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb' \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    additionalEnvVars:
-      - name: POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-credentials
-            key: url
+    extraEnvVarsSecrets:
+      - holmes-database-connectors
 
     toolsets:
       prod-postgres:
@@ -55,16 +61,28 @@ All database connectors use `type: database` and share the same configuration pa
         llm_instructions: "Production PostgreSQL database"
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-connectors \
+      --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
+      extraEnvVarsSecrets:
+        - holmes-database-connectors
 
       toolsets:
         prod-postgres:
@@ -72,6 +90,12 @@ All database connectors use `type: database` and share the same configuration pa
           config:
             connection_url: "{{ env.POSTGRES_URL }}"
           llm_instructions: "Production PostgreSQL database"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Configuration Options

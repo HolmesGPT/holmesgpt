@@ -23,9 +23,11 @@ import logging
 import os
 import ssl
 import threading
+import time
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
+import jwt
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
@@ -52,6 +54,15 @@ _RECONNECT_LOG_FULL_EVERY = 10
 # fires if that bound is bypassed (misconfig/regression), guaranteeing the
 # reconnect loop can never be stalled indefinitely by a hung auth call.
 _RECONNECT_SIGN_IN_TIMEOUT_SECONDS = 90
+
+# Must exceed the auth refresh interval so a tick lands inside it.
+_AUTH_REFRESH_LEEWAY_SECONDS = 300
+
+
+def _expires_within(token: str, seconds: float) -> bool:
+    # Signature is irrelevant; exp is our own claim.
+    exp = jwt.decode(token, options={"verify_signature": False})["exp"]
+    return exp - time.time() <= seconds
 
 
 # ---- channel topic helpers ----
@@ -328,7 +339,9 @@ class RealtimeWorker:
                 # own full teardown/reconnect on any failure signal.
                 unhealthy_reason = self._channel_unhealthy()
                 if unhealthy_reason is not None:
-                    logging.warning(
+                    # A first reconnect is routine and self-healing.
+                    logging.log(
+                        logging.INFO if reconnect_attempts == 0 else logging.WARNING,
                         "Realtime channel unhealthy (%s), reconnecting",
                         unhealthy_reason,
                     )
@@ -488,7 +501,7 @@ class RealtimeWorker:
         await self._connect_and_subscribe()
 
     async def _maybe_refresh_auth(self) -> None:
-        """Re-push the Supabase JWT to the realtime client if it rotated."""
+        """Re-push the Supabase JWT, re-signing in first if it is near expiry."""
         if not self._client:
             return
         try:
@@ -496,6 +509,11 @@ class RealtimeWorker:
             if session is None:
                 return
             new_jwt = session.access_token
+            if new_jwt and _expires_within(new_jwt, _AUTH_REFRESH_LEEWAY_SECONDS):
+                # Nothing else refreshes the JWT on a realtime-only path.
+                await asyncio.to_thread(self.dal.sign_in)
+                session = self.dal.client.auth.get_session()  # type: ignore[attr-defined]
+                new_jwt = session.access_token if session is not None else None
             if not new_jwt or new_jwt == self._last_auth_jwt:
                 return
             await self._client.set_auth(new_jwt)
