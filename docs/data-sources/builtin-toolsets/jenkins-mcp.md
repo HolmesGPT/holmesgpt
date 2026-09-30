@@ -30,7 +30,7 @@ The Jenkins MCP server uses HTTP Basic authentication. Encode your credentials:
 === "Linux / macOS"
 
     ```bash
-    echo -n "username:api_token" | base64
+    echo -n "username:api_token" | base64 | tr -d '\n'
     ```
 
 === "Windows (PowerShell)"
