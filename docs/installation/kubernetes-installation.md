@@ -134,7 +134,7 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
    ```
 
     !!! note "The namespace Holmes runs in"
-        This command installs Holmes into the namespace of your current kubectl context, `default` unless you set another. `helm list -A` shows the namespace of each release. Every Kubernetes secret your values read, through `extraEnvVarsSecrets` or `additionalEnvVars`, must be in that namespace: if one is missing, the Holmes pod does not start. It stays in `CreateContainerConfigError`, and its events show `Error: secret "<name>" not found`.
+        This command installs Holmes into the namespace of your current kubectl context, `default` unless you set another. `helm list -A` shows the namespace of each release. Every Kubernetes secret your values read, through `extraEnvVarsSecrets` or `additionalEnvVars`, must be in that namespace: if one is missing, the Holmes pod does not start. It stays in `CreateContainerConfigError`, and its events show `Error: secret "<name>" not found`. An `additionalEnvVars` entry whose `secretKeyRef` sets `optional: true` is the exception: the pod starts without that secret.
 
 ## Usage
 
