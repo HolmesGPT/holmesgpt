@@ -37,33 +37,46 @@ HolmesGPT queries your self-hosted Loki through your Grafana instance's datasour
 **Find your Loki datasource UID:**
 
 ```bash
-# Port forward to Grafana
+# If Grafana isn't already reachable from where you're running this, port-forward first:
 kubectl port-forward svc/grafana 3000:80
 
-# Get Loki datasource UID
+# Otherwise, replace http://localhost:3000 with the URL Holmes will use to reach Grafana
+# (e.g. https://grafana.example.com for an ingress, or the in-cluster service URL).
 curl -s -u admin:admin http://localhost:3000/api/datasources | jq '.[] | select(.type == "loki") | .uid'
 ```
+
+Pick the `api_url` that matches where Holmes is running:
 
 ```yaml-toolset-config
 toolsets:
   grafana/loki:
     enabled: true
     config:
-      api_url: http://grafana.monitoring.svc.cluster.local  # Your Grafana URL
+      # In-cluster (Holmes running in Kubernetes):
+      api_url: http://grafana.monitoring.svc.cluster.local
+      # Out-of-cluster (Holmes CLI on a laptop, or Holmes running outside the cluster):
+      # api_url: https://grafana.example.com           # ingress / external hostname
+      # api_url: http://<external-ip-or-loadbalancer>  # external LoadBalancer
+      # api_url: http://localhost:3000                 # via `kubectl port-forward`
       api_key: <your grafana API key>
       grafana_datasource_uid: <the UID of the loki data source in Grafana>
 ```
 
 ### Self-Hosted Loki - Direct Connection
 
-HolmesGPT connects directly to a self-hosted Loki API endpoint without going through Grafana.
+HolmesGPT connects directly to a self-hosted Loki API endpoint without going through Grafana. Pick the `api_url` that matches where Holmes is running:
 
 ```yaml-toolset-config
 toolsets:
   grafana/loki:
     enabled: true
     config:
+      # In-cluster (Holmes running in Kubernetes):
       api_url: http://loki.monitoring.svc.cluster.local:3100
+      # Out-of-cluster (Holmes CLI on a laptop, or Holmes running outside the cluster):
+      # api_url: https://loki.example.com         # ingress / external hostname
+      # api_url: http://<external-ip>:3100        # external LoadBalancer
+      # api_url: http://localhost:3100            # via `kubectl port-forward svc/loki 3100:3100`
       additional_headers:
         X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Loki
 ```
