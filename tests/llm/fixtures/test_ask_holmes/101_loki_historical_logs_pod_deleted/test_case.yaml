@@ -19,7 +19,7 @@ tags:
   - loki
   - regression
 
-setup_timeout: 360  # Increased from 300 to handle pod deletion and Loki ingestion variability
+setup_timeout: 600  # Allow for readiness, slower ingestion on busy runners, and pod deletion
 
 port_forwards:
   - namespace: app-101
@@ -69,7 +69,7 @@ before_test: |
   LOG_COUNT=0
   HISTORICAL_COUNT=0
   ERROR_COUNT=0
-  while [ $(($(date +%s) - START_TIME)) -lt 120 ]; do
+  while [ $(($(date +%s) - START_TIME)) -lt 300 ]; do
     LOG_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
     HISTORICAL_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&start=2025-08-02T13:00:00Z&end=2025-08-02T15:00:00Z&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
     ERROR_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101",level="ERROR"}&start=2025-08-02T13:00:00Z&end=2025-08-02T15:00:00Z&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
