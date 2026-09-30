@@ -49,6 +49,10 @@ STORE_PASSWORD = os.environ.get("STORE_PASSWORD", "")
 ROBUSTA_AI = load_bool("ROBUSTA_AI", None)
 LOAD_ALL_ROBUSTA_MODELS = load_bool("LOAD_ALL_ROBUSTA_MODELS", True)
 ROBUSTA_API_ENDPOINT = os.environ.get("ROBUSTA_API_ENDPOINT", "https://api.robusta.dev")
+# Signing key for standalone installs without the runner's config file. Takes
+# precedence over global_config.signing_key in ROBUSTA_CONFIG_PATH; it must stay
+# stable across restarts because OAuth tokens in the DB are encrypted with it.
+ROBUSTA_SIGNING_KEY = os.environ.get("ROBUSTA_SIGNING_KEY", "").strip()
 
 LOG_PERFORMANCE = os.environ.get("LOG_PERFORMANCE", None)
 

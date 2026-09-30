@@ -16,7 +16,7 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from holmes.common.env_vars import DEFAULT_CLI_USER
+from holmes.common.env_vars import DEFAULT_CLI_USER, ROBUSTA_SIGNING_KEY
 from holmes.core.config import config_path_dir
 
 logger = logging.getLogger(__name__)
@@ -332,6 +332,8 @@ class DalTokenStore(TokenStore):
 
     @staticmethod
     def _get_signing_key() -> Optional[str]:
+        if ROBUSTA_SIGNING_KEY:
+            return ROBUSTA_SIGNING_KEY
         from holmes.config import Config
         return Config.get_robusta_global_config_value("signing_key")
 

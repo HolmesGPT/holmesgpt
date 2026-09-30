@@ -1,6 +1,7 @@
 """OAuth server callback endpoint helpers.
 
-Used by server.py for the /api/oauth/callback endpoint.
+Used by server.py for the /api/oauth/callback endpoint and by the remote
+tool-call worker for ``oauth_callback`` internal requests.
 Kept separate from oauth_utils.py to avoid circular imports
 (this module lazy-imports RemoteMCPToolset at call time).
 """
@@ -10,7 +11,8 @@ from typing import Any, List, Optional
 
 from holmes.core.models import OAuthCallbackRequest, OAuthCallbackResponse
 from holmes.core.oauth_config import OAuthConfigLookupError
-from holmes.core.oauth_utils import exchange_code_for_tokens
+from holmes.core.oauth_utils import _get_token_manager, exchange_code_for_tokens
+from holmes.core.tools import PrerequisiteCacheMode
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 
 logger = logging.getLogger(__name__)
@@ -106,3 +108,21 @@ def process_oauth_callback(
             logger.warning("Failed to preload tools after OAuth for %s", toolset.name, exc_info=True)
 
     return OAuthCallbackResponse(success=True)
+
+
+def handle_oauth_callback(
+    request: OAuthCallbackRequest, config: Any, dal: Any
+) -> OAuthCallbackResponse:
+    """Run an OAuth callback against the server's toolsets.
+
+    Raises :class:`OAuthConfigLookupError` / ``OAuthTokenExchangeError`` like
+    :func:`process_oauth_callback`; callers map them to their transport.
+    """
+    executor = config.create_tool_executor(
+        dal=dal,
+        reuse_executor=True,
+        prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+    )
+    return process_oauth_callback(
+        request, executor.toolsets, _get_token_manager(), executor=executor
+    )
