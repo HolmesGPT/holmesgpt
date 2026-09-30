@@ -83,7 +83,7 @@ In Kubernetes, the browser login and the stored token go through the Robusta pla
 !!! tip "Running Holmes headlessly?"
     OAuth requires a browser consent screen. To connect the same Atlassian Rovo MCP server with a static credential instead, see [Atlassian Rovo (MCP)](builtin-toolsets/atlassian-rovo-mcp.md).
 
-### Step 1: Set up the Atlassian side
+**Step 1: Set up the Atlassian side**
 
 CLI users can skip this step.
 
@@ -97,7 +97,7 @@ CLI users can skip this step.
     | EU | `https://platform.eu.robusta.dev/**` |
     | AP | `https://platform.ap.robusta.dev/**` |
 
-### Step 2: Configure HolmesGPT
+**Step 2: Configure HolmesGPT**
 
 In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
 
