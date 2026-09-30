@@ -1,6 +1,5 @@
 """Holmes's own pods/logs (the ``holmes_logs`` internal request kind)."""
 
-import logging
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -24,9 +23,7 @@ from kubernetes.client.rest import ApiException
 from holmes.core import self_logs
 from holmes.core.self_logs import (
     HolmesLogsRequest,
-    RingBufferLogHandler,
     get_holmes_logs,
-    install_memory_log_handler,
     label_selector_for,
 )
 
@@ -40,9 +37,6 @@ def _pod_env(monkeypatch, tmp_path):
     monkeypatch.setenv("POD_NAMESPACE", NS)
     monkeypatch.setenv("HOSTNAME", OWN)
     monkeypatch.setattr(self_logs, "_SERVICEACCOUNT_NAMESPACE_FILE", tmp_path / "absent")
-    handler = RingBufferLogHandler(capacity=5)
-    monkeypatch.setattr(self_logs, "_memory_handler", handler)
-    return handler
 
 
 def _pod(name, labels=None, restarts=0, ready=True, containers=("holmes",), last_reason=None):
@@ -128,7 +122,6 @@ def test_kubernetes_pods_and_logs():
 
     data = get_holmes_logs(HolmesLogsRequest(tail_lines=100, previous=True), core_api_factory=lambda: api)
 
-    assert data["source"] == "kubernetes"
     assert data["namespace"] == NS
     assert data["error"] is None
     api.read_namespaced_pod.assert_called_once_with(name=OWN, namespace=NS)
@@ -169,7 +162,6 @@ def test_kubernetes_pods_and_logs():
 def test_include_logs_false_skips_log_reads():
     api = _api([_pod(OWN)])
     data = get_holmes_logs(HolmesLogsRequest(include_logs=False), core_api_factory=lambda: api)
-    assert data["source"] == "kubernetes"
     assert data["logs"] == []
     assert len(data["pods"]) == 1
     api.read_namespaced_pod_log.assert_not_called()
@@ -204,7 +196,6 @@ def test_previous_log_missing_is_reported_per_container():
         logs={(OWN, "holmes"): ApiException(status=400, reason="Bad Request")},
     )
     data = get_holmes_logs(HolmesLogsRequest(previous=True), core_api_factory=lambda: api)
-    assert data["source"] == "kubernetes"
     own_entry = next(e for e in data["logs"] if e["pod"] == OWN)
     assert own_entry["text"] == ""
     assert "HTTP 400" in own_entry["error"] and "previous logs" in own_entry["error"]
@@ -228,51 +219,33 @@ def test_total_output_is_bounded(monkeypatch):
     assert other_entry == {**other_entry, "text": "short\n", "truncated": False}
 
 
-# ---- memory fallback ----
+# ---- API server errors ----
 
 
-def _fill_memory(handler, n):
-    logger = logging.getLogger("holmes-self-logs-test")
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    for i in range(n):
-        handler.handle(logger.makeRecord(logger.name, logging.INFO, __file__, 0, f"mem {i}", None, None))
-
-
-def test_forbidden_own_pod_read_falls_back_to_memory(_pod_env):
-    _fill_memory(_pod_env, 8)
+def test_forbidden_own_pod_read_returns_error():
     api = MagicMock()
     api.read_namespaced_pod.side_effect = ApiException(status=403, reason="Forbidden")
     data = get_holmes_logs(HolmesLogsRequest(tail_lines=3), core_api_factory=lambda: api)
-    assert data["source"] == "memory"
     assert data["namespace"] == NS
-    assert data["pods"] == []
+    assert data["pods"] == [] and data["logs"] == []
     assert "HTTP 403 Forbidden" in data["error"] and OWN in data["error"]
-    assert data["logs"] == [
-        {"pod": OWN, "container": "holmes", "previous": False, "text": "mem 5\nmem 6\nmem 7", "truncated": False, "error": None}
-    ]
 
 
-def test_memory_buffer_is_bounded(_pod_env):
-    _fill_memory(_pod_env, 50)
-    assert _pod_env.tail(100) == [f"mem {i}" for i in range(45, 50)]
-
-
-def test_no_incluster_config_falls_back_to_memory():
+def test_no_incluster_config_returns_error():
     def _boom():
         raise RuntimeError("Service host/port is not set.")
 
-    data = get_holmes_logs(HolmesLogsRequest(previous=True), core_api_factory=_boom)
-    assert data["source"] == "memory"
+    data = get_holmes_logs(HolmesLogsRequest(), core_api_factory=_boom)
+    assert data["pods"] == [] and data["logs"] == []
     assert "Service host/port is not set" in data["error"]
-    assert "previous container logs are unavailable" in data["error"]
 
 
-def test_outside_kubernetes_falls_back_to_memory(monkeypatch):
+def test_outside_kubernetes_returns_error(monkeypatch):
     monkeypatch.delenv("POD_NAMESPACE")
     factory = MagicMock()
     data = get_holmes_logs(HolmesLogsRequest(), core_api_factory=factory)
-    assert data["source"] == "memory"
     assert data["namespace"] is None
+    assert "not running in Kubernetes" in data["error"]
     factory.assert_not_called()
 
 
@@ -287,37 +260,10 @@ def test_namespace_from_service_account_file(monkeypatch, tmp_path):
     api.read_namespaced_pod.assert_called_once_with(name=OWN, namespace="holmes-ns")
 
 
-def test_forbidden_log_reads_fall_back_to_memory_keeping_pods(_pod_env):
-    _fill_memory(_pod_env, 2)
+def test_forbidden_log_reads_are_reported_per_container_keeping_pods():
     forbidden = ApiException(status=403, reason="Forbidden")
     api = _api([_pod(OWN)], logs={(OWN, "holmes"): forbidden})
     data = get_holmes_logs(HolmesLogsRequest(), core_api_factory=lambda: api)
-    assert data["source"] == "memory"
     assert [p["name"] for p in data["pods"]] == [OWN]
-    assert data["logs"][0]["text"] == "mem 0\nmem 1"
-    assert "pods/log" in data["error"]
-
-
-def test_memory_fallback_with_other_pod_name_returns_no_logs(_pod_env):
-    _fill_memory(_pod_env, 2)
-    data = get_holmes_logs(
-        HolmesLogsRequest(pod_name=OTHER),
-        core_api_factory=MagicMock(side_effect=RuntimeError("no config")),
-    )
-    assert data["source"] == "memory"
-    assert data["logs"] == []
-    assert OTHER in data["error"]
-
-
-def test_install_memory_log_handler_is_idempotent(monkeypatch):
-    monkeypatch.setattr(self_logs, "_memory_handler", None)
-    root = logging.getLogger()
-    try:
-        first = install_memory_log_handler(capacity=10)
-        second = install_memory_log_handler(capacity=10)
-        assert first is second
-        assert root.handlers.count(first) == 1
-        logging.getLogger("x").warning("captured-line")
-        assert any("captured-line" in line for line in first.tail(10))
-    finally:
-        root.removeHandler(self_logs._memory_handler)
+    assert data["logs"][0]["text"] == ""
+    assert "HTTP 403 Forbidden" in data["logs"][0]["error"]

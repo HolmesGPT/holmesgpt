@@ -196,7 +196,7 @@ def _logs_row(payload=None):
 
 def test_holmes_logs_dispatch_parses_and_clamps_payload():
     worker = _worker()
-    data = {"source": "memory", "namespace": None, "pods": [], "logs": [], "error": None}
+    data = {"namespace": None, "pods": [], "logs": [], "error": None}
     with patch(f"{_WORKER}.get_holmes_logs", return_value=data) as get_logs:
         resp = worker._execute(
             _logs_row({"tail_lines": 999999, "previous": True, "pod_name": "holmes-1"})
@@ -218,7 +218,7 @@ def test_holmes_logs_defaults_when_payload_missing():
     row["tool_request"].pop("payload")
     with patch(
         f"{_WORKER}.get_holmes_logs",
-        return_value={"source": "memory", "namespace": None, "pods": [], "logs": [], "error": None},
+        return_value={"namespace": None, "pods": [], "logs": [], "error": None},
     ) as get_logs:
         resp = worker._execute(row)
     assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
@@ -234,7 +234,6 @@ def test_holmes_logs_defaults_when_payload_missing():
 def test_holmes_logs_large_result_is_gzipped():
     worker = _worker()
     data = {
-        "source": "kubernetes",
         "namespace": "robusta",
         "pods": [],
         "logs": [{"pod": "p", "container": "c", "previous": False, "text": "line\n" * 60_000, "truncated": False}],
