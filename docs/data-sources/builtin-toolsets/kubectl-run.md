@@ -7,6 +7,8 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
 
 ## Configuration
 
+With the chart, `kubectl run` needs permissions the chart's default RBAC does not grant: it creates the pod, attaches to it and deletes it when the command ends. The Helm values below add those rules. Unless `namespaceScopedRBAC` is `true`, the chart puts them in a ClusterRole, so Holmes can create pods in every namespace; with `namespaceScopedRBAC: true` they are limited to the release namespace, and `kubectl run` works only there.
+
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**:
@@ -32,6 +34,14 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
     When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
+    customClusterRoleRules:
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["create", "delete"]
+      - apiGroups: [""]
+        resources: ["pods/attach"]
+        verbs: ["create", "get"]
+
     toolsets:
       kubectl-run:
         enabled: true
@@ -58,6 +68,14 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
 
     ```yaml
     holmes:
+      customClusterRoleRules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["create", "delete"]
+        - apiGroups: [""]
+          resources: ["pods/attach"]
+          verbs: ["create", "get"]
+
       toolsets:
         kubectl-run:
           enabled: true
