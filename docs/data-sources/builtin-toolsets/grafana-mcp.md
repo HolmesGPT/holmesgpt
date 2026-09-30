@@ -21,7 +21,7 @@ Choose the setup that matches your Grafana version and deployment:
 
 For Grafana 10+ instances that support service accounts.
 
-#### Step 1: Create a service account token
+**Step 1: Create a service account token**
 
 1. In Grafana, go to **Administration** → **Users and Access** → **Service Accounts**
 2. Click **Add service account** and set the role to **Viewer**
@@ -29,11 +29,11 @@ For Grafana 10+ instances that support service accounts.
 4. Click **Add service account token** → **Generate token**
 5. Copy the token (starts with `glsa_...`)
 
-#### Step 2: Deploy the MCP server
+**Step 2: Deploy the MCP server**
 
 Deploy the MCP server using the [Grafana MCP setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/grafana).
 
-#### Step 3: Create Kubernetes Secret
+**Step 3: Create Kubernetes Secret**
 
 The MCP server reads its credentials from this secret, in the namespace you deploy it in:
 
@@ -44,7 +44,7 @@ kubectl create secret generic grafana-mcp-secret \
   -n <namespace>
 ```
 
-#### Step 4: Configure Holmes
+**Step 4: Configure Holmes**
 
 === "Holmes CLI"
 
@@ -184,13 +184,13 @@ For Grafana 9.x and earlier that do not support service accounts. API keys were 
 | 8.x - 10.x | Supported |
 | 11+ | Deprecated / removed — use service account tokens instead |
 
-#### Step 1: Create an API key
+**Step 1: Create an API key**
 
 1. In Grafana, go to **Configuration** → **API Keys**
 2. Click **Add API key**, set the role to **Viewer**, and click **Add**
 3. Copy the token (starts with `eyJ...`)
 
-#### Step 2: Verify the key works
+**Step 2: Verify the key works**
 
 Verify the key works before deploying using the [test script](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/grafana/api-token/test-grafana-api-key.sh):
 
@@ -198,11 +198,11 @@ Verify the key works before deploying using the [test script](https://github.com
 ./test-grafana-api-key.sh '<your-api-key>' '<your-grafana-url>'
 ```
 
-#### Step 3: Deploy the MCP server
+**Step 3: Deploy the MCP server**
 
 Deploy the MCP server using the [Grafana MCP setup guide](https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/grafana), but use the [api-token deployment](https://github.com/robusta-dev/holmes-mcp-integrations/blob/master/servers/grafana/api-token/deployment.yaml) instead of the default one.
 
-#### Step 4: Create Kubernetes Secret
+**Step 4: Create Kubernetes Secret**
 
 The MCP server reads its credentials from this secret, in the namespace you deploy it in:
 
@@ -213,7 +213,7 @@ kubectl create secret generic grafana-mcp-secret \
   -n <namespace>
 ```
 
-#### Step 5: Configure Holmes
+**Step 5: Configure Holmes**
 
 === "Holmes CLI"
 

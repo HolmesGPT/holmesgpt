@@ -283,7 +283,7 @@ For GitHub Enterprise Server, add the `host` configuration:
 
 Instead of a Personal Access Token, you can authenticate using a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). This deploys the `github-app-mcp` image which wraps the official GitHub MCP server with automatic installation token generation and caching — including support for a single App installed on **multiple organizations** (see "Multi-organization support" below).
 
-#### Step 1: Create a GitHub App
+**Step 1: Create a GitHub App**
 
 Follow [Creating a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) with these settings:
 
@@ -299,11 +299,11 @@ Follow [Creating a GitHub App](https://docs.github.com/en/apps/creating-github-a
     - **Pull requests**: Read and write
 - Click **Create GitHub App**
 
-#### Step 2: Generate a private key
+**Step 2: Generate a private key**
 
 On the App settings page, scroll to **Private keys** and click **Generate a private key**. A `.pem` file will be downloaded. See [Managing private keys](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps) for details.
 
-#### Step 3: Install the App
+**Step 3: Install the App**
 
 Install the App on your organization or repositories:
 
@@ -316,11 +316,11 @@ Note the **Installation ID** from the URL after installation: `https://github.co
 
 To reach more than one organization from a single deployment, see [Multi-organization support (alpha)](#multi-organization-support-alpha).
 
-#### Step 4: Note the App ID
+**Step 4: Note the App ID**
 
 Find the **App ID** on the App's settings page (under "About").
 
-#### Step 5: Configure Holmes
+**Step 5: Configure Holmes**
 
 With the chart, a self-hosted MCP server pod is deployed using the `github-app-mcp` image, which generates and caches installation tokens internally.
 
@@ -661,7 +661,7 @@ kubectl exec -n YOUR_NAMESPACE deployment/github-mcp-server -- \
 
 **Solution:** Provide your organization's CA certificate to properly validate the connection:
 
-#### Step 1: Create a Kubernetes secret with your CA certificate
+**Step 1: Create a Kubernetes secret with your CA certificate**
 
 Create it in the namespace the GitHub MCP server runs in: the namespace Holmes runs in with the chart, `holmes-mcp` for a manual deployment.
 
@@ -671,7 +671,7 @@ kubectl create secret generic github-ca-cert \
   -n <namespace>
 ```
 
-#### Step 2: Configure the GitHub MCP addon to use the CA certificate
+**Step 2: Configure the GitHub MCP addon to use the CA certificate**
 
 With the chart, this reuses the `holmes-github-mcp` secret created in the [Basic Configuration](#basic-configuration) section above.
 

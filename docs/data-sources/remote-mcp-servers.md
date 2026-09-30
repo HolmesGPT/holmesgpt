@@ -124,7 +124,7 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 !!! warning "Stdio requires Supergateway for Kubernetes"
     In Kubernetes, stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
 
-### Step 1: Create a Docker image with your MCP server
+**Step 1: Create a Docker image with your MCP server**
 
 CLI users can skip this step and the next: the CLI runs the server as a subprocess.
 
@@ -145,7 +145,7 @@ EXPOSE 8000
 CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
 ```
 
-### Step 2: Deploy the MCP server pod
+**Step 2: Deploy the MCP server pod**
 
 ```yaml
 apiVersion: v1
@@ -192,7 +192,7 @@ spec:
   type: ClusterIP
 ```
 
-### Step 3: Configure HolmesGPT
+**Step 3: Configure HolmesGPT**
 
 === "Holmes CLI"
 
