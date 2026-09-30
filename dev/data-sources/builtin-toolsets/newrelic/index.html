@@ -5864,7 +5864,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Holmes Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
@@ -5892,7 +5892,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Robusta Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">holmes</span><span class="p">:</span>

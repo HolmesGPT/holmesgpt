@@ -6033,13 +6033,13 @@
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
 <p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd_1" name="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd" type="radio">
-<input id="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd_2" name="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd" type="radio">
-<input id="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd_3" name="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd" type="radio">
+<input checked="checked" id="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b_1" name="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b" type="radio">
+<input id="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b_2" name="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b" type="radio">
+<input id="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b_3" name="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd_1">Holmes CLI</label>
-<label for="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd_2">Holmes Helm Chart</label>
-<label for="__tabbed_63ad95e7_0904_4032_9e33_a335734b6dcd_3">Robusta Helm Chart</label>
+<label for="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b_1">Holmes CLI</label>
+<label for="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b_2">Holmes Helm Chart</label>
+<label for="__tabbed_a5f44fd1_32c3_4f69_98c7_2616bdb4561b_3">Robusta Helm Chart</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block">
@@ -6068,7 +6068,7 @@
             #additional_headers:
             #    Authorization: &quot;Basic &lt;base_64_encoded_string&gt;&quot;</code></pre>
 <p>Apply the configuration:</p>
-<pre><code class="language-bash">helm upgrade holmes holmes/holmes --values=values.yaml</code></pre>
+<pre><code class="language-bash">helm upgrade holmes robusta/holmes --values=values.yaml</code></pre>
 </div>
 <div class="tabbed-block">
 <p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
@@ -6268,7 +6268,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Holmes Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
@@ -6297,7 +6297,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Robusta Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">holmes</span><span class="p">:</span>
@@ -6359,7 +6359,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Holmes Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
@@ -6387,7 +6387,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Robusta Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nt">holmes</span><span class="p">:</span>

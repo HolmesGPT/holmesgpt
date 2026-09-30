@@ -5777,38 +5777,40 @@
 </ul>
 <h2 id="5-model-issues">5. Model Issues<a class="headerlink" href="#5-model-issues" title="Permanent link">&para;</a></h2>
 <p>Older LLM models lack reasoning capability for complex problems.</p>
-<p><strong>Solution:</strong>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">config</span><span class="p">:</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;anthropic/claude-sonnet-4-5-20250929&quot;</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">temperature</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">maxTokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2000</span>
-</span></code></pre></div></p>
+<p><strong>Solution:</strong> use a newer model. With the CLI, pass <code>--model</code> or set <code>model</code> in <code>~/.holmes/config.yaml</code>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;anthropic/claude-sonnet-4-5-20250929&quot;</span>
+</span></code></pre></div>
+<p>With the Holmes Helm chart, set the <code>MODEL</code> environment variable in your values:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MODEL</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">value</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;anthropic/claude-sonnet-4-5-20250929&quot;</span>
+</span></code></pre></div>
 <p>See <a href="../../development/evaluations/latest-results/">benchmark results</a> for detailed model performance comparisons.</p>
 <h2 id="6-extra-inputs-are-not-permitted-errors-from-the-llm-provider">6. <code>Extra inputs are not permitted</code> Errors From the LLM Provider<a class="headerlink" href="#6-extra-inputs-are-not-permitted-errors-from-the-llm-provider" title="Permanent link">&para;</a></h2>
 <p>Some providers reject messages that contain fields they don't recognize, producing errors like:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>litellm.BadRequestError: OpenAIException - messages.1.provider_specific_fields: Extra inputs are not permitted
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>litellm.BadRequestError: OpenAIException - messages.1.provider_specific_fields: Extra inputs are not permitted
 </span></code></pre></div>
 <p>This happens when LiteLLM attaches provider-specific metadata (e.g. <code>provider_specific_fields</code>) to assistant messages and those messages are later sent back to a provider that doesn't accept the field.</p>
 <p><strong>Solution:</strong> Set <code>LLM_EXTRA_STRIP_MESSAGE_FIELDS</code> to a comma-separated list of fields to strip before sending:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LLM_EXTRA_STRIP_MESSAGE_FIELDS</span><span class="o">=</span><span class="s2">&quot;provider_specific_fields&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">LLM_EXTRA_STRIP_MESSAGE_FIELDS</span><span class="o">=</span><span class="s2">&quot;provider_specific_fields&quot;</span>
 </span></code></pre></div>
 <p>Replace the value with whichever field is named in your error message. Multiple fields can be passed, e.g. <code>"provider_specific_fields,reasoning_content"</code>.</p>
 <h2 id="firewall-blocking-robusta-platform">7. Startup Fails with <code>Connection reset by peer</code><a class="headerlink" href="#firewall-blocking-robusta-platform" title="Permanent link">&para;</a></h2>
 <p>HolmesGPT crashes on startup while signing in to the Robusta platform, with a traceback ending in:</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>httpx.ConnectError: [Errno 104] Connection reset by peer
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>httpx.ConnectError: [Errno 104] Connection reset by peer
 </span></code></pre></div>
 <p>This means an <strong>outbound firewall or egress policy is blocking traffic from your cluster to the Robusta platform</strong>. The hostname resolves and the TLS certificate is valid, so it is not a DNS or certificate problem — the connection itself is being reset or refused.</p>
 <p><strong>Solution:</strong></p>
 <p>Allow outbound HTTPS (port 443) from the HolmesGPT pod to the Robusta platform — i.e. allowlist the <code>robusta.dev</code> domain (<code>*.robusta.dev</code>), which covers the <code>api.*</code> and <code>sp.*</code> subdomains across all regions.</p>
 <p>To confirm the block, run the one-off pod below. It <strong>auto-detects the Holmes pod's namespace and image</strong> and curls the platform from a fresh pod — the HolmesGPT pod itself crashes on this error (<code>CrashLoopBackOff</code>), so <code>kubectl exec</code> into it won't work. Reusing Holmes's own image means nothing new is pulled (the same firewall may also block image pulls) and it shares Holmes's CA and network config. Just pick your region — a firewall block shows <code>Connection reset by peer</code>, while a reachable endpoint returns JSON:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad_1" name="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad" type="radio">
-<input id="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad_2" name="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad" type="radio">
-<input id="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad_3" name="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad" type="radio">
+<input checked="checked" id="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af_1" name="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af" type="radio">
+<input id="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af_2" name="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af" type="radio">
+<input id="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af_3" name="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad_1">US</label>
-<label for="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad_2">EU</label>
-<label for="__tabbed_ef9bfd9c_157a_4250_8cf0_127e968a6bad_3">AP</label>
+<label for="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af_1">US</label>
+<label for="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af_2">EU</label>
+<label for="__tabbed_29efbd5b_0b90_43ab_835d_b905c4abc0af_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-bash">read -r NS IMG &lt;&lt;&lt;&quot;$(kubectl get pods -A -l app=holmes -o jsonpath=&#x27;{.items[0].metadata.namespace} {.items[0].spec.containers[0].image}&#x27;)&quot;

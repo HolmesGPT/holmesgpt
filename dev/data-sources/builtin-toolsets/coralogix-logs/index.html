@@ -5778,7 +5778,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Holmes Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">additionalEnvVars</span><span class="p">:</span>
@@ -5814,7 +5814,7 @@
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Namespace must match Holmes' deployment</p>
-<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab match each chart's documented defaults — adjust if you installed Holmes/Robusta into a different namespace. A secret in the wrong namespace silently resolves to an empty env var and authentication will fail with no clear error.</p>
+<p>Create the secret in the same namespace where Holmes runs. The <code>-n holmes</code> flag in the <strong>Holmes Helm</strong> tab and <code>-n default</code> in the <strong>Robusta Helm</strong> tab are examples: use the namespace you installed the chart into. The Holmes install guide passes no <code>-n</code>, so it installs Holmes into your kubectl context's namespace, <code>default</code> unless you set another. <code>helm list -A</code> shows each release's namespace. If the secret is not in that namespace, the Holmes pod does not start: it stays in <code>CreateContainerConfigError</code> and its events show <code>Error: secret "&lt;name&gt;" not found</code>.</p>
 </div>
 <p>Then add to your Robusta Helm values:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">holmes</span><span class="p">:</span>
@@ -5870,13 +5870,13 @@
 <li>
 <p>Open the Robusta platform — pick your region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd_1" name="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd" type="radio">
-<input id="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd_2" name="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd" type="radio">
-<input id="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd_3" name="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd" type="radio">
+<input checked="checked" id="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c_1" name="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c" type="radio">
+<input id="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c_2" name="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c" type="radio">
+<input id="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c_3" name="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd_1">US</label>
-<label for="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd_2">EU</label>
-<label for="__tabbed_c76bda84_9081_4c17_9b5e_4923ef1e0ffd_3">AP</label>
+<label for="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c_1">US</label>
+<label for="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c_2">EU</label>
+<label for="__tabbed_fac0d1f8_ea07_428f_895f_b246a73cc41c_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><p><a href="https://platform.robusta.dev/">platform.robusta.dev</a></p></div>
