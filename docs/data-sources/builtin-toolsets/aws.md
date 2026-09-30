@@ -217,7 +217,7 @@ In Kubernetes, for additional options (resources, network policy, node selectors
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-### Step 3: Verify the deployment
+**Step 3: Verify the deployment**
 
 In Kubernetes, check that the MCP server pod is running and its logs show no errors:
 

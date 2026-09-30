@@ -8,7 +8,7 @@ The [Azure API MCP server](https://github.com/Azure/azure-api-mcp) runs locally 
 
 **Prerequisites:** [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) must be installed with working credentials (`az account show` should succeed).
 
-### Step 1: Install the server
+**Step 1: Install the server**
 
 === "go install (recommended)"
 
@@ -49,7 +49,7 @@ The [Azure API MCP server](https://github.com/Azure/azure-api-mcp) runs locally 
     sudo mv azure-api-mcp /usr/local/bin/
     ```
 
-### Step 2: Add to `~/.holmes/config.yaml`
+**Step 2: Add to `~/.holmes/config.yaml`**
 
 ```yaml
 mcp_servers:
@@ -76,7 +76,7 @@ mcp_servers:
       See the Azure MCP documentation for comprehensive investigation patterns and common commands.
 ```
 
-### Step 3: Test it
+**Step 3: Test it**
 
 ```bash
 holmes ask "List all resource groups in my Azure subscription"
@@ -375,13 +375,13 @@ The manifest ([`examples/azure-mcp-additional-instance.yaml`](https://github.com
 
     All resource names are built from a `replaceme` placeholder. You **must** replace it with a unique name (Step 2) before applying. Deploying a second copy without changing it will **overwrite** the first instance's Secret, Deployment, Service, etc. The namespace placeholder is also mandatory so nothing lands in `default` by accident.
 
-#### Step 1: Download the manifest
+**Step 1: Download the manifest**
 
 ```bash
 curl -O https://raw.githubusercontent.com/HolmesGPT/holmesgpt/master/examples/azure-mcp-additional-instance.yaml
 ```
 
-#### Step 2: Set a unique name and the namespace (required)
+**Step 2: Set a unique name and the namespace (required)**
 
 The manifest uses two placeholders that must be replaced before applying:
 
@@ -403,7 +403,7 @@ sed -i '' 's/replaceme/prod/g; s/NAMESPACE_REPLACE_ME/monitoring/g' azure-mcp-ad
 
 That example yields the `prod` instance in the `monitoring` namespace — i.e. `azure-prod-secret`, `azure-prod-configmap`, `azure-prod-serviceaccount`, `azure-prod-deployment`, `azure-prod-service`, and `azure-prod-networkpolicy`.
 
-#### Step 3: Set the credentials in the Secret
+**Step 3: Set the credentials in the Secret**
 
 Open the downloaded file and find the `Secret` block. **Leave `name` and `namespace` alone** — Step 2 already set them. Edit **only** the two credential values, replacing `YOUR_CLIENT_ID` and `YOUR_CLIENT_SECRET` with this account's service principal (create one with [Creating a Service Principal](#creating-a-service-principal-non-aks-clusters)):
 
@@ -419,7 +419,7 @@ stringData:
   AZURE_CLIENT_SECRET: "YOUR_CLIENT_SECRET"  # <-- EDIT: service principal password
 ```
 
-#### Step 4: Set the account details in the ConfigMap
+**Step 4: Set the account details in the ConfigMap**
 
 In the same file, find the `ConfigMap` block. Again **leave `name` and `namespace` alone**. Edit **only** `YOUR_TENANT_ID` and `YOUR_SUBSCRIPTION_ID`; keep `AZ_AUTH_METHOD: "service-principal"` unless you know you need a different method:
 
@@ -436,11 +436,11 @@ data:
   READ_ONLY_MODE: "true"                         # "false" to allow writes (use with caution)
 ```
 
-#### Step 5: (Optional) Remove the NetworkPolicy
+**Step 5: (Optional) Remove the NetworkPolicy**
 
 The manifest includes a NetworkPolicy that restricts the server to Holmes traffic. If your cluster does not enforce NetworkPolicies, delete that block (the last document in the file).
 
-#### Step 6: Apply the manifest
+**Step 6: Apply the manifest**
 
 ```bash
 kubectl apply -f azure-mcp-additional-instance.yaml
@@ -450,7 +450,7 @@ kubectl get pods -n monitoring -l app=azure-prod
 kubectl logs  -n monitoring -l app=azure-prod
 ```
 
-#### Step 7: Register the server with Holmes (Helm values)
+**Step 7: Register the server with Holmes (Helm values)**
 
 Add an `mcp_servers` entry pointing at the new Service, then upgrade the release. The examples below use the same `prod` / `monitoring` values from Step 2 — **adjust them to match the name and namespace you chose**:
 
