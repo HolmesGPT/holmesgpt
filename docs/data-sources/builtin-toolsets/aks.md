@@ -83,7 +83,7 @@ In Kubernetes, the Holmes container image does not include the Azure CLI, so thi
 
 You can configure additional Azure settings:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   aks/core:
     enabled: true

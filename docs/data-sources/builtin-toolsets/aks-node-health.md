@@ -84,7 +84,7 @@ In Kubernetes, the Holmes container image does not include the Azure CLI, so thi
 
 You can configure additional health check parameters:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   aks/node-health:
     enabled: true

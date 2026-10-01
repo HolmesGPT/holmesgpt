@@ -266,7 +266,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
 Then configure the connection:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   azure-sql-prod:
     type: database

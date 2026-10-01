@@ -81,7 +81,7 @@ In Kubernetes, the Holmes container image includes neither the `cilium` nor the 
 
 You can configure additional settings for enhanced functionality:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   cilium/core:
     enabled: true

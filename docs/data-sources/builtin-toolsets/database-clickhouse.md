@@ -221,7 +221,7 @@ ValueError: unconverted data remains: 789
 
 Enable JSONEachRow when you query tables that return high-precision `DateTime64` columns:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   clickhouse-otel-logs:
     type: database
