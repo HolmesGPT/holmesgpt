@@ -105,6 +105,17 @@ class TestSingleValueArrayWrap:
         )
         assert result["tags"] == ["important"]
 
+    @pytest.mark.parametrize("param_type", ["array", ["array", "null"], "object"])
+    def test_null_optional_param_passes_through(self, param_type):
+        result = coerce_params(
+            {"query": "node", "tag": None},
+            _schema(
+                query=ToolParameter(type="string"),
+                tag=ToolParameter(type=param_type, required=False),
+            ),
+        )
+        assert result == {"query": "node", "tag": None}
+
 
 # ---------------------------------------------------------------------------
 # String → integer
