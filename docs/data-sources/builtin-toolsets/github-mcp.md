@@ -465,7 +465,7 @@ A GitHub App installation token is scoped to a single installation — one organ
 
 Reuses the `holmes-github-mcp-app` secret created in the [Using a GitHub App](#using-a-github-app) section above.
 
-Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment. Recreate that secret without its `GITHUB_APP_INSTALLATION_ID` key first, since a key left in pins the server to one installation (see below):
+Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment. Recreate that secret without its `GITHUB_APP_INSTALLATION_ID` key first, since a key left in pins the server to one installation:
 
 === "Holmes Helm Chart"
 
@@ -508,7 +508,7 @@ Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, whi
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-- Install the same App on every organization or user account Holmes should reach, and omit `GITHUB_APP_INSTALLATION_ID` from the secret.
+- Install the same App on every organization or user account Holmes should reach.
 - The server discovers all installations at startup, and re-checks whenever a request names an organization it hasn't seen, so installing the App on a new organization requires no restart or config change.
 - Each tool call is routed to the right organization's credentials based on the `owner`/`org` it targets.
 - Requests that don't name an owner — and owners the App isn't installed on — use the first discovered installation.
