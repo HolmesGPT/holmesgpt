@@ -1,7 +1,9 @@
 """Explicitly simulated offline example; no Jev or LLM calls are made here."""
 
+from typing import Any
+
 from holmes.decision.models import (
-    Candidate, Claim, Decision, DecisionState, Diagnosis, ReasoningResult,
+    Candidate, Claim, Decision, DecisionState, DiagnosisDraft, ReasoningResult,
     TaskMemory, ToolOutput, ToolSpec,
 )
 
@@ -22,6 +24,7 @@ class DemoTools:
         return [ToolSpec(
             name=name, description=f"Simulated {name} observation for checkout",
             source="offline-fixture",
+            retry_safe=True,
             parameters={"type": "object", "properties": {"service": {"const": "checkout"}},
                         "required": ["service"], "additionalProperties": False},
         ) for name in self.observations]
@@ -31,22 +34,27 @@ class DemoTools:
 
 
 class DemoReasoner:
+    @staticmethod
+    def memory(state: DecisionState) -> TaskMemory:
+        return TaskMemory(facts=[
+            Claim(text=f"Collected scoped {e['tool']} observation ({e['status']})", evidence_ids=[e["id"]])
+            for e in state.evidence if e["status"] in {"success", "no_data"} and e["tool"] != "agent_read_evidence"
+        ])
+
     def reason(self, state: DecisionState) -> ReasoningResult:
         observed = {e["tool"] for e in state.evidence}
-        facts = [Claim(text=f"Collected {e['tool']} observation", evidence_ids=[e["id"]])
-                 for e in state.evidence]
         return ReasoningResult(
-            memory=TaskMemory(facts=facts),
+            memory=self.memory(state),
             candidates=[Candidate(
                 id=name, tool=name, arguments={"service": "checkout"},
                 purpose=f"Inspect {name}", direction="database" if "config" in name else "service-health",
             ) for name in DemoTools.observations if name not in observed],
         )
 
-    def report(self, state: DecisionState) -> Diagnosis:
-        ids = [e["id"] for e in state.evidence if e["status"] == "success"]
-        return Diagnosis(
-            summary="演示：checkout 超时与数据库连接池耗尽一致，配置中的连接数由 50 降为 10。",
+    def report(self, state: DecisionState) -> DiagnosisDraft:
+        ids = [e["id"] for e in state.evidence if e["status"] == "success" and e["tool"] != "agent_read_evidence"]
+        return DiagnosisDraft(
+            memory=self.memory(state),
             causes=[Claim(text="候选原因：连接池上限降低导致连接等待。", evidence_ids=ids)] if ids else [],
             verification_steps=["在测试环境恢复连接池配置，比较等待数和接口延迟。"],
             limitations=["这是确定性模拟数据；未调用 Jev、LLM 或生产数据源，未证明生产根因。"],
@@ -54,6 +62,6 @@ class DemoReasoner:
 
 
 class DemoDecisionProvider:
-    def decide(self, state: DecisionState) -> Decision:
-        choice = f"call:{state.candidates[0].id}" if state.candidates else "finish"
+    def decide(self, state: DecisionState, actions: dict[str, Any]) -> Decision:
+        choice = next((key for key in actions if key.startswith("call:")), "finish")
         return Decision(choice=choice, confidence=1)

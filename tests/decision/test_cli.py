@@ -16,6 +16,9 @@ def test_demo_inspect_and_evidence_cli(tmp_path):
     task_id = result["state"]["task_id"]
     assert result["state"]["context"]["mode"] == "offline_simulation"
     assert result["state"]["tool_calls"] == 4
+    assert result["diagnosis"]["schema_version"] == 2
+    assert result["diagnosis"]["outcome"] == "candidate_causes"
+    assert len(result["state"]["memory"]["facts"]) == 4
     evidence_id = result["state"]["evidence"][0]["id"]
     inspection = runner.invoke(decision_app, ["inspect", task_id, "--database-url", url])
     assert inspection.exit_code == 0, inspection.output

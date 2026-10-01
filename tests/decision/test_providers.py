@@ -5,7 +5,8 @@ from unittest.mock import Mock
 import pytest
 import responses
 
-from holmes.decision.models import DecisionState, Diagnosis
+from holmes.decision.models import DecisionState, DiagnosisDraft, TaskMemory
+from holmes.decision.policy import available_actions
 from holmes.decision.providers import (
     DecisionServiceError, HolmesReasoner, JevDecisionProvider,
 )
@@ -18,10 +19,15 @@ def payload(choice="finish", confidence=0.9):
     }}, "usage": {"input_tokens": 200, "output_tokens": 30}}
 
 
+def decide(provider):
+    state = DecisionState(question="timeout")
+    return provider.decide(state, available_actions(state))
+
+
 def test_jev_uses_official_endpoint_and_choice_contract():
     with responses.RequestsMock() as http:
         http.add(responses.POST, JevDecisionProvider.endpoint, json=payload())
-        decision = JevDecisionProvider("test-only-key").decide(DecisionState(question="timeout"))
+        decision = decide(JevDecisionProvider("test-only-key"))
         assert decision.choice == "finish"
         assert decision.confidence == 0.9
         request = http.calls[0].request
@@ -41,19 +47,19 @@ def test_invalid_jev_responses_fail_closed(answer):
     with responses.RequestsMock() as http:
         http.add(responses.POST, JevDecisionProvider.endpoint, json=answer)
         with pytest.raises(DecisionServiceError):
-            JevDecisionProvider("test-key").decide(DecisionState(question="timeout"))
+            decide(JevDecisionProvider("test-key"))
 
 
 def test_jev_transient_error_retries_but_auth_error_does_not():
     with responses.RequestsMock() as http:
         http.add(responses.POST, JevDecisionProvider.endpoint, status=529)
         http.add(responses.POST, JevDecisionProvider.endpoint, json=payload())
-        JevDecisionProvider("test-key").decide(DecisionState(question="timeout"))
+        decide(JevDecisionProvider("test-key"))
         assert len(http.calls) == 2
     with responses.RequestsMock() as http:
         http.add(responses.POST, JevDecisionProvider.endpoint, status=401)
         with pytest.raises(DecisionServiceError, match="401"):
-            JevDecisionProvider("test-key").decide(DecisionState(question="timeout"))
+            decide(JevDecisionProvider("test-key"))
         assert len(http.calls) == 1
 
 
@@ -78,7 +84,21 @@ def test_holmes_llm_is_used_for_structured_reasoning_without_tool_execution():
 def test_report_schema_is_validated():
     llm = Mock()
     llm.completion.return_value = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-        content=Diagnosis(summary="Need a time window", limitations=["No observations"]).model_dump_json()
+        content=DiagnosisDraft(memory=TaskMemory(), limitations=["No observations"]).model_dump_json()
     ))])
     result = HolmesReasoner(llm).report(DecisionState(question="timeout"))
     assert result.causes == []
+
+
+def test_jev_receives_exact_runtime_actions_when_reasoning_is_unavailable():
+    state = DecisionState(question="timeout", reasoning_calls=5)
+    actions = available_actions(state)
+    answer = payload()
+    answer["answers"]["next_action"]["probabilities"] = {"finish": 0.9, "need_input": 0.1}
+    with responses.RequestsMock() as http:
+        http.add(responses.POST, JevDecisionProvider.endpoint, json=answer)
+        decision = JevDecisionProvider("test-key").decide(state, actions)
+        body = json.loads(http.calls[0].request.body)
+        assert body["questions"]["next_action"]["criteria"] == actions
+        assert "reason" not in actions
+        assert decision.choice == "finish"

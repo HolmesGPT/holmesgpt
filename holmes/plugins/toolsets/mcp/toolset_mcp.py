@@ -36,6 +36,7 @@ from holmes.core.oauth_utils import (
     generate_pkce,
 )
 from holmes.core.config import config_path_dir
+from holmes.core.tool_errors import classify_tool_error
 from holmes.core.tools import (
     ApprovalRequirement,
     CallablePrerequisite,
@@ -451,9 +452,12 @@ class RemoteMCPTool(Tool):
                 )
         except Exception as e:
             error_detail = _extract_root_error_message(e)
+            details = classify_tool_error(e)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=error_detail,
+                error_kind=details.kind,
+                retry_after_seconds=details.retry_after_seconds,
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
