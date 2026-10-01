@@ -279,8 +279,8 @@ The script creates a service account with ~50 read-only IAM roles, generates a k
 ### Troubleshooting
 
 ```bash
-# Find the MCP server pod
-POD=$(kubectl get pod -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server -o name | head -n 1)
+# Find the MCP server pod of your Holmes release
+POD=$(kubectl get pod -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server,app.kubernetes.io/instance=YOUR_RELEASE_NAME -o name | head -n 1)
 
 # Check if secret is mounted
 kubectl exec -n YOUR_NAMESPACE "$POD" -c gcloud-mcp -- ls -la /var/secrets/gcp/
@@ -292,7 +292,7 @@ kubectl exec -n YOUR_NAMESPACE "$POD" -c gcloud-mcp -- gcloud auth list
 gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:holmes-gcp-mcp@"
 
 # Check pod logs
-kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server --all-containers
+kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server,app.kubernetes.io/instance=YOUR_RELEASE_NAME --all-containers
 ```
 
 ## Common Use Cases
