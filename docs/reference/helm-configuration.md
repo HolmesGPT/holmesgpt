@@ -36,8 +36,6 @@ toolsets:
     enabled: true
   kubernetes/logs:
     enabled: true
-  robusta:
-    enabled: true
   internet:
     enabled: true
   prometheus/metrics:
@@ -137,8 +135,6 @@ toolsets:
     enabled: true      # Core Kubernetes functionality
   kubernetes/logs:
     enabled: true      # Kubernetes logs access
-  robusta:
-    enabled: true      # Robusta platform integration
   internet:
     enabled: true      # Internet access for documentation
   prometheus/metrics:
@@ -189,8 +185,6 @@ toolsets:
     enabled: true      # Core Kubernetes functionality
   kubernetes/logs:
     enabled: true      # Kubernetes logs access
-  robusta:
-    enabled: true      # Robusta platform integration
   internet:
     enabled: true      # Internet access for documentation
   prometheus/metrics:
@@ -269,8 +263,6 @@ toolsets:
     enabled: true
   kubernetes/logs:
     enabled: true
-  robusta:
-    enabled: false
   internet:
     enabled: false
   prometheus/metrics:
