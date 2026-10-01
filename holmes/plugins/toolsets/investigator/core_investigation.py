@@ -1,9 +1,9 @@
+import json
 import logging
 import os
 from typing import Any, Dict
-from uuid import uuid4
 
-display_logger = logging.getLogger("holmes.display.core_investigation")
+from pydantic import ValidationError
 
 from holmes.core.todo_tasks_formatter import format_tasks
 from holmes.core.tools import (
@@ -15,22 +15,31 @@ from holmes.core.tools import (
     Toolset,
     ToolsetTag,
 )
-from holmes.plugins.toolsets.investigator.model import Task, TaskStatus
+from holmes.plugins.toolsets.investigator.model import Task
+
+display_logger = logging.getLogger("holmes.display.core_investigation")
 
 TODO_WRITE_TOOL_NAME = "TodoWrite"
 
 
 def parse_tasks(todos_data: Any) -> list[Task]:
-    tasks = []
+    if isinstance(todos_data, str):
+        try:
+            todos_data = json.loads(todos_data)
+        except (json.JSONDecodeError, ValueError):
+            todos_data = [todos_data]
 
-    for todo_item in todos_data:
-        if isinstance(todo_item, dict):
-            task = Task(
-                id=todo_item.get("id", str(uuid4())),
-                content=todo_item.get("content", ""),
-                status=TaskStatus(todo_item.get("status", "pending")),
-            )
-            tasks.append(task)
+    if not isinstance(todos_data, list):
+        todos_data = [todos_data] if todos_data else []
+
+    tasks = []
+    for item in todos_data:
+        if item:
+            try:
+                tasks.append(Task.model_validate(item))
+            except ValidationError:
+                display_logger.debug("Skipping invalid todo item")
+                continue
 
     return tasks
 
@@ -113,6 +122,8 @@ class TodoWriteTool(Tool):
                 response_data += formatted_tasks
             else:
                 response_data += "No tasks currently in the investigation plan."
+
+            params["todos"] = [t.to_dict() for t in tasks]
 
             return StructuredToolResult(
                 status=StructuredToolResultStatus.SUCCESS,
