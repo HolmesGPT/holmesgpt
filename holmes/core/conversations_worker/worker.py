@@ -4,18 +4,15 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, Union
 
 from starlette.requests import Request
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS,
-    CONVERSATION_WORKER_MAX_CONCURRENT,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
     CONVERSATION_WORKER_REALTIME_ENABLED,
-    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
 )
@@ -23,7 +20,14 @@ from holmes.core.conversations import build_chat_messages
 from holmes.core.conversations_worker.event_publisher import (
     ConversationEventPublisher,
 )
+from holmes.core.conversations_worker.executors import (
+    ConversationExecutor,
+    ExecutorSettings,
+    _ActiveTask,
+    is_valid_executor_name,
+)
 from holmes.core.conversations_worker.models import (
+    DEFAULT_EXECUTOR,
     EVENT_USER_MESSAGE,
     ConversationReassignedError,
     ConversationStatus,
@@ -63,25 +67,11 @@ ChatFunction = Callable[
     [ChatRequest, Request], Union["ChatResponse", "StreamingResponse"]
 ]
 
-# Saturation logging (ROB-759): the claim loop previously skipped claiming
-# with zero output when all executor slots were occupied, which looked
-# identical to a dead loop. Logging is transition-based, not periodic, so a
-# healthy busy worker stays quiet:
-#  * Saturation must persist CONTINUOUSLY for this long before the single
-#    INFO line is emitted. A worker churning through a backlog frees a slot
-#    on every completion (which wakes the claim loop synchronously), so its
-#    saturation clock keeps resetting and it never logs — no enter/exit
-#    flicker. Only a worker where nothing completes accumulates the full
-#    window.
-_SATURATION_LOG_AFTER_SECONDS = 60.0
-#  * The stuck-slot WARNING (in-flight age above
-#    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS while claiming is blocked)
-#    repeats at most this often.
-_STUCK_WARN_RATE_LIMIT_SECONDS = 300.0
+__all__ = ["ConversationWorker", "_ActiveTask"]
 
 # Shutdown handling. When the pod is asked to stop (SIGTERM from a rollout,
 # node drain, scale-down), whatever conversations we are mid-turn on are never
-# going to finish: the executor is not drained, the threads are daemons, and
+# going to finish: the executors are not drained, the threads are daemons, and
 # nothing else picks the row back up (the claim RPCs only take 'pending').
 # Before this, the row simply stayed 'running' with our now-dead assignee until
 # the pg_cron stale sweep retired it hours later — a spinner in the UI the whole
@@ -103,21 +93,12 @@ SHUTDOWN_ERROR_CODE = 5205
 # stale sweep, exactly as they did before.
 SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
 
-
-class _ActiveTask:
-    """An in-flight conversation: the task itself plus when it took its slot.
-
-    ``started`` is ``time.monotonic()`` and feeds the saturation/stuck-slot
-    logging; ``task`` is kept so the shutdown path can address the row (it
-    needs conversation_id + request_sequence, which the dict key alone no
-    longer suffices for once we have to write to the DB).
-    """
-
-    __slots__ = ("task", "started")
-
-    def __init__(self, task: "ConversationTask", started: float):
-        self.task = task
-        self.started = started
+# Unknown executor names beyond the pool cap are logged at most this often.
+_EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS = 300.0
+# Rows naming an executor this instance cannot run (pool cap reached) are
+# failed instead of left 'pending' forever; this many per discovery tick.
+EXECUTOR_UNAVAILABLE_ERROR_CODE = 5206
+_EXECUTOR_UNAVAILABLE_FAIL_BATCH = 20
 
 
 class ConversationWorker:
@@ -131,6 +112,14 @@ class ConversationWorker:
     Lifecycle: pending → running (claimed + processing) → completed/failed.
     The claim RPC lands a row directly in 'running' ('queued' is deprecated), so
     a conversation waiting for capacity stays 'pending'.
+
+    Executors (ROB-1369): every row names an executor. The worker starts with
+    NO executor pools — only the Realtime listener and a discovery loop. A pool
+    is created the first time a pending conversation names it (from a
+    'pending_conversations' broadcast carrying ``executor``, or from the
+    discovery poll, which asks the DB which executor names currently have
+    pending rows). Each pool claims only rows naming its executor, so 'manual'
+    user asks never wait behind 'auto' background investigations.
     """
 
     def __init__(
@@ -138,6 +127,7 @@ class ConversationWorker:
         dal: "SupabaseDal",
         config: "Config",
         chat_function: ChatFunction,
+        executor_settings: Optional[ExecutorSettings] = None,
     ):
         self.dal = dal
         self.config = config
@@ -148,30 +138,18 @@ class ConversationWorker:
         self.holmes_id = f"{hostname}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
         self._running = False
-        self._claim_thread: Optional[threading.Thread] = None
-        self._notify_event = threading.Event()
-        self._executor: Optional[ThreadPoolExecutor] = None
+        self._active_started = False
 
-        # In-flight (running) tasks, keyed by (conversation_id, request_sequence)
-        # — see ConversationTask.active_key — so overlapping turns of one
-        # conversation are counted separately for capacity. The value is the
-        # monotonic start time, so the claim loop can report how long each
-        # in-flight task has been holding a slot (ROB-759).
-        self._active_conversation_ids: Dict[Any, _ActiveTask] = {}
-        self._active_lock = threading.Lock()
+        self._executor_settings = executor_settings or ExecutorSettings.from_env()
+        self._executors: Dict[str, ConversationExecutor] = {}
+        self._executors_lock = threading.Lock()
+        self._last_executor_reject_log: Dict[str, float] = {}
 
-        # Saturation-transition logging state (ROB-759). _saturated_since is
-        # the start of the current CONTINUOUS zero-free-slots stretch (None
-        # when a claim attempt found free capacity); _saturation_logged marks
-        # that the one INFO line for this stretch was emitted (its matching
-        # exit line logs the total duration); _last_stuck_warn rate-limits
-        # the stuck-slot WARNING. None means "never warned" — do NOT use 0.0
-        # as the sentinel: time.monotonic() is seconds since boot on Linux,
-        # so on a freshly booted host `now - 0.0` can be below the rate-limit
-        # window and the FIRST warning would be silently suppressed.
-        self._saturated_since: Optional[float] = None
-        self._saturation_logged: bool = False
-        self._last_stuck_warn: Optional[float] = None
+        # Discovery loop: the safety-net poll (Realtime is at-most-once) and the
+        # target of executor-less wakeups (reconnects, older publishers). It
+        # asks the DB which executors have pending rows and wakes/creates them.
+        self._discovery_thread: Optional[threading.Thread] = None
+        self._discovery_event = threading.Event()
 
         # Guards the _running check + executor.submit against the stop() race.
         self._dispatch_lock = threading.Lock()
@@ -199,17 +177,15 @@ class ConversationWorker:
 
     def start(self) -> None:
         if not self.dal.enabled:
-            logging.info(
-                "ConversationWorker not started - Supabase DAL not enabled"
-            )
+            logging.info("ConversationWorker not started - Supabase DAL not enabled")
             return
         if self._running:
             logging.warning("ConversationWorker is already running")
             return
 
         # We mark the worker as running so stop() / status checks see a
-        # consistent state, but defer spinning up the executor, claim loop,
-        # and Realtime subscription until the verifier confirms Supabase
+        # consistent state, but defer spinning up the discovery loop and
+        # Realtime subscription until the verifier confirms Supabase
         # Realtime is actually enabled.  Until then we don't poll or
         # subscribe — that would be wasted load against a project that
         # doesn't support our use case.
@@ -233,19 +209,16 @@ class ConversationWorker:
 
     def _start_active_workers(self) -> None:
         """
-        Spin up the components that actually consume conversations — the
-        executor, the claim loop, and (optionally) the Realtime manager.
+        Spin up the components that consume conversations — the Realtime
+        manager (optional), the discovery loop and the tool-call worker.
+        Executor pools are NOT created here; see _get_or_create_executor.
 
         Called by the verifier once Supabase confirms Realtime is enabled.
         Idempotent: if already started (re-entrant call), returns early.
         """
-        if self._executor is not None or self._claim_thread is not None:
+        if self._active_started:
             return
-
-        self._executor = ThreadPoolExecutor(
-            max_workers=CONVERSATION_WORKER_MAX_CONCURRENT,
-            thread_name_prefix="conversation-worker",
-        )
+        self._active_started = True
 
         if CONVERSATION_WORKER_REALTIME_ENABLED:
             try:
@@ -263,34 +236,38 @@ class ConversationWorker:
                 )
                 self._realtime_manager = None
 
-        self._claim_thread = threading.Thread(
-            target=self._claim_loop,
+        self._discovery_event.clear()
+        self._discovery_thread = threading.Thread(
+            target=self._discovery_loop,
             daemon=True,
-            name="conversation-claim-loop",
+            name="conversation-executor-discovery",
         )
-        self._claim_thread.start()
+        self._discovery_thread.start()
 
         try:
-            self._tool_call_worker.start(
-                realtime_connected_fn=self._realtime_connected
-            )
+            self._tool_call_worker.start(realtime_connected_fn=self._realtime_connected)
         except Exception:
             logging.exception("Failed to start ToolCallWorker", exc_info=True)
 
         logging.info(
-            "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, realtime=%s)",
+            "ConversationWorker active (holmes_id=%s, account=%s, cluster=%s, "
+            "realtime=%s, builtin_executor_sizes=%s, base_size=%d, "
+            "account_executor_sizes=%s)",
             self.holmes_id,
             self.dal.account_id,
             self.dal.cluster,
             self._realtime_manager is not None,
+            self._executor_settings.builtin_sizes,
+            self._executor_settings.base_size,
+            self._account_executor_sizes(),
         )
 
     def stop(self) -> None:
         logging.info("Stopping ConversationWorker...")
         self._running = False
-        self._notify_event.set()
+        self._discovery_event.set()
         self._realtime_verify_stop.set()
-        # Retire whatever we're mid-turn on before tearing the pool down. Must
+        # Retire whatever we're mid-turn on before tearing the pools down. Must
         # happen while the rows still carry our assignee and 'running' status —
         # both RPCs guard on that. Flipping the status also makes any straggler
         # write from the in-flight thread fail with MISMATCH, which the
@@ -313,20 +290,27 @@ class ConversationWorker:
                 self._realtime_manager.stop()
             except Exception:
                 logging.exception("Error stopping realtime manager", exc_info=True)
-        # Let any in-flight _dispatch finish before shutting the executor down.
+        # Let any in-flight _dispatch finish before shutting the pools down.
+        # Only the non-blocking shutdown happens under the lock: joining a
+        # claim loop that is itself waiting on _dispatch_lock would deadlock.
         with self._dispatch_lock:
-            if self._executor:
-                # shutdown(wait=False): prevent new tasks from being accepted,
-                # but don't block on in-flight conversations.
-                self._executor.shutdown(wait=False)
-                self._executor = None
-        if self._claim_thread:
-            # Bounded join: the claim loop wakes up once per notify or poll
-            # interval and checks ``self._running``, so 5 seconds is plenty
-            # for the common case. If it's somehow stuck we still return
+            with self._executors_lock:
+                executors = list(self._executors.values())
+                self._executors = {}
+            for ex in executors:
+                try:
+                    ex.shutdown_pool()
+                except Exception:
+                    logging.debug("Executor %r stop failed", ex.name, exc_info=True)
+        for ex in executors:
+            ex.join()
+        if self._discovery_thread:
+            # Bounded join: the loop wakes once per notify or poll interval and
+            # checks ``self._running``; if it is somehow stuck we still return
             # promptly rather than hang the shutdown path.
-            self._claim_thread.join(timeout=5)
-            self._claim_thread = None
+            self._discovery_thread.join(timeout=5)
+            self._discovery_thread = None
+        self._active_started = False
         # Drop the realtime manager handle so a subsequent start() can
         # bring up a fresh one. The reference itself was already torn
         # down above via _realtime_manager.stop().
@@ -404,15 +388,13 @@ class ConversationWorker:
                     )
                 except Exception:
                     logging.exception(
-                        "Failed to update HolmesStatus after realtime "
-                        "verification",
+                        "Failed to update HolmesStatus after realtime " "verification",
                         exc_info=True,
                     )
-                # Spin up the executor, claim loop, and (if enabled)
-                # Realtime subscription now that we know they'll do useful
-                # work. If stop() raced us, _running is already False —
-                # don't bring up workers that will immediately need to be
-                # torn down.
+                # Spin up the discovery loop and (if enabled) Realtime
+                # subscription now that we know they'll do useful work. If
+                # stop() raced us, _running is already False — don't bring up
+                # workers that will immediately need to be torn down.
                 if self._running and not self._realtime_verify_stop.is_set():
                     try:
                         self._start_active_workers()
@@ -452,55 +434,114 @@ class ConversationWorker:
                 return  # stop() was called; bail out
             backoff = min(backoff * 2, max_backoff)
 
-    # ---- claim loop ----
+    # ---- executors ----
 
-    def _claim_loop(self) -> None:
-        # When Realtime is enabled, the SUBSCRIBED callback fires
-        # on_new_pending() which wakes this loop for the first claim —
-        # guaranteeing the subscription is established before we try to
-        # claim.  On reconnects the same callback fires again, ensuring
-        # we re-claim any conversations missed during disconnection.
-        # When Realtime is disabled, claim immediately on startup.
-        if self._realtime_manager is None:
-            self._try_claim_and_dispatch()
+    def executor_names(self) -> List[str]:
+        with self._executors_lock:
+            return sorted(self._executors)
 
-        while self._running:
-            if self._realtime_connected():
-                timeout = CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
-            else:
-                timeout = CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME
+    def _get_or_create_executor(self, name: str) -> Optional[ConversationExecutor]:
+        """The pool for ``name``, created on first use from the settings.
 
-            triggered = self._notify_event.wait(timeout=timeout)
-            if not self._running:
-                break
-            self._notify_event.clear()
-            # Per-tick trace (ROB-759): proves the loop is alive and shows
-            # whether a quiet worker is idle or out of capacity. Guarded so
-            # the lock acquisition and realtime check run only when DEBUG
-            # logging is actually enabled — this fires every poll tick.
-            if logging.getLogger().isEnabledFor(logging.DEBUG):
-                with self._active_lock:
-                    active = len(self._active_conversation_ids)
-                logging.debug(
-                    "Claim loop tick (triggered=%s, realtime=%s, active=%d/%d)",
-                    triggered,
-                    self._realtime_connected(),
-                    active,
-                    CONVERSATION_WORKER_MAX_CONCURRENT,
+        Returns None (and logs, rate-limited) for an invalid name or when the
+        process already holds ``max_executors`` pools — a bogus broadcast must
+        not be able to spawn unbounded thread pools. Discovery fails the
+        pending rows of such a name (see ``_fail_pending_rows_for_executor``)
+        so the request surfaces as an error instead of hanging.
+        """
+        if not is_valid_executor_name(name):
+            self._log_executor_reject("invalid executor name %r", name)
+            return None
+        with self._executors_lock:
+            ex = self._executors.get(name)
+        if ex is not None:
+            return ex
+        if not self._running or not self._active_started:
+            return None
+        # The size lookup may hit Supabase; keep it out of the lock so a slow
+        # read does not stall claim_pending_conversations for other executors.
+        size = self._executor_settings.size_for(name, self._account_executor_sizes())
+        with self._executors_lock:
+            ex = self._executors.get(name)
+            if ex is not None:
+                return ex
+            if not self._running or not self._active_started:
+                return None
+            if len(self._executors) >= self._executor_settings.max_executors:
+                self._log_executor_reject(
+                    "executor %r not created: %d executors already exist "
+                    "(CONVERSATION_WORKER_MAX_EXECUTORS)",
+                    name,
+                    len(self._executors),
                 )
-            try:
-                self._try_claim_and_dispatch()
-            except Exception:
-                logging.exception(
-                    "Error in ConversationWorker claim loop (triggered=%s)",
-                    triggered,
-                    exc_info=True,
-                )
+                return None
+            ex = ConversationExecutor(
+                name=name,
+                max_concurrent=size,
+                thread_ceiling=self._executor_settings.thread_ceiling,
+            )
+            self._executors[name] = ex
+            # Started under the lock so stop() cannot detach the pool between
+            # the insert and the start and leave an untracked claim loop.
+            ex.start(self._try_claim_and_dispatch)
+        return ex
 
-    def claim_pending_conversations(self) -> None:
+    def _account_executor_sizes(self) -> Dict[str, int]:
+        try:
+            return self.dal.get_conversation_executor_sizes() or {}
+        except Exception:
+            logging.warning(
+                "Could not read account executor sizes; using env/built-in",
+                exc_info=True,
+            )
+            return {}
+
+    def _refresh_executor_sizes(self) -> None:
+        """Apply account-setting changes (Settings → LLM Models / AI Triage) to
+        running pools; called on every discovery tick."""
+        with self._executors_lock:
+            executors = list(self._executors.values())
+        if not executors:
+            return
+        account_sizes = self._account_executor_sizes()
+        for ex in executors:
+            ex.set_max_concurrent(
+                self._executor_settings.size_for(ex.name, account_sizes)
+            )
+
+    def _log_executor_reject(self, msg: str, *args: Any) -> None:
+        # Rate-limited per message so one noisy cause cannot mask another.
+        now = time.monotonic()
+        last = self._last_executor_reject_log.get(msg)
+        if last is not None and now - last < _EXECUTOR_REJECT_LOG_RATE_LIMIT_SECONDS:
+            return
+        self._last_executor_reject_log[msg] = now
+        logging.warning(msg, *args)
+
+    def claim_pending_conversations(self, executor: Optional[str] = None) -> None:
         """Routing target for RealtimeWorker on 'pending_conversations'
-        broadcasts. Non-blocking: wakes the claim loop."""
-        self._notify_event.set()
+        broadcasts. Non-blocking.
+
+        A broadcast naming an executor wakes exactly that pool. A name without
+        a pool yet — and a broadcast without a name (an older publisher, a
+        (re)subscribe drain, a pgchanges notification) — goes through the
+        discovery loop, which asks the DB which executors have pending rows and
+        creates pools for those only, so a stray broadcast cannot spawn a pool
+        no row needs and use up the executor cap.
+        """
+        if executor is not None and is_valid_executor_name(executor):
+            with self._executors_lock:
+                ex = self._executors.get(executor)
+            if ex is not None:
+                ex.wake()
+                return
+        elif executor is not None:
+            self._log_executor_reject(
+                "pending_conversations broadcast named invalid executor %r; "
+                "falling back to discovery",
+                executor,
+            )
+        self._discovery_event.set()
 
     def _realtime_connected(self) -> bool:
         if self._realtime_manager is None:
@@ -510,107 +551,127 @@ class ConversationWorker:
         except Exception:
             return False
 
-    def _free_claim_slots(self) -> int:
-        """Pool slots free right now: MAX_CONCURRENT minus in-flight tasks.
+    # ---- discovery loop ----
 
-        Surplus stays 'pending' for the next poll or another instance to claim.
+    def _discovery_loop(self) -> None:
+        # When Realtime is enabled, the SUBSCRIBED callback fires
+        # claim_pending_conversations() which wakes this loop for the first
+        # discovery — guaranteeing the subscription is established before we
+        # try to claim. On reconnects the same callback fires again, so
+        # conversations missed during a disconnect are drained. When Realtime
+        # is disabled, discover immediately on startup.
+        if self._realtime_manager is None:
+            self._discover_and_wake()
+
+        while self._running:
+            if self._realtime_connected():
+                timeout = CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
+            else:
+                timeout = CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME
+
+            triggered = self._discovery_event.wait(timeout=timeout)
+            if not self._running:
+                break
+            self._discovery_event.clear()
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(
+                    "Executor discovery tick (triggered=%s, realtime=%s, executors=%s)",
+                    triggered,
+                    self._realtime_connected(),
+                    self.executor_names(),
+                )
+            try:
+                self._discover_and_wake()
+            except Exception:
+                logging.exception(
+                    "Error in ConversationWorker discovery loop (triggered=%s)",
+                    triggered,
+                    exc_info=True,
+                )
+
+    def _discover_and_wake(self) -> None:
+        """Ask the DB which executors have pending rows; wake (or create) each.
+
+        Existing pools are woken too — the poll is the at-most-once safety net
+        for a lost broadcast, and a woken pool with nothing to claim costs one
+        cheap RPC.
         """
-        with self._active_lock:
-            active = len(self._active_conversation_ids)
-        return CONVERSATION_WORKER_MAX_CONCURRENT - active
+        names: List[str] = self.dal.list_pending_conversation_executors()
+        self._refresh_executor_sizes()
+        for name in set(names) | set(self.executor_names()):
+            ex = self._get_or_create_executor(name)
+            if ex is not None:
+                ex.wake()
+            elif name in names and self._running and self._active_started:
+                self._fail_pending_rows_for_executor(name)
 
-    def _note_saturation(self) -> None:
-        """Transition-based logging for a claim attempt that found 0 free slots.
+    def _fail_pending_rows_for_executor(self, name: str) -> None:
+        """Claim and fail rows naming an executor this instance will never run.
 
-        Deliberately NOT edge-triggered: under a backlog every completed
-        conversation wakes the claim loop, which briefly sees a free slot and
-        immediately refills it — an enter/exit pair per completion would be
-        pure flicker. Instead the saturation clock must run CONTINUOUSLY for
-        _SATURATION_LOG_AFTER_SECONDS before the single INFO line is emitted;
-        any claim attempt that finds capacity resets it (see
-        _note_capacity_available). Full capacity under load is a normal state,
-        hence INFO; the WARNING is reserved for slots held longer than
-        CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS — an actual anomaly.
+        Every instance applies the same cap and name rule, so such a row would
+        otherwise sit 'pending' with no error until its claim window closes.
         """
-        now = time.monotonic()
-        if self._saturated_since is None:
-            self._saturated_since = now
+        if not is_valid_executor_name(name):
+            description = f"Invalid Holmes executor name {name!r}"
+        else:
+            description = (
+                f"No Holmes executor pool available for {name!r}: this agent "
+                f"already runs {len(self.executor_names())} executor pools "
+                f"(CONVERSATION_WORKER_MAX_EXECUTORS="
+                f"{self._executor_settings.max_executors}). Use 'manual' or "
+                f"'auto', or raise the limit."
+            )
+        try:
+            claimed = self.dal.claim_n_pending_conversations(
+                self.holmes_id, _EXECUTOR_UNAVAILABLE_FAIL_BATCH, executor=name
+            )
+        except Exception:
+            logging.exception(
+                "Failed to claim rows of unavailable executor %r", name, exc_info=True
+            )
             return
-        if (
-            not self._saturation_logged
-            and now - self._saturated_since >= _SATURATION_LOG_AFTER_SECONDS
-        ):
-            self._saturation_logged = True
-            with self._active_lock:
-                ages = sorted(
-                    (round(now - entry.started, 1), key)
-                    for key, entry in self._active_conversation_ids.items()
-                )
-            logging.info(
-                "Conversation claim capacity saturated for %.0fs: all %d slots "
-                "in use; pending conversations will not be claimed until one "
-                "finishes. In-flight (age_seconds, (conversation_id, "
-                "request_sequence)): %s",
-                now - self._saturated_since,
-                CONVERSATION_WORKER_MAX_CONCURRENT,
-                ages,
+        for conv in claimed:
+            task = self._build_task_from_conversation_row(conv, name)
+            if task is None:
+                continue
+            logging.warning(
+                "Failing conversation %s: %s", task.conversation_id, description
             )
-        if (
-            self._last_stuck_warn is None
-            or now - self._last_stuck_warn >= _STUCK_WARN_RATE_LIMIT_SECONDS
-        ):
-            with self._active_lock:
-                stuck = sorted(
-                    (round(now - entry.started, 1), key)
-                    for key, entry in self._active_conversation_ids.items()
-                    if now - entry.started
-                    >= CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS
-                )
-            if stuck:
-                self._last_stuck_warn = now
-                logging.warning(
-                    "Conversation slot(s) stuck: %d in-flight conversation(s) "
-                    "running longer than %.0fs while claiming is blocked at "
-                    "full capacity. Stuck (age_seconds, (conversation_id, "
-                    "request_sequence)): %s",
-                    len(stuck),
-                    CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
-                    stuck,
-                )
-
-    def _note_capacity_available(self, free: int) -> None:
-        """Reset the saturation clock; log the exit line if the enter line fired."""
-        if self._saturation_logged:
-            duration = time.monotonic() - (self._saturated_since or 0.0)
-            logging.info(
-                "Conversation claim capacity available again (free=%d) after "
-                "%.0fs saturated",
-                free,
-                duration,
+            self._fail_conversation(
+                task, description, error_code=EXECUTOR_UNAVAILABLE_ERROR_CODE
             )
-        self._saturated_since = None
-        self._saturation_logged = False
 
-    def _try_claim_and_dispatch(self) -> None:
-        # Claim only as many pending rows as we have free slots and submit each
-        # straight to the executor (the claim already set them 'running'). The
-        # surplus stays 'pending' for another instance. _process_conversation_safe
-        # wakes this loop to re-claim as slots free.
-        free = self._free_claim_slots()
+    # ---- claim + dispatch ----
+
+    def _try_claim_and_dispatch(self, executor: ConversationExecutor) -> None:
+        # Claim only as many pending rows naming this executor as it has free
+        # slots and submit each straight to its pool (the claim already set them
+        # 'running'). The surplus stays 'pending' for another instance.
+        # _process_conversation_safe wakes the executor to re-claim as slots free.
+        if not self._running:
+            # Shutting down: leave pending rows for another instance instead of
+            # claiming them only to retire them.
+            return
+        free = executor.free_slots()
         if free <= 0:
             # All slots occupied: pending rows stay unclaimed until a slot
-            # frees, and previously this returned with zero log output —
-            # indistinguishable from a dead claim loop (ROB-759).
-            self._note_saturation()
+            # frees. Logged transition-based so this is distinguishable from a
+            # dead claim loop (ROB-759).
+            executor.note_saturation()
             return
-        self._note_capacity_available(free)
-        claimed = self.dal.claim_n_pending_conversations(self.holmes_id, free)
+        executor.note_capacity_available(free)
+        claimed = self.dal.claim_n_pending_conversations(
+            self.holmes_id, free, executor=executor.name
+        )
         if claimed:
             logging.info(
-                "Claimed %d conversation(s) (free slots=%d)", len(claimed), free
+                "Executor %r claimed %d conversation(s) (free slots=%d)",
+                executor.name,
+                len(claimed),
+                free,
             )
         for conv in claimed:
-            task = self._build_task_from_conversation_row(conv)
+            task = self._build_task_from_conversation_row(conv, executor.name)
             if task is None:
                 cid = conv.get("conversation_id")
                 seq = conv.get("request_sequence")
@@ -623,6 +684,7 @@ class ConversationWorker:
                                 cluster_id=conv.get("cluster_id", ""),
                                 origin=conv.get("origin", ""),
                                 request_sequence=int(seq),
+                                executor=executor.name,
                             ),
                             "Failed to parse conversation row",
                         )
@@ -639,35 +701,60 @@ class ConversationWorker:
                             exc_info=True,
                         )
                 continue
-            self._dispatch(task)
+            self._dispatch(task, executor)
 
-    def _dispatch(self, task: ConversationTask) -> None:
-        """Submit a claimed (already 'running') conversation to the executor.
+    def _dispatch(
+        self, task: ConversationTask, executor: Optional[ConversationExecutor] = None
+    ) -> None:
+        """Submit a claimed (already 'running') conversation to its executor.
 
         No DB write here — the claim set 'running'. A request_sequence bumped
         after the claim (stop/retry) is caught later as ConversationReassignedError.
         """
         with self._dispatch_lock:
-            if not self._running or self._executor is None:
-                return
-            with self._active_lock:
-                self._active_conversation_ids[task.active_key] = _ActiveTask(
-                    task, time.monotonic()
-                )
-            try:
-                self._executor.submit(self._process_conversation_safe, task)
-            except RuntimeError:
-                # Pool shut down (stop() raced); row stays 'running' and is
-                # recovered by the stale-conversation timeout sweep.
-                with self._active_lock:
-                    self._active_conversation_ids.pop(task.active_key, None)
-                logging.warning(
-                    "Executor shut down; dropping claimed conversation %s",
-                    task.conversation_id,
-                )
+            if self._running:
+                if executor is None:
+                    executor = self._get_or_create_executor(task.executor)
+                if executor is not None and executor.running:
+                    executor.track(task)
+                    try:
+                        executor.submit(self._process_conversation_safe, task)
+                        return
+                    except RuntimeError:
+                        executor.untrack(task)
+        # The claim already set the row 'running' with our assignee, and the
+        # shutdown sweep has run (or the pool is gone), so nothing else would
+        # ever finish it: retire it now the same way stop() retires in-flight
+        # turns, instead of leaving it for the stale-conversation sweep.
+        logging.warning(
+            "Executor %r unavailable; retiring claimed conversation %s",
+            task.executor,
+            task.conversation_id,
+        )
+        self._retire_unrunnable_task(task)
+
+    def _retire_unrunnable_task(self, task: ConversationTask) -> None:
+        try:
+            self._post_error_event(
+                task,
+                SHUTDOWN_ERROR_DESCRIPTION,
+                error_code=SHUTDOWN_ERROR_CODE,
+                reason=SHUTDOWN_REASON,
+            )
+            self._timeout_conversation(task)
+        except Exception:
+            logging.exception(
+                "Failed to retire claimed conversation %s",
+                task.conversation_id,
+                exc_info=True,
+            )
+
+    def _executor_for(self, task: ConversationTask) -> Optional[ConversationExecutor]:
+        with self._executors_lock:
+            return self._executors.get(task.executor)
 
     def _build_task_from_conversation_row(
-        self, conv: Dict[str, Any]
+        self, conv: Dict[str, Any], executor: Optional[str] = None
     ) -> Optional[ConversationTask]:
         try:
             return ConversationTask(
@@ -680,6 +767,9 @@ class ConversationWorker:
                 title=conv.get("title"),
                 # RLS-bound owner; the per-turn identity (see _process_conversation).
                 user_id=conv.get("user_id"),
+                # The pool that claimed the row wins over the column: a filtered
+                # claim can only return rows naming the claiming executor.
+                executor=executor or conv.get("executor") or DEFAULT_EXECUTOR,
             )
         except Exception:
             logging.exception(
@@ -773,8 +863,11 @@ class ConversationWorker:
         ``SHUTDOWN_RETIRE_BUDGET_SECONDS`` so a slow Supabase cannot hold the
         process past its termination grace period.
         """
-        with self._active_lock:
-            entries = list(self._active_conversation_ids.values())
+        with self._executors_lock:
+            executors = list(self._executors.values())
+        entries: List[_ActiveTask] = []
+        for ex in executors:
+            entries.extend(ex.active_entries())
         if not entries:
             return
 
@@ -855,10 +948,11 @@ class ConversationWorker:
                 task, "An internal error occurred while processing your request"
             )
         finally:
-            with self._active_lock:
-                self._active_conversation_ids.pop(task.active_key, None)
-            # A slot freed up — wake the claim loop to re-claim pending rows.
-            self._notify_event.set()
+            executor = self._executor_for(task)
+            if executor is not None:
+                executor.untrack(task)
+                # A slot freed up — wake this executor to re-claim pending rows.
+                executor.wake()
 
     def _process_conversation(self, task: ConversationTask) -> None:
         events = self.dal.get_conversation_events(task.conversation_id)
@@ -870,7 +964,8 @@ class ConversationWorker:
         # A follow-up may carry only tool_decisions / frontend_tool_results
         # (no new user question). Holmes resumes the prior assistant turn.
         resume_only = bool(
-            not ask and (data.get("tool_decisions") or data.get("frontend_tool_results"))
+            not ask
+            and (data.get("tool_decisions") or data.get("frontend_tool_results"))
         )
         if resume_only:
             ask = self._extract_last_user_ask(task.conversation_history) or "Continue"
@@ -880,7 +975,9 @@ class ConversationWorker:
                 "Conversation %s has no user question, marking as failed",
                 task.conversation_id,
             )
-            self._fail_conversation(task, "No user question found in conversation events")
+            self._fail_conversation(
+                task, "No user question found in conversation events"
+            )
             return
 
         publisher = ConversationEventPublisher(
@@ -909,7 +1006,8 @@ class ConversationWorker:
                 task.conversation_id,
             )
             self._fail_conversation(
-                task, "Conversation event identity does not match the conversation owner"
+                task,
+                "Conversation event identity does not match the conversation owner",
             )
             return
         resolved_user_id = task.user_id
@@ -923,6 +1021,7 @@ class ConversationWorker:
         )
         if not oauth_enabled:
             resolved_user_id = None
+
         def from_event_or_conversation(key: str) -> Any:
             # Per-event presence wins, not truthiness — so an explicit empty
             # value from the FE (e.g. "" to deliberately clear a field) keeps
@@ -1019,7 +1118,7 @@ class ConversationWorker:
         if current_user_idx >= 0:
             already_answered = any(
                 ev.get("event") in terminal_events
-                for ev in events[current_user_idx + 1:]
+                for ev in events[current_user_idx + 1 :]
             )
             if not already_answered:
                 task.user_message_data = events[current_user_idx].get("data") or {}
@@ -1196,7 +1295,7 @@ class ConversationWorker:
                         model=chat_request.model,
                         request_source=chat_request.request_source,
                     ),
-                }
+                },
             )
 
             # Build request_context with user_id so per-user OAuth tools resolve

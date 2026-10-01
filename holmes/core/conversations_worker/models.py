@@ -54,6 +54,13 @@ class RemoteToolCallStatus(str, Enum):
     TIMEOUT = "timeout"
 
 
+# Executor names (ROB-1369). A Conversations row's ``executor`` column names the
+# pool that must run it; callers may introduce further names without a Holmes
+# release (see ExecutorSettings in executors.py).
+DEFAULT_EXECUTOR = "manual"
+AUTO_EXECUTOR = "auto"
+
+
 class ConversationTask(BaseModel):
     """A claimed conversation ready for processing."""
 
@@ -62,6 +69,7 @@ class ConversationTask(BaseModel):
     cluster_id: str
     origin: str
     request_sequence: int
+    executor: str = DEFAULT_EXECUTOR
     metadata: Dict[str, Any] = Field(default_factory=dict)
     title: Optional[str] = None
     # Conversations.user_id (RLS-bound owner). The only identity source for

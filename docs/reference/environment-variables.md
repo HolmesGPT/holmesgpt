@@ -249,6 +249,26 @@ See [Tool Execution Safety](../data-sources/tool-execution-safety.md) for the fu
 export TOOL_MEMORY_LIMIT_MB=2000
 ```
 
+## Conversation Worker Executors
+
+The conversation worker (Robusta platform deployments) runs each conversation on a named **executor** pool. `Conversations.executor` names the pool: `manual` for live user asks (chat, follow-ups, a single "Investigate now") and `auto` for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Pools are created on demand and sized, in this order, from:
+
+1. the account setting `conversation_executors.<name>` (Settings → LLMs sets `manual`, Settings → Triage sets `auto`; applied live, no restart);
+2. `CONVERSATION_WORKER_MAX_CONCURRENT_<NAME>` (name upper-cased, `-` → `_`);
+3. the built-in default (`manual`=10, `auto`=2);
+4. `CONVERSATION_WORKER_MAX_CONCURRENT` (default 5) for any other name.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CONVERSATION_WORKER_MAX_CONCURRENT_MANUAL` | 10 | Concurrent live chats per agent |
+| `CONVERSATION_WORKER_MAX_CONCURRENT_AUTO` | 2 | Concurrent background investigations per agent |
+| `CONVERSATION_WORKER_MAX_CONCURRENT` | 5 | Size for executor names without a built-in default |
+| `CONVERSATION_WORKER_MAX_EXECUTORS` | 16 | Maximum executor pools per agent; rows naming a further executor are failed with an explanatory error |
+| `CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING` | 64 | Hard cap on any pool size (threads are created lazily) |
+| `CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC` | 60 | How long the account-setting sizes are cached |
+
+**Upgrade note.** Before executors existed, one shared pool of `CONVERSATION_WORKER_MAX_CONCURRENT` (5) ran everything. With the defaults above an agent now runs up to 12 conversations at once (10 `manual` + 2 `auto`), and `CONVERSATION_WORKER_MAX_CONCURRENT` no longer sizes those two pools. Deployments that tuned it should set `CONVERSATION_WORKER_MAX_CONCURRENT_MANUAL` / `_AUTO` (or the account setting) instead.
+
 ## HolmesGPT Configuration
 
 ### MODEL_LIST_FILE_LOCATION

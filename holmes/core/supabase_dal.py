@@ -36,6 +36,7 @@ from tenacity import (
 
 from holmes.clients.robusta_client import fetch_supabase_api_key
 from holmes.common.env_vars import (
+    CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC,
     ROBUSTA_ACCOUNT_ID,
     ROBUSTA_CONFIG_PATH,
     STORE_API_KEY,
@@ -150,6 +151,23 @@ class SupabaseDnsException(Exception):
         )
         super().__init__(message)
 
+
+
+def _is_missing_rpc_error(exc: Exception) -> bool:
+    """PostgREST PGRST202: the function (with these named args) is not in the
+    schema cache — i.e. the migration that adds it is not applied."""
+    code = getattr(exc, "code", None) or ""
+    message = (getattr(exc, "message", None) or str(exc) or "").lower()
+    return code == "PGRST202" or "could not find the function" in message
+
+
+class ExecutorRpcUnsupportedError(Exception):
+    """The database lacks the executor-aware conversation RPCs (ROB-1369).
+
+    robusta-storage migration 20260916073349 is deployed before Holmes, so
+    this is a deploy error: raised instead of retried, and surfaced by the
+    worker loops' error logging.
+    """
 
 class SupabaseConnectionException(Exception):
     """Raised when Holmes cannot open a connection to the Robusta platform.
@@ -299,6 +317,9 @@ class SupabaseDal:
             )
             hierarchy_ttl = 60
         self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
+        self.executor_sizes_cache: TTLCache = TTLCache(
+            maxsize=1, ttl=max(1, CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC)
+        )
         self.lock = threading.Lock()
 
     def __connect(self, options: ClientOptions):
@@ -854,6 +875,64 @@ class SupabaseDal:
             )
             return None
 
+    def get_conversation_executor_sizes(self) -> Dict[str, int]:
+        """Per-account executor pool sizes (ROB-1369):
+        ``AccountSettings.settings.conversation_executors`` — ``{name: size}``
+        written from the UI. Invalid entries are dropped; any read failure
+        returns {} so the worker falls back to env / built-in sizes. Cached.
+        """
+        if not self.enabled:
+            return {}
+        with self.lock:
+            cached = self.executor_sizes_cache.get("sizes")
+        if cached is not None:
+            return cached
+        sizes: Dict[str, int] = {}
+        try:
+            res = (
+                self.client.table(ACCOUNT_SETTINGS_TABLE)
+                .select("settings")
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+            settings = (res.data[0].get("settings") or {}) if res.data else {}
+            raw = settings.get("conversation_executors") or {}
+            if not isinstance(raw, dict):
+                logging.warning(
+                    "Ignoring malformed conversation_executors account setting: %r",
+                    raw,
+                )
+                raw = {}
+            for name, value in raw.items():
+                if isinstance(value, bool) or (
+                    isinstance(value, float) and not value.is_integer()
+                ):
+                    value = None
+                try:
+                    size = int(value)  # type: ignore[arg-type]
+                except (TypeError, ValueError):
+                    size = 0
+                if isinstance(name, str) and size > 0:
+                    sizes[name] = size
+                else:
+                    logging.warning(
+                        "Ignoring invalid conversation_executors entry %r=%r",
+                        name,
+                        value,
+                    )
+        except Exception:
+            # Cache the failure too: the discovery loop and every new executor
+            # ask for sizes, and a Supabase outage should not turn that into a
+            # request per tick.
+            logging.warning(
+                "Failed to read conversation_executors from AccountSettings; "
+                "using env/built-in executor sizes",
+                exc_info=True,
+            )
+        with self.lock:
+            self.executor_sizes_cache["sizes"] = sizes
+        return sizes
+
     def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
         """Read the per-account skill name-collision policy from AccountSettings.
 
@@ -1355,35 +1434,48 @@ class SupabaseDal:
         return None
 
     def claim_n_pending_conversations(
-        self, holmes_id: str, limit: int
+        self, holmes_id: str, limit: int, executor: Optional[str] = None
     ) -> List[Dict]:
         """
         Claim up to ``limit`` pending conversations (oldest first), landing them
         directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
         nothing. Returns the claimed rows (assignee=holmes_id).
+
+        ``executor`` restricts the claim to rows whose ``executor`` column
+        matches (ROB-1369); ``None`` claims any pending row. Raises
+        ``ExecutorRpcUnsupportedError`` when ``executor`` is given but the
+        database predates the executor-aware RPC signature (a deploy error).
         """
         if not self.enabled:
             return []
         if limit <= 0:
             return []
 
+        params: Dict[str, object] = {
+            "_account_id": self.account_id,
+            "_cluster_id": self.cluster,
+            "_assignee": holmes_id,
+            "_limit": limit,
+        }
+        if executor is not None:
+            params["_executor"] = executor
+
         # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
-            retry=retry_if_exception_type(Exception),
+            retry=retry_if_not_exception_type(ExecutorRpcUnsupportedError),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
             reraise=True,
         )
         def _claim_with_retry() -> List[Dict]:
-            res = self.client.rpc(
-                "claim_n_pending_conversations",
-                {
-                    "_account_id": self.account_id,
-                    "_cluster_id": self.cluster,
-                    "_assignee": holmes_id,
-                    "_limit": limit,
-                },
-            ).execute()
+            try:
+                res = self.client.rpc(
+                    "claim_n_pending_conversations", params
+                ).execute()
+            except Exception as exc:
+                if executor is not None and _is_missing_rpc_error(exc):
+                    raise ExecutorRpcUnsupportedError(str(exc)) from exc
+                raise
             if not res.data:
                 return []
             if isinstance(res.data, list):
@@ -1392,9 +1484,61 @@ class SupabaseDal:
 
         try:
             return _claim_with_retry()
+        except ExecutorRpcUnsupportedError:
+            raise
         except Exception:
             logging.exception(
                 "Supabase error while claiming conversations (after retries)",
+                exc_info=True,
+            )
+            return []
+
+    def list_pending_conversation_executors(self) -> List[str]:
+        """Distinct ``executor`` names of claimable pending conversations for this
+        account + cluster (ROB-1369). Raises ``ExecutorRpcUnsupportedError`` when
+        the database predates the RPC.
+        """
+        if not self.enabled:
+            return []
+
+        @retry(
+            retry=retry_if_not_exception_type(ExecutorRpcUnsupportedError),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
+            reraise=True,
+        )
+        def _list_with_retry() -> List[str]:
+            try:
+                res = self.client.rpc(
+                    "pending_conversation_executors",
+                    {"_account_id": self.account_id, "_cluster_id": self.cluster},
+                ).execute()
+            except Exception as exc:
+                if _is_missing_rpc_error(exc):
+                    raise ExecutorRpcUnsupportedError(str(exc)) from exc
+                raise
+            data = res.data
+            if not data:
+                return []
+            if not isinstance(data, list):
+                data = [data]
+            names: List[str] = []
+            for item in data:
+                # PostgREST returns a SETOF text as a bare list of strings; a
+                # TABLE-returning variant would yield {"executor": ...} rows.
+                value = item.get("executor") if isinstance(item, dict) else item
+                if isinstance(value, str) and value:
+                    names.append(value)
+            return names
+
+        try:
+            return _list_with_retry()
+        except ExecutorRpcUnsupportedError:
+            raise
+        except Exception:
+            logging.exception(
+                "Supabase error while listing pending conversation executors "
+                "(after retries)",
                 exc_info=True,
             )
             return []

@@ -229,6 +229,34 @@ CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
 )
 
+# Conversation executors (ROB-1369). Each Conversations row names the executor
+# that must run it ('manual' for live user asks, 'auto' for background work such
+# as alert triage and triggered workflows). Holmes creates an executor pool
+# lazily the first time a pending conversation names it. Pool size lookup order:
+#   1. AccountSettings.settings.conversation_executors[name]  (set from the UI)
+#   2. env CONVERSATION_WORKER_MAX_CONCURRENT_<NAME>            (e.g. _MANUAL)
+#   3. built-in per-name default in executors.py (manual=10, auto=2)
+#   4. env CONVERSATION_WORKER_MAX_CONCURRENT (only for names without a built-in)
+# Upgrade note: CONVERSATION_WORKER_MAX_CONCURRENT used to size the single shared
+# pool; it no longer sizes 'manual' or 'auto'. Set the _MANUAL / _AUTO variables
+# (or the account setting) to override those.
+CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX = "CONVERSATION_WORKER_MAX_CONCURRENT_"
+# Threads a pool is created with. Concurrency is enforced by the executor's
+# max_concurrent (slots claimed), so a live settings change up to this ceiling
+# takes effect without recreating the pool. Idle threads are never spawned.
+CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING = int(
+    os.environ.get("CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING", 64)
+)
+# Upper bound on distinct executor pools one Holmes process will create on
+# demand; a bogus broadcast must not be able to spawn unbounded thread pools.
+CONVERSATION_WORKER_MAX_EXECUTORS = int(
+    os.environ.get("CONVERSATION_WORKER_MAX_EXECUTORS", 16)
+)
+# How long the per-account executor sizes read from AccountSettings are cached.
+CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC = int(
+    os.environ.get("CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC", 60)
+)
+
 # Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
 # Tool calls run in their own pool so they never compete with user chats.
 TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))
