@@ -138,11 +138,11 @@ USER root
 USER node
 
 EXPOSE 8000
-# Replace with your MCP server command. Examples:
-#   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-#   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
-#   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
-CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
+# Replace with your MCP server command, passed to --stdio as one string. Examples:
+#   CMD ["--port", "8000", "--stdio", "python3 -m your_mcp_module"]
+#   CMD ["--port", "8000", "--stdio", "python3 /app/stdio_server.py"]
+#   CMD ["--port", "8000", "--stdio", "npx -y @your-org/your-mcp-server@latest"]
+CMD ["--port", "8000", "--stdio", "python3 -m your_mcp_module"]
 ```
 
 **Step 2: Deploy the MCP server pod**
