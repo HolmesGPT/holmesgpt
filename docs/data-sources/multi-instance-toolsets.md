@@ -41,7 +41,7 @@ The fields allowed inside each `instances:` entry are exactly the toolset's norm
 
 Any config field set **outside** `instances:` (at the top level of `config:`) becomes a default that every instance inherits unless the instance overrides it. This keeps settings that are common to all instances in one place:
 
-```yaml-toolset-config
+```yaml
 toolsets:
   grafana/dashboards:
     enabled: true
