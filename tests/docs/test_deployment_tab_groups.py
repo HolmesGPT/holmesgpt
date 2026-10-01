@@ -33,8 +33,8 @@ DEPLOYMENT_LIKE_RE = re.compile(r"\b(Holmes|Robusta|Helm)\b")
 TAB_RE = re.compile(r'^(?P<indent> *)=== "(?P<label>[^"]*)"\s*$')
 CODE_FENCE_RE = re.compile(r"^(?P<fence>`{3,})(?P<info>.*)$")
 
-SERVICE_ACCOUNT_LINE = "Holmes runs as the service account "
-TWO_SECRETS_CAPTION = "Create the Kubernetes secrets in the namespace Holmes runs in:"
+# The service account line, up to the name it states.
+SERVICE_ACCOUNT_LINE = cf.SERVICE_ACCOUNT_LINE.partition("`")[0]
 SECRET_COMMAND = "kubectl create secret generic "
 
 # Robusta platform pages, which set up the platform rather than Holmes and are
@@ -157,7 +157,7 @@ def holmes_tab_problems(first, body):
             i = closing + 1
             continue
         text = line.strip()
-        if text in (cf.SECRET_CAPTION, TWO_SECRETS_CAPTION):
+        if text in (cf.SECRET_CAPTION, cf.SECRETS_CAPTION):
             expecting = "secret"
         elif text == cf.HOLMES_VALUES_CAPTION:
             expecting = "values"
