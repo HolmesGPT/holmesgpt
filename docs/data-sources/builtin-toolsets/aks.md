@@ -11,7 +11,7 @@ By enabling this toolset, HolmesGPT will be able to interact with Azure Kubernet
 2. Appropriate Azure RBAC permissions for AKS clusters
 3. Access to the target AKS cluster
 
-In Kubernetes, the Holmes container image does not include the Azure CLI, so this toolset fails its prerequisite checks (`az account show`, `az aks --help`) in the Holmes pod. It works in Kubernetes only when Holmes runs from a custom image that adds the Azure CLI and signs it in to Azure. The [Azure MCP](azure-mcp.md) integration runs its own server and needs neither.
+This toolset runs only in the Holmes CLI. It is tagged `cli`, so the Holmes server, which is what runs in Kubernetes, does not load it, even when it is enabled. In Kubernetes, use the [Azure MCP](azure-mcp.md) integration instead.
 
 ## Configuration
 
@@ -38,52 +38,11 @@ In Kubernetes, the Holmes container image does not include the Azure CLI, so thi
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    toolsets:
-      aks/core:
-        enabled: true
-        config:
-          subscription_id: "<your Azure subscription ID>"
-          resource_group: "<your AKS resource group>"
-          cluster_name: "<your AKS cluster name>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      toolsets:
-        aks/core:
-          enabled: true
-          config:
-            subscription_id: "<your Azure subscription ID>"
-            resource_group: "<your AKS resource group>"
-            cluster_name: "<your AKS cluster name>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
-
 ## Advanced Configuration
 
 You can configure additional Azure settings:
 
-```yaml-toolset-config
+```yaml
 toolsets:
   aks/core:
     enabled: true
