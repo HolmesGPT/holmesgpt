@@ -27,7 +27,34 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
                 - "curl .*"
     ```
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    toolsets:
+      kubectl-run:
+        enabled: true
+        config:
+          allowed_images:
+            - image: "busybox:1.36"
+              allowed_commands:
+                - "nslookup .*"
+                - "ping -c 3 .*"
+            - image: "curlimages/curl:8.8.0"
+              allowed_commands:
+                - "curl .*"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -43,6 +70,12 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
               - image: "curlimages/curl:8.8.0"
                 allowed_commands:
                   - "curl .*"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Security

@@ -26,6 +26,12 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export NEW_RELIC_API_KEY=your-new-relic-user-api-key
+    ```
+
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
@@ -33,7 +39,7 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
       newrelic:
         enabled: true
         config:
-          api_key: "<your New Relic User API Key>"
+          api_key: "{{ env.NEW_RELIC_API_KEY }}"
           account_id: "<your New Relic account ID>"
           is_eu_datacenter: false  # Set to true if using New Relic EU region
           enable_multi_account: false  # Optional: set to true to query across multiple accounts
@@ -43,25 +49,19 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your User API Key:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic newrelic-credentials \
-      --from-literal=api-key=your-new-relic-user-api-key \
-      -n holmes
+    kubectl create secret generic holmes-newrelic \
+      --from-literal=NEW_RELIC_API_KEY=your-new-relic-user-api-key \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: NEW_RELIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: newrelic-credentials
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-newrelic
 
     toolsets:
       newrelic:
@@ -73,28 +73,29 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
           enable_multi_account: false  # Optional: set to true to query across multiple accounts
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your User API Key:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic newrelic-credentials \
-      --from-literal=api-key=your-new-relic-user-api-key \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-newrelic \
+      --from-literal=NEW_RELIC_API_KEY=your-new-relic-user-api-key \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: NEW_RELIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: newrelic-credentials
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-newrelic
+
       toolsets:
         newrelic:
           enabled: true
@@ -105,7 +106,11 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
             enable_multi_account: false  # Optional: set to true to query across multiple accounts
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Multiple Instances
 

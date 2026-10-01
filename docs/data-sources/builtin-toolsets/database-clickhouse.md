@@ -27,6 +27,15 @@ GRANT SELECT ON system.* TO holmes_readonly;
 
 ## Configuration
 
+**Connection URL format:**
+
+```
+clickhouse://[username]:[password]@[host]:[port]/[database]
+clickhouse+http://[username]:[password]@[host]:[port]/[database]
+```
+
+Note: Use native protocol (port 9000) or HTTP interface (port 8123).
+
 === "Holmes CLI"
 
     **~/.holmes/config.yaml:**
@@ -57,33 +66,21 @@ GRANT SELECT ON system.* TO holmes_readonly;
           connection_url: "{{ env.CLICKHOUSE_URL }}"
     ```
 
-    **Connection URL format:**
-    ```
-    clickhouse://[username]:[password]@[host]:[port]/[database]
-    clickhouse+http://[username]:[password]@[host]:[port]/[database]
-    ```
-
-    Note: Use native protocol (port 9000) or HTTP interface (port 8123).
-
 === "Holmes Helm Chart"
 
-    **Step 1: Create secret with credentials**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic clickhouse-credentials \
-      --from-literal=url='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n holmes
+    kubectl create secret generic holmes-database-clickhouse \
+      --from-literal=CLICKHOUSE_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
+      -n <namespace>
     ```
 
-    **Step 2: Configure in values.yaml**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: CLICKHOUSE_URL
-        valueFrom:
-          secretKeyRef:
-            name: clickhouse-credentials
-            key: url
+    extraEnvVarsSecrets:
+      - holmes-database-clickhouse
 
     toolsets:
       clickhouse-analytics:
@@ -93,20 +90,61 @@ GRANT SELECT ON system.* TO holmes_readonly;
         llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
     ```
 
-    **Multiple instances:**
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-clickhouse \
+      --from-literal=CLICKHOUSE_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: CLICKHOUSE_ANALYTICS_URL
-        valueFrom:
-          secretKeyRef:
-            name: clickhouse-analytics
-            key: url
-      - name: CLICKHOUSE_LOGS_URL
-        valueFrom:
-          secretKeyRef:
-            name: clickhouse-logs
-            key: url
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-database-clickhouse
+
+      toolsets:
+        clickhouse-analytics:
+          type: database
+          config:
+            connection_url: "{{ env.CLICKHOUSE_URL }}"
+          llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Multiple instances
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-clickhouse-instances \
+      --from-literal=CLICKHOUSE_ANALYTICS_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
+      --from-literal=CLICKHOUSE_LOGS_URL='clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs' \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-database-clickhouse-instances
 
     toolsets:
       clickhouse-analytics:
@@ -120,50 +158,29 @@ GRANT SELECT ON system.* TO holmes_readonly;
           connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic clickhouse-credentials \
-      --from-literal=url='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    **Step 2: Configure in values.yaml**
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-clickhouse-instances \
+      --from-literal=CLICKHOUSE_ANALYTICS_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
+      --from-literal=CLICKHOUSE_LOGS_URL='clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: CLICKHOUSE_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-credentials
-              key: url
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_URL }}"
-          llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CLICKHOUSE_ANALYTICS_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-analytics
-              key: url
-        - name: CLICKHOUSE_LOGS_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-logs
-              key: url
+      extraEnvVarsSecrets:
+        - holmes-database-clickhouse-instances
 
       toolsets:
         clickhouse-analytics:
@@ -175,6 +192,12 @@ GRANT SELECT ON system.* TO holmes_readonly;
           type: database
           config:
             connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Configuration Options

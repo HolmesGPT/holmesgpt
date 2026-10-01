@@ -36,7 +36,29 @@ By enabling this toolset, HolmesGPT will be able to interact with Azure Kubernet
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    toolsets:
+      aks/core:
+        enabled: true
+        config:
+          subscription_id: "<your Azure subscription ID>"
+          resource_group: "<your AKS resource group>"
+          cluster_name: "<your AKS cluster name>"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -49,7 +71,11 @@ By enabling this toolset, HolmesGPT will be able to interact with Azure Kubernet
             cluster_name: "<your AKS cluster name>"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Advanced Configuration
 

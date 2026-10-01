@@ -14,7 +14,13 @@ HolmesGPT supports three MCP transport modes:
 
 === "Holmes CLI"
 
-    Add to `~/.holmes/config.yaml`:
+    Set the environment variable:
+
+    ```bash
+    export DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY>
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     mcp_servers:
@@ -29,6 +35,10 @@ HolmesGPT supports three MCP transport modes:
         # llm_instructions tells Holmes WHEN and HOW to use this server
         llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+    To test, run:
 
     ```bash
     holmes ask "What services have high error rates in Dynatrace?"
@@ -36,15 +46,19 @@ HolmesGPT supports three MCP transport modes:
 
 === "Holmes Helm Chart"
 
-    Add to your Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-remote-mcp-servers \
+      --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY> \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: DYNATRACE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: mcp-credentials
-            key: api_key
+    extraEnvVarsSecrets:
+      - holmes-remote-mcp-servers
 
     mcp_servers:
       dynatrace:
@@ -59,22 +73,28 @@ HolmesGPT supports three MCP transport modes:
         llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade holmes robusta/holmes --values=values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    Add to your `generated_values.yaml`:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-remote-mcp-servers \
+      --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY> \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: DYNATRACE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: mcp-credentials
-              key: api_key
+      extraEnvVarsSecrets:
+        - holmes-remote-mcp-servers
 
       mcp_servers:
         dynatrace:
@@ -89,8 +109,10 @@ HolmesGPT supports three MCP transport modes:
           llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 The URL path depends on your MCP server (e.g., `/mcp/messages`, `/mcp`, or a custom path). Check your server's documentation.
@@ -98,6 +120,79 @@ The URL path depends on your MCP server (e.g., `/mcp/messages`, `/mcp`, or a cus
 ## Stdio
 
 Stdio mode runs MCP servers as subprocesses, communicating via standard input/output.
+
+!!! warning "Stdio requires Supergateway for Kubernetes"
+    In Kubernetes, stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
+
+**Step 1: Create a Docker image with your MCP server**
+
+CLI users can skip this step and the next: the CLI runs the server as a subprocess.
+
+```dockerfile
+FROM supercorp/supergateway:latest
+
+USER root
+# Install your MCP server dependencies
+# Example: RUN apk add --no-cache python3 py3-pip
+# Example: RUN pip3 install --no-cache-dir --break-system-packages your-mcp-package
+USER node
+
+EXPOSE 8000
+# Replace with your MCP server command. Examples:
+#   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
+#   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
+#   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
+CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
+```
+
+**Step 2: Deploy the MCP server pod**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ticket-db-mcp
+  labels:
+    app: ticket-db-mcp
+spec:
+  containers:
+    - name: supergateway
+      image: your-registry/your-mcp-server:latest
+      ports:
+        - containerPort: 8000
+      args:
+        - "--stdio"
+        # Replace with your MCP server command
+        # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
+        - "python3 -m your_mcp_module"
+        - "--port"
+        - "8000"
+        - "--logLevel"
+        - "debug"
+      env:
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: api_key
+      stdin: true
+      tty: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket-db-mcp
+spec:
+  selector:
+    app: ticket-db-mcp
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+```
+
+**Step 3: Configure HolmesGPT**
 
 === "Holmes CLI"
 
@@ -126,76 +221,7 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
 
 === "Holmes Helm Chart"
 
-    !!! warning "Stdio requires Supergateway for Kubernetes"
-        Stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
-
-    **Create a Docker image with your MCP server:**
-
-    ```dockerfile
-    FROM supercorp/supergateway:latest
-
-    USER root
-    # Install your MCP server dependencies
-    # Example: RUN apk add --no-cache python3 py3-pip
-    # Example: RUN pip3 install --no-cache-dir --break-system-packages your-mcp-package
-    USER node
-
-    EXPOSE 8000
-    # Replace with your MCP server command. Examples:
-    #   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    #   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
-    #   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
-    CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    ```
-
-    **Deploy the MCP server pod:**
-
-    ```yaml
-    apiVersion: v1
-    kind: Pod
-    metadata:
-      name: ticket-db-mcp
-      labels:
-        app: ticket-db-mcp
-    spec:
-      containers:
-        - name: supergateway
-          image: your-registry/your-mcp-server:latest
-          ports:
-            - containerPort: 8000
-          args:
-            - "--stdio"
-            # Replace with your MCP server command
-            # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
-            - "python3 -m your_mcp_module"
-            - "--port"
-            - "8000"
-            - "--logLevel"
-            - "debug"
-          env:
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: mcp-credentials
-                  key: api_key
-          stdin: true
-          tty: true
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: ticket-db-mcp
-    spec:
-      selector:
-        app: ticket-db-mcp
-      ports:
-        - protocol: TCP
-          port: 8000
-          targetPort: 8000
-      type: ClusterIP
-    ```
-
-    **Connect Holmes to the MCP server:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcp_servers:
@@ -208,82 +234,15 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
         llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade holmes robusta/holmes --values=values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    !!! warning "Stdio requires Supergateway for Kubernetes"
-        Stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
-
-    **Create a Docker image with your MCP server:**
-
-    ```dockerfile
-    FROM supercorp/supergateway:latest
-
-    USER root
-    # Install your MCP server dependencies
-    # Example: RUN apk add --no-cache python3 py3-pip
-    # Example: RUN pip3 install --no-cache-dir --break-system-packages your-mcp-package
-    USER node
-
-    EXPOSE 8000
-    # Replace with your MCP server command. Examples:
-    #   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    #   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
-    #   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
-    CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    ```
-
-    **Deploy the MCP server pod:**
-
-    ```yaml
-    apiVersion: v1
-    kind: Pod
-    metadata:
-      name: ticket-db-mcp
-      labels:
-        app: ticket-db-mcp
-    spec:
-      containers:
-        - name: supergateway
-          image: your-registry/your-mcp-server:latest
-          ports:
-            - containerPort: 8000
-          args:
-            - "--stdio"
-            # Replace with your MCP server command
-            # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
-            - "python3 -m your_mcp_module"
-            - "--port"
-            - "8000"
-            - "--logLevel"
-            - "debug"
-          env:
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: mcp-credentials
-                  key: api_key
-          stdin: true
-          tty: true
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: ticket-db-mcp
-    spec:
-      selector:
-        app: ticket-db-mcp
-      ports:
-        - protocol: TCP
-          port: 8000
-          targetPort: 8000
-      type: ClusterIP
-    ```
-
-    **Connect Holmes to the MCP server:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -297,8 +256,10 @@ Stdio mode runs MCP servers as subprocesses, communicating via standard input/ou
           llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
     ```
 
+    Apply the configuration:
+
     ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## SSE (Deprecated)
@@ -307,7 +268,7 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
 
 === "Holmes CLI"
 
-    Add to `~/.holmes/config.yaml`:
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     mcp_servers:
@@ -318,9 +279,13 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
           mode: sse
         llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
     ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
     mcp_servers:
       legacy_analytics:
@@ -331,7 +296,15 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
         llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -342,6 +315,12 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
             url: "http://analytics-mcp:8000/sse"
             mode: sse
           llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
@@ -356,11 +335,11 @@ For MCP servers that require OAuth authentication (e.g. Atlassian, Notion), see 
 
 MCP servers can forward HTTP headers from the incoming request to the MCP backend. Use `extra_headers` with Jinja2 templates referencing `request_context.headers`. Header lookups are case-insensitive. You can also use environment variables (`{{ env.MY_VAR }}`) or combine them (`Bearer {{ request_context.headers['token'] }}`).
 
-=== "Holmes CLI"
-
-    Not applicable — request context is only available when running Holmes as a server.
+This does not apply to the CLI: request context is only available when running Holmes as a server.
 
 === "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcp_servers:
@@ -374,7 +353,15 @@ MCP servers can forward HTTP headers from the incoming request to the MCP backen
         llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -387,6 +374,12 @@ MCP servers can forward HTTP headers from the incoming request to the MCP backen
             extra_headers:
               X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
           llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 For full details on template syntax, blocked headers, precedence rules, and examples for other toolset types, see [HTTP Header Propagation](header-propagation.md).
