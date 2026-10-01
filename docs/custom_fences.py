@@ -297,7 +297,9 @@ def _block_mapping(body: str):
     """The mapping `body` loads as, if it is a block mapping whose first key starts at
     the first column, below any comment lines, else None."""
     data = _load(body)
-    first = next(line for line in body.split("\n") if line.strip() and not line.startswith("#"))
+    first = next(
+        (line for line in body.split("\n") if line.strip() and not line.startswith("#")), ""
+    )
     return data if isinstance(data, dict) and re.match(r"[A-Za-z_]", first) else None
 
 
