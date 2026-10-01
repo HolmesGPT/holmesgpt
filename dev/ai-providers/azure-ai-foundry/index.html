@@ -1537,34 +1537,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Running in Kubernetes with Workload Identity">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#step-1-set-up-the-identity-and-federation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Set up the identity and federation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-2-configure-holmesgpt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Configure HolmesGPT
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
         
           <li class="md-nav__item">
@@ -5785,34 +5757,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Running in Kubernetes with Workload Identity">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#step-1-set-up-the-identity-and-federation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 1: Set up the identity and federation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-2-configure-holmesgpt" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 2: Configure HolmesGPT
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
         
           <li class="md-nav__item">
@@ -6090,7 +6034,7 @@
 <li>A managed identity with the <strong>Cognitive Services OpenAI User</strong> role on your Azure AI Foundry resource</li>
 <li>A federated credential linking the managed identity to the service account Holmes runs as, <code>&lt;service-account&gt;</code></li>
 </ul>
-<h4 id="step-1-set-up-the-identity-and-federation">Step 1: Set up the identity and federation<a class="headerlink" href="#step-1-set-up-the-identity-and-federation" title="Permanent link">&para;</a></h4>
+<p><strong>Step 1: Set up the identity and federation</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># Get the OIDC issuer URL</span>
 </span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="nv">OIDC_ISSUER</span><span class="o">=</span><span class="k">$(</span>az<span class="w"> </span>aks<span class="w"> </span>show<span class="w"> </span>-n<span class="w"> </span>&lt;cluster&gt;<span class="w"> </span>-g<span class="w"> </span>&lt;rg&gt;<span class="w"> </span>--query<span class="w"> </span><span class="s2">&quot;oidcIssuerProfile.issuerUrl&quot;</span><span class="w"> </span>-o<span class="w"> </span>tsv<span class="k">)</span>
 </span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
@@ -6114,9 +6058,9 @@
 </span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a><span class="w">  </span>--subject<span class="w"> </span><span class="s2">&quot;system:serviceaccount:&lt;namespace&gt;:&lt;service-account&gt;&quot;</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a><span class="w">  </span>--audiences<span class="w"> </span><span class="s2">&quot;api://AzureADTokenExchange&quot;</span>
 </span></code></pre></div>
-<h4 id="step-2-configure-holmesgpt">Step 2: Configure HolmesGPT<a class="headerlink" href="#step-2-configure-holmesgpt" title="Permanent link">&para;</a></h4>
+<p><strong>Step 2: Configure HolmesGPT</strong></p>
 <p>Note that <code>api_key</code> is omitted from the <code>modelList</code> entries — authentication is handled entirely by the workload identity token.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="step-2-configure-holmesgpt-holmes-helm-chart" name="__tabbed_2" type="radio" /><input id="step-2-configure-holmesgpt-robusta-helm-chart" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="step-2-configure-holmesgpt-holmes-helm-chart">Holmes Helm Chart</label><label for="step-2-configure-holmesgpt-robusta-helm-chart">Robusta Helm Chart</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="running-in-kubernetes-with-workload-identity-holmes-helm-chart" name="__tabbed_2" type="radio" /><input id="running-in-kubernetes-with-workload-identity-robusta-helm-chart" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="running-in-kubernetes-with-workload-identity-holmes-helm-chart">Holmes Helm Chart</label><label for="running-in-kubernetes-with-workload-identity-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>Holmes runs as the service account <code>holmes-holmes-service-account</code> (the chart's default; if you set <code>customServiceAccountName</code>, it runs as that name, and with <code>createServiceAccount: false</code>, as the namespace's <code>default</code> service account) in the deployment <code>holmes-holmes</code>. Use them as <code>&lt;service-account&gt;</code> and <code>&lt;holmes-deployment&gt;</code> on this page.</p>
