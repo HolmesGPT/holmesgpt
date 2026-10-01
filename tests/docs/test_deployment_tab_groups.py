@@ -6,10 +6,11 @@ A deployment tab group has only the tabs `Holmes CLI`, `Holmes Helm Chart` and
 `Robusta Helm Chart`, in that order. Its Holmes Helm Chart tab holds, in order:
 the service account line (when the page needs it), the secret step (when the
 values read a secret), the values step, and the upgrade step with
-`helm upgrade holmes robusta/holmes -f values.yaml`. Anything else fails with
-one error naming the page and line. A group a deployment fence renders is
-checked in the fence's expansion, and its errors name the fence's line.
-test_deployment_fences.py checks that every fence renders.
+`helm upgrade holmes robusta/holmes -f values.yaml`. Every deployment tab group
+is a deployment fence, checked in the fence's expansion with its errors naming
+the fence's line; a group written by hand in the page fails with one error
+naming the page and line. test_deployment_fences.py checks that every fence
+renders.
 """
 
 import re
@@ -175,8 +176,15 @@ def holmes_tab_problems(first, body):
     return problems
 
 
-def group_problems(lines):
-    """The ways the tab groups in `lines` depart from the standard, as (line, message)."""
+HAND_WRITTEN = (
+    "a deployment tab group written by hand; write it as a "
+    f"`{cf.TOOLSET_CONFIG_FENCE}` or `{cf.HELM_VALUES_FENCE}` fence"
+)
+
+
+def group_problems(lines, rendered):
+    """The ways the tab groups in `lines` depart from the standard, as (line, message).
+    A deployment tab group is allowed only in a fence's expansion (`rendered`)."""
     problems = []
     for number, labels, tabs in tab_groups(lines):
         deployment = [label for label in labels if label in DEPLOYMENT_LABELS]
@@ -184,6 +192,9 @@ def group_problems(lines):
             for label in labels:
                 if DEPLOYMENT_LIKE_RE.search(label):
                     problems.append((number, f"tab label {label!r} is not one of {', '.join(DEPLOYMENT_LABELS)}"))
+            continue
+        if not rendered:
+            problems.append((number, HAND_WRITTEN))
             continue
         if len(deployment) != len(labels):
             problems.append((number, f"deployment tabs mixed with other tabs: {labels}"))
@@ -220,11 +231,11 @@ def page_problems(path):
     rel = path.relative_to(DOCS).as_posix()
     lines = path.read_text().split("\n")
     try:
-        problems = [f"{rel}:{line}: {message}" for line, message in group_problems(lines)]
+        problems = [f"{rel}:{line}: {message}" for line, message in group_problems(lines, rendered=False)]
         for fence_line, group in fence_expansions(rel, lines):
             problems += [
                 f"{rel}:{fence_line}: the fence renders, at line {line} of its expansion: {message}"
-                for line, message in group_problems(group.split("\n"))
+                for line, message in group_problems(group.split("\n"), rendered=True)
             ]
     except FenceError as e:
         return [f"{rel}:{e.line}: {e}"]
