@@ -272,7 +272,7 @@ curl -O https://raw.githubusercontent.com/HolmesGPT/holmesgpt/master/examples/az
 The manifest uses two placeholders that must be replaced before applying:
 
 - `replaceme` → a **unique, DNS-safe** name for this instance (lowercase letters, digits, `-`), e.g. `prod`, `dev`, `tenant-a`. Every resource name and label is derived from it, so a unique value guarantees this instance never collides with another.
-- `NAMESPACE_REPLACE_ME` → the **same namespace the `robusta`/`holmes` release is installed in** (where the Holmes pod runs). Deploying into Holmes's own namespace keeps things simple: the Service resolves and the bundled NetworkPolicy matches the Holmes pods out of the box. It is set explicitly on every resource so nothing lands in `default` by accident.
+- `NAMESPACE_REPLACE_ME` → the **same namespace the Holmes release is installed in** (where the Holmes pod runs). Deploying into Holmes's own namespace keeps things simple: the Service resolves and the bundled NetworkPolicy matches the Holmes pods out of the box. It is set explicitly on every resource so nothing lands in `default` by accident.
 
 Not sure which namespace that is? Find it with:
 

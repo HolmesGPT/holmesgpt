@@ -98,7 +98,7 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
 
 
 !!! note "Keep the pod memory limit in sync"
-    Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. For the Robusta chart, pod resources live under `holmes.resources` in `generated_values.yaml`. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).
+    Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).
 
 ## Platform Notes
 

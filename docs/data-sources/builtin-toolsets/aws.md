@@ -31,7 +31,7 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
     # 2. Create IAM policy and role
     # IMPORTANT: --namespace must match the namespace where Holmes is deployed
-    # (e.g., "robusta" for Robusta Helm chart, or the release namespace for Holmes Helm chart)
+    # (the release namespace of the Holmes Helm chart)
     ./setup-irsa.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION --namespace YOUR_NAMESPACE
     ```
 

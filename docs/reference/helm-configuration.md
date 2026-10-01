@@ -54,7 +54,7 @@ toolsets:
 | `additionalEnvVars` | Environment variables (API keys, etc.) | `[]` |
 | `extraEnvVarsSecrets` | List of Kubernetes Secret names whose keys are auto-mounted as env vars on the Holmes pod. Enables the `envRef:VAR` sugar in `modelList`. | `[]` |
 | `toolsets` | Enable/disable specific toolsets | (see values.yaml) |
-| `modelList` | Configure multiple AI models for UI selection. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) | `{}` |
+| `modelList` | Configure multiple AI models; a request selects one with `model`. See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) | `{}` |
 | `openshift` | Enable OpenShift compatibility mode | `false` |
 | `image` | HolmesGPT image name | `holmes:0.0.0` |
 | `registry` | Container registry | `robustadev` |
@@ -241,7 +241,7 @@ enableAccountsCreate: true
 # MCP servers configuration
 mcp_servers: {}
 
-# Model list configuration for multiple AI providers (UI only)
+# Model list configuration for multiple AI providers (a request selects one with `model`)
 # See: https://holmesgpt.dev/ai-providers/using-multiple-providers/
 modelList: {}
 ```

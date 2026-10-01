@@ -10,7 +10,7 @@ Holmes ships with [built-in skills](#built-in-skills) that work out of the box. 
 
 ## Loading Custom Skills
 
-There are three ways to load custom skills, covered below. Within each, pick your deployment — Holmes OSS (CLI or Helm Chart) or HolmesGPT Enterprise (the Robusta Helm Chart) — to get the exact configuration to copy. Your deployment choice is remembered across the whole site, and you can change it anytime.
+There are three ways to load custom skills, covered below. Within each, pick your deployment — Holmes OSS (CLI or Helm Chart) — to get the exact configuration to copy. Your deployment choice is remembered across the whole site, and you can change it anytime.
 
 ### From a GitHub Repository
 

@@ -85,7 +85,7 @@ Run the following against **each target cluster** (switch your local `kubectl` c
 
     This creates `robusta-holmes-service-account` in the `default` namespace plus `robusta-holmes-cluster-role` and `robusta-holmes-cluster-role-binding`. Bump the chart version (`0.31.1`) to whatever is current.
 
-    **On clusters that already have Robusta installed via Helm:** `kubectl apply` will warn about a missing `kubectl.kubernetes.io/last-applied-configuration` annotation and "configure" the existing objects. The resources are functionally identical, but you've now created a co-management situation between Helm and `kubectl apply`. To keep them separate, change the release name in the `helm template` command (e.g. `helm template holmes-mcp …`) so it renders `holmes-mcp-holmes-*` resources alongside Helm's `robusta-holmes-*` ones. Update `SA_NAME` below to match.
+    **If the cluster already has a Holmes release with this name:** `kubectl apply` will warn about a missing `kubectl.kubernetes.io/last-applied-configuration` annotation and "configure" the existing objects. The resources are functionally identical, but you've now created a co-management situation between Helm and `kubectl apply`. To keep them separate, change the release name in the `helm template` command (e.g. `helm template holmes-mcp …`) so it renders `holmes-mcp-holmes-*` resources alongside Helm's `robusta-holmes-*` ones. Update `SA_NAME` below to match.
 
 Now mint a long-lived token for the SA and append a context to `./holmes-kubeconfig`:
 
@@ -308,10 +308,10 @@ Your AKS cluster must be configured for Azure AD authentication. Follow the [Mic
 
 1. In the Azure portal, go to **Microsoft Entra ID > App Registrations > New Registration**
 2. Enter a name (e.g., `holmes-k8s-mcp`), select **Accounts in this organizational directory only**, and click **Register**
-3. Under **Authentication > Platform configurations**, add a **Web** platform with the redirect URI matching your Robusta region:
+3. Under **Authentication > Platform configurations**, add a **Web** platform with the Holmes CLI's OAuth callback as the redirect URI. Holmes listens on a free port unless `HOLMES_OAUTH_CALLBACK_PORT` sets one, so set it and use the same port here:
 
-    ```robusta-region
-    https://platform.robusta.dev/oauth/callback.html
+    ```
+    http://127.0.0.1:<HOLMES_OAUTH_CALLBACK_PORT>/callback
     ```
 
 4. Under **API Permissions**, add the following delegated permissions:
@@ -395,7 +395,7 @@ kubectl create secret generic mcp-oauth-credentials \
 kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=k8s-mcp-server
 ```
 
-When you ask Holmes a Kubernetes question for the first time, the Robusta UI will open a Microsoft login window. After signing in, Holmes uses your Azure-issued token for every `kubernetes_*` call — RBAC is enforced per user on the API server.
+When you ask Holmes a Kubernetes question for the first time, the client opens a Microsoft login window. After signing in, Holmes uses your Azure-issued token for every `kubernetes_*` call — RBAC is enforced per user on the API server.
 
 ## Common Use Cases
 

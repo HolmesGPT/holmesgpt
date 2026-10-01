@@ -2,8 +2,6 @@
 
 The Grafana MCP server provides comprehensive access to your Grafana instance and its ecosystem. It enables Holmes to search dashboards, run PromQL and LogQL queries, investigate incidents, manage alerts, and explore metrics — all through a single MCP connection.
 
-!!! note "Coming soon"
-    The Grafana MCP server installation will be migrated to the Robusta Helm chart in the near future, simplifying setup to a single Helm values configuration.
 
 ## Prerequisites
 

@@ -144,7 +144,7 @@ Define multiple model configurations and switch between them by name. This is us
           type: enabled
     ```
 
-    When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+    When multiple providers are defined, users can specify the `model` parameter via the HTTP API.
 
 
 ## Model Parameters
@@ -186,7 +186,7 @@ Clients can specify the model in their API requests:
 
 ## Custom Model Pricing
 
-HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map. For first-party names (`gpt-5`, `claude-opus-4-5-20251101`) and standard Bedrock IDs LiteLLM already has prices, so the cost field is populated automatically. Robusta-hosted models also work without configuration: Holmes looks up pricing for the *real* upstream model name (e.g. `bedrock/us.anthropic.claude-opus-4-6-v1`) in LiteLLM's bundled map and registers it under the internal routing name automatically.
+HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map. For first-party names (`gpt-5`, `claude-opus-4-5-20251101`) and standard Bedrock IDs LiteLLM already has prices, so the cost field is populated automatically.
 
 You only need to add per-token pricing yourself if you're pointing Holmes at a model LiteLLM doesn't recognise — an internal OpenAI-compatible endpoint, a private-preview model, or a fork. In that case, add `input_cost_per_token` and `output_cost_per_token` (and optionally Anthropic cache pricing) to the model's entry:
 
