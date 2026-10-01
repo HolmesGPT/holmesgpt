@@ -465,7 +465,7 @@ A GitHub App installation token is scoped to a single installation — one organ
 
 Reuses the `holmes-github-mcp-app` secret created in the [Using a GitHub App](#using-a-github-app) section above.
 
-Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment:
+Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment. Recreate that secret without its `GITHUB_APP_INSTALLATION_ID` key first, since a key left in pins the server to one installation (see below):
 
 === "Holmes Helm Chart"
 
