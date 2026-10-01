@@ -29,7 +29,7 @@ By default, only the toolsets that are **useful exclusively inside a cluster** a
 | `bash` | ✅ *(pre-approved commands only)* | commands that need approval are denied remotely |
 | Everything else | ❌ | opt-in via `expose_remotely: true` |
 
-Notable opt-in toolsets — `openshift`, `kubevela` — default to **not exposed**. Enable them explicitly if you want them callable across clusters.
+Notable opt-in toolsets — `inspektor-gadget`, `cilium`, `openshift`, `kubevela` — default to **not exposed**. Enable them explicitly if you want them callable across clusters.
 
 Location-agnostic toolsets (a Grafana Cloud or Datadog endpoint reachable from anywhere) are **not** exposed by default: the caller can query those directly, so proxying them through another cluster only adds latency. You can still opt one in.
 
@@ -44,7 +44,7 @@ The `expose_remotely` flag lives alongside the toolset's other config. Set it to
     ```yaml
     toolsets:
       # Opt a normally-local toolset IN
-      helm/core:
+      cilium/core:
         enabled: true
         expose_remotely: true
 
@@ -59,7 +59,7 @@ The `expose_remotely` flag lives alongside the toolset's other config. Set it to
     ```yaml
     holmes:
       toolsets:
-        helm/core:
+        cilium/core:
           enabled: true
           expose_remotely: true
 
@@ -74,7 +74,7 @@ The `expose_remotely` flag lives alongside the toolset's other config. Set it to
 
     ```yaml
     toolsets:
-      helm/core:
+      cilium/core:
         enabled: true
         expose_remotely: true
 
