@@ -1,0 +1,34 @@
+## F5 Distributed Cloud (XC)
+
+Tools prefixed `f5xc_` query an F5 Distributed Cloud tenant: a SaaS platform that fronts applications
+with HTTP load balancers, WAF, bot defense and API security. Resources are grouped into namespaces.
+
+### Investigation workflow
+
+1. Use `f5xc_list_namespaces` to discover namespaces, then `f5xc_list_http_load_balancers` to find the
+   load balancer fronting the affected application (match by name or, with include_spec=true, by domain).
+2. For security questions ("is the app under attack?", "why are requests blocked?"), start with
+   `f5xc_aggregate_security_events` (compact totals), then drill into specific events with
+   `f5xc_query_security_events`.
+3. For traffic/error/latency questions, use `f5xc_query_request_logs` filtered by `rsp_code_class` or `rsp_code`.
+4. Use `f5xc_get_http_load_balancer` and `f5xc_list_origin_pools` (include_spec=true) to inspect
+   configuration: domains, routes, WAF policy, origin servers and health checks.
+
+### Query syntax (security events and request logs)
+
+- Label filter string: `{label="value", other=~"regex"}` with operators `=`, `=~`, `!=`, `!~`.
+- CRITICAL: the `vh_name` label is NOT the plain load balancer name. HTTP load balancers appear as
+  `ves-io-http-loadbalancer-<lb-name>`, TCP load balancers as `ves-io-tcp-loadbalancer-<lb-name>`.
+- Security event labels: `sec_event_type` (one of `waf_sec_event`, `bot_defense_sec_event`,
+  `api_sec_event`, `svc_policy_sec_event`), `vh_name`, `src_ip`.
+- Request log labels: `vh_name`, `rsp_code` ("403"), `rsp_code_class` ("2xx"/"3xx"/"4xx"/"5xx"),
+  `method`, `src_ip`, `req_path`, `domain`.
+- Omitting `query` matches everything in the namespace and time range.
+
+### Result handling
+
+- Results include `total_hits`; if it exceeds the returned count, narrow the query/time range or use
+  aggregation instead of fetching more pages.
+- A blocked request appears in security events with the matching WAF signature; the corresponding
+  request log shows the response code the client received (e.g. 403).
+- If a query returns no data, verify the `vh_name` prefix and namespace before concluding nothing happened.
