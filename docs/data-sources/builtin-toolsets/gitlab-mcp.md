@@ -334,7 +334,7 @@ Reuses the `holmes-gitlab-mcp` secret created in the [Configuration](#configurat
         auth:
           secretName: "holmes-gitlab-mcp"
         config:
-          apiUrl: "https://gitlab.internal/api/v4"
+          apiUrl: "https://gitlab.mycompany.com/api/v4"
           verifySsl: false
     ```
 
@@ -356,7 +356,7 @@ Reuses the `holmes-gitlab-mcp` secret created in the [Configuration](#configurat
           auth:
             secretName: "holmes-gitlab-mcp"
           config:
-            apiUrl: "https://gitlab.internal/api/v4"
+            apiUrl: "https://gitlab.mycompany.com/api/v4"
             verifySsl: false
     ```
 
