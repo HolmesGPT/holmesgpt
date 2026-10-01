@@ -95,6 +95,10 @@ spec:
       {{- if or .Values.mcpAddons.azure.serviceAccount.create .Values.mcpAddons.azure.serviceAccount.name }}
       serviceAccountName: {{ .Values.mcpAddons.azure.serviceAccount.name }}
       {{- end }}
+      {{- with .Values.mcpAddons.azure.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: azure-mcp
         image: {{ .Values.mcpAddons.azure.registry }}/{{ .Values.mcpAddons.azure.image }}
@@ -165,6 +169,11 @@ spec:
 
         resources:
           {{- toYaml .Values.mcpAddons.azure.resources | nindent 10 }}
+
+        {{- with .Values.mcpAddons.azure.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
 
         livenessProbe:
           httpGet:
