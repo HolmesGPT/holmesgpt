@@ -89,6 +89,8 @@ toolsets:
 
 To connect HolmesGPT to AWS Managed Prometheus:
 
+The secret and the environment variables below are for static access keys only. With IRSA, or with an AWS profile in the CLI, skip them and remove the `aws_access_key` and `aws_secret_access_key` lines, which read those variables.
+
 ```yaml-toolset-config {secret-qualifier=amp}
 toolsets:
   prometheus/metrics:
