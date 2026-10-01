@@ -35,12 +35,12 @@ Deploy the MCP server using the [Grafana MCP setup guide](https://github.com/rob
 
 **Step 3: Create Kubernetes Secret**
 
-The MCP server reads its credentials from this secret, in the namespace you deploy it in:
+The MCP server reads its credentials from this secret, in the namespace you deploy it in, `<namespace>`; the Holmes config below reaches the server in that namespace. Set `GRAFANA_URL` to the address the MCP server reaches Grafana at; for a Grafana in the same cluster, replace `<grafana-namespace>` with the namespace it runs in:
 
 ```bash
 kubectl create secret generic grafana-mcp-secret \
   --from-literal=GRAFANA_SERVICE_ACCOUNT_TOKEN="glsa_..." \
-  --from-literal=GRAFANA_URL="http://grafana.grafana.svc.cluster.local" \
+  --from-literal=GRAFANA_URL="http://grafana.<grafana-namespace>.svc.cluster.local" \
   -n <namespace>
 ```
 
@@ -55,7 +55,7 @@ kubectl create secret generic grafana-mcp-secret \
       grafana:
         description: "Grafana observability and dashboards"
         config:
-          url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
+          url: "http://grafana-mcp.<namespace>.svc.cluster.local:8000/mcp"
           mode: streamable-http
         icon_url: "https://cdn.simpleicons.org/grafana/F46800"
         llm_instructions: |
@@ -95,7 +95,7 @@ kubectl create secret generic grafana-mcp-secret \
       grafana:
         description: "Grafana observability and dashboards"
         config:
-          url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
+          url: "http://grafana-mcp.<namespace>.svc.cluster.local:8000/mcp"
           mode: streamable-http
         icon_url: "https://cdn.simpleicons.org/grafana/F46800"
         llm_instructions: |
@@ -140,7 +140,7 @@ kubectl create secret generic grafana-mcp-secret \
         grafana:
           description: "Grafana observability and dashboards"
           config:
-            url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
+            url: "http://grafana-mcp.<namespace>.svc.cluster.local:8000/mcp"
             mode: streamable-http
           icon_url: "https://cdn.simpleicons.org/grafana/F46800"
           llm_instructions: |
@@ -177,7 +177,7 @@ kubectl create secret generic grafana-mcp-secret \
 
 ### Self-Hosted MCP — Grafana API Key (Deprecated)
 
-For Grafana 9.x and earlier that do not support service accounts. API keys were deprecated in Grafana 11 and removed in later versions. Not all Grafana versions support API keys — see the compatibility table below.
+For Grafana 8.x to 10.x, the versions that support API keys. Where your Grafana supports service accounts, use the [service account token setup](#self-hosted-mcp-service-account-token) above instead. API keys were deprecated in Grafana 11 and removed in later versions. Not all Grafana versions support API keys — see the compatibility table below.
 
 | Grafana Version | API Key Support |
 |----------------|-----------------|
@@ -204,12 +204,12 @@ Deploy the MCP server using the [Grafana MCP setup guide](https://github.com/rob
 
 **Step 4: Create Kubernetes Secret**
 
-The MCP server reads its credentials from this secret, in the namespace you deploy it in:
+The MCP server reads its credentials from this secret, in the namespace you deploy it in, `<namespace>`; the Holmes config below reaches the server in that namespace. Set `GRAFANA_URL` to the address the MCP server reaches Grafana at; for a Grafana in the same cluster, replace `<grafana-namespace>` with the namespace it runs in:
 
 ```bash
 kubectl create secret generic grafana-mcp-secret \
   --from-literal=GRAFANA_API_KEY="eyJ..." \
-  --from-literal=GRAFANA_URL="http://grafana.grafana.svc.cluster.local" \
+  --from-literal=GRAFANA_URL="http://grafana.<grafana-namespace>.svc.cluster.local" \
   -n <namespace>
 ```
 
@@ -224,7 +224,7 @@ kubectl create secret generic grafana-mcp-secret \
       grafana:
         description: "Grafana observability and dashboards"
         config:
-          url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
+          url: "http://grafana-mcp.<namespace>.svc.cluster.local:8000/mcp"
           mode: streamable-http
         icon_url: "https://cdn.simpleicons.org/grafana/F46800"
         llm_instructions: |
@@ -264,7 +264,7 @@ kubectl create secret generic grafana-mcp-secret \
       grafana:
         description: "Grafana observability and dashboards"
         config:
-          url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
+          url: "http://grafana-mcp.<namespace>.svc.cluster.local:8000/mcp"
           mode: streamable-http
         icon_url: "https://cdn.simpleicons.org/grafana/F46800"
         llm_instructions: |
@@ -309,7 +309,7 @@ kubectl create secret generic grafana-mcp-secret \
         grafana:
           description: "Grafana observability and dashboards"
           config:
-            url: "http://grafana-mcp.default.svc.cluster.local:8000/mcp"
+            url: "http://grafana-mcp.<namespace>.svc.cluster.local:8000/mcp"
             mode: streamable-http
           icon_url: "https://cdn.simpleicons.org/grafana/F46800"
           llm_instructions: |
