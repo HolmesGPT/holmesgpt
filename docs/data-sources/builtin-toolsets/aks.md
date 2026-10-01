@@ -15,28 +15,30 @@ This toolset runs only in the Holmes CLI. It is tagged `cli`, so the Holmes serv
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, ensure you're authenticated with Azure:
 
-    First, ensure you're authenticated with Azure:
+  ```bash
+  az login
+  az account set --subscription "<your subscription id>"
+  ```
 
-    ```bash
-    az login
-    az account set --subscription "<your subscription id>"
-    ```
+  Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+    aks/core:
+      enabled: true
+      config:
+        subscription_id: "<your Azure subscription ID>" # Optional
+        resource_group: "<your AKS resource group>" # Optional
+        cluster_name: "<your AKS cluster name>" # Optional
+  ```
 
-    ```yaml
-    toolsets:
-      aks/core:
-        enabled: true
-        config:
-          subscription_id: "<your Azure subscription ID>" # Optional
-          resource_group: "<your AKS resource group>" # Optional
-          cluster_name: "<your AKS cluster name>" # Optional
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Advanced Configuration
 

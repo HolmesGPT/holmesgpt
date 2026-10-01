@@ -23,179 +23,137 @@ You need a GitLab Personal Access Token (PAT).
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcpAddons:
+  gitlabMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-gitlab-mcp"
+---
+named-secrets:
+  - name: holmes-gitlab-mcp
+    keys:
+      - --from-literal=token=<YOUR_GITLAB_PAT>
+cli: |
+  For CLI usage, deploy the GitLab MCP server first, then configure Holmes to connect to it.
 
-    For CLI usage, deploy the GitLab MCP server first, then configure Holmes to connect to it.
+  **Step 1: Create the GitLab PAT Secret**
 
-    **Step 1: Create the GitLab PAT Secret**
+  ```bash
+  kubectl create namespace holmes-mcp
 
-    ```bash
-    kubectl create namespace holmes-mcp
+  kubectl create secret generic gitlab-mcp-token \
+    --from-literal=token=<YOUR_GITLAB_PAT> \
+    -n holmes-mcp
+  ```
 
-    kubectl create secret generic gitlab-mcp-token \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
-      -n holmes-mcp
-    ```
+  **Step 2: Deploy the GitLab MCP Server**
 
-    **Step 2: Deploy the GitLab MCP Server**
+  Create a file named `gitlab-mcp-deployment.yaml`:
 
-    Create a file named `gitlab-mcp-deployment.yaml`:
-
-    ```yaml
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: gitlab-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: gitlab-mcp-server
-      template:
-        metadata:
-          labels:
-            app: gitlab-mcp-server
-        spec:
-          containers:
-          - name: gitlab-mcp
-            image: supercorp/supergateway:latest
-            imagePullPolicy: IfNotPresent
-            stdin: true
-            tty: true
-            ports:
-            - containerPort: 8000
-              name: http
-            args:
-              - "--stdio"
-              - "npx -y @zereight/mcp-gitlab"
-              - "--port"
-              - "8000"
-            env:
-            - name: GITLAB_PERSONAL_ACCESS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: gitlab-mcp-token
-                  key: token
-            - name: GITLAB_API_URL
-              value: "https://gitlab.com/api/v4"
-            - name: GITLAB_READ_ONLY_MODE
-              value: "false"
-            - name: USE_PIPELINE
-              value: "true"
-            # For self-hosted GitLab, change GITLAB_API_URL above and see
-            # "Self-Hosted GitLab" below for SSL options.
-            resources:
-              requests:
-                memory: "256Mi"
-                cpu: "100m"
-              limits:
-                memory: "512Mi"
-            readinessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 5
-              periodSeconds: 10
-            livenessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 10
-              periodSeconds: 30
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: gitlab-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: gitlab-mcp-server
+    namespace: holmes-mcp
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
         app: gitlab-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        protocol: TCP
-        name: http
-    ```
+    template:
+      metadata:
+        labels:
+          app: gitlab-mcp-server
+      spec:
+        containers:
+        - name: gitlab-mcp
+          image: supercorp/supergateway:latest
+          imagePullPolicy: IfNotPresent
+          stdin: true
+          tty: true
+          ports:
+          - containerPort: 8000
+            name: http
+          args:
+            - "--stdio"
+            - "npx -y @zereight/mcp-gitlab"
+            - "--port"
+            - "8000"
+          env:
+          - name: GITLAB_PERSONAL_ACCESS_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: gitlab-mcp-token
+                key: token
+          - name: GITLAB_API_URL
+            value: "https://gitlab.com/api/v4"
+          - name: GITLAB_READ_ONLY_MODE
+            value: "false"
+          - name: USE_PIPELINE
+            value: "true"
+          # For self-hosted GitLab, change GITLAB_API_URL above and see
+          # "Self-Hosted GitLab" below for SSL options.
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: gitlab-mcp-server
+    namespace: holmes-mcp
+  spec:
+    selector:
+      app: gitlab-mcp-server
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  ```
 
-    Apply it:
+  Apply it:
 
-    ```bash
-    kubectl apply -f gitlab-mcp-deployment.yaml
-    ```
+  ```bash
+  kubectl apply -f gitlab-mcp-deployment.yaml
+  ```
 
-    **Step 3: Configure Holmes CLI**
+  **Step 3: Configure Holmes CLI**
 
-    Add the MCP server to **~/.holmes/config.yaml**:
+  Add the MCP server to **~/.holmes/config.yaml**:
 
-    ```yaml
-    mcp_servers:
-      gitlab:
-        description: "GitLab MCP Server - access projects, merge requests, issues, pipelines, and code"
-        config:
-          url: "http://gitlab-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
-          mode: "sse"
-    ```
+  ```yaml
+  mcp_servers:
+    gitlab:
+      description: "GitLab MCP Server - access projects, merge requests, issues, pipelines, and code"
+      config:
+        url: "http://gitlab-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+        mode: "sse"
+  ```
 
-    **Step 4: Port Forwarding (Optional for Local Testing)**
+  **Step 4: Port Forwarding (Optional for Local Testing)**
 
-    ```bash
-    kubectl port-forward -n holmes-mcp svc/gitlab-mcp-server 8000:8000
-    ```
+  ```bash
+  kubectl port-forward -n holmes-mcp svc/gitlab-mcp-server 8000:8000
+  ```
 
-    Then update the URL in `config.yaml` to `http://localhost:8000/sse`.
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-gitlab-mcp \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gitlabMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-gitlab-mcp"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-gitlab-mcp \
-      --from-literal=token=<YOUR_GITLAB_PAT> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gitlabMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-gitlab-mcp"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  Then update the URL in `config.yaml` to `http://localhost:8000/sse`.
+```
 
 ## Self-Hosted GitLab
 
@@ -203,46 +161,15 @@ Reuses the `holmes-gitlab-mcp` secret created in the [Configuration](#configurat
 
 For self-hosted GitLab instances, set `config.apiUrl` to your instance's API endpoint:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gitlabMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-gitlab-mcp"
-        config:
-          apiUrl: "https://gitlab.mycompany.com/api/v4"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gitlabMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-gitlab-mcp"
-          config:
-            apiUrl: "https://gitlab.mycompany.com/api/v4"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  gitlabMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-gitlab-mcp"
+    config:
+      apiUrl: "https://gitlab.mycompany.com/api/v4"
+```
 
 ### SSL/TLS for Self-Signed Certificates
 
@@ -254,68 +181,23 @@ Reuses the `holmes-gitlab-mcp` secret created in the [Configuration](#configurat
 
 Create a secret with your CA certificate, then point the addon at it:
 
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-gitlab-mcp-ca \
-      --from-file=ca.crt=/path/to/your/ca-certificate.crt \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gitlabMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-gitlab-mcp"
-        config:
-          apiUrl: "https://gitlab.mycompany.com/api/v4"
-          caCert:
-            secretName: "holmes-gitlab-mcp-ca"
-            secretKey: "ca.crt"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-gitlab-mcp-ca \
-      --from-file=ca.crt=/path/to/your/ca-certificate.crt \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gitlabMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-gitlab-mcp"
-          config:
-            apiUrl: "https://gitlab.mycompany.com/api/v4"
-            caCert:
-              secretName: "holmes-gitlab-mcp-ca"
-              secretKey: "ca.crt"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  gitlabMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-gitlab-mcp"
+    config:
+      apiUrl: "https://gitlab.mycompany.com/api/v4"
+      caCert:
+        secretName: "holmes-gitlab-mcp-ca"
+        secretKey: "ca.crt"
+---
+named-secrets:
+  - name: holmes-gitlab-mcp-ca
+    keys:
+      - --from-file=ca.crt=/path/to/your/ca-certificate.crt
+```
 
 The addon will mount the secret and set `GITLAB_CA_CERT_PATH` so the MCP server trusts your CA.
 
@@ -323,48 +205,16 @@ The addon will mount the secret and set `GITLAB_CA_CERT_PATH` so the MCP server 
 
 Reuses the `holmes-gitlab-mcp` secret created in the [Configuration](#configuration) section above.
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gitlabMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-gitlab-mcp"
-        config:
-          apiUrl: "https://gitlab.mycompany.com/api/v4"
-          verifySsl: false
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gitlabMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-gitlab-mcp"
-          config:
-            apiUrl: "https://gitlab.mycompany.com/api/v4"
-            verifySsl: false
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  gitlabMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-gitlab-mcp"
+    config:
+      apiUrl: "https://gitlab.mycompany.com/api/v4"
+      verifySsl: false
+```
 
 This sets `NODE_TLS_REJECT_UNAUTHORIZED=0` in the MCP container, disabling all TLS verification. **Only use this in trusted networks** — it makes the MCP server vulnerable to man-in-the-middle attacks.
 
@@ -399,48 +249,16 @@ The addon exposes two knobs that control which tools the MCP server makes availa
 
 Reuses the `holmes-gitlab-mcp` secret created in the [Configuration](#configuration) section above.
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gitlabMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-gitlab-mcp"
-        config:
-          # Hard allowlist — only these tools are exposed
-          tools: "get_file_contents,list_commits,get_pipeline,get_pipeline_jobs,get_job_logs"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gitlabMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-gitlab-mcp"
-          config:
-            # Hard allowlist — only these tools are exposed
-            tools: "get_file_contents,list_commits,get_pipeline,get_pipeline_jobs,get_job_logs"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  gitlabMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-gitlab-mcp"
+    config:
+      # Hard allowlist — only these tools are exposed
+      tools: "get_file_contents,list_commits,get_pipeline,get_pipeline_jobs,get_job_logs"
+```
 
 See the [`@zereight/mcp-gitlab` documentation](https://github.com/zereight/gitlab-mcp) for the full list of available toolsets and tools.
 

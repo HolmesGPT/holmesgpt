@@ -14,31 +14,33 @@ These toolsets run only in the Holmes CLI. They are tagged `cli`, so the Holmes 
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, ensure your tools are properly configured:
 
-    First, ensure your tools are properly configured:
+  ```bash
+  # Verify Cilium is accessible
+  cilium version
+  cilium status
 
-    ```bash
-    # Verify Cilium is accessible
-    cilium version
-    cilium status
+  # Verify Hubble is accessible (if using Hubble tools)
+  hubble version
+  hubble status
+  ```
 
-    # Verify Hubble is accessible (if using Hubble tools)
-    hubble version
-    hubble status
-    ```
+  Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+    cilium/core:
+      enabled: true
+    hubble/observability:
+      enabled: true
+  ```
 
-    ```yaml
-    toolsets:
-      cilium/core:
-        enabled: true
-      hubble/observability:
-        enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Advanced Configuration
 

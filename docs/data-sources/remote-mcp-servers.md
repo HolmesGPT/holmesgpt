@@ -12,108 +12,24 @@ HolmesGPT supports three MCP transport modes:
 
 ## Streamable-HTTP (Recommended)
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY>
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    mcp_servers:
-      dynatrace:
-        description: "Dynatrace observability platform"
-        config:
-          url: "http://dynatrace-mcp:8000/mcp/messages"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
-          icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-    To test, run:
-
-    ```bash
-    holmes ask "What services have high error rates in Dynatrace?"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-remote-mcp-servers \
-      --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-remote-mcp-servers
-
-    mcp_servers:
-      dynatrace:
-        description: "Dynatrace observability platform"
-        config:
-          url: "http://dynatrace-mcp:8000/mcp/messages"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
-          icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-remote-mcp-servers \
-      --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-remote-mcp-servers
-
-      mcp_servers:
-        dynatrace:
-          description: "Dynatrace observability platform"
-          config:
-            url: "http://dynatrace-mcp:8000/mcp/messages"
-            mode: streamable-http
-            headers:
-              Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
-            icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
-          # llm_instructions tells Holmes WHEN and HOW to use this server
-          llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  dynatrace:
+    description: "Dynatrace observability platform"
+    config:
+      url: "http://dynatrace-mcp:8000/mcp/messages"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+      icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
+    # llm_instructions tells Holmes WHEN and HOW to use this server
+    llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
+---
+secret:
+  - --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY>
+test: |
+  holmes ask "What services have high error rates in Dynatrace?"
+```
 
 The URL path depends on your MCP server (e.g., `/mcp/messages`, `/mcp`, or a custom path). Check your server's documentation.
 
@@ -204,134 +120,54 @@ spec:
 
 **Step 3: Configure HolmesGPT**
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcp_servers:
+  ticket_db:
+    description: "Internal ticket database"
+    config:
+      url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
+      mode: sse
+    # llm_instructions tells Holmes WHEN and HOW to use this server
+    llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
+---
+cli: |
+  Add to `~/.holmes/config.yaml`:
 
-    Add to `~/.holmes/config.yaml`:
+  ```yaml
+  mcp_servers:
+    ticket_db:
+      description: "Internal ticket database"
+      config:
+        mode: stdio
+        command: "python3"
+        args:
+          - "/path/to/my_mcp_server.py"
+        env:
+          CUSTOM_VAR: "value"
+      # llm_instructions tells Holmes WHEN and HOW to use this server
+      llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
+  ```
 
-    ```yaml
-    mcp_servers:
-      ticket_db:
-        description: "Internal ticket database"
-        config:
-          mode: stdio
-          command: "python3"
-          args:
-            - "/path/to/my_mcp_server.py"
-          env:
-            CUSTOM_VAR: "value"
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
-    ```
+  ```bash
+  holmes ask "Find tickets related to payment service errors"
+  ```
 
-    ```bash
-    holmes ask "Find tickets related to payment service errors"
-    ```
-
-    Ensure required dependencies (e.g., `mcp`, `fastmcp` packages) are installed in your environment.
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcp_servers:
-      ticket_db:
-        description: "Internal ticket database"
-        config:
-          url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
-          mode: sse
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        ticket_db:
-          description: "Internal ticket database"
-          config:
-            url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
-            mode: sse
-          # llm_instructions tells Holmes WHEN and HOW to use this server
-          llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  Ensure required dependencies (e.g., `mcp`, `fastmcp` packages) are installed in your environment.
+```
 
 ## SSE (Deprecated)
 
 SSE transport is deprecated. Use `streamable-http` for new integrations.
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    mcp_servers:
-      legacy_analytics:
-        description: "Legacy analytics platform (SSE transport)"
-        config:
-          url: "http://analytics-mcp:8000/sse"
-          mode: sse
-        llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcp_servers:
-      legacy_analytics:
-        description: "Legacy analytics platform (SSE transport)"
-        config:
-          url: "http://analytics-mcp:8000/sse"
-          mode: sse
-        llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        legacy_analytics:
-          description: "Legacy analytics platform (SSE transport)"
-          config:
-            url: "http://analytics-mcp:8000/sse"
-            mode: sse
-          llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  legacy_analytics:
+    description: "Legacy analytics platform (SSE transport)"
+    config:
+      url: "http://analytics-mcp:8000/sse"
+      mode: sse
+    llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
+```
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
 
@@ -347,50 +183,17 @@ MCP servers can forward HTTP headers from the incoming request to the MCP backen
 
 This does not apply to the CLI: request context is only available when running Holmes as a server.
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcp_servers:
-      customer_data:
-        description: "Customer data API (requires per-request auth)"
-        config:
-          url: "http://customer-api:8000/mcp"
-          mode: streamable-http
-          extra_headers:
-            X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-        llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        customer_data:
-          description: "Customer data API (requires per-request auth)"
-          config:
-            url: "http://customer-api:8000/mcp"
-            mode: streamable-http
-            extra_headers:
-              X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-          llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcp_servers:
+  customer_data:
+    description: "Customer data API (requires per-request auth)"
+    config:
+      url: "http://customer-api:8000/mcp"
+      mode: streamable-http
+      extra_headers:
+        X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+    llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
+```
 
 For full details on template syntax, blocked headers, precedence rules, and examples for other toolset types, see [HTTP Header Propagation](header-propagation.md).
 

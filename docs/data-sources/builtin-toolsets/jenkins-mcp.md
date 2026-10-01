@@ -43,108 +43,24 @@ Store the encoded credential securely for use in the configuration below.
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    mcp_servers:
-      jenkins:
-        description: "Jenkins CI/CD server"
-        config:
-          url: "https://your-jenkins-instance/mcp-server/mcp"
-          mode: streamable-http
-          headers:
-            Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-          verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
-        icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
-        llm_instructions: |
-          When investigating build failures, start with recent build status and then examine console output.
-          Use pagination for large result sets to avoid token overflow.
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-jenkins-mcp \
-      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-jenkins-mcp
-
-    mcp_servers:
-      jenkins:
-        description: "Jenkins CI/CD server"
-        config:
-          url: "https://your-jenkins-instance/mcp-server/mcp"
-          mode: streamable-http
-          headers:
-            Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-          verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
-        icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
-        llm_instructions: |
-          When investigating build failures, start with recent build status and then examine console output.
-          Use pagination for large result sets to avoid token overflow.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-jenkins-mcp \
-      --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-jenkins-mcp
-
-      mcp_servers:
-        jenkins:
-          description: "Jenkins CI/CD server"
-          config:
-            url: "https://your-jenkins-instance/mcp-server/mcp"
-            mode: streamable-http
-            headers:
-              Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-            verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
-          icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
-          llm_instructions: |
-            When investigating build failures, start with recent build status and then examine console output.
-            Use pagination for large result sets to avoid token overflow.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  jenkins:
+    description: "Jenkins CI/CD server"
+    config:
+      url: "https://your-jenkins-instance/mcp-server/mcp"
+      mode: streamable-http
+      headers:
+        Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
+      verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
+    icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
+    llm_instructions: |
+      When investigating build failures, start with recent build status and then examine console output.
+      Use pagination for large result sets to avoid token overflow.
+---
+secret:
+  - --from-literal=JENKINS_AUTH_TOKEN="$(echo -n "username:api_token" | base64 | tr -d '\n')"
+```
 
 !!! warning "MCP endpoint path"
     The Jenkins MCP server serves on `/mcp-server/mcp` for Streamable HTTP transport. Other available endpoints:

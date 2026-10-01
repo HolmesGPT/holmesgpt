@@ -34,209 +34,181 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
 With the chart, the defaults work out of the box once enabled (plug-and-play). The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+---
+cli: |
+  **Step 1: Create RBAC Resources**
 
-    **Step 1: Create RBAC Resources**
+  Create a file named `k8s-remediation-rbac.yaml` with a **scoped** ClusterRole (no `cluster-admin`, no `secrets`):
 
-    Create a file named `k8s-remediation-rbac.yaml` with a **scoped** ClusterRole (no `cluster-admin`, no `secrets`):
-
-    ```yaml
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: holmes-mcp
-    ---
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: k8s-remediation-mcp-sa
-      namespace: holmes-mcp
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
+  ```yaml
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: holmes-mcp
+  ---
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: k8s-remediation-mcp-sa
+    namespace: holmes-mcp
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: k8s-remediation-mcp-role
+  rules:
+    - apiGroups: ["apps"]
+      resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+      verbs: ["get", "list", "patch", "update", "delete"]
+    - apiGroups: ["apps"]
+      resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
+      verbs: ["get", "update", "patch"]
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["get", "list", "create", "delete"]
+    - apiGroups: [""]
+      resources: ["pods/exec"]
+      verbs: ["create"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get"]
+    - apiGroups: [""]
+      resources: ["pods/eviction"]
+      verbs: ["create"]
+    - apiGroups: [""]
+      resources: ["nodes"]
+      verbs: ["get", "list", "patch", "update"]
+    - apiGroups: ["batch"]
+      resources: ["jobs", "cronjobs"]
+      verbs: ["get", "list", "create", "patch", "update", "delete"]
+    # Read-only context (NO secrets)
+    - apiGroups: [""]
+      resources: ["events", "services", "configmaps", "namespaces", "replicationcontrollers"]
+      verbs: ["get", "list"]
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: k8s-remediation-mcp
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
     kind: ClusterRole
-    metadata:
-      name: k8s-remediation-mcp-role
-    rules:
-      - apiGroups: ["apps"]
-        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
-        verbs: ["get", "list", "patch", "update", "delete"]
-      - apiGroups: ["apps"]
-        resources: ["deployments/scale", "statefulsets/scale", "replicasets/scale"]
-        verbs: ["get", "update", "patch"]
-      - apiGroups: [""]
-        resources: ["pods"]
-        verbs: ["get", "list", "create", "delete"]
-      - apiGroups: [""]
-        resources: ["pods/exec"]
-        verbs: ["create"]
-      - apiGroups: [""]
-        resources: ["pods/log"]
-        verbs: ["get"]
-      - apiGroups: [""]
-        resources: ["pods/eviction"]
-        verbs: ["create"]
-      - apiGroups: [""]
-        resources: ["nodes"]
-        verbs: ["get", "list", "patch", "update"]
-      - apiGroups: ["batch"]
-        resources: ["jobs", "cronjobs"]
-        verbs: ["get", "list", "create", "patch", "update", "delete"]
-      # Read-only context (NO secrets)
-      - apiGroups: [""]
-        resources: ["events", "services", "configmaps", "namespaces", "replicationcontrollers"]
-        verbs: ["get", "list"]
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRoleBinding
-    metadata:
-      name: k8s-remediation-mcp
-    roleRef:
-      apiGroup: rbac.authorization.k8s.io
-      kind: ClusterRole
-      name: k8s-remediation-mcp-role
-    subjects:
-    - kind: ServiceAccount
-      name: k8s-remediation-mcp-sa
-      namespace: holmes-mcp
-    ```
+    name: k8s-remediation-mcp-role
+  subjects:
+  - kind: ServiceAccount
+    name: k8s-remediation-mcp-sa
+    namespace: holmes-mcp
+  ```
 
-    ```bash
-    kubectl apply -f k8s-remediation-rbac.yaml
-    ```
+  ```bash
+  kubectl apply -f k8s-remediation-rbac.yaml
+  ```
 
-    **Step 2: Deploy the MCP Server**
+  **Step 2: Deploy the MCP Server**
 
-    Create a file named `k8s-remediation-mcp-deployment.yaml`:
+  Create a file named `k8s-remediation-mcp-deployment.yaml`:
 
-    ```yaml
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: k8s-remediation-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: k8s-remediation-mcp-server
-      template:
-        metadata:
-          labels:
-            app: k8s-remediation-mcp-server
-        spec:
-          serviceAccountName: k8s-remediation-mcp-sa
-          containers:
-          - name: k8s-remediation-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.4.0
-            imagePullPolicy: IfNotPresent
-            ports:
-            - containerPort: 8000
-              name: http
-            # The defaults below ship in the image — listing them is optional.
-            env:
-            - name: KUBECTL_ALLOWED_COMMANDS
-              value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
-            - name: KUBECTL_TIMEOUT
-              value: "60"
-            # Diagnostic-pod target policy (see "Diagnostic-pod target policy"
-            # below). These are the defaults; both are shown because they are
-            # the two you are most likely to need to change.
-            - name: KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS
-              value: "false"
-            - name: KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES
-              value: ".svc,.svc.cluster.local,.cluster.local"
-            resources:
-              requests:
-                memory: "64Mi"
-                cpu: "50m"
-              limits:
-                memory: "128Mi"
-            securityContext:
-              readOnlyRootFilesystem: true
-              runAsNonRoot: true
-              runAsUser: 1000
-              allowPrivilegeEscalation: false
-            readinessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 5
-              periodSeconds: 10
-            livenessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 10
-              periodSeconds: 30
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: k8s-remediation-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: k8s-remediation-mcp-server
+    namespace: holmes-mcp
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
         app: k8s-remediation-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        protocol: TCP
-        name: http
-    ```
+    template:
+      metadata:
+        labels:
+          app: k8s-remediation-mcp-server
+      spec:
+        serviceAccountName: k8s-remediation-mcp-sa
+        containers:
+        - name: k8s-remediation-mcp
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.4.0
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8000
+            name: http
+          # The defaults below ship in the image — listing them is optional.
+          env:
+          - name: KUBECTL_ALLOWED_COMMANDS
+            value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
+          - name: KUBECTL_TIMEOUT
+            value: "60"
+          # Diagnostic-pod target policy (see "Diagnostic-pod target policy"
+          # below). These are the defaults; both are shown because they are
+          # the two you are most likely to need to change.
+          - name: KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS
+            value: "false"
+          - name: KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES
+            value: ".svc,.svc.cluster.local,.cluster.local"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: k8s-remediation-mcp-server
+    namespace: holmes-mcp
+  spec:
+    selector:
+      app: k8s-remediation-mcp-server
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  ```
 
-    ```bash
-    kubectl apply -f k8s-remediation-mcp-deployment.yaml
-    ```
+  ```bash
+  kubectl apply -f k8s-remediation-mcp-deployment.yaml
+  ```
 
-    **Step 3: Configure Holmes CLI**
+  **Step 3: Configure Holmes CLI**
 
-    Add the MCP server configuration to **~/.holmes/config.yaml**:
+  Add the MCP server configuration to **~/.holmes/config.yaml**:
 
-    ```yaml
-    mcp_servers:
-      kubernetes_remediation:
-        description: "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
-        config:
-          url: "http://k8s-remediation-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
-          mode: streamable-http
-        approval_required_tools:
-          - "run_kubectl_command"
-    ```
+  ```yaml
+  mcp_servers:
+    kubernetes_remediation:
+      description: "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
+      config:
+        url: "http://k8s-remediation-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
+        mode: streamable-http
+      approval_required_tools:
+        - "run_kubectl_command"
+  ```
 
-    Only the mutating fallback (`run_kubectl_command`) is listed under `approval_required_tools`, so it requires confirmation before execution. The four read-only tools run immediately.
+  Only the mutating fallback (`run_kubectl_command`) is listed under `approval_required_tools`, so it requires confirmation before execution. The four read-only tools run immediately.
 
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      kubernetesRemediation:
-        enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        kubernetesRemediation:
-          enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## GPU node diagnostics
 
@@ -246,44 +218,14 @@ Holmes can debug GPU nodes with `run_gpu_node_diagnostics` (server >= 1.3.0): it
 
 It is **off by default** — enable it via `gpuDiagnosticsEnabled`:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      kubernetesRemediation:
-        enabled: true
-        config:
-          gpuDiagnosticsEnabled: true
-          dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        kubernetesRemediation:
-          enabled: true
-          config:
-            gpuDiagnosticsEnabled: true
-            dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      gpuDiagnosticsEnabled: true
+      dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
+```
 
 For custom nvidia-smi/dcgmi locations or other server knobs (`GPU_DIAG_NVIDIA_SMI_PATH`, `GPU_DIAG_TIMEOUT`, ...), use `additionalEnvVars`.
 
