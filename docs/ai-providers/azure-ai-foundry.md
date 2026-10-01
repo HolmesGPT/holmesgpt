@@ -225,7 +225,7 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 - A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
 - A federated credential linking the managed identity to the service account Holmes runs as, `<service-account>`
 
-#### Step 1: Set up the identity and federation
+**Step 1: Set up the identity and federation**
 
 ```bash
 # Get the OIDC issuer URL
@@ -252,7 +252,7 @@ az identity federated-credential create \
   --audiences "api://AzureADTokenExchange"
 ```
 
-#### Step 2: Configure HolmesGPT
+**Step 2: Configure HolmesGPT**
 
 Note that `api_key` is omitted from the `modelList` entries — authentication is handled entirely by the workload identity token.
 
