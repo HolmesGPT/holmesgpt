@@ -62,7 +62,7 @@ Store the encoded credential securely for use in the configuration below.
           mode: streamable-http
           headers:
             Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-          verify_ssl: false  # Set to true if using valid SSL certificates
+          verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
         icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
         llm_instructions: |
           When investigating build failures, start with recent build status and then examine console output.
@@ -95,7 +95,7 @@ Store the encoded credential securely for use in the configuration below.
           mode: streamable-http
           headers:
             Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-          verify_ssl: false  # Set to true if using valid SSL certificates
+          verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
         icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
         llm_instructions: |
           When investigating build failures, start with recent build status and then examine console output.
@@ -133,7 +133,7 @@ Store the encoded credential securely for use in the configuration below.
             mode: streamable-http
             headers:
               Authorization: "Basic {{ env.JENKINS_AUTH_TOKEN }}"
-            verify_ssl: false  # Set to true if using valid SSL certificates
+            verify_ssl: true  # Set to false only for a Jenkins with a self-signed certificate
           icon_url: "https://cdn.simpleicons.org/jenkins/D24939"
           llm_instructions: |
             When investigating build failures, start with recent build status and then examine console output.
