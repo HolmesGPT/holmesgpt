@@ -102,9 +102,11 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 
 #### Fast Mode & Prompt Controls
 
-The `behavior_controls` field lets you selectively enable or disable sections of the system and user prompts. This is the API equivalent of the CLI's `--fast-mode` flag and gives you fine-grained control over which prompt components HolmesGPT includes.
+The `behavior_controls` field lets you selectively enable or disable sections of the system and user prompts. This gives you fine-grained control over which prompt components HolmesGPT includes.
 
-**Fast mode example** — skip the TodoWrite planning phase for faster, more direct responses:
+**Fast mode is the default**: the TodoWrite planning phase (`todowrite_instructions` and `todowrite_reminder`) is disabled unless you turn it on. This is the API equivalent of the CLI's `--extended-planning` flag.
+
+**Extended planning example** — turn the TodoWrite planning phase on for long, multi-step investigations:
 
 ```bash
 curl -X POST http://<HOLMES-URL>/api/chat \
@@ -112,8 +114,8 @@ curl -X POST http://<HOLMES-URL>/api/chat \
   -d '{
     "ask": "Why is my pod crashing?",
     "behavior_controls": {
-      "todowrite_instructions": false,
-      "todowrite_reminder": false
+      "todowrite_instructions": true,
+      "todowrite_reminder": true
     }
   }'
 ```
@@ -139,9 +141,9 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 
 1. **`ENABLED_PROMPTS` env var** (highest) — If set on the server, it restricts which sections are allowed. The API cannot re-enable a section the env var disables.
 2. **`behavior_controls`** — Enables or disables sections within what the env var allows.
-3. **Default** (lowest) — All sections are enabled.
+3. **Default** (lowest) — All sections are enabled except `todowrite_instructions` and `todowrite_reminder` (fast mode).
 
-The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.g., `"files,ai_safety,toolset_instructions"`) or `"none"` to disable all sections.
+The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.g., `"files,ai_safety,toolset_instructions"`) or `"none"` to disable all sections. A section listed in `ENABLED_PROMPTS` is enabled even if it is disabled by default, unless `behavior_controls` turns it off.
 
 **Available prompt sections:**
 
@@ -149,7 +151,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 |---------------------------|----------|----------------------------------------------|
 | `intro`                   | System   | Introduction and identity                   |
 | `ask_user`                | System   | Instructions for asking clarifying questions |
-| `todowrite_instructions`  | System   | TodoWrite planning tool instructions         |
+| `todowrite_instructions`  | System   | TodoWrite planning tool instructions (disabled by default) |
 | `ai_safety`               | System   | Safety guidelines (disabled by default)      |
 | `toolset_instructions`    | System   | Tool definitions and usage instructions      |
 | `permission_errors`       | System   | Permission error handling guidance           |
@@ -158,7 +160,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 | `cluster_name`            | System   | Kubernetes cluster name context              |
 | `system_prompt_additions` | System   | Custom additions from configuration          |
 | `files`                   | User     | Attached file contents                       |
-| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
+| `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking (disabled by default) |
 | `time_skills`             | User     | Skill content and custom instructions        |
 
 #### Structured Output with `response_format`
