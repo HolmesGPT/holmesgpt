@@ -281,7 +281,7 @@ When adding a new toolset or integration, update all of the following pages to k
 2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
 3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
 4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
-   - Its deployment tabs follow the shape `tests/docs/test_deployment_tab_groups.py` checks
+   - Its deployment tabs follow the shape `tests/docs/test_deployment_tab_groups.py` checks; write each group as a `yaml-toolset-config` or `yaml-helm-values` fence (the forms are in the docstring of `docs/custom_fences.py`)
 5. Add a logo image to `images/integration_logos/` if one is available
 
 ## Debugging CLI / Rich Live Display Issues
