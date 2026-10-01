@@ -42,7 +42,7 @@ rabbitmq/core:
 
 For self-signed certificates, you can disable SSL verification:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   rabbitmq/core:
     enabled: true
