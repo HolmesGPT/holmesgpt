@@ -238,9 +238,6 @@ markdown_extensions:
               - name: yaml-toolset-config
                 class: yaml
                 format: !!python/name:docs.custom_fences.toolset_config_fence_format
-              - name: robusta-region
-                class: robusta-region
-                format: !!python/name:docs.custom_fences.robusta_region_fence_format
               - name: multi-instance
                 class: multi-instance
                 format: !!python/name:docs.custom_fences.multi_instance_fence_format
