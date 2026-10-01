@@ -292,7 +292,7 @@ kubectl exec -n YOUR_NAMESPACE "$POD" -c gcloud-mcp -- gcloud auth list
 gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:holmes-gcp-mcp@"
 
 # Check pod logs
-kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server,app.kubernetes.io/instance=YOUR_RELEASE_NAME --all-containers
+kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server,app.kubernetes.io/instance=YOUR_RELEASE_NAME --all-containers --tail=-1
 ```
 
 ## Common Use Cases
