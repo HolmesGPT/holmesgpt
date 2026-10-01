@@ -9,6 +9,7 @@ import getpass
 import logging
 import os
 import platform
+import re
 import socket
 from datetime import datetime
 from enum import Enum
@@ -124,6 +125,19 @@ class SpanType(Enum):
 HOLMES_LANGFUSE_ATTRIBUTES = (
     os.environ.get("HOLMES_LANGFUSE_ATTRIBUTES", "false").lower() == "true"
 )
+# Maps to the Langfuse environment field (populates the Environments filter/view).
+_LANGFUSE_ENV_RAW: Optional[str] = os.environ.get("HOLMES_LANGFUSE_ENVIRONMENT")
+_LANGFUSE_ENV_PATTERN = re.compile(r"^(?!langfuse)[a-z0-9][a-z0-9_-]{0,39}$")
+if _LANGFUSE_ENV_RAW and not _LANGFUSE_ENV_PATTERN.fullmatch(_LANGFUSE_ENV_RAW):
+    logging.warning(
+        "HOLMES_LANGFUSE_ENVIRONMENT=%r is invalid: must be lowercase, "
+        "at most 40 characters, contain only letters/numbers/hyphens/underscores, "
+        "and not start with 'langfuse'. The attribute will be omitted.",
+        _LANGFUSE_ENV_RAW,
+    )
+    HOLMES_LANGFUSE_ENVIRONMENT: Optional[str] = None
+else:
+    HOLMES_LANGFUSE_ENVIRONMENT = _LANGFUSE_ENV_RAW
 
 
 def langfuse_trace_attributes(
@@ -145,6 +159,8 @@ def langfuse_trace_attributes(
     attrs: Dict[str, Any] = {
         "langfuse.trace.input": ask,
     }
+    if HOLMES_LANGFUSE_ENVIRONMENT:
+        attrs["langfuse.environment"] = HOLMES_LANGFUSE_ENVIRONMENT
     # trace name = conversation id (short + filterable; prompt is in trace.input)
     if session_id:
         attrs["langfuse.trace.name"] = session_id
