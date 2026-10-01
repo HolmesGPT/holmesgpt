@@ -81,7 +81,7 @@ kubectl create secret generic grafana-mcp-secret \
 
           - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
           - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+            << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -121,7 +121,7 @@ kubectl create secret generic grafana-mcp-secret \
 
           - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
           - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+            << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     Apply the configuration:
@@ -166,7 +166,7 @@ kubectl create secret generic grafana-mcp-secret \
 
             - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
             - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-              << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+              << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     Apply the configuration:
@@ -250,7 +250,7 @@ kubectl create secret generic grafana-mcp-secret \
 
           - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
           - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+            << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -290,7 +290,7 @@ kubectl create secret generic grafana-mcp-secret \
 
           - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
           - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+            << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     Apply the configuration:
@@ -335,7 +335,7 @@ kubectl create secret generic grafana-mcp-secret \
 
             - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
             - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-              << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+              << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     Apply the configuration:
@@ -418,7 +418,7 @@ For connecting to a Grafana mcp server instance outside the cluster (e.g., Grafa
 
           - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
           - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+            << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -471,7 +471,7 @@ For connecting to a Grafana mcp server instance outside the cluster (e.g., Grafa
 
           - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
           - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-            << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+            << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     Apply the configuration:
@@ -529,7 +529,7 @@ For connecting to a Grafana mcp server instance outside the cluster (e.g., Grafa
 
             - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
             - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
-              << {, "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+              << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
     ```
 
     Apply the configuration:
