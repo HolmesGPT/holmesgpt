@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 
 import pytest
 
@@ -19,47 +18,15 @@ class DummyInstructions:
 
 
 @pytest.mark.parametrize(
-    "user_prompt,skill_catalog,issue_instructions,resource_instructions,global_instructions,expected_substrings",
+    "user_prompt,skill_catalog,global_instructions,expected_substrings",
     [
         # Only user_prompt
-        ("Prompt", None, None, None, None, ["Prompt"]),
+        ("Prompt", None, None, ["Prompt"]),
         # Only skill_catalog
-        ("", DummySkillCatalog(), None, None, None, ["SKILL CATALOG PROMPT"]),
-        # Only issue_instructions
-        (
-            "",
-            None,
-            ["step 1", "step 2"],
-            None,
-            None,
-            ["My instructions to check", "* step 1", "* step 2"],
-        ),
-        # Only resource_instructions (with instructions and documents)
-        (
-            "",
-            None,
-            None,
-            SimpleNamespace(
-                instructions=["do X", "do Y"],
-                documents=[
-                    SimpleNamespace(url="http://doc1"),
-                    SimpleNamespace(url="http://doc2"),
-                ],
-            ),
-            None,
-            [
-                "My instructions to check",
-                "* do X",
-                "* do Y",
-                "* fetch information from this URL: http://doc1",
-                "* fetch information from this URL: http://doc2",
-            ],
-        ),
+        ("", DummySkillCatalog(), None, ["SKILL CATALOG PROMPT"]),
         # Only global_instructions
         (
             "",
-            None,
-            None,
             None,
             DummyInstructions(["global 1", "global 2"]),
             ["global 1", "global 2"],
@@ -68,35 +35,19 @@ class DummyInstructions:
         (
             "Prompt",
             DummySkillCatalog(),
-            ["issue step"],
-            SimpleNamespace(
-                instructions=["resource step"],
-                documents=[SimpleNamespace(url="http://doc")],
-            ),
             DummyInstructions(["global step"]),
-            [
-                "Prompt",
-                "SKILL CATALOG PROMPT",
-                "* issue step",
-                "* resource step",
-                "* fetch information from this URL: http://doc",
-                "global step",
-            ],
+            ["Prompt", "SKILL CATALOG PROMPT", "global step"],
         ),
     ],
 )
 def test_generate_user_prompt_with_skills(
     user_prompt,
     skill_catalog,
-    issue_instructions,
-    resource_instructions,
     global_instructions,
     expected_substrings,
 ):
     ctx = generate_skills_args(
         skill_catalog=skill_catalog,
-        issue_instructions=issue_instructions,
-        resource_instructions=resource_instructions,
         global_instructions=global_instructions,
     )
 

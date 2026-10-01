@@ -340,13 +340,10 @@ def execute_datadog_http_request_with_retries(
         )
 
 
-def fetch_openapi_spec(
-    site_api_url: Optional[str] = None, version: str = "both"
-) -> Optional[Dict[str, Any]]:
+def fetch_openapi_spec(version: str = "both") -> Optional[Dict[str, Any]]:
     """Fetch and cache the Datadog OpenAPI specification.
 
     Args:
-        site_api_url: Base URL for Datadog API (not used, kept for compatibility)
         version: Which version to fetch ('v1', 'v2', or 'both')
 
     Returns:
@@ -657,7 +654,7 @@ def preprocess_time_fields(payload: Dict[str, Any], endpoint: str) -> Dict[str, 
 
 
 def enhance_error_message(
-    error: DataDogRequestError, endpoint: str, method: str, site_api_url: str
+    error: DataDogRequestError, endpoint: str, method: str
 ) -> str:
     """Enhance error message with OpenAPI spec details and format examples.
 
@@ -665,7 +662,6 @@ def enhance_error_message(
         error: Original DataDog request error
         endpoint: API endpoint
         method: HTTP method
-        site_api_url: Base API URL
 
     Returns:
         Enhanced error message

@@ -259,7 +259,7 @@ class TestFeedback:
         feedback = Feedback()
         user_feedback = UserFeedback(True, "Great!")
 
-        feedback.set_user_feedback(user_feedback)
+        feedback.user_feedback = user_feedback
 
         assert feedback.user_feedback == user_feedback
         assert feedback.user_feedback.is_positive is True
@@ -283,7 +283,7 @@ class TestFeedback:
         """Test converting Feedback with user feedback to dictionary."""
         feedback = Feedback()
         user_feedback = UserFeedback(True, "Helpful response")
-        feedback.set_user_feedback(user_feedback)
+        feedback.user_feedback = user_feedback
 
         # Add some metadata
         feedback.metadata.add_llm_response("Question", "Answer")
@@ -322,7 +322,7 @@ class TestFeedback:
 
         # Set user feedback
         user_feedback = UserFeedback(True, "Very informative answers!")
-        feedback.set_user_feedback(user_feedback)
+        feedback.user_feedback = user_feedback
 
         # Verify complete structure
         result = feedback.to_dict()
@@ -355,7 +355,7 @@ class TestFeedbackCallback:
 
         feedback = Feedback()
         user_feedback = UserFeedback(True, "Test feedback")
-        feedback.set_user_feedback(user_feedback)
+        feedback.user_feedback = user_feedback
 
         # Call the mock callback
         mock_callback(feedback)

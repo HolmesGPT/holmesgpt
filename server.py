@@ -15,7 +15,6 @@ import ssl
 import sys
 import threading
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -23,7 +22,7 @@ import colorlog
 import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
-from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
+from holmes.core.oauth_server_callbacks import process_oauth_callback
 from holmes.core.oauth_utils import _get_token_manager
 import sentry_sdk
 import uvicorn
@@ -529,15 +528,6 @@ def extract_passthrough_headers(request: Request) -> dict:
             passthrough_headers[header_name] = header_value
 
     return {"headers": passthrough_headers} if passthrough_headers else {}
-
-
-def _stream_with_storage_cleanup(storage, stream_generator, req_info):
-    """Wrap a stream generator to clean up tool result files after streaming completes."""
-    try:
-        yield from stream_generator
-    finally:
-        logging.info(f"Stream request end: {req_info}")
-        storage.__exit__(None, None, None)
 
 
 def _stream_with_trace_cleanup(storage, stream_generator, req_info, trace_span):

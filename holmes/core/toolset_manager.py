@@ -122,13 +122,6 @@ class ToolsetManager:
         """
         return [ToolsetTag.CORE, ToolsetTag.CLI]
 
-    @property
-    def server_tool_tags(self) -> List[ToolsetTag]:
-        """
-        Returns the list of toolset tags that are relevant for server tools.
-        """
-        return [ToolsetTag.CORE, ToolsetTag.CLUSTER]
-
     def _list_all_toolsets(
         self,
         dal: Optional[SupabaseDal] = None,
@@ -618,48 +611,6 @@ class ToolsetManager:
             on_event=on_event,
         )
         return toolsets_with_status
-
-    def list_server_toolsets(
-        self, dal: Optional[SupabaseDal] = None, refresh_status=True
-    ) -> List[Toolset]:
-        """
-        List all toolsets that are enabled and have the server tool tags.
-
-        server will sync the status of toolsets to DB during startup instead of local cache.
-        Refreshing the status by default for server to keep the toolsets up-to-date instead of relying on local cache.
-        """
-        toolsets_with_status = self._list_all_toolsets(
-            dal,
-            check_prerequisites=True,
-            enable_all_toolsets=False,
-            toolset_tags=self.server_tool_tags,
-        )
-        return toolsets_with_status
-
-    def refresh_server_toolsets_and_get_changes(
-        self,
-        current_toolsets: List[Toolset],
-        dal: Optional[SupabaseDal] = None,
-    ) -> tuple[List[Toolset], List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]]]:
-        old_status_by_name: dict[str, ToolsetStatusEnum] = {
-            toolset.name: toolset.status for toolset in current_toolsets
-        }
-
-        new_toolsets = self._list_all_toolsets(
-            dal,
-            check_prerequisites=True,
-            enable_all_toolsets=False,
-            toolset_tags=self.server_tool_tags,
-            silent=True,
-        )
-
-        changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
-        for toolset in new_toolsets:
-            old_status = old_status_by_name.get(toolset.name)
-            if old_status is not None and old_status != toolset.status:
-                changes.append((toolset.name, old_status, toolset.status))
-
-        return new_toolsets, changes
 
     # ── Unified API used by Config.create_tool_executor / refresh_tool_executor ──
 

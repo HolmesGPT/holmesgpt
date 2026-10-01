@@ -1,5 +1,3 @@
-from typing import Optional
-
 import sentry_sdk
 
 from holmes.core.models import ToolCallResult
@@ -18,30 +16,3 @@ def capture_toolcall_contains_too_many_tokens(
             "tool_description": tool_call_result.description,
         },
     )
-
-
-def capture_structured_output_incorrect_tool_call():
-    sentry_sdk.capture_message(
-        "Structured output incorrect tool call",
-        level="warning",
-    )
-
-
-def capture_sections_none(content: Optional[str]):
-    # Limit display length to avoid sending huge payloads to Sentry
-    _MAX_DISPLAY_LENGTH = 1500
-    display_content = ""
-    if content:
-        if len(content) > _MAX_DISPLAY_LENGTH * 2:
-            # Show first and last portions of content
-            display_content = f"{content[:_MAX_DISPLAY_LENGTH]}...\n\n...{content[-_MAX_DISPLAY_LENGTH:]}"
-        else:
-            display_content = content
-
-    with sentry_sdk.push_scope() as scope:
-        scope.set_extra("content", display_content)
-        scope.set_extra("content_length", len(content) if content else 0)
-        sentry_sdk.capture_message(
-            "Holmes answer couldn't be parsed into sections",
-            level="warning",
-        )

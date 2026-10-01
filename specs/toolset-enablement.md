@@ -97,7 +97,7 @@ built-in toolset and sets `enabled=True` **unless** `missing_config` is True. Th
 means on the CLI, toolsets like `helm/core` and `kubernetes/core` are auto-enabled
 even though they never set `enabled=True` themselves.
 
-**Server path** (`list_server_toolsets`):
+**Server path** (`prepare_toolsets(toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER])`, see `server.py`):
 ```
 enable_all_toolsets=False
 ```

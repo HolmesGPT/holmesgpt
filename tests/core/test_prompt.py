@@ -1,6 +1,5 @@
 import re
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import Mock
 
@@ -143,8 +142,6 @@ def validate_user_prompt(
     original_prompt: str,
     expected_skills: bool = False,
     expected_global_instructions: Optional[list] = None,
-    expected_issue_instructions: Optional[list] = None,
-    expected_resource_instructions: Optional[list] = None,
 ):
     """Validate user prompt contains expected components."""
     assert (
@@ -162,18 +159,6 @@ def validate_user_prompt(
             assert (
                 instruction in user_content
             ), f"Global instruction '{instruction}' not found"
-
-    if expected_issue_instructions:
-        for instruction in expected_issue_instructions:
-            assert (
-                f"* {instruction}" in user_content
-            ), f"Issue instruction '{instruction}' not found"
-
-    if expected_resource_instructions:
-        for instruction in expected_resource_instructions:
-            assert (
-                f"* {instruction}" in user_content
-            ), f"Resource instruction '{instruction}' not found"
 
 
 class TestBuildInitialAskMessages:
@@ -432,19 +417,12 @@ class TestUserPromptComponents:
     """Test that user prompts include all expected components via generate_user_prompt."""
 
     @pytest.mark.parametrize(
-        "user_prompt,skill_catalog,global_instructions,issue_instructions,resource_instructions",
+        "user_prompt,skill_catalog,global_instructions",
         [
-            ("My question", None, None, None, None),
-            ("Help me", DummySkillCatalog(), None, None, None),
-            ("Question", None, DummyInstructions(["Global rule 1"]), None, None),
-            ("Investigate", None, None, ["Step 1"], None),
-            (
-                "Complex",
-                DummySkillCatalog(),
-                DummyInstructions(["Global"]),
-                ["Issue step"],
-                SimpleNamespace(instructions=["Resource step"], documents=[]),
-            ),
+            ("My question", None, None),
+            ("Help me", DummySkillCatalog(), None),
+            ("Question", None, DummyInstructions(["Global rule 1"])),
+            ("Complex", DummySkillCatalog(), DummyInstructions(["Global"])),
         ],
     )
     def test_generate_user_prompt_components(
@@ -452,30 +430,20 @@ class TestUserPromptComponents:
         user_prompt,
         skill_catalog,
         global_instructions,
-        issue_instructions,
-        resource_instructions,
     ):
         """Test generate_user_prompt includes all components conditionally."""
         ctx = generate_skills_args(
             skill_catalog=skill_catalog,
             global_instructions=global_instructions,
-            issue_instructions=issue_instructions,
-            resource_instructions=resource_instructions,
         )
 
         final_prompt = generate_user_prompt(user_prompt, ctx)
-
-        expected_resource_instructions = (
-            resource_instructions.instructions if resource_instructions else None
-        )
 
         validate_user_prompt(
             final_prompt,
             user_prompt,
             expected_skills=skill_catalog is not None,
             expected_global_instructions=extract_instructions(global_instructions),
-            expected_issue_instructions=issue_instructions,
-            expected_resource_instructions=expected_resource_instructions,
         )
 
 

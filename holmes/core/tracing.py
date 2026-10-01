@@ -23,7 +23,7 @@ BRAINTRUST_PROJECT = os.environ.get(
 
 try:
     import braintrust
-    from braintrust import Span, SpanTypeAttribute
+    from braintrust import Span
 
     logging.info("Braintrust package imported successfully")
     BRAINTRUST_AVAILABLE = True
@@ -33,10 +33,9 @@ except ImportError:
     from typing import TYPE_CHECKING
 
     if TYPE_CHECKING:
-        from braintrust import Span, SpanTypeAttribute
+        from braintrust import Span
     else:
         Span = Any
-        SpanTypeAttribute = Any
 
 
 session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

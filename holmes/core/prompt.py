@@ -164,7 +164,6 @@ def _should_enable_skills(context: Dict[str, str]) -> bool:
     return any(
         (
             _has_content(context.get("skill_catalog")),
-            _has_content(context.get("custom_instructions")),
             _has_content(context.get("global_instructions")),
         )
     )

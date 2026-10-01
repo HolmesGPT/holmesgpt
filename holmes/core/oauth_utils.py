@@ -3,7 +3,6 @@
 import logging
 import os
 import secrets
-import socket
 import threading
 import time
 import webbrowser
@@ -20,7 +19,6 @@ from mcp.client.auth.utils import (
 )
 
 from holmes.core.oauth_config import (
-    OAuthConfigLookupError,
     OAuthEndpoints,
     OAuthTokenExchangeError,
     exchange_code_for_tokens,
@@ -170,21 +168,6 @@ def start_oauth_callback_server(port: int = 0) -> Tuple[Any, Dict[str, Any], thr
     actual_port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, result, callback_event, actual_port
-
-
-def wait_for_oauth_callback(port: int, timeout: int = 300) -> Dict[str, Any]:
-    """Start a local HTTP server and wait for an OAuth callback.
-
-    Returns a dict with 'code' on success, or 'error'/'error_description' on failure.
-    Empty dict on timeout.
-    """
-    server, result, callback_event, _ = start_oauth_callback_server(port)
-    try:
-        callback_event.wait(timeout=timeout)
-    finally:
-        server.shutdown()
-        server.server_close()
-    return result
 
 
 def build_authorization_url(

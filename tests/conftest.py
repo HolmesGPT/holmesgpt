@@ -5,6 +5,7 @@ from typing import Any, Optional
 import pytest
 import yaml
 
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.config import Config
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.tools import ToolInvokeContext
@@ -58,7 +59,7 @@ def clear_all_caches():
 @pytest.fixture(autouse=False)
 def server_config(tmp_path, monkeypatch, responses):
     responses.post(
-        "https://api.robusta.dev/api/llm/models/v3",
+        f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3",
         json={"models": ROBUSTA_MODELS},
     )
     temp_config_file = tmp_path / "custom_toolset.yaml"

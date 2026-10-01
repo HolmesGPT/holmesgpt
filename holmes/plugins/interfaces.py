@@ -1,4 +1,4 @@
-from typing import Iterable, List
+from typing import List
 
 from holmes.core.issue import Issue
 from holmes.core.tool_calling_llm import LLMResult
@@ -13,9 +13,6 @@ class SourcePlugin:
         raise NotImplementedError()
 
     # optional
-    def stream_issues(self) -> Iterable[Issue]:
-        raise NotImplementedError()
-
     # optional
     def write_back_result(self, issue_id: str, result_data: LLMResult) -> None:
         raise NotImplementedError()

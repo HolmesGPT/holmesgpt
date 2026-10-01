@@ -30,12 +30,6 @@ def test_cli_tool_tags(toolset_manager):
     assert ToolsetTag.CLI in tags
 
 
-def test_server_tool_tags(toolset_manager):
-    tags = toolset_manager.server_tool_tags
-    assert ToolsetTag.CORE in tags
-    assert ToolsetTag.CLUSTER in tags
-
-
 @patch("holmes.core.toolset_manager.load_builtin_toolsets")
 @patch("holmes.core.toolset_manager.load_toolsets_from_config")
 def test__list_all_toolsets_merges_configs(
@@ -164,16 +158,6 @@ def test_list_console_toolsets(mock_load_toolset_with_status, toolset_manager):
     toolset.enabled = True
     mock_load_toolset_with_status.return_value = [toolset]
     result = toolset_manager.list_console_toolsets()
-    assert toolset in result
-
-
-@patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
-def test_list_server_toolsets(mock_list_all_toolsets, toolset_manager):
-    toolset = MagicMock(spec=Toolset)
-    toolset.tags = [ToolsetTag.CORE, ToolsetTag.CLUSTER]
-    toolset.enabled = True
-    mock_list_all_toolsets.return_value = [toolset]
-    result = toolset_manager.list_server_toolsets()
     assert toolset in result
 
 
@@ -386,7 +370,7 @@ def test_per_instance_fast_model_overrides_default():
 
         # Mock DefaultLLM to capture which model is used
         with mock_patch("holmes.core.transformers.llm_summarize.DefaultLLM") as mock_llm:
-            instance = LLMSummarizeTransformer(fast_model="claude-haiku")
+            LLMSummarizeTransformer(fast_model="claude-haiku")
             # Should use per-instance fast_model, not the class default
             mock_llm.assert_called_once_with("claude-haiku", None)
     finally:

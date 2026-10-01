@@ -32,11 +32,6 @@ def enable_cli_mode() -> None:
     _cli_mode_enabled = True
 
 
-def is_cli_mode() -> bool:
-    """Check if CLI mode is enabled."""
-    return _cli_mode_enabled
-
-
 def load_cli_bash_tools_approved_prefixes() -> List[str]:
     """
     Load approved prefixes from ~/.holmes/bash_approved_prefixes.yaml.

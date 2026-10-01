@@ -101,11 +101,6 @@ def forget_deployment(key: str) -> None:
     _last_template.pop(key, None)
 
 
-def clear_rollout_cache() -> None:
-    """Reset the baseline cache (used in tests)."""
-    _last_template.clear()
-
-
 def selector_matches(match_labels: dict, labels: dict) -> bool:
     """Return True if ``labels`` contains all of ``match_labels``.
 

@@ -332,23 +332,6 @@ def is_endpoint_allowed(
         return False, f"HTTP method {method} not allowed for {path}"
 
 
-def get_endpoint_hint(endpoint: str) -> str:
-    """
-    Get hint for an endpoint if available.
-
-    Returns:
-        Hint string or empty string if no hint
-    """
-    parsed = urlparse(endpoint)
-    path = parsed.path
-
-    for pattern, hint in WHITELISTED_ENDPOINTS:
-        if re.match(pattern, path):
-            return hint
-
-    return ""
-
-
 class BaseDatadogGeneralTool(Tool):
     """Base class for general Datadog API tools."""
 
@@ -491,9 +474,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
                 error_msg = f"Endpoint not found: {endpoint}"
             elif e.status_code == 400:
                 # Use enhanced error message for 400 errors
-                error_msg = enhance_error_message(
-                    e, endpoint, "GET", str(self.toolset.dd_config.api_url)
-                )
+                error_msg = enhance_error_message(e, endpoint, "GET")
             else:
                 error_msg = f"API error {e.status_code}: {str(e)}"
 
@@ -688,9 +669,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
                 error_msg = f"Endpoint not found: {endpoint}"
             elif e.status_code == 400:
                 # Use enhanced error message for 400 errors
-                error_msg = enhance_error_message(
-                    e, endpoint, "POST", str(self.toolset.dd_config.api_url)
-                )
+                error_msg = enhance_error_message(e, endpoint, "POST")
             else:
                 error_msg = f"API error {e.status_code}: {str(e)}"
 

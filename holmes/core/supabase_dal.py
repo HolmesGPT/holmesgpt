@@ -43,10 +43,6 @@ from holmes.common.env_vars import (
     STORE_PASSWORD,
     STORE_URL,
 )
-from holmes.core.resource_instruction import (
-    ResourceInstructionDocument,
-    ResourceInstructions,
-)
 from holmes.core.truncation.dal_truncation_utils import (
     truncate_evidences_entities_if_necessary,
 )
@@ -911,39 +907,6 @@ class SupabaseDal:
             # on every single chat request.
             self.skill_hierarchy_cache["config"] = default
             return default
-
-    def get_resource_instructions(
-        self, type: str, name: Optional[str]
-    ) -> Optional[ResourceInstructions]:
-        if not self.enabled or not name:
-            return None
-
-        res = (
-            self.client.table(RUNBOOKS_TABLE)
-            .select("runbook")
-            .eq("account_id", self.account_id)
-            .eq("subject_type", type)
-            .eq("subject_name", name)
-            .execute()
-        )
-        if res.data:
-            instructions = res.data[0].get("runbook").get("instructions")
-            documents_data = res.data[0].get("runbook").get("documents")
-            documents = []
-
-            if documents_data:
-                for document_data in documents_data:
-                    url = document_data.get("url", None)
-                    if url:
-                        documents.append(ResourceInstructionDocument(url=url))
-                    else:
-                        logging.warning(
-                            f"Unsupported runbook for subject_type={type} / subject_name={name}: {document_data}"
-                        )
-
-            return ResourceInstructions(instructions=instructions, documents=documents)
-
-        return None
 
     def get_global_instructions_for_account(self) -> Optional[Instructions]:
         if not self.enabled:

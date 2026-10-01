@@ -62,13 +62,6 @@ class TriggeredHealthCheckConditionType(str, Enum):
     TRIGGER_FAILED = "TriggerFailed"
 
 
-class HealthCheckConditionType(str, Enum):
-    """HealthCheck condition types."""
-
-    COMPLETE = "Complete"
-    FAILED = "Failed"
-
-
 class DestinationConfig(BaseModel):
     """Destination configuration for alerts."""
 
@@ -105,32 +98,6 @@ class HealthCheckCondition(BaseModel, Generic[ConditionTypeT]):
     message: Optional[str] = None
 
 
-class HealthCheckStatus(BaseModel):
-    """HealthCheck CRD status."""
-
-    phase: Optional[CheckPhase] = None
-    startTime: Optional[str] = None
-    completionTime: Optional[str] = None
-    result: Optional[CheckStatus] = None
-    message: Optional[str] = None
-    rationale: Optional[str] = None
-    duration: Optional[float] = None
-    error: Optional[str] = None
-    modelUsed: Optional[str] = None
-    conditions: List[HealthCheckCondition] = Field(default_factory=list)
-    notifications: List[NotificationStatus] = Field(default_factory=list)
-
-
-class HealthCheckResource(BaseModel):
-    """Complete HealthCheck CRD resource."""
-
-    apiVersion: str = "holmesgpt.dev/v1alpha1"
-    kind: str = "HealthCheck"
-    metadata: dict
-    spec: HealthCheckSpec
-    status: HealthCheckStatus = Field(default_factory=HealthCheckStatus)
-
-
 class ScheduledHealthCheckSpec(BaseModel):
     """ScheduledHealthCheck CRD spec."""
 
@@ -141,37 +108,6 @@ class ScheduledHealthCheckSpec(BaseModel):
     mode: CheckMode = Field(default=CheckMode.MONITOR)
     model: Optional[str] = None
     destinations: List[DestinationConfig] = Field(default_factory=list)
-
-
-class ScheduledCheckActiveRef(BaseModel):
-    """Reference to an active HealthCheck."""
-
-    name: str
-    namespace: str
-    uid: str
-    startTime: str
-
-
-class ScheduledCheckHistoryEntry(BaseModel):
-    """History entry for a scheduled check execution."""
-
-    executionTime: str
-    result: CheckStatus
-    duration: float
-    checkName: str
-    message: str
-
-
-class ScheduledHealthCheckStatus(BaseModel):
-    """ScheduledHealthCheck CRD status."""
-
-    lastScheduleTime: Optional[str] = None
-    lastSuccessfulTime: Optional[str] = None
-    lastResult: Optional[CheckStatus] = None
-    message: Optional[str] = None
-    active: List[ScheduledCheckActiveRef] = Field(default_factory=list)
-    history: List[ScheduledCheckHistoryEntry] = Field(default_factory=list)
-    conditions: List[HealthCheckCondition] = Field(default_factory=list)
 
 
 class TriggerSelector(BaseModel):
@@ -209,46 +145,6 @@ class TriggeredHealthCheckSpec(BaseModel):
     mode: CheckMode = Field(default=CheckMode.MONITOR)
     model: Optional[str] = None
     destinations: List[DestinationConfig] = Field(default_factory=list)
-
-
-class TriggeredDeploymentCooldown(BaseModel):
-    """Last fire time for a Deployment, used to enforce cooldownSeconds."""
-
-    deployment: str
-    lastTriggerTime: str
-
-
-class TriggeredCheckHistoryEntry(BaseModel):
-    """History entry for a triggered check execution."""
-
-    triggerTime: str
-    deployment: str
-    checkName: str
-    oldImage: Optional[str] = None
-    newImage: Optional[str] = None
-
-
-class PendingCheck(BaseModel):
-    """A check scheduled to run later (delaySeconds), persisted in status so it
-    survives operator restarts."""
-
-    deployment: str
-    fireAt: str
-    scheduledAt: str
-    oldImage: Optional[str] = None
-    newImage: Optional[str] = None
-
-
-class TriggeredHealthCheckStatus(BaseModel):
-    """TriggeredHealthCheck CRD status."""
-
-    lastTriggerTime: Optional[str] = None
-    lastTriggerDeployment: Optional[str] = None
-    triggerCount: int = 0
-    cooldowns: List[TriggeredDeploymentCooldown] = Field(default_factory=list)
-    pending: List[PendingCheck] = Field(default_factory=list)
-    history: List[TriggeredCheckHistoryEntry] = Field(default_factory=list)
-    conditions: List[HealthCheckCondition] = Field(default_factory=list)
 
 
 class CheckResponse(BaseModel):
