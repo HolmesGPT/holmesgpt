@@ -3,7 +3,7 @@
 Redirecting to the latest benchmark results...
 
 <script>
-window.location.href = "../history/results_20260914_200444/";
+window.location.href = "../history/results_20260920_031445/";
 </script>
 
-If you are not redirected automatically, [click here](../history/results_20260914_200444/).
+If you are not redirected automatically, [click here](../history/results_20260920_031445/).
