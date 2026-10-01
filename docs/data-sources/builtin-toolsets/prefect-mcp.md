@@ -41,8 +41,8 @@ Before configuring the Prefect MCP server, you need:
     kubectl create namespace holmes-mcp
 
     kubectl create secret generic prefect-mcp-credentials \
-      --from-literal=api-url="<YOUR_PREFECT_API_URL>" \
-      --from-literal=token="<YOUR_PREFECT_API_KEY>" \
+      --from-literal=api-url=<YOUR_PREFECT_API_URL> \
+      --from-literal=token=<YOUR_PREFECT_API_KEY> \
       -n holmes-mcp
     ```
 
@@ -150,7 +150,7 @@ Before configuring the Prefect MCP server, you need:
 
     ```bash
     kubectl create secret generic holmes-prefect-mcp \
-      --from-literal=token="<YOUR_PREFECT_API_KEY>" \
+      --from-literal=token=<YOUR_PREFECT_API_KEY> \
       -n <namespace>
     ```
 
@@ -178,7 +178,7 @@ Before configuring the Prefect MCP server, you need:
 
     ```bash
     kubectl create secret generic holmes-prefect-mcp \
-      --from-literal=token="<YOUR_PREFECT_API_KEY>" \
+      --from-literal=token=<YOUR_PREFECT_API_KEY> \
       -n <namespace>
     ```
 

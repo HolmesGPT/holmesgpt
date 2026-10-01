@@ -73,7 +73,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
     kubectl create namespace holmes-mcp
 
     kubectl create secret generic github-mcp-token \
-      --from-literal=token="<YOUR_GITHUB_PAT>" \
+      --from-literal=token=<YOUR_GITHUB_PAT> \
       -n holmes-mcp
     ```
 
@@ -185,7 +185,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
     ```bash
     kubectl create secret generic holmes-github-mcp \
-      --from-literal=token="<YOUR_GITHUB_PAT>" \
+      --from-literal=token=<YOUR_GITHUB_PAT> \
       -n <namespace>
     ```
 
@@ -211,7 +211,7 @@ Before deploying the GitHub MCP server, you need a GitHub Personal Access Token 
 
     ```bash
     kubectl create secret generic holmes-github-mcp \
-      --from-literal=token="<YOUR_GITHUB_PAT>" \
+      --from-literal=token=<YOUR_GITHUB_PAT> \
       -n <namespace>
     ```
 
@@ -334,8 +334,8 @@ With the chart, a self-hosted MCP server pod is deployed using the `github-app-m
     kubectl create namespace holmes-mcp  # if not already created
 
     kubectl create secret generic holmes-github-app \
-      --from-literal=GITHUB_APP_ID="<YOUR_APP_ID>" \
-      --from-literal=GITHUB_APP_INSTALLATION_ID="<YOUR_INSTALLATION_ID>" \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       -n holmes-mcp
     ```
@@ -406,8 +406,8 @@ With the chart, a self-hosted MCP server pod is deployed using the `github-app-m
 
     ```bash
     kubectl create secret generic holmes-github-mcp-app \
-      --from-literal=GITHUB_APP_ID="<YOUR_APP_ID>" \
-      --from-literal=GITHUB_APP_INSTALLATION_ID="<YOUR_INSTALLATION_ID>" \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       -n <namespace>
     ```
@@ -435,8 +435,8 @@ With the chart, a self-hosted MCP server pod is deployed using the `github-app-m
 
     ```bash
     kubectl create secret generic holmes-github-mcp-app \
-      --from-literal=GITHUB_APP_ID="<YOUR_APP_ID>" \
-      --from-literal=GITHUB_APP_INSTALLATION_ID="<YOUR_INSTALLATION_ID>" \
+      --from-literal=GITHUB_APP_ID=<YOUR_APP_ID> \
+      --from-literal=GITHUB_APP_INSTALLATION_ID=<YOUR_INSTALLATION_ID> \
       --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       -n <namespace>
     ```

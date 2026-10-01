@@ -17,7 +17,7 @@ HolmesGPT supports three MCP transport modes:
     Set the environment variable:
 
     ```bash
-    export DYNATRACE_API_KEY="<YOUR_DYNATRACE_API_KEY>"
+    export DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY>
     ```
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -50,7 +50,7 @@ HolmesGPT supports three MCP transport modes:
 
     ```bash
     kubectl create secret generic holmes-remote-mcp-servers \
-      --from-literal=DYNATRACE_API_KEY="<YOUR_DYNATRACE_API_KEY>" \
+      --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY> \
       -n <namespace>
     ```
 
@@ -85,7 +85,7 @@ HolmesGPT supports three MCP transport modes:
 
     ```bash
     kubectl create secret generic holmes-remote-mcp-servers \
-      --from-literal=DYNATRACE_API_KEY="<YOUR_DYNATRACE_API_KEY>" \
+      --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY> \
       -n <namespace>
     ```
 
