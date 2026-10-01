@@ -201,6 +201,47 @@ Before configuring the Prefect MCP server, you need:
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
+### Self-hosted Prefect without an API key
+
+A self-hosted Prefect server that needs no API key takes no secret: leave `auth.secretName` unset, and the MCP server runs with no `PREFECT_API_KEY`. Set `apiUrl` to your server's API URL.
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      prefect:
+        enabled: true
+        config:
+          apiUrl: "http://prefect-server:4200/api"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        prefect:
+          enabled: true
+          config:
+            apiUrl: "http://prefect-server:4200/api"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
 ### Custom LLM Instructions
 
 Reuses the `holmes-prefect-mcp` secret created in the [Configuration](#configuration) section above.
