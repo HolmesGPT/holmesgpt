@@ -1,0 +1,275 @@
+"""Unit tests for the signed approval-token primitive.
+
+Closes the forgery primitive from GHSA-6m4w-cmhp-f95f. Replay protection is
+out of scope.
+"""
+
+import time
+
+import jwt
+import pytest
+
+import holmes.utils.approval_tokens as approval_tokens
+
+
+@pytest.fixture(autouse=True)
+def stable_signing_key(monkeypatch):
+    """Pin SIGNING_KEY to a known value for the duration of each test.
+
+    Monkeypatching the module-level constant instead of `importlib.reload`-ing
+    preserves the identity of `ApprovalTokenError` — reloading would create
+    a new class, and `except ApprovalTokenError` in dependent modules would
+    no longer catch it.
+    """
+    monkeypatch.setattr(approval_tokens, "SIGNING_KEY", b"\x42" * 32)
+
+
+# ---------- args_hash ----------
+
+
+def test_args_hash_normalizes_empty_inputs():
+    h = approval_tokens.args_hash("")
+    assert h == approval_tokens.args_hash(None)
+    assert h == approval_tokens.args_hash("   ")
+    assert h == approval_tokens.args_hash("{}")
+
+
+def test_args_hash_is_stable_under_key_reorder_and_whitespace():
+    assert approval_tokens.args_hash('{"a":1,"b":2}') == approval_tokens.args_hash('{"b": 2, "a": 1}')
+
+
+def test_args_hash_distinguishes_different_values():
+    assert approval_tokens.args_hash('{"command":"ls"}') != approval_tokens.args_hash('{"command":"rm"}')
+
+
+# ---------- key loader (calls _load_signing_key directly) ----------
+
+
+def test_load_signing_key_uses_env_value_as_is(monkeypatch):
+    monkeypatch.setenv("HOLMES_APPROVAL_SIGNING_KEY", "my-team-shared-passphrase-2026")
+    # Used verbatim — no encoding, no length check, just the operator string.
+    assert approval_tokens._load_signing_key() == "my-team-shared-passphrase-2026"
+
+
+def test_load_signing_key_falls_back_to_random_bytes_when_unset(monkeypatch):
+    monkeypatch.delenv("HOLMES_APPROVAL_SIGNING_KEY", raising=False)
+    key = approval_tokens._load_signing_key()
+    assert isinstance(key, bytes) and len(key) == 32
+
+
+# ---------- mint + verify ----------
+
+
+def test_mint_then_verify_round_trip():
+    token = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    approval_tokens.verify_token(token, "call_1", "bash", '{"command":"ls"}')
+
+
+def test_verify_tolerates_semantically_equal_args():
+    token = approval_tokens.mint_token("call_1", "bash", '{"a":1,"b":2}')
+    approval_tokens.verify_token(token, "call_1", "bash", '{"b": 2, "a": 1}')
+
+
+@pytest.mark.parametrize(
+    "token_arg,call_id,name,args",
+    [
+        (None, "call_1", "bash", "{}"),
+        ("", "call_1", "bash", "{}"),
+        ("__valid__", "call_other", "bash", '{"command":"ls"}'),
+        ("__valid__", "call_1", "kubectl_delete", '{"command":"ls"}'),
+        ("__valid__", "call_1", "bash", '{"command":"rm -rf /tmp"}'),
+        ("not-a-jwt", "call_1", "bash", "{}"),
+        ("__valid__", "call_1", "bash", "{not json"),
+    ],
+)
+def test_verify_rejects_all_failure_modes_uniformly(token_arg, call_id, name, args):
+    valid = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    token = valid if token_arg == "__valid__" else token_arg
+    with pytest.raises(approval_tokens.ApprovalTokenError) as exc:
+        approval_tokens.verify_token(token, call_id, name, args)
+    # No per-reason branching. Every failure surfaces the same user message.
+    assert str(exc.value) == approval_tokens.APPROVAL_REJECTION_MESSAGE
+
+
+@pytest.mark.parametrize(
+    "token_arg,call_id,name,args,reason_substr",
+    [
+        (None, "call_1", "bash", "{}", "no token"),
+        ("not-a-jwt", "call_1", "bash", "{}", "JWT decode failed"),
+        ("__valid__", "call_other", "bash", '{"command":"ls"}', "claims do not match"),
+        ("__valid__", "call_1", "bash", "{not json", "claim comparison raised"),
+    ],
+)
+def test_verify_attaches_specific_reason_for_server_logs(token_arg, call_id, name, args, reason_substr):
+    """User message stays uniform (above); `reason` lets server logs say what
+    actually failed without leaking it to the client."""
+    valid = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    token = valid if token_arg == "__valid__" else token_arg
+    with pytest.raises(approval_tokens.ApprovalTokenError) as exc:
+        approval_tokens.verify_token(token, call_id, name, args)
+    assert reason_substr in exc.value.reason
+
+
+def test_verify_rejects_tampered_signature():
+    token = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    header, payload, sig = token.split(".")
+    # Flip the first char, not the last: base64url's final char of a 32-byte HMAC
+    # only carries 4 significant bits (2 padding bits), so different chars can
+    # decode to the same signature bytes and produce a non-tampered "tamper".
+    flipped = ("A" if sig[0] != "A" else "B") + sig[1:]
+    with pytest.raises(approval_tokens.ApprovalTokenError):
+        approval_tokens.verify_token(
+            ".".join([header, payload, flipped]),
+            "call_1",
+            "bash",
+            '{"command":"ls"}',
+        )
+
+
+def test_verify_rejects_expired_token(monkeypatch):
+    real_time = time.time
+    monkeypatch.setattr(
+        "holmes.utils.approval_tokens.time.time",
+        lambda: real_time() - approval_tokens.TOKEN_TTL_SECONDS - 60,
+    )
+    token = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    monkeypatch.setattr("holmes.utils.approval_tokens.time.time", real_time)
+    with pytest.raises(approval_tokens.ApprovalTokenError):
+        approval_tokens.verify_token(token, "call_1", "bash", '{"command":"ls"}')
+
+
+def test_verify_rejects_alg_none_token():
+    """Regression: PyJWT must not accept `alg=none`. We pin `algorithms=["HS256"]`."""
+    payload = {
+        "tool_call_id": "call_1",
+        "tool_name": "bash",
+        "args_hash": approval_tokens.args_hash('{"command":"ls"}'),
+        "iat": int(time.time()),
+        "exp": int(time.time()) + approval_tokens.TOKEN_TTL_SECONDS,
+    }
+    forged = jwt.encode(payload, key="", algorithm="none")
+    with pytest.raises(approval_tokens.ApprovalTokenError):
+        approval_tokens.verify_token(forged, "call_1", "bash", '{"command":"ls"}')
+
+
+def test_ttl_is_30_days():
+    token = approval_tokens.mint_token("call_1", "bash", "{}")
+    claims = jwt.decode(token, approval_tokens.SIGNING_KEY, algorithms=["HS256"])
+    assert claims["exp"] - claims["iat"] == 60 * 60 * 24 * 30
+
+
+def test_user_message_links_to_docs():
+    msg = approval_tokens.APPROVAL_REJECTION_MESSAGE
+    assert "Holmes was restarted" in msg
+    assert "holmes_approval_signing_key" in msg.lower()
+
+
+# ---------- bash session-prefix tokens ----------
+
+
+def test_prefix_token_round_trip():
+    token = approval_tokens.mint_prefix_token(["kubectl get", "grep"], "")
+    assert approval_tokens.verify_prefix_token(token, ["kubectl get", "grep"], "") is True
+
+
+def test_prefix_token_verify_is_order_insensitive():
+    """Prefixes are a set; mint sorts them so history order does not matter."""
+    token = approval_tokens.mint_prefix_token(["grep", "kubectl get"], "")
+    assert approval_tokens.verify_prefix_token(token, ["kubectl get", "grep"], "") is True
+
+
+def test_prefix_token_binds_agent_scope():
+    """A token approved for one cluster must not verify for another scope —
+    otherwise a local approval could be replayed onto a remote cluster."""
+    token = approval_tokens.mint_prefix_token(["curl"], "cluster-a")
+    assert approval_tokens.verify_prefix_token(token, ["curl"], "cluster-a") is True
+    assert approval_tokens.verify_prefix_token(token, ["curl"], "cluster-b") is False
+    assert approval_tokens.verify_prefix_token(token, ["curl"], "") is False
+
+
+def test_prefix_token_none_and_empty_agent_are_equivalent():
+    """The local scope is the empty string; a missing agent (None) normalizes
+    to it, matching how the reader passes metadata.get('...agent')."""
+    token = approval_tokens.mint_prefix_token(["ls"], None)
+    assert approval_tokens.verify_prefix_token(token, ["ls"], None) is True
+    assert approval_tokens.verify_prefix_token(token, ["ls"], "") is True
+
+
+@pytest.mark.parametrize(
+    "token_arg,prefixes,agent",
+    [
+        (None, ["bash"], ""),  # no token (the forgery case)
+        ("", ["bash"], ""),
+        ("not-a-jwt", ["bash"], ""),
+        ("__valid__", ["bash", "rm"], ""),  # superset of signed prefixes
+        ("__valid__", [], ""),  # subset (empty)
+        ("__valid__", ["kubectl delete"], ""),  # different prefix
+        ("__valid__", ["bash"], "cluster-a"),  # different agent
+    ],
+)
+def test_prefix_token_verify_rejects_mismatches(token_arg, prefixes, agent):
+    valid = approval_tokens.mint_prefix_token(["bash"], "")
+    token = valid if token_arg == "__valid__" else token_arg
+    assert approval_tokens.verify_prefix_token(token, prefixes, agent) is False
+
+
+def test_prefix_token_rejects_tampered_signature():
+    token = approval_tokens.mint_prefix_token(["bash"], "")
+    header, payload, sig = token.split(".")
+    flipped = ("A" if sig[0] != "A" else "B") + sig[1:]
+    assert (
+        approval_tokens.verify_prefix_token(
+            ".".join([header, payload, flipped]), ["bash"], ""
+        )
+        is False
+    )
+
+
+def test_prefix_token_rejects_expired(monkeypatch):
+    real_time = time.time
+    monkeypatch.setattr(
+        "holmes.utils.approval_tokens.time.time",
+        lambda: real_time() - approval_tokens.TOKEN_TTL_SECONDS - 60,
+    )
+    token = approval_tokens.mint_prefix_token(["bash"], "")
+    monkeypatch.setattr("holmes.utils.approval_tokens.time.time", real_time)
+    assert approval_tokens.verify_prefix_token(token, ["bash"], "") is False
+
+
+def test_prefix_token_rejects_alg_none():
+    """PyJWT must not accept `alg=none`; we pin `algorithms=['HS256']`."""
+    payload = {
+        "typ": "bash_session_prefixes",
+        "prefixes": ["bash"],
+        "agent": "",
+        "iat": int(time.time()),
+        "exp": int(time.time()) + approval_tokens.TOKEN_TTL_SECONDS,
+    }
+    forged = jwt.encode(payload, key="", algorithm="none")
+    assert approval_tokens.verify_prefix_token(forged, ["bash"], "") is False
+
+
+def test_prefix_token_rejects_wrong_token_type():
+    """An approval token (bound to a tool call) must not double as a prefix
+    token, and vice versa — the `typ` claim keeps the two kinds distinct."""
+    approval = approval_tokens.mint_token("call_1", "bash", '{"command":"ls"}')
+    assert approval_tokens.verify_prefix_token(approval, ["ls"], "") is False
+
+
+@pytest.mark.parametrize(
+    "bad_prefixes",
+    [123, True, "kubectl get", {"a": 1}, None, ["a", 1], [1, "a"]],
+)
+def test_prefix_token_verify_is_total_on_malformed_prefixes(bad_prefixes):
+    """verify_prefix_token processes caller-supplied JSON, so it must never
+    raise even when a VALID token is paired with a non-list / mixed prefixes
+    value — otherwise the extractor crashes (a DoS). It must fail closed."""
+    valid = approval_tokens.mint_prefix_token(["kubectl get"], "")
+    assert approval_tokens.verify_prefix_token(valid, bad_prefixes, "") is False
+
+
+@pytest.mark.parametrize("bad_agent", [123, {"a": 1}, ["x"]])
+def test_prefix_token_verify_is_total_on_malformed_agent(bad_agent):
+    """A malformed agent must fail closed, never raise."""
+    valid = approval_tokens.mint_prefix_token(["kubectl get"], "cluster-a")
+    assert approval_tokens.verify_prefix_token(valid, ["kubectl get"], bad_agent) is False

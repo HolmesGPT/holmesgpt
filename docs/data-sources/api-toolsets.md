@@ -68,12 +68,13 @@ toolsets:
 #### Config Section
 
 - **`endpoints`**: List of whitelisted endpoint configurations
-  - **`hosts`**: List of allowed hostnames (supports wildcards like `*.example.com`)
+  - **`hosts`**: List of allowed host patterns. Each entry can be a bare hostname, wildcard subdomain (`*.example.com`), or an origin string that constrains scheme and/or port (see [Host Patterns](#host-patterns) below).
   - **`paths`**: List of allowed URL paths (supports glob patterns like `/api/*`)
   - **`methods`**: List of allowed HTTP methods (`GET`, `POST`, `PUT`, `DELETE`, etc.)
   - **`auth`** (optional): Authentication configuration (see Authentication section)
 - **`verify_ssl`** (optional): Whether to verify SSL certificates (default: true)
 - **`timeout_seconds`** (optional): Request timeout in seconds (default: 30)
+- **`block_internal_ips`** (optional): Reject requests whose host resolves to an internal address (default: false — see [Redirects and internal addresses](#redirects-and-internal-addresses))
 
 ### Authentication
 
@@ -103,8 +104,8 @@ auth:
 ```yaml
 auth:
   type: header
-  header_name: "X-API-Key"
-  header_value: "{{ env.API_KEY }}"
+  name: "X-API-Key"
+  value: "{{ env.API_KEY }}"
 ```
 
 ### Environment Variables
@@ -170,22 +171,76 @@ This example shows how to use an HTTP connector with Atlassian Confluence to sea
     holmes ask "search Confluence for runbooks about database issues" --custom-toolsets=toolsets.yaml
     ```
 
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-api-toolsets \
+      --from-literal=CONFLUENCE_USER="your-email@example.com" \
+      --from-literal=CONFLUENCE_API_KEY="your-api-token" \
+      --from-literal=CONFLUENCE_BASE_URL="https://yourcompany.atlassian.net" \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-api-toolsets
+
+    toolsets:
+      confluence-api:
+        type: http
+        enabled: true
+        config:
+          endpoints:
+            - hosts:
+                - "*.atlassian.net"
+              paths: ["*"]
+              methods: ["GET", "PUT", "POST", "DELETE"]
+              auth:
+                type: basic
+                username: "{{ env.CONFLUENCE_USER }}"
+                password: "{{ env.CONFLUENCE_API_KEY }}"
+          verify_ssl: true
+          timeout_seconds: 30
+        llm_instructions: |
+          ### Confluence REST API
+          You can query Confluence using the REST API.
+          The base URL is: {{ env.CONFLUENCE_BASE_URL }}
+          Common endpoints:
+          - GET /wiki/rest/api/content/search?cql={query} - Search using CQL
+          - GET /wiki/rest/api/content/{contentId}?expand=ancestors - Get page with ancestor hierarchy
+
+          To get parent page information, use the expand parameter: `?expand=ancestors`
+          The ancestors array will contain the parent page details.
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    **Helm Values:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-api-toolsets \
+      --from-literal=CONFLUENCE_USER="your-email@example.com" \
+      --from-literal=CONFLUENCE_API_KEY="your-api-token" \
+      --from-literal=CONFLUENCE_BASE_URL="https://yourcompany.atlassian.net" \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: CONFLUENCE_BASE_URL
-          value: https://yourcompany.atlassian.net
-        - name: CONFLUENCE_USER
-          value: your-email@example.com
-        - name: CONFLUENCE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: confluence-credentials
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-api-toolsets
 
       toolsets:
         confluence-api:
@@ -213,6 +268,12 @@ This example shows how to use an HTTP connector with Atlassian Confluence to sea
 
             To get parent page information, use the expand parameter: `?expand=ancestors`
             The ancestors array will contain the parent page details.
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Tool Naming
@@ -252,9 +313,39 @@ The endpoint whitelist provides security by restricting which APIs the HTTP conn
 
 ### Host Patterns
 
-- **Exact match**: `api.example.com`
-- **Wildcard subdomain**: `*.example.com` (matches `api.example.com`, `dev.example.com`, etc.)
-- **Multiple hosts**: `["api1.example.com", "api2.example.com"]`
+Each entry in `hosts` controls which scheme and port the LLM may use, in addition to the hostname. The form of the entry determines what is allowed:
+
+| Entry | Allowed scheme | Allowed port |
+|---|---|---|
+| `api.example.com` | any | any |
+| `*.example.com` | any | any |
+| `api.example.com:8080` | any | `8080` only |
+| `https://api.example.com` | `https` only | `443` only |
+| `http://api.example.com` | `http` only | `80` only |
+| `https://api.example.com:8443` | `https` only | `8443` only |
+| `https://*.example.com` | `https` only | `443` only |
+| `https://*.example.com:*` | `https` only | any |
+
+**Rules:**
+
+- A bare hostname (or bare wildcard) imposes no scheme or port restriction.
+- Adding a port (`host:8080`) pins requests to that port; the scheme stays unrestricted.
+- Adding a scheme pins both scheme and port. When no explicit port is written, the scheme's default port is used (`80` for `http`, `443` for `https`).
+- To allow a scheme on any port, use the explicit `:*` wildcard (e.g. `https://host:*`).
+- Wildcards must be a leading `*.` and match one or more subdomain labels. `*.example.com` matches `api.example.com` and `foo.bar.example.com`, but not `example.com` itself.
+- Multiple entries in `hosts` are ORed — a request matches if any entry matches.
+
+**Example:**
+
+```yaml
+hosts:
+  - "api.example.com"                    # any scheme, any port
+  - "*.internal.example.com"             # any subdomain, any scheme, any port
+  - "https://jenkins.example.com:8080"   # https on 8080 only
+  - "https://*.tools.example.com:*"      # https on any port, any subdomain
+```
+
+Malformed entries (unsupported scheme, port out of range, mid-host wildcards, etc.) fail at config-load time with a validation error.
 
 ### Path Patterns
 
@@ -272,6 +363,36 @@ Specify which HTTP methods are allowed:
 methods: ["GET"]  # Read-only
 methods: ["GET", "POST"]  # Read and create
 methods: ["GET", "POST", "PUT", "DELETE"]  # Full access
+```
+
+### Redirects and internal addresses
+
+The whitelist is enforced on **every hop**, not just the URL the LLM asks for. If a whitelisted host answers with a redirect, the redirect target must itself match the whitelist or the request is refused — so an open redirect on a trusted upstream cannot be used to reach cloud metadata (`169.254.169.254`), an in-cluster service, or localhost.
+
+Alongside that:
+
+- Credentials are dropped when a redirect crosses an origin (a different scheme, host **or** port). Only `Accept`, `Accept-Encoding`, `Accept-Language`, `Content-Type` and `User-Agent` survive such a hop — everything else is dropped, including `auth` of every type, `default_headers`, `extra_headers`, and any header supplied with the request. This is an allowlist by design, so a header you add later cannot silently start leaking. Credentials are never *added* for a redirect target, only removed.
+- A redirect target must also allow the method being used, per its own `methods` list.
+- Redirect chains are capped at 5 hops.
+- The same rules apply to `health_check_url`, except that a health check may redirect within its own origin (so it does not have to satisfy the endpoint's `paths` whitelist).
+
+`block_internal_ips` adds a second, optional layer: the host is resolved and the request is refused if any resolved address is loopback, link-local (including the cloud metadata endpoint), private, reserved, multicast or unspecified. When enabled, the connection is also pinned to the exact IP that was validated, so a DNS rebind between validation and connection cannot swap in an internal address.
+
+It defaults to **false** because whitelisted endpoints are very often in-cluster services:
+
+```yaml
+config:
+  endpoints:
+    - hosts: ["prometheus.monitoring.svc:9090"]   # internal by design
+```
+
+Enable it when every configured endpoint is a public host:
+
+```yaml
+config:
+  block_internal_ips: true
+  endpoints:
+    - hosts: ["https://api.example.com"]
 ```
 
 ## LLM Instructions
@@ -342,4 +463,20 @@ llm_instructions: |
 - Check that the host matches your whitelist (including wildcards)
 - Verify the path pattern matches the endpoint you're trying to access
 - Ensure the HTTP method is in the allowed methods list
-- Check HolmesGPT logs for the exact URL being blocked
+- If a `hosts` entry includes a scheme (e.g. `https://...`), make sure the request uses the same scheme and either the scheme's default port or the port you specified — see [Host Patterns](#host-patterns)
+- Check HolmesGPT logs for the exact URL being blocked; the error message includes the request's scheme, host, port, and path
+
+### Refused Redirects
+
+**Problem**: `Refusing to follow redirect from ... to ...`
+
+The upstream answered with a redirect whose target is not in the whitelist. This is the SSRF guard working as intended — see [Redirects and internal addresses](#redirects-and-internal-addresses).
+
+**Solutions**:
+- If the redirect target is legitimate, add it to `hosts`/`paths` (and to `methods` if the redirect keeps a non-GET method)
+- Point the endpoint at the final URL so no redirect is needed
+- If the target is *not* something you expect the upstream to redirect to, treat it as a finding rather than a config problem
+
+**Problem**: `Refusing to request ...: host ... resolves to non-routable/internal address`
+
+`block_internal_ips` is enabled and the host resolves to an internal address. Set it to `false` if the endpoint is an in-cluster service.

@@ -1,0 +1,122 @@
+user_prompt: |
+  Analyze the mysql_global_status_handlers_total metrics available in Prometheus.
+  The data covers the period from 2026-03-31T22:00:00Z to 2026-04-01T10:00:00Z.
+  Look at the rate of each handler over that time range.
+  Are there any spikes, anomalies, or unusual patterns?
+  Report which handler(s) show abnormal behavior and describe what you see.
+
+expected_output:
+  - Must identify read_rnd_next as the handler with the most significant spike or anomalous increase
+  - Must describe the spike magnitude (e.g. the rate jumping from hundreds to hundreds of thousands of operations per second, or a 1000x+ increase)
+
+tags:
+  - prometheus
+  - metrics
+  - question-answer
+  - no-cicd
+
+port_forwards:
+  - namespace: app-257
+    service: victoriametrics
+    local_port: 10257
+    remote_port: 8428
+
+setup_timeout: 300
+
+before_test: |
+  set -e
+  NAMESPACE="app-257"
+  LOCAL_PORT=10257
+
+  echo "Killing any stale port-forward on port $LOCAL_PORT..."
+  lsof -ti :$LOCAL_PORT | xargs kill -9 2>/dev/null || true
+
+  echo "Creating namespace..."
+  kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "Deploying VictoriaMetrics..."
+  kubectl apply -f victoriametrics.yaml -n $NAMESPACE
+
+  echo "Waiting for VictoriaMetrics pod..."
+  POD_READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=victoriametrics -n $NAMESPACE --timeout=5s 2>/dev/null; then
+      echo "VictoriaMetrics pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$POD_READY" = false ]; then
+    echo "VictoriaMetrics pod failed to become ready"
+    kubectl get pods -n $NAMESPACE
+    kubectl logs -l app=victoriametrics -n $NAMESPACE --tail=20 || true
+    exit 1
+  fi
+
+  echo "Launching curl helper pod..."
+  kubectl delete pod curl-import -n $NAMESPACE --ignore-not-found --wait=true
+  kubectl run curl-import -n $NAMESPACE --image=curlimages/curl:8.12.1 \
+    --restart=Never --command -- sleep 600
+
+  echo "Waiting for curl helper pod..."
+  POD_READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod/curl-import -n $NAMESPACE --timeout=5s 2>/dev/null; then
+      echo "curl-import pod is ready!"
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$POD_READY" = false ]; then
+    echo "curl-import pod failed to become ready"
+    kubectl get pods -n $NAMESPACE
+    exit 1
+  fi
+
+  echo "Copying metrics data into curl helper pod..."
+  kubectl cp metrics.json $NAMESPACE/curl-import:/tmp/metrics.json
+
+  echo "Importing metrics into VictoriaMetrics..."
+  kubectl exec -n $NAMESPACE curl-import -- \
+    curl -sf -X POST 'http://victoriametrics:8428/api/v1/import' \
+    --data-binary @/tmp/metrics.json
+  echo "Import request completed"
+
+  echo "Waiting for data to be indexed..."
+  sleep 5
+
+  echo "Verifying data was imported..."
+  LABEL_COUNT=$(kubectl exec -n $NAMESPACE curl-import -- \
+    curl -sf 'http://victoriametrics:8428/api/v1/label/__name__/values?start=1774994000&end=1775038000' \
+    | python3 -c "import sys,json; print(len(json.load(sys.stdin)['data']))" 2>/dev/null || echo "0")
+  echo "VictoriaMetrics has $LABEL_COUNT metric names"
+  if [ "$LABEL_COUNT" -lt 1 ]; then
+    echo "Expected at least 1 metric name after import, got $LABEL_COUNT"
+    exit 1
+  fi
+
+  HANDLER_VALUES=$(kubectl exec -n $NAMESPACE curl-import -- \
+    curl -sf 'http://victoriametrics:8428/api/v1/label/handler/values?start=1774994000&end=1775038000' || echo '{"data":[]}')
+  HANDLER_COUNT=$(printf '%s' "$HANDLER_VALUES" \
+    | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('data', [])))" 2>/dev/null || echo "0")
+  echo "VictoriaMetrics has $HANDLER_COUNT handler label values"
+  if [ "$HANDLER_COUNT" -lt 10 ]; then
+    echo "Expected at least 10 handler values, got $HANDLER_COUNT"
+    exit 1
+  fi
+  if ! printf '%s' "$HANDLER_VALUES" | python3 -c "import sys,json; sys.exit(0 if 'read_rnd_next' in json.load(sys.stdin).get('data', []) else 1)"; then
+    echo "Expected handler label 'read_rnd_next' after import"
+    exit 1
+  fi
+  echo "Verified: read_rnd_next handler present"
+
+  echo "Cleaning up curl helper pod..."
+  kubectl delete pod curl-import -n $NAMESPACE --ignore-not-found || true
+
+  echo "Setup complete!"
+
+after_test: |
+  lsof -ti :10257 | xargs kill -9 2>/dev/null || true
+  kubectl delete namespace app-257 --wait=false --ignore-not-found || true

@@ -1,15 +1,96 @@
 from unittest.mock import MagicMock, patch
 
+import json
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
+from holmes.core.tool_calling_llm import RelayRefusal
 from server import app, extract_passthrough_headers
 
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+DISABLED_MESSAGE = (
+    "Robusta-hosted models are disabled for this account. Configure a model on "
+    "the cluster, or enable Robusta-hosted models in Settings > LLM Models."
+)
+
+
+@pytest.mark.parametrize(
+    "status_code, message",
+    [
+        (403, DISABLED_MESSAGE),
+        (401, "Your session has expired. Reconnect the cluster to the platform."),
+    ],
+)
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_answers_a_relay_refusal_with_its_own_status(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+    status_code,
+    message,
+):
+    """Relay refusing the call on a Robusta-hosted model is the platform
+    talking to the user: /api/chat passes its status and sentence through
+    rather than turning them into a 500 (ROB-1389)."""
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.side_effect = RelayRefusal(message, status_code)
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?"})
+
+    assert response.status_code == status_code
+    assert response.json()["detail"] == message
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_stream_carries_a_relay_refusal_in_the_error_event(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+    status_code,
+):
+    """A stream has committed HTTP 200 before the LLM call runs, so the
+    refusal rides the SSE error event: relay's sentence as the text and a code
+    per status the client can key on (ROB-1389)."""
+    from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES
+
+    mock_get_global_instructions.return_value = []
+    message = "Robusta-hosted models are disabled for this account."
+
+    def refused_stream(*args, **kwargs):
+        raise RelayRefusal(message, status_code)
+        yield  # a generator, like the real call_stream
+
+    mock_ai = MagicMock()
+    mock_ai.call_stream.return_value = refused_stream()
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?", "stream": True})
+
+    assert response.status_code == 200
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events == [
+        {
+            "description": message,
+            "error_code": RELAY_REFUSAL_ERROR_CODES[status_code],
+            "msg": message,
+            "success": False,
+        }
+    ]
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")
@@ -35,6 +116,7 @@ def test_api_chat_all_fields(
             {"role": "user", "content": "What can you do?"},
         ],
         metadata={},
+        num_llm_calls=1,
     )
     mock_create_toolcalling_llm.return_value = mock_ai
 
@@ -98,6 +180,7 @@ def test_api_chat_with_images(
             tool_calls=[],
             messages=messages,
             metadata={},
+            num_llm_calls=1,
         )
 
     mock_ai.call.side_effect = capture_messages
@@ -172,6 +255,7 @@ def test_api_chat_with_images_advanced_format(
             tool_calls=[],
             messages=messages,
             metadata={},
+            num_llm_calls=1,
         )
 
     mock_ai.call.side_effect = capture_messages
@@ -260,6 +344,7 @@ def test_api_chat_with_images_missing_url_key(
         tool_calls=[],
         messages=[],
         metadata={},
+        num_llm_calls=1,
     )
     mock_create_toolcalling_llm.return_value = mock_ai
     mock_get_global_instructions.return_value = []
@@ -281,6 +366,150 @@ def test_api_chat_with_images_missing_url_key(
     assert response.status_code == 500
     data = response.json()
     assert "Image dict must contain a 'url' key" in data["detail"]
+
+
+@patch("server.tool_result_storage")
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_frontend_tool_collision_returns_400(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    mock_tool_result_storage,
+    client,
+):
+    mock_ai = MagicMock()
+    mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    storage_cm = MagicMock()
+    storage_cm.__enter__.return_value = "/tmp/test"
+    mock_tool_result_storage.return_value = storage_cm
+
+    payload = {
+        "ask": "anything",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "frontend_tools": [
+            {
+                "name": "existing_tool",
+                "description": "intentional collision",
+                "parameters": {"type": "object", "properties": {}},
+                "mode": "pause",
+            }
+        ],
+        "stream": True,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 400, response.text
+    assert "existing_tool" in response.json()["detail"]
+    storage_cm.__exit__.assert_called_once()
+
+
+@patch("server.tool_result_storage")
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_pause_mode_without_streaming_cleans_up_storage(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    mock_tool_result_storage,
+    client,
+):
+    mock_ai = MagicMock()
+    mock_ai.tool_executor.tools_by_name = {}
+    cloned_executor = MagicMock()
+    mock_ai.tool_executor.clone_with_extra_tools.return_value = cloned_executor
+    mock_ai.with_executor.return_value = MagicMock()
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    storage_cm = MagicMock()
+    storage_cm.__enter__.return_value = "/tmp/test"
+    mock_tool_result_storage.return_value = storage_cm
+
+    payload = {
+        "ask": "anything",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "frontend_tools": [
+            {
+                "name": "create_dashboard",
+                "description": "needs streaming",
+                "parameters": {"type": "object", "properties": {}},
+                "mode": "pause",
+            }
+        ],
+        "stream": False,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 400, response.text
+    assert "stream=true" in response.json()["detail"]
+    storage_cm.__exit__.assert_called_once()
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_noop_frontend_tool_uses_cloned_ai_in_non_streaming(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    mock_ai = MagicMock()
+    mock_ai.tool_executor.tools_by_name = {"existing_tool": MagicMock()}
+
+    cloned_executor = MagicMock(name="cloned_executor")
+    mock_ai.tool_executor.clone_with_extra_tools.return_value = cloned_executor
+
+    cloned_ai = MagicMock(name="cloned_ai")
+    cloned_ai.call.return_value = MagicMock(
+        result="answer-from-cloned-ai",
+        tool_calls=[],
+        messages=[
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+        ],
+        metadata={},
+        num_llm_calls=1,
+    )
+    # Distinguishable so the test fails clearly if request_ai isn't used.
+    mock_ai.call.return_value = MagicMock(
+        result="answer-from-original-ai-WRONG",
+        tool_calls=[],
+        messages=[],
+        metadata={},
+        num_llm_calls=1,
+    )
+    mock_ai.with_executor.return_value = cloned_ai
+
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_get_global_instructions.return_value = []
+
+    payload = {
+        "ask": "log this",
+        "conversation_history": [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ],
+        "frontend_tools": [
+            {
+                "name": "emit_telemetry",
+                "description": "Fire-and-forget telemetry",
+                "parameters": {"type": "object", "properties": {}},
+                "mode": "noop",
+                "noop_response": "ack",
+            }
+        ],
+        "stream": False,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200, response.text
+    assert response.json()["analysis"] == "answer-from-cloned-ai"
+
+    cloned_ai.call.assert_called_once()
+    mock_ai.call.assert_not_called()
+    mock_ai.tool_executor.clone_with_extra_tools.assert_called_once()
+    mock_ai.with_executor.assert_called_once_with(cloned_executor)
 
 
 class TestExtractPassthroughHeaders:

@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: victoriametrics }
+  template:
+    metadata:
+      labels: { app: victoriametrics }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: victoriametrics
+        image: victoriametrics/victoria-metrics:v1.140.0
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        args:
+          - "-retentionPeriod=1y"
+        ports:
+        - containerPort: 8428
+          name: http
+        volumeMounts:
+        - name: data
+          mountPath: /victoria-metrics-data
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 8
+          timeoutSeconds: 2
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          periodSeconds: 3
+          failureThreshold: 40
+      volumes:
+      - name: data
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoriametrics
+spec:
+  selector: { app: victoriametrics }
+  ports:
+  - name: http
+    port: 8428
+    targetPort: http

@@ -15,7 +15,7 @@ expected_output:
 
 include_tool_calls: true
 
-runbooks: {}
+skills: {}
 
 tags:
   - fast

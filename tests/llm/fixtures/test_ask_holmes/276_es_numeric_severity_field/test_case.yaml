@@ -1,0 +1,118 @@
+# Test: ES log level is encoded numerically in `severity_num` (1-6 scale),
+# with NO `level` text field at all.
+#
+# This is a real-world quirk: some pipelines emit numeric syslog-style
+# severity (1=trace ... 6=fatal) instead of the typical "ERROR"/"FATAL"
+# text level. A fresh LLM defaulting to `level:"ERROR"` finds no hits.
+# The only way to count ERROR+FATAL is to discover `severity_num` from
+# the mapping/sample doc and then filter `severity_num >= 5`.
+#
+# Phrasing: "how many entries have level=ERROR or level=FATAL?" deliberately
+# uses the conventional terminology to bias the agent into running a
+# `level:` term query first. That query returns zero hits and the agent
+# must read the mapping and re-query. THAT correction is the durable
+# env-specific lesson the SuggestSkills tool should capture.
+
+user_prompt: 'In the elasticsearch index ''app-276-logs-9j2k4p7m'', run a `terms: { level: ["ERROR", "FATAL"] }` query and tell me how many hits come back. If that returns zero, find the right field for log severity and re-run the query.'
+
+expected_output:
+  - "There are 8 entries with ERROR or FATAL severity in app-276-logs-9j2k4p7m (the index encodes log level as a numeric severity_num integer, not a text level field)"
+
+memories_generated: true
+rerun_with_memory: true
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+  - skills
+  # opus-4.6 asserts what the numeric severity values mean without sampling
+  # documents to verify; fable-5 checks the inferred encoding against the
+  # [LEVEL] prefixes in the message field (verified on 280, same mechanism).
+  - fable-not-opus
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  export HOLMES_ES_TEST_INDEX="app-276-logs-9j2k4p7m"
+  echo "Using test index: $HOLMES_ES_TEST_INDEX"
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "⏳ Creating test index with numeric severity_num (no text level field)..."
+
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "severity_num": { "type": "integer" },
+          "msg":          { "type": "text" },
+          "svc":          { "type": "keyword" },
+          "@timestamp":   { "type": "date" }
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+  sleep 2
+
+  # severity_num: 1=trace 2=debug 3=info 4=warn 5=error 6=fatal
+  # 8 docs >= 5 (the answer): 6 ERROR + 2 FATAL.
+  # 5 WARN + 10 INFO as distractors.
+  BULK_DATA=""
+  for i in $(seq 1 6); do
+    TS=$(printf '2026-06-03T08:00:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":5,\"svc\":\"order-276\",\"msg\":\"[ERROR] DB timeout $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 2); do
+    TS=$(printf '2026-06-03T08:01:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":6,\"svc\":\"order-276\",\"msg\":\"[FATAL] Disk full $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 5); do
+    TS=$(printf '2026-06-03T08:02:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":4,\"svc\":\"order-276\",\"msg\":\"[WARN] Slow query $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 10); do
+    TS=$(printf '2026-06-03T08:03:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity_num\":3,\"svc\":\"order-276\",\"msg\":\"[INFO] Order placed $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+
+  BULK_RESPONSE=$(echo -e "$BULK_DATA" | curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @-)
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    exit 1
+  fi
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$DOC_COUNT" = "23" ]; then
+    echo "✅ Index created with $DOC_COUNT docs (6 ERROR / 2 FATAL / 5 WARN / 10 INFO) using numeric 'severity_num' field"
+  else
+    echo "❌ Expected 23 documents, found: $DOC_COUNT"
+    exit 1
+  fi
+
+after_test: |
+  echo "⏳ Cleaning up test index: app-276-logs-9j2k4p7m"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-276-logs-9j2k4p7m" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"

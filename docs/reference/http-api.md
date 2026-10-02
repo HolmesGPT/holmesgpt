@@ -3,6 +3,44 @@
 ## Overview
 The HolmesGPT API provides endpoints for conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
+## Authentication
+
+API authentication is optional. When the `HOLMES_API_KEY` environment variable is set, all endpoints (except `/healthz` and `/readyz`) require authentication.
+
+**Generating a key:**
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+# or
+openssl rand -base64 32
+```
+
+Then set it on the server:
+```bash
+export HOLMES_API_KEY="<your-generated-key>"
+```
+
+**Include the API key in requests using either header:**
+
+```bash
+# Option 1: X-API-Key header
+curl -H "X-API-Key: your-key" -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"ask": "What is the status of my cluster?"}'
+
+# Option 2: Bearer token
+curl -H "Authorization: Bearer your-key" -X POST http://<HOLMES-URL>/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"ask": "What is the status of my cluster?"}'
+```
+
+If authentication is enabled and the key is missing or incorrect, the API returns:
+```json
+{"detail": "Invalid or missing API key"}
+```
+with HTTP status `401 Unauthorized`.
+
+---
+
 ## Model Parameter Behavior
 
 When using the API with a Helm deployment, the `model` parameter must reference a model name from your `modelList` configuration in your Helm values, **not** the direct model identifier.
@@ -121,7 +159,7 @@ The `ENABLED_PROMPTS` env var accepts a comma-separated list of section keys (e.
 | `system_prompt_additions` | System   | Custom additions from configuration          |
 | `files`                   | User     | Attached file contents                       |
 | `todowrite_reminder`      | User     | Reminder to use TodoWrite for task tracking  |
-| `time_runbooks`           | User     | Runbook content and custom instructions      |
+| `time_skills`             | User     | Skill content and custom instructions        |
 
 #### Structured Output with `response_format`
 
@@ -293,7 +331,7 @@ For the most up-to-date list of vision-enabled models, see the [LiteLLM Vision D
 
 #### Tool Approval Behavior
 
-The `enable_tool_approval` field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that bashlex cannot parse).
+The `enable_tool_approval` field controls how HolmesGPT handles tools that require approval (e.g., bash commands not in the allow list, or commands that cannot be safely parsed).
 
 **When `enable_tool_approval: true` (interactive clients):**
 
@@ -576,6 +614,87 @@ curl http://<HOLMES-URL>/api/model
   "model_name": ["anthropic/claude-sonnet-4-5-20250929", "anthropic/claude-opus-4-5-20251101", "robusta"]
 }
 ```
+
+---
+
+### `/api/admin/reload` (POST)
+**Description:** Reload all configuration (toolsets, skill discovery paths, and models) from disk without restarting the server.
+
+**Example**
+```bash
+curl -X POST http://<HOLMES-URL>/api/admin/reload
+```
+
+**Example Response**
+```json
+{
+  "status": "ok",
+  "component": "all",
+  "detail": "50 toolsets (15 enabled), 12 skills, 4 models",
+  "counts": {
+    "toolsets_total": 50,
+    "toolsets_enabled": 15,
+    "skills": 12,
+    "models_loaded": 4
+  }
+}
+```
+
+---
+
+### `/api/admin/reload/toolsets` (POST)
+**Description:** Re-read the config YAML and rebuild toolsets, MCP servers, and **`custom_skill_paths`** (local skill directories / `SKILL.md` discovery). Use this after modifying the Holmes config file.
+
+**Example**
+```bash
+curl -X POST http://<HOLMES-URL>/api/admin/reload/toolsets
+```
+
+**Example Response**
+```json
+{
+  "status": "ok",
+  "component": "toolsets",
+  "detail": "50 toolsets loaded, 15 enabled, 12 skills",
+  "counts": {
+    "toolsets_total": 50,
+    "toolsets_enabled": 15,
+    "skills": 12
+  }
+}
+```
+
+---
+
+### `/api/admin/reload/models` (POST)
+**Description:** Re-read `model_list.yaml` and rebuild the LLM model registry. Use this after adding, removing, or modifying model definitions.
+
+**Example**
+```bash
+curl -X POST http://<HOLMES-URL>/api/admin/reload/models
+```
+
+**Example Response**
+```json
+{
+  "status": "ok",
+  "component": "models",
+  "detail": "4 models loaded",
+  "counts": {
+    "models_loaded": 4
+  }
+}
+```
+
+**Error Response (500):**
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+!!! note
+    Admin endpoints are currently unauthenticated. Restrict access at the network level (e.g., firewall rules, internal-only service) until authentication is added.
 
 ---
 

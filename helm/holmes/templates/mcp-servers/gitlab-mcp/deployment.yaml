@@ -1,0 +1,180 @@
+{{- if .Values.mcpAddons.gitlabMcp.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-gitlab-mcp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gitlab-mcp
+    app.kubernetes.io/name: gitlab-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+data:
+  GITLAB_API_URL: {{ required "mcpAddons.gitlabMcp.config.apiUrl is required" .Values.mcpAddons.gitlabMcp.config.apiUrl | quote }}
+  GITLAB_READ_ONLY_MODE: {{ .Values.mcpAddons.gitlabMcp.config.readOnly | quote }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.useWiki }}
+  USE_GITLAB_WIKI: "true"
+  {{- end }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.useMilestone }}
+  USE_MILESTONE: "true"
+  {{- end }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.usePipeline }}
+  USE_PIPELINE: "true"
+  {{- end }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.projectId }}
+  GITLAB_PROJECT_ID: {{ .Values.mcpAddons.gitlabMcp.config.projectId | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.allowedProjectIds }}
+  GITLAB_ALLOWED_PROJECT_IDS: {{ .Values.mcpAddons.gitlabMcp.config.allowedProjectIds | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.toolsets }}
+  GITLAB_TOOLSETS: {{ .Values.mcpAddons.gitlabMcp.config.toolsets | quote }}
+  {{- end }}
+  {{- if .Values.mcpAddons.gitlabMcp.config.tools }}
+  GITLAB_TOOLS: {{ .Values.mcpAddons.gitlabMcp.config.tools | quote }}
+  {{- end }}
+  {{- if not .Values.mcpAddons.gitlabMcp.config.verifySsl }}
+  NODE_TLS_REJECT_UNAUTHORIZED: "0"
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-gitlab-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gitlab-mcp
+    app.kubernetes.io/name: gitlab-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-gitlab-mcp
+      app.kubernetes.io/name: gitlab-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-gitlab-mcp
+        app.kubernetes.io/name: gitlab-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
+      annotations:
+        {{- with (include "holmes.commonAnnotations" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ .Values.mcpAddons.gitlabMcp | toYaml | sha256sum }}
+    spec:
+      {{- if .Values.mcpAddons.gitlabMcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.gitlabMcp.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.gitlabMcp.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.gitlabMcp.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.gitlabMcp.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.gitlabMcp.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: gitlab-mcp
+        image: "{{ .Values.mcpAddons.gitlabMcp.registry }}/{{ .Values.mcpAddons.gitlabMcp.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.gitlabMcp.imagePullPolicy | default "IfNotPresent" }}
+        stdin: true
+        tty: true
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        args:
+          - "--stdio"
+          - "npx -y @zereight/mcp-gitlab@{{ .Values.mcpAddons.gitlabMcp.mcpGitlabVersion }}"
+          - "--port"
+          - "8000"
+        env:
+        - name: GITLAB_PERSONAL_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ required "mcpAddons.gitlabMcp.auth.secretName is required" .Values.mcpAddons.gitlabMcp.auth.secretName }}
+              key: {{ .Values.mcpAddons.gitlabMcp.auth.secretKey | default "token" }}
+        {{- if .Values.mcpAddons.gitlabMcp.config.caCert.secretName }}
+        - name: GITLAB_CA_CERT_PATH
+          value: /etc/ssl/gitlab-mcp/{{ .Values.mcpAddons.gitlabMcp.config.caCert.secretKey | default "ca.crt" }}
+        {{- end }}
+        {{- with .Values.mcpAddons.gitlabMcp.additionalEnvVars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-gitlab-mcp-config
+        resources:
+          {{- toYaml .Values.mcpAddons.gitlabMcp.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        {{- if .Values.mcpAddons.gitlabMcp.config.caCert.secretName }}
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/ssl/gitlab-mcp
+          readOnly: true
+        {{- end }}
+      {{- if .Values.mcpAddons.gitlabMcp.config.caCert.secretName }}
+      volumes:
+      - name: ca-cert
+        secret:
+          secretName: {{ .Values.mcpAddons.gitlabMcp.config.caCert.secretName }}
+          defaultMode: 420
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-gitlab-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-gitlab-mcp
+    app.kubernetes.io/name: gitlab-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    app: {{ .Release.Name }}-gitlab-mcp
+    app.kubernetes.io/name: gitlab-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- end }}

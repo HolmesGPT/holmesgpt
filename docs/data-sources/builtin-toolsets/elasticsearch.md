@@ -19,23 +19,30 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
 === "Holmes CLI"
 
-    Add to your config file (`~/.holmes/config.yaml`):
+    Set the environment variables:
+
+    ```bash
+    export ELASTICSEARCH_URL="https://your-cluster.es.cloud.io:443"
+    export ELASTICSEARCH_API_KEY=your-api-key
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     toolsets:
       elasticsearch/data:
         enabled: true
         config:
-          api_url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
+          api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
           # username: "elastic"
           # password: "your-password"
       elasticsearch/cluster:
         enabled: true
         config:
-          api_url: "https://your-cluster.es.cloud.io:443"
-          api_key: "your-api-key"
+          api_url: "{{ env.ELASTICSEARCH_URL }}"
+          api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
           # username: "elastic"
           # password: "your-password"
@@ -45,24 +52,20 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your credentials:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic elasticsearch-credentials \
-      --from-literal=api-key=your-api-key
+    kubectl create secret generic holmes-elasticsearch \
+      --from-literal=ELASTICSEARCH_URL="https://your-cluster.es.cloud.io:443" \
+      --from-literal=ELASTICSEARCH_API_KEY=your-api-key \
+      -n <namespace>
     ```
 
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: ELASTICSEARCH_URL
-        value: "https://your-cluster.es.cloud.io:443"
-      - name: ELASTICSEARCH_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: elasticsearch-credentials
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-elasticsearch
 
     toolsets:
       elasticsearch/data:
@@ -71,39 +74,42 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
-          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+          # username: "elastic"
+          # password: "your-password"
       elasticsearch/cluster:
         enabled: true
         config:
           api_url: "{{ env.ELASTICSEARCH_URL }}"
           api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
           # Alternative: use basic auth instead of api_key
-          # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-          # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+          # username: "elastic"
+          # password: "your-password"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    First, create a Kubernetes secret with your credentials:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic elasticsearch-credentials \
-      --from-literal=api-key=your-api-key
+    kubectl create secret generic holmes-elasticsearch \
+      --from-literal=ELASTICSEARCH_URL="https://your-cluster.es.cloud.io:443" \
+      --from-literal=ELASTICSEARCH_API_KEY=your-api-key \
+      -n <namespace>
     ```
 
-    Then add to your Robusta Helm values:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: ELASTICSEARCH_URL
-          value: "https://your-cluster.es.cloud.io:443"
-        - name: ELASTICSEARCH_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: elasticsearch-credentials
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-elasticsearch
+
       toolsets:
         elasticsearch/data:
           enabled: true
@@ -111,22 +117,36 @@ Enable only the toolset(s) you need. Most users who just want to search logs onl
             api_url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
             # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+            # username: "elastic"
+            # password: "your-password"
         elasticsearch/cluster:
           enabled: true
           config:
             api_url: "{{ env.ELASTICSEARCH_URL }}"
             api_key: "{{ env.ELASTICSEARCH_API_KEY }}"
             # Alternative: use basic auth instead of api_key
-            # username: "{{ env.ELASTICSEARCH_USERNAME }}"
-            # password: "{{ env.ELASTICSEARCH_PASSWORD }}"
+            # username: "elastic"
+            # password: "your-password"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 !!! tip "Enable only what you need"
     You can enable just `elasticsearch/data` or `elasticsearch/cluster` depending on your needs. Most users who just want to search logs only need `elasticsearch/data`.
+
+## Multiple Instances
+
+```multi-instance
+toolset: elasticsearch/data
+name: Elasticsearch
+config: |
+  api_url: "https://your-cluster.es.cloud.io:443"
+  api_key: "your-api-key"
+```
 
 ## Authentication
 
@@ -143,6 +163,8 @@ The toolsets support multiple authentication methods:
 
 For Elasticsearch clusters that require client certificate authentication (common with the OpenShift Jaeger operator), configure the certificate paths:
 
+In Kubernetes, the certificates are mounted into the Holmes container from a secret, using `additionalVolumes` and `additionalVolumeMounts`.
+
 === "Holmes CLI"
 
     ```yaml
@@ -157,15 +179,16 @@ For Elasticsearch clusters that require client certificate authentication (commo
 
 === "Holmes Helm Chart"
 
-    Create a Kubernetes secret containing the client certificates:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic elasticsearch-client-certs \
+    kubectl create secret generic holmes-elasticsearch-mtls \
       --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key
+      --from-file=tls.key=/path/to/client.key \
+      -n <namespace>
     ```
 
-    Then mount the secret into the Holmes container using `additionalVolumes` and `additionalVolumeMounts`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     additionalEnvVars:
@@ -175,7 +198,7 @@ For Elasticsearch clusters that require client certificate authentication (commo
     additionalVolumes:
       - name: es-certs
         secret:
-          secretName: elasticsearch-client-certs
+          secretName: holmes-elasticsearch-mtls
 
     additionalVolumeMounts:
       - name: es-certs
@@ -191,17 +214,24 @@ For Elasticsearch clusters that require client certificate authentication (commo
           client_key: "/etc/elasticsearch/certs/tls.key"
     ```
 
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret containing the client certificates:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic elasticsearch-client-certs \
-      --from-file=tls.crt=/path/to/client.crt \
-      --from-file=tls.key=/path/to/client.key
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    Then add to your Robusta Helm values:
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-elasticsearch-mtls \
+      --from-file=tls.crt=/path/to/client.crt \
+      --from-file=tls.key=/path/to/client.key \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -212,7 +242,7 @@ For Elasticsearch clusters that require client certificate authentication (commo
       additionalVolumes:
         - name: es-certs
           secret:
-            secretName: elasticsearch-client-certs
+            secretName: holmes-elasticsearch-mtls
 
       additionalVolumeMounts:
         - name: es-certs
@@ -228,7 +258,13 @@ For Elasticsearch clusters that require client certificate authentication (commo
             client_key: "/etc/elasticsearch/certs/tls.key"
     ```
 
-If Elasticsearch uses a private CA, use the global [`certificate`](../../reference/helm-configuration.md) Helm value (or `CERTIFICATE` env var for CLI) to trust it. This applies to all outbound HTTPS requests, not just Elasticsearch. See [Environment Variables](../../reference/environment-variables.md#certificate) for details.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+If Elasticsearch uses a private CA, use the chart's global [`certificate`](../../reference/helm-configuration.md) value (or `CERTIFICATE` env var for CLI) to trust it. This applies to all outbound HTTPS requests, not just Elasticsearch. See [Environment Variables](../../reference/environment-variables.md#certificate) for details.
 
 ### Other Options
 

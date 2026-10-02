@@ -18,7 +18,10 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets import load_builtin_toolsets
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
-from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
+from holmes.utils.holmes_sync_toolsets import (
+    build_remote_tools_meta,
+    holmes_sync_toolsets_status,
+)
 from tests.utils.bad_toolset_example import BadTool, BadToolset
 from tests.utils.toolsets import callable_success, failing_callable_for_test
 
@@ -405,6 +408,54 @@ def test_toolsets_dumpable(mock_dal, mock_config):
     -> ToolsetDBModel -> dal.sync_toolsets() for sending to database.
     """
     holmes_sync_toolsets_status(mock_dal, mock_config)
+
+
+def _exposed_toolset(approval_required_tools=None):
+    ts = SampleToolset(
+        name="remote-toolset",
+        description="Remotely exposed toolset",
+        enabled=True,
+        tools=[
+            YAMLTool(name="list_buckets", description="List", command="echo a"),
+            YAMLTool(name="delete_bucket", description="Delete", command="echo b"),
+        ],
+        tags=[ToolsetTag.CLUSTER],
+        expose_remotely=True,
+        approval_required_tools=approval_required_tools or [],
+    )
+    ts.check_prerequisites()
+    assert ts.status == ToolsetStatusEnum.ENABLED
+    return ts
+
+
+def test_build_remote_tools_meta_publishes_yaml_tools():
+    """Regression: build_remote_tools_meta must not call removed Tool._is_restricted().
+
+    The restricted_tools mechanism was removed in favor of approval_required_tools;
+    a stale reference here raised AttributeError on YAMLTool at toolset-sync time.
+    """
+    meta = build_remote_tools_meta(_exposed_toolset())
+
+    assert meta is not None
+    tool_names = {t["function"]["name"] for t in meta["tools"]}
+    assert tool_names == {"list_buckets", "delete_bucket"}
+
+
+def test_build_remote_tools_meta_excludes_approval_required_tools():
+    meta = build_remote_tools_meta(
+        _exposed_toolset(approval_required_tools=["delete_*"])
+    )
+
+    assert meta is not None
+    tool_names = {t["function"]["name"] for t in meta["tools"]}
+    assert tool_names == {"list_buckets"}
+
+
+def test_build_remote_tools_meta_none_when_not_exposed():
+    ts = _exposed_toolset()
+    ts.expose_remotely = False
+
+    assert build_remote_tools_meta(ts) is None
 
 
 def _mock_get_server_tools(mock_tools_result):

@@ -91,3 +91,4 @@ This toolset is particularly useful for:
 - The toolset will only be functional if valid Robusta credentials are provided
 - If credentials are missing or invalid, the toolset will be disabled automatically
 - This integration provides read-only access to your Robusta data
+- The configuration-change, issue-metadata and resource-recommendation queries are served by the Robusta platform's MCP server and discovered automatically when Robusta credentials are configured; multi-cluster queries are filtered server-side to the clusters the requesting user is allowed to access (Holmes chat RBAC permissions)

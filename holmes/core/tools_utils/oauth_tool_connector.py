@@ -1,0 +1,315 @@
+"""OAuthToolConnector: per-user OAuth tool lifecycle management.
+
+Owned by ToolExecutor. Handles token exchange, tool loading from MCP servers,
+and per-user tool storage so authenticated users see real tools instead of
+_connect placeholders.
+"""
+
+import logging
+import threading
+from typing import Any, Dict, List, Optional, Tuple
+
+import httpx
+
+from holmes.core.oauth_config import (
+    OAuthDecisionCode,
+    OAuthTokenExchangeError,
+    _get_exchange_manager,
+    parse_oauth_decision,
+)
+from holmes.core.oauth_utils import _get_token_manager
+from holmes.core.tools import Tool
+
+logger = logging.getLogger(__name__)
+
+
+class OAuthToolConnector:
+    """Handles OAuth tool lifecycle: token exchange, tool loading, per-user storage.
+
+    Owned by ToolExecutor. ToolCallingLLM delegates OAuth decisions to it
+    without needing OAuth-specific imports or logic.
+    """
+
+    def __init__(self) -> None:
+        self._user_tools: Dict[str, Dict[str, List[Tool]]] = {}
+        self._lock = threading.Lock()
+        # Per-user tool→toolset mapping: {user_id: {tool_name: toolset}}
+        self._user_tool_to_toolset: Dict[str, Dict[str, Any]] = {}
+
+    # ── Decision processing ────────────────────────────────────────────
+
+    def process_oauth_decision(
+        self,
+        tool_call_id: str,
+        decision: Optional[Dict[str, Any]],
+        request_context: Optional[Dict[str, Any]],
+        toolset: Any = None,
+    ) -> Optional[Tuple[str, List[Tool]]]:
+        """Try to process a tool approval decision as an OAuth code exchange.
+
+        If the decision contains an OAuth authorization code, exchanges it for
+        a token and loads real tools from the MCP server.
+
+        Args:
+            tool_call_id: The tool call being approved.
+            decision: The structured decision data from the frontend.
+            request_context: Request context with user_id.
+            toolset: The RemoteMCPToolset to load tools from.
+
+        Returns:
+            (toolset_name, tools) on success, None if not an OAuth decision.
+        Raises:
+            OAuthTokenExchangeError if the code exchange fails.
+        """
+        oauth_code = parse_oauth_decision(decision)
+        if not oauth_code:
+            return None
+
+        # Exchange auth code for token
+        success = self._try_exchange(tool_call_id, oauth_code, request_context)
+        if not success:
+            raise OAuthTokenExchangeError(0, "OAuth code exchange failed")
+
+        # Load real tools now that we have a token
+        user_id = _get_token_manager().require_user_id(request_context)
+        if toolset:
+            tools = self.load_tools_for_user(user_id, toolset, request_context)
+            return (toolset.name, tools)
+
+        return None
+
+    @staticmethod
+    def _try_exchange(
+        tool_call_id: str,
+        oauth_code: OAuthDecisionCode,
+        request_context: Optional[Dict[str, Any]],
+    ) -> bool:
+        """Exchange an OAuth authorization code for tokens. Returns True on success."""
+        try:
+            _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+            return True
+        except Exception as e:
+            logger.error("Failed to process OAuth decision: %s", e, exc_info=True)
+            return False
+
+    # ── Tool loading and storage ───────────────────────────────────────
+
+    def load_tools_for_user(
+        self,
+        user_id: str,
+        toolset: Any,
+        request_context: Optional[Dict[str, Any]] = None,
+    ) -> List[Tool]:
+        """Load real OAuth tools from an MCP server and store per user.
+
+        Single entry point for all OAuth tool loading — called from:
+        - Startup preload (token exists in DB or disk)
+        - OAuth callback (frontend browser flow)
+        - process_oauth_decision (after code exchange)
+
+        Returns the loaded tools, or empty list on failure.
+        """
+        try:
+            tools = toolset._load_remote_tools(request_context)
+            if tools:
+                self.store_user_tools(user_id, toolset.name, tools)
+                logger.info(
+                    "Loaded %d OAuth tools for user %s on toolset %s",
+                    len(tools), user_id[:6] if user_id else user_id, toolset.name,
+                )
+            return tools
+        except Exception as e:
+            if self._is_auth_error(e):
+                logger.warning(
+                    "OAuth credentials expired for user %s on toolset %s — removing cached token",
+                    user_id, toolset.name,
+                )
+                self._evict_expired_token(user_id, toolset)
+                self._clear_user_tools(user_id, toolset)
+            else:
+                logger.warning(
+                    "Failed to load OAuth tools for user %s on toolset %s: %s",
+                    user_id, toolset.name, self._extract_error_message(e),
+                )
+                self._log_token_config_mismatch(user_id, toolset)
+            return []
+
+    def store_user_tools(self, user_id: str, toolset_name: str, tools: List[Tool]) -> None:
+        """Store discovered OAuth tools for a user and register in tool_to_toolset."""
+        with self._lock:
+            if user_id not in self._user_tools:
+                self._user_tools[user_id] = {}
+            self._user_tools[user_id][toolset_name] = tools
+        # Register per-user so get_toolset_name works for OAuth tools
+        if user_id not in self._user_tool_to_toolset:
+            self._user_tool_to_toolset[user_id] = {}
+        for tool in tools:
+            if hasattr(tool, "toolset"):
+                self._user_tool_to_toolset[user_id][tool.name] = tool.toolset
+
+    # ── Tool resolution ────────────────────────────────────────────────
+
+    def resolve_tools(self, user_id: Optional[str]) -> Optional[Dict[str, List[Tool]]]:
+        """Return per-user OAuth tools if available, or None."""
+        if not user_id:
+            return None
+        with self._lock:
+            user_tools = self._user_tools.get(user_id)
+            return dict(user_tools) if user_tools else None
+
+    def apply_user_tools(
+        self,
+        base_tools: list,
+        user_id: Optional[str],
+        tool_to_toolset: Dict[str, Any],
+    ) -> list:
+        """Replace _connect placeholders with real OAuth tools for this user.
+
+        If the user has stored OAuth tools for a toolset, removes that toolset's
+        placeholder from the list and appends the real tools.
+        Returns the original list unchanged if no replacements apply.
+        """
+        from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+
+        oauth_replacements = self.resolve_tools(user_id)
+        if not oauth_replacements:
+            return base_tools
+
+        replaced_toolsets = set(oauth_replacements.keys())
+        filtered = []
+        for t in base_tools:
+            tool_name = t["function"]["name"]
+            ts = tool_to_toolset.get(tool_name)
+            if isinstance(ts, RemoteMCPToolset) and ts.name in replaced_toolsets:
+                continue
+            filtered.append(t)
+
+        for user_tools in oauth_replacements.values():
+            for tool in user_tools:
+                filtered.append(tool.get_openai_format())
+
+        return filtered
+
+    def find_tool(self, name: str, user_id: Optional[str]) -> Optional[Tool]:
+        """Look up a tool in the per-user OAuth tools store."""
+        if not user_id:
+            return None
+        with self._lock:
+            for toolset_tools in self._user_tools.get(user_id, {}).values():
+                for tool in toolset_tools:
+                    if tool.name == name:
+                        return tool
+        return None
+
+    def get_toolset(self, tool_name: str, user_id: Optional[str]) -> Optional[Any]:
+        """Return the toolset for a per-user OAuth tool, or None."""
+        if not user_id:
+            return None
+        return self._user_tool_to_toolset.get(user_id, {}).get(tool_name)
+
+
+    # ── Error handling helpers ─────────────────────────────────────────
+
+    @staticmethod
+    def _is_auth_error(exc: BaseException) -> bool:
+        """Check if an exception (possibly wrapped in ExceptionGroup) is a 401/403."""
+        current: BaseException = exc
+        while hasattr(current, "exceptions") and current.exceptions:
+            current = current.exceptions[0]
+        if isinstance(current, httpx.HTTPStatusError):
+            return current.response.status_code in (401, 403)
+        return "401" in str(current) or "Unauthorized" in str(current)
+
+    @staticmethod
+    def _extract_error_message(exc: BaseException) -> str:
+        """Extract the root error message from a possibly wrapped exception."""
+        current: BaseException = exc
+        while hasattr(current, "exceptions") and current.exceptions:
+            current = current.exceptions[0]
+        return str(current)
+
+    @staticmethod
+    def _log_token_config_mismatch(user_id: str, toolset: Any) -> None:
+        """On MCP failure, log if the stored token was issued under a different
+        client_id / token_url than the toolset's current OAuth config.
+
+        Catches config drift that would otherwise be invisible: rotated
+        client_id, two toolsets sharing a provider URL with different client
+        configs, or a stale cached token after credentials were changed.
+        Also surfaces the workspace/team the token belongs to for servers
+        that gate access per workspace (e.g. Slack), so users can spot
+        wrong-workspace auth.
+        """
+        try:
+            oauth_cfg = getattr(getattr(toolset, "_mcp_config", None), "oauth", None)
+            if oauth_cfg is None:
+                return
+            store = getattr(_get_token_manager(), "_store", None)
+            if store is None:
+                return
+            provider = getattr(oauth_cfg, "authorization_url", None) or "unknown"
+            try:
+                tok = store.get_token(provider, user_id=user_id)
+            except TypeError:
+                tok = store.get_token(provider)
+            if not isinstance(tok, dict):
+                return
+
+            cfg_client_id = getattr(oauth_cfg, "client_id", None)
+            cfg_token_url = getattr(oauth_cfg, "token_url", None)
+            tok_client_id = tok.get("client_id")
+            tok_token_url = tok.get("token_url")
+            tok_team = tok.get("team")
+
+            mismatches = []
+            if cfg_client_id and tok_client_id and cfg_client_id != tok_client_id:
+                mismatches.append(f"client_id: stored={tok_client_id} config={cfg_client_id}")
+            if cfg_token_url and tok_token_url and cfg_token_url != tok_token_url:
+                mismatches.append(f"token_url: stored={tok_token_url} config={cfg_token_url}")
+
+            if mismatches:
+                logger.warning(
+                    "MCP token/config mismatch for user %s on toolset %s — %s. "
+                    "The cached token was issued under a different OAuth config; re-authenticate.",
+                    user_id, toolset.name, "; ".join(mismatches),
+                )
+            elif tok_team:
+                logger.warning(
+                    "MCP failure for user %s on toolset %s — token was issued in workspace %s. "
+                    "If the server gates access per workspace, the user may have authenticated in the wrong one.",
+                    user_id, toolset.name, tok_team,
+                )
+        except Exception:
+            logger.debug("Failed to log token/config mismatch", exc_info=True)
+
+    @staticmethod
+    def _evict_expired_token(user_id: str, toolset: Any) -> None:
+        """Remove an expired/revoked token from cache and the backing store.
+
+        Evicts the in-memory cache and deletes the persisted row so the
+        frontend stops showing "Failed" and the user sees a fresh "Login"
+        action. By the time we get here, the background refresh loop has
+        already failed to refresh — the stored token is genuinely dead.
+        """
+        try:
+            mgr = _get_token_manager()
+            oauth_config = toolset._mcp_config.oauth
+            cache_key = mgr._get_cache_key(oauth_config, {"user_id": user_id})
+            mgr._cache.evict(cache_key)
+            provider_name = oauth_config.authorization_url or "unknown"
+            mgr._store.delete_token(provider_name, user_id=user_id)
+        except Exception:
+            logger.debug("Failed to evict expired token for user %s", user_id, exc_info=True)
+
+    def _clear_user_tools(self, user_id: str, toolset: Any) -> None:
+        """Drop stale per-user tools for this toolset after a 401.
+
+        Without this, apply_user_tools keeps substituting dead tools for the
+        _connect placeholder, so the LLM keeps calling them and the user
+        never gets back to a recoverable state.
+        """
+        with self._lock:
+            self._user_tools.get(user_id, {}).pop(toolset.name, None)
+            user_map = self._user_tool_to_toolset.get(user_id, {})
+            for tool_name in [n for n, ts in user_map.items() if ts.name == toolset.name]:
+                user_map.pop(tool_name, None)

@@ -117,12 +117,30 @@ class PendingToolApproval(BaseModel):
 
 
 class ToolApprovalDecision(BaseModel):
-    """Represents a user's decision on a tool approval."""
+    """Represents a user's or Holmes decision on a tool approval."""
 
     tool_call_id: str
     approved: bool
     save_prefixes: Optional[List[str]] = None  # Prefixes to remember for session
-    feedback: Optional[str] = None  # User feedback when denying a tool call
+    feedback: Optional[str] = None  # User or holmes feedback when denying a tool call
+    decision: Optional[Dict[str, Any]] = None  # Structured decision data (e.g. OAuth callback)
+    verified: bool = True # False only when Holmes itself rejected the approval (e.g. JWT token failed)
+
+
+class OAuthCallbackRequest(BaseModel):
+    toolset_name: str
+    code: str
+    code_verifier: Optional[str] = None  # Optional: frontend provides when it generated PKCE, Holmes provides when it generated PKCE
+    redirect_uri: str
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    resource: Optional[str] = None  # RFC 8707 resource indicator (canonical MCP server URL)
+    user_id: Optional[str] = None
+
+
+class OAuthCallbackResponse(BaseModel):
+    success: bool
+    error: Optional[str] = None
 
 
 class FrontendToolMode(str, Enum):
@@ -195,12 +213,103 @@ class ChatRequestBaseModel(BaseModel):
     trace_span: Optional[Any] = (
         None  # Optional span for tracing and heartbeat callbacks
     )
+    user_id: Optional[str] = None  # User ID from relay session token validation
+    user_email: Optional[str] = None  # User email supplied by the frontend (source of truth for usage analytics)
+
+    # ── AI usage tracking fields (HolmesUsageEvents). All optional / additive;
+    # old clients that don't supply them keep working unchanged. ──
+    request_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Backend-set classification: 'user_chat' (default for /api/chat), "
+            "'scheduled_prompt' (set by ScheduledPromptsExecutor), 'agui_chat' "
+            "(set by AG-UI handler), 'health_check' (set by /api/checks/execute)."
+        ),
+    )
+    request_source: Optional[str] = Field(
+        default=None,
+        description=(
+            "FE-supplied UI flow label, free-form. Examples: 'freeform', "
+            "'followup_logs', 'manual_investigation', 'resource_chat'. "
+            "Taxonomy: relay repo, relay/pkg/model/conversation_request_type.py."
+        ),
+    )
+    source_ref: Optional[str] = Field(
+        default=None,
+        description=(
+            "FE-supplied opaque pointer to the entity the chat is about "
+            "(e.g. an issue id when request_source='alert_investigation'). "
+            "Meaning is implied by request_source."
+        ),
+    )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Stable id grouping multi-turn chats. Soft reference (NOT a FK): "
+            "matches Conversations.conversation_id when worker handles the chat, "
+            "or the FE-owned ChatHistory id for direct /api/chat traffic. NULL for "
+            "single-turn / non-UI flows."
+        ),
+    )
+    conversation_source: Optional[str] = Field(
+        default=None,
+        description=(
+            "Discriminator telling dashboards which table conversation_id targets: "
+            "'conversations' (worker path) or 'chat_history' (direct /api/chat). "
+            "Worker sets it explicitly; chat() defaults to 'chat_history' when "
+            "conversation_id is non-NULL and not already set."
+        ),
+    )
+    conversation_link: Optional[str] = Field(
+        default=None,
+        description=(
+            "URL of the surface where this request originated: a Slack thread "
+            "permalink, an MS Teams message link, a platform Ask Holmes chat URL, "
+            "or a triggered-workflow run URL. Unlike the analytics-only fields "
+            "above, this IS rendered into the system prompt so that artifacts "
+            "Holmes creates outside the conversation (pull requests, issues) can "
+            "link back to the request that initiated them."
+        ),
+    )
+    meta: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Forward-compatibility metadata bag. FE-supplied opaque dict; the "
+            "server shallow-merges with backend-derived keys (backend wins on "
+            "collision). Keep small; promote stable keys to real columns over time. "
+            "Do NOT put PII / large strings (prompts, completions, tool outputs) here."
+        ),
+    )
+    is_internal: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Marks server-internal calls (title generation, classification, "
+            "summarization, etc.) so dashboards can filter them out of user-facing "
+            "metrics. FE sets True for those. When unset, the server defaults it "
+            "to True if request_source starts with 'internal_' (backwards compat "
+            "with the prefix convention) — otherwise False."
+        ),
+    )
 
     # In our setup with litellm, the first message in conversation_history
     # should follow the structure [{"role": "system", "content": ...}],
     # where the "role" field is expected to be "system".
     @model_validator(mode="before")
     def check_first_item_role(cls, values):
+        # A mode="before" validator receives the raw input, which is not always
+        # a dict. FastAPI hands us the raw request body (bytes/str) instead of a
+        # parsed dict when the client omits the "Content-Type: application/json"
+        # header, which previously crashed here with
+        # "'bytes' object has no attribute 'get'". Parse JSON payloads so a valid
+        # body still works, and skip the check for anything we can't treat as a
+        # mapping (Pydantic then raises a clean validation error).
+        if isinstance(values, (bytes, bytearray, str)):
+            try:
+                values = json.loads(values)
+            except (ValueError, TypeError):
+                return values
+        if not isinstance(values, dict):
+            return values
         conversation_history = values.get("conversation_history")
         if (
             conversation_history
@@ -208,6 +317,11 @@ class ChatRequestBaseModel(BaseModel):
             and len(conversation_history) > 0
         ):
             first_item = conversation_history[0]
+            # The first item may not be a dict (e.g. {"conversation_history": ["bad"]}).
+            # Skip the role check rather than crashing on .get(); Pydantic then
+            # raises a clean ValidationError for the malformed item shape.
+            if not isinstance(first_item, dict):
+                return values
             if not first_item.get("role") == "system":
                 raise ValueError(
                     "The first item in conversation_history must contain 'role': 'system'"

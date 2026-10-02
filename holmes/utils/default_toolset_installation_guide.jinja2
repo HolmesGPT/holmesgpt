@@ -12,10 +12,13 @@ holmes:
   toolsets:
     {{toolset_name}}:
       enabled: true
-      {% if example_config %}
+      {%- if subtype %}
+      subtype: {{ subtype }}
+      {%- endif %}
+      {%- if example_config %}
       config:
         {{ example_config | indent(8) }}
-      {% endif %}
+      {%- endif %}
 ```
 And deploy the updated configuration using Helm:
 ```bash

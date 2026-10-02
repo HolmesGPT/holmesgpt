@@ -1,0 +1,127 @@
+# Test: discovery capture — schema learned via exploration, NO failure
+# (ported from 266_es_schema_discovery on consolidated-skills-per-domain).
+#
+# This is the "optimize" scenario: in every fresh chat the agent re-learns
+# a data source's schema by inspecting mappings before it can query. None
+# of those exploratory calls fail, so capturing only failed→fixed
+# corrections would miss it — and every future chat pays the exploration
+# cost again.
+#
+# The index uses compact custom field names (lvl/txt/app/ts) that an agent
+# cannot guess without looking at the mapping. The primary prompt asks for
+# the field inventory AND a level-filtered count, which forces mapping
+# inspection first.
+#
+# What this eval verifies:
+#   1. The agent emits a suggestion (memories_generated: true) even though
+#      no tool call failed.
+#   2. On replay with a natural question, the agent fetches the captured
+#      skill and answers correctly.
+#
+# Note: we deliberately do NOT assert that the replay skips
+# elasticsearch_mappings (no replay_forbidden_tools). On opus-4.6 the
+# replay agent fetches AND follows the skill but still issues a cheap
+# mapping call alongside fetch_skill to verify the schema — the same
+# trust-but-verify habit that makes 279_bad_skill_resilience pass. The
+# skill's value (no wrong-query dead ends, fewer turns) shows up in the
+# replay-vs-primary stats in the eval report instead.
+user_prompt: |
+  Look at the elasticsearch index 'app-278-events-n8c3v6q1': list which
+  fields it has (with their types), and using the index's actual field
+  names tell me how many documents in it are ERROR level.
+
+# The replay re-asks the exact same question (with-skill vs without-skill
+# on identical input). The captured discovery skill carries the schema
+# (lvl/txt/app/ts and their types), so the replay agent can answer the
+# field-inventory part from the skill and term-query `lvl` directly for
+# the count — and is judged against the same expected_output.
+
+expected_output:
+  - "The index has fields lvl (keyword), txt (text), app (keyword) and ts (date)"
+  - "There are 9 ERROR-level documents in app-278-events-n8c3v6q1 (level is stored in the `lvl` field)"
+
+memories_generated: true
+rerun_with_memory: true
+expected_skill_count: 1
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+  - skills
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  IDX="app-278-events-n8c3v6q1"
+  echo "Using test index: $IDX"
+
+  # Idempotent: drop and recreate so parallel/repeated runs are stable.
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${IDX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "⏳ Creating test index with compact custom field names..."
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${IDX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "lvl": { "type": "keyword" },
+          "txt": { "type": "text" },
+          "app": { "type": "keyword" },
+          "ts":  { "type": "date" }
+        }
+      }
+    }')
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  # 9 ERROR, 6 WARN, 12 INFO.
+  BULK_DATA=""
+  for i in $(seq 1 9); do
+    TS=$(printf '2026-05-20T10:00:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"lvl\":\"ERROR\",\"app\":\"billing-278\",\"txt\":\"payment gateway timeout $i\",\"ts\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 6); do
+    TS=$(printf '2026-05-20T10:01:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"lvl\":\"WARN\",\"app\":\"billing-278\",\"txt\":\"retry scheduled $i\",\"ts\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 12); do
+    TS=$(printf '2026-05-20T10:02:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"lvl\":\"INFO\",\"app\":\"billing-278\",\"txt\":\"invoice generated $i\",\"ts\":\"${TS}\"}\n"
+  done
+
+  BULK_RESPONSE=$(echo -e "$BULK_DATA" | curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @-)
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    exit 1
+  fi
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${IDX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${IDX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  if [ "$DOC_COUNT" = "27" ]; then
+    echo "✅ Index created with $DOC_COUNT docs (9 ERROR / 6 WARN / 12 INFO) in 'lvl' field"
+  else
+    echo "❌ Expected 27 documents, found: $DOC_COUNT"
+    exit 1
+  fi
+
+after_test: |
+  echo "⏳ Cleaning up test index: app-278-events-n8c3v6q1"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-278-events-n8c3v6q1" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"

@@ -9,6 +9,13 @@ expected_output:
 before_test:
 after_test:
 
+skip: true
+skip_reason: >
+  fetch_resource_issues_metadata moved from the local robusta toolset to the
+  Robusta platform MCP server (relay's platform-mcp app), which enforces
+  per-user cluster RBAC server-side. This eval mocks the tool through
+  TestSupabaseDal, which no longer backs it - it needs a platform-mcp mock
+  to run again.
 
 test_type: "server"
 

@@ -11,34 +11,49 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import json
 import logging
+import ssl
+import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import colorlog
 import litellm
+from pydantic import BaseModel
+from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
+from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
+from holmes.core.oauth_utils import _get_token_manager
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from litellm.exceptions import AuthenticationError
-
 from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
     DEVELOPMENT_MODE,
     ENABLE_CONNECTION_KEEPALIVE,
+    ENABLE_CONVERSATION_WORKER,
+    ENABLE_JSON_LOGS_FORMAT,
     ENABLE_TELEMETRY,
     ENABLED_SCHEDULED_PROMPTS,
     HOLMES_HOST,
     HOLMES_PORT,
+    HOLMES_SSL_CA_CERTS,
+    HOLMES_SSL_CERTFILE,
+    HOLMES_SSL_KEYFILE,
+    HOLMES_SSL_KEYFILE_PASSWORD,
     LOG_PERFORMANCE,
     MCP_RETRY_BACKOFF_SCHEDULE,
     SENTRY_DSN,
     SENTRY_TRACES_SAMPLE_RATE,
     TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+    TRACE_TOKEN_USAGE,
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
+from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
 )
@@ -46,22 +61,46 @@ from holmes.core.models import (
     ChatRequest,
     ChatResponse,
     FollowUpAction,
+    OAuthCallbackRequest,
+    OAuthCallbackResponse,
 )
 from holmes.core.prompt import PromptComponent
+from holmes.core.tool_calling_llm import RelayRefusal
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
-from holmes.utils.holmes_status import update_holmes_status_in_db
+from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
+    refresh_platform_mcp_tools,
+)
+from holmes.utils.holmes_status import (
+    refresh_holmes_status,
+    update_holmes_status_in_db,
+)
+from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.log import EndpointFilter
+from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
+from holmes.utils.log import (
+    EndpointFilter,
+    JSON_LOG_DATEFMT,
+    JSON_LOG_FMT,
+    JSON_LOG_RENAME_FIELDS,
+    build_json_formatter,
+)
+from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
-from holmes.core.models import FrontendToolMode
-from holmes.core.tools_utils.frontend_tools import build_frontend_noop_tool, build_frontend_pause_tool
-from holmes.core.tracing import TracingFactory
+from holmes.core.tools_utils.frontend_tools import (
+    FrontendToolCollisionError,
+    inject_frontend_tools,
+)
+from holmes.core.tracing import TracingFactory, langfuse_trace_attributes
+from holmes.core.usage_recorder import (
+    build_chat_recorder_state,
+    record_error,
+    record_from_llm_result,
+    stream_with_usage_recording,
+)
 from holmes.utils.stream import stream_chat_formatter
-
-# removed: add_runbooks_to_user_prompt
 
 
 def init_logging():
@@ -71,13 +110,21 @@ def init_logging():
     uvicorn_logger.addFilter(EndpointFilter(path="/readyz"))
 
     logging_level = os.environ.get("LOG_LEVEL", "INFO")
-    logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
-    logging_datefmt = "%Y-%m-%d %H:%M:%S"
 
-    print("setting up colored logging")
-    colorlog.basicConfig(
-        format=logging_format, level=logging_level, datefmt=logging_datefmt
-    )
+    if ENABLE_JSON_LOGS_FORMAT:
+        # JSON logs (one object per line) are easier for log scrapers like
+        # Filebeat to index, search, and filter. Avoid printing anything to
+        # stdout here so the JSON stream is not corrupted by a plain-text line.
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(build_json_formatter())
+        logging.basicConfig(handlers=[handler], level=logging_level, force=True)
+    else:
+        logging_format = "%(log_color)s%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s"
+        logging_datefmt = "%Y-%m-%d %H:%M:%S"
+
+        colorlog.basicConfig(
+            format=logging_format, level=logging_level, datefmt=logging_datefmt
+        )
     logging.getLogger().setLevel(logging_level)
 
     httpx_logger = logging.getLogger("httpx")
@@ -96,6 +143,42 @@ init_logging()
 # Initialize tracer — auto-detects OTel if OTEL_EXPORTER_OTLP_ENDPOINT is set
 server_tracer = TracingFactory.create_tracer(trace_type=os.environ.get("HOLMES_TRACE_BACKEND"))
 
+# Opt-in: let API callers route a request's trace spans into a named tracing
+# experiment via the `X-Braintrust-Experiment` header. Off by default so
+# external callers cannot influence experiment routing unless the operator
+# explicitly enables it.
+ALLOW_PER_REQUEST_EXPERIMENT = (
+    os.environ.get("HOLMES_ALLOW_PER_REQUEST_EXPERIMENT", "false").lower() == "true"
+)
+_request_experiment_lock = threading.Lock()
+_request_experiment_name: Optional[str] = None
+
+
+def open_experiment_from_request(http_request: Request) -> None:
+    """Open (or switch to) the tracing experiment named in the request header.
+
+    Without an open experiment, `server_tracer.start_trace` has no tracing
+    context to attach to and returns a no-op span — so server-side spans are
+    silently dropped. This lets a driver (e.g. an eval harness firing many
+    /api/chat calls) group all spans for one logical run under a dedicated
+    experiment name.
+
+    The experiment context is process-global (Braintrust tracks a current
+    experiment per process), so this assumes one logical client per server
+    process — e.g. a server spawned per run. Repeating the current name is a
+    no-op; a new name switches the experiment.
+    """
+    global _request_experiment_name
+    if not ALLOW_PER_REQUEST_EXPERIMENT:
+        return
+    name = http_request.headers.get("X-Braintrust-Experiment")
+    if not name:
+        return
+    with _request_experiment_lock:
+        if name != _request_experiment_name:
+            server_tracer.start_experiment(experiment_name=name)
+            _request_experiment_name = name
+
 if ENABLE_CONNECTION_KEEPALIVE:
     patch_socket_create_connection()
 
@@ -109,7 +192,7 @@ def init_config():
         tuple: (config, dal) - The initialized Config object and its DAL instance
     """
     default_config_path = Path(DEFAULT_CONFIG_LOCATION)
-    if default_config_path.exists():
+    if default_config_path.exists() and os.environ.get("LOAD_CONFIG_FROM_ENV", "false").lower() == "false":
         logging.info(f"Loading config from file: {default_config_path}")
         config = Config.load_from_file(default_config_path)
     else:
@@ -123,7 +206,33 @@ def init_config():
 config, dal = init_config()
 
 
+def _warm_skill_repos_and_mirror():
+    """Clone the git skill repos, then publish the skills mirror.
+
+    Runs in a daemon thread so nothing on the startup path performs a network
+    git fetch: the mirror sync reads all_skill_paths, which triggers the first
+    repo sync, and a slow or unreachable remote must delay neither server
+    readiness nor liveness. Ordered so the mirror sees the freshly-cloned
+    skills instead of recording the checkouts as unreadable.
+    """
+    try:
+        config.skill_repo_manager.sync()
+    except Exception:
+        logging.error("Failed to warm git skill repos", exc_info=True)
+    if not dal.enabled:
+        return
+    try:
+        holmes_sync_skills_status(dal, config)
+    except Exception:
+        logging.error("Failed to synchronise holmes custom skills", exc_info=True)
+
+
 def sync_before_server_start():
+    threading.Thread(
+        target=_warm_skill_repos_and_mirror,
+        daemon=True,
+        name="skill-repo-warmup",
+    ).start()
     if not dal.enabled:
         logging.info(
             "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
@@ -137,6 +246,11 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
+    if conversation_worker is not None:
+        try:
+            conversation_worker.start()
+        except Exception:
+            logging.error("Failed to start conversation worker", exc_info=True)
     if not ENABLED_SCHEDULED_PROMPTS:
         return
     # No need to check if dal is enabled again, done at the start of this function
@@ -196,6 +310,39 @@ def _toolset_status_refresh_loop():
 
             time.sleep(sleep_time)
             try:
+                # Re-read the Robusta model catalog before publishing status, so
+                # the heartbeat advertises what the agent can serve right now:
+                # catalog changes reach a running agent, and an agent that
+                # booted without a catalog heals, without a pod restart.
+                if dal.enabled:
+                    config.llm_model_registry.refresh_robusta_models()
+            except Exception:
+                logging.error("Failed to refresh robusta models", exc_info=True)
+            try:
+                # Heartbeat: re-upsert HolmesStatus so updated_at signals
+                # liveness (platform-mcp filters remote-tool clusters on it),
+                # preserving the verified realtime flag. Skip when the DAL is
+                # disabled (no supabase credentials) — nothing to heartbeat.
+                if dal.enabled:
+                    refresh_holmes_status(dal, config)
+            except Exception:
+                logging.error("Failed to refresh holmes status", exc_info=True)
+            try:
+                # Re-discover platform-mcp tools so the dynamic remote-tool
+                # surface (new clusters, flipped account flag) reaches a
+                # RUNNING caller without a pod restart.
+                executor = config.create_tool_executor(
+                    dal,
+                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                    enable_all_toolsets_possible=False,
+                    reuse_executor=True,
+                )
+                refresh_platform_mcp_tools(executor)
+            except Exception:
+                logging.error(
+                    "Failed to refresh platform-mcp tools", exc_info=True
+                )
+            try:
                 changes = config.refresh_tool_executor(
                     dal,
                     toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
@@ -214,6 +361,27 @@ def _toolset_status_refresh_loop():
             except Exception:
                 logging.error(
                     "Error during periodic toolset status refresh", exc_info=True
+                )
+            try:
+                # Re-pull git skill repos so pushed skill changes reach a running
+                # agent without a pod restart. Runs before the mirror sync below
+                # so freshly-pulled skills appear in the UI on the same cycle.
+                # The manager rate-limits itself, so the shortened cycles of the
+                # MCP failure backoff do not multiply network git fetches.
+                config.skill_repo_manager.sync()
+            except Exception:
+                logging.error(
+                    "Error during periodic skill repo sync", exc_info=True
+                )
+            try:
+                # Re-read every cycle rather than gating on a change signal: a
+                # ConfigMap/Secret remount changes skills with no toolset status change to
+                # detect. The sync is an idempotent upsert + prune, so repeating is cheap.
+                if dal.enabled:
+                    holmes_sync_skills_status(dal, config)
+            except Exception:
+                logging.error(
+                    "Error during periodic custom skills refresh", exc_info=True
                 )
 
     thread = threading.Thread(target=refresh_loop, daemon=True, name="toolset-refresh")
@@ -250,6 +418,32 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 app = FastAPI()
+_SERVER_START_TIME = time.time()
+
+HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
+
+if HOLMES_API_KEY:
+    logging.info("API key authentication enabled (HOLMES_API_KEY is set)")
+
+    @app.middleware("http")
+    async def api_key_auth(request: Request, call_next):
+        """Reject requests missing a valid API key (X-API-Key or Bearer token)."""
+        # Use the raw ASGI scope path, not request.url.path. The latter is
+        # reconstructed from the (attacker-controlled) Host header and can be
+        # spoofed via a malformed Host to bypass this exemption check
+        # (CVE-2026-48710 / GHSA-86qp-5c8j-p5mr).
+        if request.scope.get("path", "") in AUTH_EXEMPT_PATHS:
+            return await call_next(request)
+
+        key = extract_api_key(request)
+
+        if key != HOLMES_API_KEY:
+            logging.warning("Unauthorized request: %s %s", request.method, request.url.path)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing API key"},
+            )
+        return await call_next(request)
 
 if LOG_PERFORMANCE:
 
@@ -272,6 +466,31 @@ if LOG_PERFORMANCE:
 
 
 init_checks_app(app, config)
+if os.environ.get("ENABLE_ADMIN_API", "false").lower() == "true":
+    init_admin_app(app, config, dal)
+else:
+    logging.info("Admin API is disabled (set ENABLE_ADMIN_API=true to enable)")
+
+
+@app.post("/api/oauth/callback")
+def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
+    logging.info(
+        "OAuth callback: toolset=%s client_id=%s client_secret_present=%s code_present=%s code_verifier_present=%s redirect_uri=%s",
+        request.toolset_name, request.client_id, bool(request.client_secret), bool(request.code),
+        bool(request.code_verifier), request.redirect_uri,
+    )
+    try:
+        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
+        return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
+    except OAuthConfigLookupError as e:
+        logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
+        raise HTTPException(status_code=400, detail=e.detail)
+    except OAuthTokenExchangeError as e:
+        logging.error("OAuth token exchange failed for '%s': %s", request.toolset_name, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logging.error(f"OAuth callback failed for '{request.toolset_name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def already_answered(conversation_history: Optional[List[dict]]) -> bool:
@@ -349,7 +568,10 @@ def chat(chat_request: ChatRequest, http_request: Request):
             f"streaming={chat_request.stream}"
         )
 
-        runbooks = config.get_runbook_catalog()
+        open_experiment_from_request(http_request)
+
+        # End user's id, so their personal skills are included for this request only.
+        skills = config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -387,9 +609,21 @@ def chat(chat_request: ChatRequest, http_request: Request):
             ]
 
         request_context = extract_passthrough_headers(http_request)
+        if chat_request.user_id:
+            request_context.setdefault("headers", {})
+            request_context["user_id"] = chat_request.user_id
+        # Surface conversation_id and cluster_name to toolsets that need
+        # to hardwire them into outbound requests (e.g. platform-mcp adds
+        # them as X-Robusta-* headers so tool handlers don't have to trust
+        # the LLM-supplied arguments).
+        if chat_request.conversation_id:
+            request_context["conversation_id"] = chat_request.conversation_id
+        if config.cluster_name:
+            request_context["cluster_name"] = config.cluster_name
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
+
         ai = config.create_toolcalling_llm(
             dal=dal,
             toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
@@ -400,74 +634,85 @@ def chat(chat_request: ChatRequest, http_request: Request):
             tracer=server_tracer,
             tool_results_dir=tool_results_dir,
         )
+
         global_instructions = dal.get_global_instructions_for_account()
-        messages = build_chat_messages(
-            chat_request.ask,
-            chat_request.conversation_history,
-            ai=ai,
-            config=config,
-            global_instructions=global_instructions,
-            additional_system_prompt=chat_request.additional_system_prompt,
-            runbooks=runbooks,
-            images=chat_request.images,
-            prompt_component_overrides=prompt_component_overrides,
+
+        # A follow-up may carry only tool_decisions / frontend_tool_results
+        # (no new user question). In that case, resume from the existing
+        # conversation_history without appending an empty user message —
+        # otherwise the LLM sees a content-less user turn and responds with
+        # something like "looks like your question is empty, how can I help?".
+        resume_only = bool(
+            not chat_request.ask
+            and chat_request.conversation_history
+            and (chat_request.tool_decisions or chat_request.frontend_tool_results)
         )
+        if resume_only:
+            messages = list(chat_request.conversation_history)
+        else:
+            messages = build_chat_messages(
+                chat_request.ask,
+                chat_request.conversation_history,
+                ai=ai,
+                config=config,
+                global_instructions=global_instructions,
+                additional_system_prompt=chat_request.additional_system_prompt,
+                skills=skills,
+                images=chat_request.images,
+                prompt_component_overrides=prompt_component_overrides,
+                conversation_link=resolve_conversation_link(
+                    chat_request.request_source,
+                    chat_request.conversation_id,
+                    dal.account_id,
+                    chat_request.conversation_link,
+                ),
+            )
 
-        # Build a per-request AI instance with frontend tools injected into the executor
-        request_ai = ai
-        has_pause_tools = False
-        if chat_request.frontend_tools:
-            # Validate no name collisions with backend tools
-            backend_tool_names = set(ai.tool_executor.tools_by_name.keys())
-            frontend_tool_instances = []
-            for ft in chat_request.frontend_tools:
-                if ft.name in backend_tool_names:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Frontend tool name '{ft.name}' conflicts with a built-in Holmes tool. Use a different name.",
-                    )
-                if ft.mode == FrontendToolMode.NOOP:
-                    frontend_tool_instances.append(
-                        build_frontend_noop_tool(
-                            name=ft.name,
-                            description=ft.description,
-                            parameters=ft.parameters,
-                            canned_response=ft.noop_response,
-                        )
-                    )
-                else:
-                    has_pause_tools = True
-                    frontend_tool_instances.append(
-                        build_frontend_pause_tool(
-                            name=ft.name,
-                            description=ft.description,
-                            parameters=ft.parameters,
-                        )
-                    )
+        try:
+            request_ai, has_pause_tools = inject_frontend_tools(
+                ai, chat_request.frontend_tools
+            )
+        except FrontendToolCollisionError as e:
+            # Storage was opened above; the streaming/non-streaming branches
+            # below own its cleanup, but early validation failures bypass them.
+            storage.__exit__(None, None, None)
+            raise HTTPException(status_code=400, detail=str(e))
 
-            # Pause-mode tools require streaming (the pause/resume flow needs SSE)
-            if has_pause_tools and not chat_request.stream:
-                raise HTTPException(
-                    status_code=400,
-                    detail="frontend_tools with mode='pause' requires stream=true (the pause/resume flow needs SSE)",
-                )
-
-            cloned_executor = ai.tool_executor.clone_with_extra_tools(frontend_tool_instances)
-            request_ai = ai.with_executor(cloned_executor)
+        if has_pause_tools and not chat_request.stream:
+            storage.__exit__(None, None, None)
+            raise HTTPException(
+                status_code=400,
+                detail="frontend_tools with mode='pause' requires stream=true (the pause/resume flow needs SSE)",
+            )
 
         if chat_request.stream:
             # Create root investigation span for streaming (same as non-streaming)
             trace_span = server_tracer.start_trace("holmesgpt.investigation")
-            trace_span.log(metadata={
+            trace_span.log(input=chat_request.ask, metadata={
                 "holmesgpt.investigation.question": chat_request.ask[:1024],
                 "holmesgpt.investigation.stream": True,
+                **langfuse_trace_attributes(
+                    chat_request.ask,
+                    user_id=chat_request.user_id,
+                    user_email=chat_request.user_email,
+                    account_id=dal.account_id,
+                    session_id=chat_request.conversation_id,
+                    cluster_id=config.cluster_name,
+                    model=chat_request.model or config.model,
+                    request_source=chat_request.request_source,
+                ),
             })
             otel_metrics = TracingFactory.get_metrics()
             if otel_metrics:
                 inv_attrs = {"gen_ai_request_model": chat_request.model or config.model or "unknown"}
                 otel_metrics.investigation_count.add(1, inv_attrs)
 
-            stream = stream_chat_formatter(
+            # Build the usage recorder state and wrap the raw stream BEFORE the
+            # SSE formatter so the wrapper sees Holmes' native StreamMessage events.
+            recorder_state = build_chat_recorder_state(
+                chat_request, request_ai, dal=dal, is_streaming=True
+            )
+            recorded_stream = stream_with_usage_recording(
                 request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,
@@ -477,13 +722,21 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     request_context=request_context,
                     trace_span=trace_span,
                 ),
+                recorder_state,
+            )
+            stream = stream_chat_formatter(
+                recorded_stream,
                 [f.model_dump() for f in follow_up_actions],
+                model=chat_request.model or config.model,
             )
             return StreamingResponse(
                 _stream_with_trace_cleanup(storage, stream, req_info, trace_span),
                 media_type="text/event-stream",
             )
         else:
+            recorder_state = build_chat_recorder_state(
+                chat_request, request_ai, dal=dal, is_streaming=False
+            )
             try:
                 # Use provided trace_span or create a root investigation span
                 trace_span = chat_request.trace_span
@@ -491,16 +744,46 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     trace_span = server_tracer.start_trace(
                         "holmesgpt.investigation",
                     )
-                    trace_span.log(metadata={
+                    trace_span.log(input=chat_request.ask, metadata={
                         "holmesgpt.investigation.question": chat_request.ask[:1024],
+                        **langfuse_trace_attributes(
+                            chat_request.ask,
+                            user_id=chat_request.user_id,
+                            user_email=chat_request.user_email,
+                            account_id=dal.account_id,
+                            session_id=chat_request.conversation_id,
+                            cluster_id=config.cluster_name,
+                            model=chat_request.model or config.model,
+                            request_source=chat_request.request_source,
+                        ),
                     })
 
                 _inv_start = time.time()
-                llm_call = ai.call(
+                llm_call = request_ai.call(
                     messages=messages,
                     trace_span=trace_span,
                     response_format=chat_request.response_format,
                     request_context=request_context,
+                )
+
+                # Record usage event for non-streaming path (fire-and-forget).
+                record_from_llm_result(recorder_state, llm_call)
+
+                # Attach token usage and cost to the investigation span.
+                # Tracing backends derive their token/cost columns from span
+                # metrics; without these the columns stay empty even though
+                # the span itself is recorded.
+                trace_span.log(
+                    metrics={
+                        name: value
+                        for name, value in (
+                            ("prompt_tokens", llm_call.prompt_tokens),
+                            ("completion_tokens", llm_call.completion_tokens),
+                            ("total_tokens", llm_call.total_tokens),
+                            ("total_cost", llm_call.total_cost),
+                        )
+                        if value is not None
+                    }
                 )
 
                 # Record investigation metrics
@@ -512,19 +795,46 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     if hasattr(llm_call, "num_llm_calls") and llm_call.num_llm_calls:
                         otel_metrics.investigation_iterations.record(llm_call.num_llm_calls, inv_attrs)
 
-                logging.info(f"Completed {req_info}")
+                if TRACE_TOKEN_USAGE:
+                    logging.info(
+                        f"Completed {req_info} | model={chat_request.model or config.model}, "
+                        f"input={llm_call.prompt_tokens}, output={llm_call.completion_tokens}, "
+                        f"cached={llm_call.cached_tokens}, total={llm_call.total_tokens}, "
+                        f"cost=${llm_call.total_cost:.4f}"
+                    )
+                else:
+                    logging.info(f"Completed {req_info}")
+                # Surface request_id in the response metadata so the FE has a
+                # handle for the public.record_feedback() RPC later. Streaming
+                # path does the same via _inject_request_id in the stream wrapper.
+                response_metadata = dict(llm_call.metadata or {})
+                response_metadata["request_id"] = recorder_state.request_id
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
                     follow_up_actions=follow_up_actions,
-                    metadata=llm_call.metadata,
+                    metadata=response_metadata,
                 )
                 return response
+            except Exception as e:
+                # Non-streaming path: record the failed event so it shows up in dashboards
+                # with status='error' / 'rate_limited'. Streaming path records via the
+                # wrapper's `finally` automatically.
+                record_error(recorder_state, e)
+                raise
             finally:
                 if trace_span is not None:
                     trace_span.end()
                 storage.__exit__(None, None, None)
+    except HTTPException:
+        # The generic ``except Exception`` below would otherwise rewrite these as 500.
+        raise
+    except RelayRefusal as e:
+        # Relay's own refusal of a Robusta-hosted model carries the status to
+        # answer with (401 stale token, 403 account opted out) and the sentence
+        # the user has to act on (ROB-1389).
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
     except litellm.exceptions.RateLimitError as e:
@@ -538,10 +848,131 @@ scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
 )
 
+conversation_worker = None
+if ENABLE_CONVERSATION_WORKER:
+    from holmes.core.conversations_worker import ConversationWorker
+
+    conversation_worker = ConversationWorker(
+        dal=dal, config=config, chat_function=chat
+    )
+
+
+@app.on_event("shutdown")
+def stop_conversation_worker():
+    """Retire in-flight conversations before the process goes away.
+
+    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
+    a graceful shutdown, which runs this hook. Without it nothing ever called
+    ConversationWorker.stop(): the worker threads are daemons, so they were
+    simply frozen at interpreter exit and every conversation the pod was
+    mid-turn on stayed 'running' with a dead assignee until the stale-conversation
+    sweep retired it — up to hours of spinner in the UI. stop() now marks those
+    rows 'timeout' with a "Holmes Restarted" error event first.
+
+    Declared as a sync def on purpose: Starlette runs it in a threadpool, and
+    the body is blocking (Supabase writes plus bounded thread joins). SIGKILL /
+    OOM kill still bypass all of this — the pg_cron sweep stays the backstop.
+    """
+    if conversation_worker is None:
+        return
+    try:
+        conversation_worker.stop()
+    except Exception:
+        logging.error("Failed to stop conversation worker", exc_info=True)
+
 
 @app.get("/api/model")
 def get_model():
     return {"model_name": json.dumps(config.get_models_list())}
+
+
+class ToolsetsSummary(BaseModel):
+    """Aggregate toolset counts by status."""
+
+    total: int
+    enabled: int
+    failed: int
+    disabled: int
+
+
+class ToolsetInfo(BaseModel):
+    """Per-toolset detail returned in full info mode."""
+
+    name: str
+    enabled: bool
+    status: str
+    type: Optional[str] = None
+    error: Optional[str] = None
+    tool_count: int
+
+
+class InfoResponse(BaseModel):
+    """Response model for the ``/api/info`` endpoint."""
+
+    version: str
+    uptime_seconds: float
+    auth_enabled: bool
+    models: List[str]
+    toolsets_summary: ToolsetsSummary
+    runbooks_count: int
+    config_path: Optional[str] = None
+    model_list_path: Optional[str] = None
+    toolsets: Optional[List[ToolsetInfo]] = None
+    runbooks: Optional[List[str]] = None
+    mcp_servers: Optional[List[str]] = None
+
+
+@app.get("/api/info", response_model=InfoResponse, response_model_exclude_none=True)
+def get_info(detail: Optional[str] = None) -> InfoResponse:
+    """Return server info. Use ?detail=full for per-toolset breakdown."""
+    executor = config.create_tool_executor(
+        dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED,
+    )
+    all_toolsets = executor.toolsets
+
+    enabled_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.ENABLED)
+    failed_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.FAILED)
+    total = len(all_toolsets)
+    disabled_count = total - enabled_count - failed_count
+
+    runbook_names: List[str] = []
+    for t in all_toolsets:
+        if t.name == "runbook" and t.tools:
+            runbook_names = list(getattr(t.tools[0], "available_runbooks", []) or [])
+            break
+
+    resp = InfoResponse(
+        version=get_version(),
+        uptime_seconds=round(time.time() - _SERVER_START_TIME, 1),
+        auth_enabled=bool(os.environ.get("HOLMES_API_KEY", "")),
+        models=config.get_models_list(),
+        toolsets_summary=ToolsetsSummary(
+            total=total,
+            enabled=enabled_count,
+            failed=failed_count,
+            disabled=disabled_count,
+        ),
+        runbooks_count=len(runbook_names),
+    )
+
+    if detail == "full":
+        resp.config_path = str(config._config_file_path) if config._config_file_path else None
+        resp.model_list_path = MODEL_LIST_FILE_LOCATION
+        resp.toolsets = [
+            ToolsetInfo(
+                name=t.name,
+                enabled=t.enabled,
+                status=t.status.value,
+                type=t.type.value if t.type else None,
+                error=t.error,
+                tool_count=len(t.tools) if t.tools else 0,
+            )
+            for t in all_toolsets
+        ]
+        resp.runbooks = runbook_names
+        resp.mcp_servers = list(config.mcp_servers.keys()) if config.mcp_servers else []
+
+    return resp
 
 
 @app.get("/healthz")
@@ -559,23 +990,93 @@ def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready")
 
 
+def build_ssl_kwargs() -> dict:
+    """Build uvicorn ssl_* kwargs from the HOLMES_SSL_* env vars.
+
+    Returns an empty dict (plain HTTP) when no TLS config is provided. When TLS is
+    configured we fail fast on partial/invalid config rather than silently serving
+    HTTP, since a misconfiguration that downgrades to plaintext is a security risk.
+    """
+    cert, key = HOLMES_SSL_CERTFILE, HOLMES_SSL_KEYFILE
+    if not cert and not key:
+        # No server cert/key means plain HTTP. But if the user supplied mTLS or
+        # key-password settings they intended TLS, so fail rather than silently
+        # serving plaintext and ignoring those settings.
+        if HOLMES_SSL_CA_CERTS or HOLMES_SSL_KEYFILE_PASSWORD:
+            raise SystemExit(
+                "TLS misconfigured: HOLMES_SSL_CA_CERTS / HOLMES_SSL_KEYFILE_PASSWORD "
+                "require HOLMES_SSL_CERTFILE and HOLMES_SSL_KEYFILE to be set."
+            )
+        return {}  # HTTP mode
+
+    if bool(cert) != bool(key):
+        raise SystemExit(
+            "TLS misconfigured: set BOTH HOLMES_SSL_CERTFILE and HOLMES_SSL_KEYFILE (or neither)."
+        )
+
+    def _require_readable(label: str, path: str) -> None:
+        # is_file() alone only proves the path exists; an unreadable file (e.g.
+        # wrong permissions on a mounted secret) would pass that check and then
+        # fail later inside uvicorn.run, after the slow pre-start sync we're
+        # trying to run behind this fail-fast. Opening it now catches both cases
+        # (FileNotFoundError, IsADirectoryError and PermissionError are all OSError).
+        try:
+            with Path(path).open("rb"):
+                pass
+        except OSError:
+            raise SystemExit(
+                f"TLS misconfigured: {label}={path!r} not found or unreadable."
+            ) from None
+
+    _require_readable("HOLMES_SSL_CERTFILE", cert)
+    _require_readable("HOLMES_SSL_KEYFILE", key)
+
+    kwargs: dict = {"ssl_certfile": cert, "ssl_keyfile": key}
+    if HOLMES_SSL_KEYFILE_PASSWORD:
+        kwargs["ssl_keyfile_password"] = HOLMES_SSL_KEYFILE_PASSWORD
+    if HOLMES_SSL_CA_CERTS:  # mTLS: require & verify client certificates
+        _require_readable("HOLMES_SSL_CA_CERTS", HOLMES_SSL_CA_CERTS)
+        kwargs["ssl_ca_certs"] = HOLMES_SSL_CA_CERTS
+        kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
+    return kwargs
+
+
 def main():
     """Holmes AI Server entry point"""
+    # Resolve TLS config up front so a misconfiguration fails fast, before the
+    # (potentially slow) pre-start sync below.
+    ssl_kwargs = build_ssl_kwargs()
+    scheme = "HTTPS" if ssl_kwargs else "HTTP"
+
     # Configure uvicorn logging
     log_config = uvicorn.config.LOGGING_CONFIG
-    log_config["formatters"]["access"]["fmt"] = (
-        "%(asctime)s %(levelname)-8s %(message)s"
-    )
-    log_config["formatters"]["default"]["fmt"] = (
-        "%(asctime)s %(levelname)-8s %(message)s"
-    )
+    if ENABLE_JSON_LOGS_FORMAT:
+        # Emit uvicorn's own access/error lines as JSON too, so the whole pod's
+        # stdout is one consistent JSON stream for log scrapers.
+        for formatter_name in ("default", "access"):
+            log_config["formatters"][formatter_name] = {
+                "()": "pythonjsonlogger.json.JsonFormatter",
+                "fmt": JSON_LOG_FMT,
+                "datefmt": JSON_LOG_DATEFMT,
+                "rename_fields": JSON_LOG_RENAME_FIELDS,
+            }
+    else:
+        log_config["formatters"]["access"]["fmt"] = (
+            "%(asctime)s %(levelname)-8s %(message)s"
+        )
+        log_config["formatters"]["default"]["fmt"] = (
+            "%(asctime)s %(levelname)-8s %(message)s"
+        )
 
     # Sync before server start
     sync_before_server_start()
     _toolset_status_refresh_loop()
 
     # Start server
-    uvicorn.run(app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config)
+    logging.info(f"Holmes API serving {scheme} on {HOLMES_HOST}:{HOLMES_PORT}")
+    uvicorn.run(
+        app, host=HOLMES_HOST, port=HOLMES_PORT, log_config=log_config, **ssl_kwargs
+    )
 
 
 if __name__ == "__main__":

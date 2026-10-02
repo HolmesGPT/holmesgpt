@@ -1,0 +1,439 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mcp-oauth-server-code
+  namespace: app-254
+type: Opaque
+stringData:
+  mcp_oauth_server.py: |
+    """
+    Cloudflare Workers MCP server with Keycloak OAuth token introspection.
+    Serves tools for managing Cloudflare Workers, KV namespaces, and logs.
+    """
+    import datetime
+    import logging
+    import os
+    from typing import Any, Optional
+    from urllib.parse import urljoin
+
+    import httpx
+    from pydantic import AnyHttpUrl
+
+    from mcp.server.auth.provider import AccessToken, TokenVerifier
+    from mcp.server.auth.settings import AuthSettings
+    from mcp.server.fastmcp.server import FastMCP
+    from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+
+    logger = logging.getLogger(__name__)
+
+    KEYCLOAK_URL = os.getenv("KEYCLOAK_URL", "http://keycloak:8080")
+    KEYCLOAK_PUBLIC_URL = os.getenv("KEYCLOAK_PUBLIC_URL", KEYCLOAK_URL)
+    KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "mcp-oauth")
+    MCP_CLIENT_ID = os.getenv("MCP_CLIENT_ID", "mcp-server")
+    MCP_CLIENT_SECRET = os.getenv("MCP_CLIENT_SECRET", "mcp-server-secret")
+    MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+    MCP_PORT = int(os.getenv("MCP_PORT", "8000"))
+    MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", f"http://localhost:{MCP_PORT}")
+
+    AUTH_INTERNAL_URL = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/"
+    AUTH_PUBLIC_URL = f"{KEYCLOAK_PUBLIC_URL}/realms/{KEYCLOAK_REALM}/"
+    SERVER_URL = MCP_SERVER_URL
+
+    # --- Static data: Cloudflare Workers ---
+
+    WORKERS = [
+        {
+            "name": "checkout-api-handler",
+            "status": "active",
+            "routes": ["checkout.example.com/api/*"],
+            "last_deployed": "2026-04-01T14:23:00Z",
+            "compatibility_date": "2026-03-15",
+            "usage_model": "bundled",
+        },
+        {
+            "name": "cdn-cache-purger",
+            "status": "active",
+            "routes": ["*.example.com/purge/*"],
+            "last_deployed": "2026-03-28T09:15:00Z",
+            "compatibility_date": "2026-03-01",
+            "usage_model": "unbound",
+        },
+        {
+            "name": "auth-token-validator",
+            "status": "active",
+            "routes": ["auth.example.com/validate", "auth.example.com/refresh"],
+            "last_deployed": "2026-04-02T11:05:00Z",
+            "compatibility_date": "2026-03-15",
+            "usage_model": "bundled",
+        },
+        {
+            "name": "image-resizer-edge",
+            "status": "disabled",
+            "routes": ["images.example.com/resize/*"],
+            "last_deployed": "2026-02-15T16:40:00Z",
+            "compatibility_date": "2026-01-20",
+            "usage_model": "unbound",
+        },
+    ]
+
+    WORKER_LOGS = {
+        "checkout-api-handler": [
+            {"timestamp": "2026-04-06T08:12:01Z", "level": "ERROR", "ray_id": "8f3a2b1c9d0e4567", "message": "Upstream timeout after 30s connecting to payment gateway", "error_code": "ERR-9872-TIMEOUT", "status": 504, "request_id": "req-a1b2c3d4"},
+            {"timestamp": "2026-04-06T08:12:05Z", "level": "ERROR", "ray_id": "8f3a2b1c9d0e4568", "message": "Upstream timeout after 30s connecting to payment gateway", "error_code": "ERR-9872-TIMEOUT", "status": 504, "request_id": "req-e5f6g7h8"},
+            {"timestamp": "2026-04-06T08:11:55Z", "level": "INFO", "ray_id": "8f3a2b1c9d0e4566", "message": "POST /api/checkout 200 OK", "status": 200, "request_id": "req-z9y8x7w6"},
+            {"timestamp": "2026-04-06T08:11:30Z", "level": "WARN", "ray_id": "8f3a2b1c9d0e4565", "message": "Rate limit approaching for IP 203.0.113.42", "status": 200, "request_id": "req-m4n5o6p7"},
+            {"timestamp": "2026-04-06T08:10:00Z", "level": "INFO", "ray_id": "8f3a2b1c9d0e4564", "message": "POST /api/checkout 200 OK", "status": 200, "request_id": "req-q1r2s3t4"},
+        ],
+        "cdn-cache-purger": [
+            {"timestamp": "2026-04-06T07:45:00Z", "level": "INFO", "ray_id": "7e2d1a0b8c9f3456", "message": "Cache purge completed for zone example.com", "status": 200, "request_id": "req-u5v6w7x8"},
+            {"timestamp": "2026-04-06T07:30:00Z", "level": "INFO", "ray_id": "7e2d1a0b8c9f3455", "message": "Cache purge completed for zone example.com", "status": 200, "request_id": "req-y9z0a1b2"},
+        ],
+        "auth-token-validator": [
+            {"timestamp": "2026-04-06T08:05:00Z", "level": "INFO", "ray_id": "6d1c0b9a7e8f2345", "message": "Token validation OK for user test@example.com", "status": 200, "request_id": "req-c3d4e5f6"},
+            {"timestamp": "2026-04-06T08:00:00Z", "level": "INFO", "ray_id": "6d1c0b9a7e8f2344", "message": "Token refresh issued for user admin@example.com", "status": 200, "request_id": "req-g7h8i9j0"},
+        ],
+        "image-resizer-edge": [],
+    }
+
+    WORKER_DETAILS = {
+        "checkout-api-handler": {
+            "name": "checkout-api-handler",
+            "id": "wkr-cf-254-checkout-01",
+            "compatibility_date": "2026-03-15",
+            "compatibility_flags": ["nodejs_compat"],
+            "kv_bindings": [{"name": "CART_STORE", "namespace_id": "kv-ns-cart-001"}],
+            "env_vars": {"PAYMENT_GATEWAY_URL": "https://pay.example.com/v2", "TIMEOUT_MS": "30000"},
+            "routes": ["checkout.example.com/api/*"],
+            "cron_triggers": [],
+        },
+        "cdn-cache-purger": {
+            "name": "cdn-cache-purger",
+            "id": "wkr-cf-254-purger-01",
+            "compatibility_date": "2026-03-01",
+            "compatibility_flags": [],
+            "kv_bindings": [],
+            "env_vars": {"ZONE_ID": "z-example-001", "PURGE_BATCH_SIZE": "100"},
+            "routes": ["*.example.com/purge/*"],
+            "cron_triggers": ["*/15 * * * *"],
+        },
+        "auth-token-validator": {
+            "name": "auth-token-validator",
+            "id": "wkr-cf-254-auth-01",
+            "compatibility_date": "2026-03-15",
+            "compatibility_flags": ["nodejs_compat"],
+            "kv_bindings": [{"name": "SESSION_STORE", "namespace_id": "kv-ns-sess-001"}],
+            "env_vars": {"JWKS_URL": "https://auth.example.com/.well-known/jwks.json", "TOKEN_TTL": "3600"},
+            "routes": ["auth.example.com/validate", "auth.example.com/refresh"],
+            "cron_triggers": [],
+        },
+        "image-resizer-edge": {
+            "name": "image-resizer-edge",
+            "id": "wkr-cf-254-resize-01",
+            "compatibility_date": "2026-01-20",
+            "compatibility_flags": [],
+            "kv_bindings": [],
+            "env_vars": {"MAX_WIDTH": "4096", "QUALITY": "85"},
+            "routes": ["images.example.com/resize/*"],
+            "cron_triggers": [],
+        },
+    }
+
+    KV_NAMESPACES = [
+        {"id": "kv-ns-cart-001", "title": "CART_STORE", "key_count": 12453, "size_bytes": 8_320_000},
+        {"id": "kv-ns-sess-001", "title": "SESSION_STORE", "key_count": 89201, "size_bytes": 45_100_000},
+        {"id": "kv-ns-config-001", "title": "GLOBAL_CONFIG", "key_count": 37, "size_bytes": 24_000},
+    ]
+
+
+    def create_oauth_urls() -> dict[str, str]:
+        return {
+            "issuer": AUTH_PUBLIC_URL,
+            "introspection_endpoint": urljoin(AUTH_INTERNAL_URL, "protocol/openid-connect/token/introspect"),
+            "authorization_endpoint": urljoin(AUTH_PUBLIC_URL, "protocol/openid-connect/auth"),
+            "token_endpoint": urljoin(AUTH_PUBLIC_URL, "protocol/openid-connect/token"),
+        }
+
+
+    class KeycloakTokenVerifier(TokenVerifier):
+        def __init__(self, introspection_endpoint, server_url, client_id, client_secret):
+            self.introspection_endpoint = introspection_endpoint
+            self.server_url = server_url
+            self.client_id = client_id
+            self.client_secret = client_secret
+            self.resource_url = resource_url_from_server_url(server_url)
+
+        async def verify_token(self, token: str) -> AccessToken | None:
+            timeout = httpx.Timeout(10.0, connect=5.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                try:
+                    response = await client.post(
+                        self.introspection_endpoint,
+                        data={
+                            "token": token,
+                            "client_id": self.client_id,
+                            "client_secret": self.client_secret,
+                        },
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    )
+                    if response.status_code != 200:
+                        logger.error("Introspection HTTP %d", response.status_code)
+                        return None
+                    data = response.json()
+                    if not data.get("active", False):
+                        logger.error("Token inactive")
+                        return None
+                    aud = data.get("aud")
+                    if aud is None:
+                        logger.error("No aud in token")
+                        return None
+                    audiences = aud if isinstance(aud, list) else [aud]
+                    if not any(check_resource_allowed(self.resource_url, a) for a in audiences):
+                        logger.error("Audience mismatch: expected=%s got=%s", self.resource_url, audiences)
+                        return None
+                    return AccessToken(
+                        token=token,
+                        client_id=data.get("client_id", "unknown"),
+                        scopes=data.get("scope", "").split() if data.get("scope") else [],
+                        expires_at=data.get("exp"),
+                        resource=data.get("aud"),
+                    )
+                except Exception:
+                    logger.exception("Token introspection failed")
+                    return None
+
+
+    def create_server() -> FastMCP:
+        oauth_urls = create_oauth_urls()
+        token_verifier = KeycloakTokenVerifier(
+            introspection_endpoint=oauth_urls["introspection_endpoint"],
+            server_url=SERVER_URL,
+            client_id=MCP_CLIENT_ID,
+            client_secret=MCP_CLIENT_SECRET,
+        )
+        app = FastMCP(
+            name="Cloudflare Workers MCP Server",
+            instructions="Cloudflare Workers management platform. Use these tools to list workers, view logs, get worker details, and manage KV namespaces.",
+            host=MCP_HOST,
+            port=MCP_PORT,
+            debug=True,
+            streamable_http_path="/",
+            token_verifier=token_verifier,
+            auth=AuthSettings(
+                issuer_url=AnyHttpUrl(oauth_urls["issuer"]),
+                required_scopes=["mcp:tools"],
+                resource_server_url=AnyHttpUrl(SERVER_URL),
+            ),
+        )
+
+        @app.tool()
+        async def list_workers() -> dict[str, Any]:
+            """List all Cloudflare Workers in the account with their statuses, routes, and deployment info."""
+            return {
+                "verification_code": "CF-EVAL-4x7k9m",
+                "account_id": "acct-cf-254-eval",
+                "workers": WORKERS,
+                "total": len(WORKERS),
+            }
+
+        @app.tool()
+        async def get_worker_logs(worker_name: str, limit: int = 20) -> dict[str, Any]:
+            """Get recent logs for a Cloudflare Worker by name.
+
+            Args:
+                worker_name: Name of the worker to fetch logs for
+                limit: Maximum number of log entries to return (default 20)
+            """
+            if worker_name not in WORKER_LOGS:
+                return {"error": f"Worker '{worker_name}' not found", "available_workers": [w["name"] for w in WORKERS]}
+            logs = WORKER_LOGS[worker_name][:limit]
+            error_count = sum(1 for l in logs if l.get("level") == "ERROR")
+            return {
+                "worker_name": worker_name,
+                "logs": logs,
+                "total_returned": len(logs),
+                "error_count": error_count,
+            }
+
+        @app.tool()
+        async def get_worker_details(worker_name: str) -> dict[str, Any]:
+            """Get detailed configuration for a Cloudflare Worker including bindings, env vars, and routes.
+
+            Args:
+                worker_name: Name of the worker to get details for
+            """
+            if worker_name not in WORKER_DETAILS:
+                return {"error": f"Worker '{worker_name}' not found", "available_workers": [w["name"] for w in WORKERS]}
+            return WORKER_DETAILS[worker_name]
+
+        @app.tool()
+        async def list_kv_namespaces() -> dict[str, Any]:
+            """List all Workers KV namespaces in the account."""
+            return {
+                "namespaces": KV_NAMESPACES,
+                "total": len(KV_NAMESPACES),
+            }
+
+        return app
+
+
+    def add_wellknown_routes(app: FastMCP) -> None:
+        """Add RFC 9728 Protected Resource Metadata and OAuth Authorization Server
+        metadata endpoints so Holmes can auto-discover OAuth config.
+
+        PRM points authorization_servers back to this MCP server.
+        The OAuth metadata endpoint on this server returns the real Keycloak endpoints.
+        This bridges the gap between Holmes's discovery logic and Keycloak's URL structure.
+        """
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+
+        oauth_urls = create_oauth_urls()
+
+        async def protected_resource_metadata(request: Request) -> JSONResponse:
+            """RFC 9728 — tells Holmes where the auth server is."""
+            return JSONResponse({
+                "resource": SERVER_URL,
+                "authorization_servers": [SERVER_URL],
+                "scopes_supported": ["mcp:tools"],
+                "bearer_methods_supported": ["header"],
+            })
+
+        async def oauth_authorization_server(request: Request) -> JSONResponse:
+            """OAuth Authorization Server Metadata — returns real Keycloak endpoints."""
+            return JSONResponse({
+                "issuer": oauth_urls["issuer"],
+                "authorization_endpoint": oauth_urls["authorization_endpoint"],
+                "token_endpoint": oauth_urls["token_endpoint"],
+                "grant_types_supported": ["authorization_code", "refresh_token"],
+                "response_types_supported": ["code"],
+                "code_challenge_methods_supported": ["S256"],
+            })
+
+        # Inject routes into the Starlette app before it starts
+        original_app_method = app.streamable_http_app
+
+        def patched_streamable_http_app():
+            starlette_app = original_app_method()
+            wellknown_routes = [
+                Route("/.well-known/oauth-protected-resource", protected_resource_metadata),
+                Route("/.well-known/oauth-authorization-server", oauth_authorization_server),
+            ]
+            starlette_app.router.routes = wellknown_routes + list(starlette_app.router.routes)
+            return starlette_app
+
+        app.streamable_http_app = patched_streamable_http_app
+
+
+    if __name__ == "__main__":
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+        logger.info("Starting Cloudflare Workers MCP Server on %s:%s", MCP_HOST, MCP_PORT)
+        server = create_server()
+        add_wellknown_routes(server)
+        server.run(transport="streamable-http")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-oauth-server
+  namespace: app-254
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-oauth-server
+  template:
+    metadata:
+      labels:
+        app: mcp-oauth-server
+    spec:
+      initContainers:
+        - name: install-deps
+          image: python:3.12-slim
+          command:
+            - sh
+            - -c
+            - pip install --target=/app/deps "mcp[cli]>=1.25.0" httpx uvicorn pydantic
+          volumeMounts:
+            - name: python-deps
+              mountPath: /app/deps
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      containers:
+        - name: mcp-server
+          image: python:3.12-slim
+          command:
+            - python
+            - /app/server/mcp_oauth_server.py
+          env:
+            - name: PYTHONPATH
+              value: "/app/deps"
+            - name: KEYCLOAK_URL
+              value: "http://keycloak.app-254.svc.cluster.local:8080"
+            - name: KEYCLOAK_PUBLIC_URL
+              value: "http://localhost:18080"
+            - name: KEYCLOAK_REALM
+              value: "mcp-oauth"
+            - name: MCP_CLIENT_ID
+              value: "mcp-server"
+            - name: MCP_CLIENT_SECRET
+              value: "mcp-server-secret"
+            - name: MCP_HOST
+              value: "0.0.0.0"
+            - name: MCP_PORT
+              value: "8000"
+            - name: MCP_SERVER_URL
+              value: "http://localhost:18254"
+          ports:
+            - containerPort: 8000
+              name: http
+          volumeMounts:
+            - name: server-code
+              mountPath: /app/server
+            - name: python-deps
+              mountPath: /app/deps
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 6
+      volumes:
+        - name: server-code
+          secret:
+            secretName: mcp-oauth-server-code
+        - name: python-deps
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-oauth-server
+  namespace: app-254
+spec:
+  selector:
+    app: mcp-oauth-server
+  ports:
+    - port: 8000
+      targetPort: http
+      name: http
+  type: ClusterIP

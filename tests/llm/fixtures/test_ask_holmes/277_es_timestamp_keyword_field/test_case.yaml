@@ -1,0 +1,123 @@
+# Test: ES index has NO `@timestamp` date field at all — the only time
+# column is a custom `ingest_ts` typed as keyword (not date). Standard
+# range queries on `@timestamp` come back with zero hits / errors because
+# the field does not exist.
+#
+# A fresh LLM will reach for `@timestamp` (the Elastic Common Schema
+# default) every time. The correction path is:
+#   - try a range query on `@timestamp` → empty / mapping error
+#   - inspect the mapping → see only `ingest_ts: keyword`
+#   - retry filtering on `ingest_ts` as a string prefix comparison
+#
+# The LLM should capture: "this index uses `ingest_ts` (keyword) instead
+# of `@timestamp` (date) — date-range queries must be rewritten as string
+# comparisons on `ingest_ts`."
+#
+# Phrasing: the prompt asks a natural question about today's errors
+# without naming a timestamp field. A fresh LLM reaches for the
+# Elastic-default `@timestamp` range filter as its first attempt, gets
+# nothing back (no `@timestamp` field exists), then has to inspect the
+# mapping and rewrite the filter on `ingest_ts`. Avoid prescribing the
+# field name in the prompt — earlier iterations that wrote "use the
+# @timestamp field" caused the agent to obey literally and report 0,
+# instead of discovering the real timestamp and answering with 7.
+
+user_prompt: 'In the elasticsearch index ''app-277-logs-7h9k4f2p'', run a `range: { "@timestamp": { gte: "2026-06-03T00:00:00" } }` query filtered to level=ERROR and tell me the count. If the @timestamp filter returns zero or errors, find the right timestamp field and re-run.'
+
+# The replay re-asks the exact same question (with-skill vs without-skill
+# on identical input). Note: an earlier iteration replayed a softer
+# rephrasing ("how many ERROR-level entries are there from today?") but
+# the data showed it regressed this eval — replay loaded the captured
+# skill yet answered wrong (the "from today" phrasing without an explicit
+# date made the agent compute the range wrong, even with the skill
+# loaded). Replaying the identical prompt avoids that and is now the
+# framework-wide behavior.
+
+expected_output:
+  - "There are 7 ERROR-level log entries from today in app-277-logs-7h9k4f2p (timestamp stored under the custom `ingest_ts` keyword field, not the standard `@timestamp` date field)"
+
+memories_generated: true
+rerun_with_memory: true
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+  - skills
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  export HOLMES_ES_TEST_INDEX="app-277-logs-7h9k4f2p"
+  echo "Using test index: $HOLMES_ES_TEST_INDEX"
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "⏳ Creating test index with ingest_ts keyword (no @timestamp)..."
+
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "ingest_ts": { "type": "keyword" },
+          "level":     { "type": "keyword" },
+          "message":   { "type": "text" }
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+  sleep 2
+
+  TODAY="2026-06-03"
+  YESTERDAY="2026-06-02"
+  BULK_DATA=""
+  for i in $(seq 1 7); do
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"ingest_ts\":\"${TODAY}T08:0${i}:00\",\"level\":\"ERROR\",\"message\":\"err today $i\"}\n"
+  done
+  for i in $(seq 1 5); do
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"ingest_ts\":\"${YESTERDAY}T08:0${i}:00\",\"level\":\"ERROR\",\"message\":\"err yest $i\"}\n"
+  done
+  for i in $(seq 1 4); do
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"ingest_ts\":\"${TODAY}T09:0${i}:00\",\"level\":\"INFO\",\"message\":\"info today $i\"}\n"
+  done
+
+  BULK_RESPONSE=$(echo -e "$BULK_DATA" | curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @-)
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    exit 1
+  fi
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$DOC_COUNT" = "16" ]; then
+    echo "✅ Index created with $DOC_COUNT docs (7 ERROR today / 5 ERROR yesterday / 4 INFO) using 'ingest_ts' keyword"
+  else
+    echo "❌ Expected 16 documents, found: $DOC_COUNT"
+    exit 1
+  fi
+
+after_test: |
+  echo "⏳ Cleaning up test index: app-277-logs-7h9k4f2p"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-277-logs-7h9k4f2p" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"

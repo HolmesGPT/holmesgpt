@@ -1,13 +1,20 @@
+import ipaddress
+import json
 import logging
 import os
 import re
 from abc import ABC
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
-from urllib.parse import urlparse
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from urllib.parse import quote, unquote, urlparse
 
-from pydantic import ConfigDict, Field
+import certifi
+import pytds.tls
+import requests
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from pydantic import ConfigDict, Field, model_validator
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -26,6 +33,60 @@ from holmes.utils.pydantic_utils import ToolsetConfig
 import sqlalchemy
 
 logger = logging.getLogger(__name__)
+
+
+def _dns_name_matches(pattern: str, host: str) -> bool:
+    pattern = pattern.lower()
+    if pattern == host:
+        return True
+    # Wildcard only as the entire first label, matching exactly one label.
+    if pattern.startswith("*.") and "." in host:
+        return pattern[2:] == host.split(".", 1)[1]
+    return False
+
+
+def _pytds_validate_host(cert, name: bytes) -> bool:
+    """Drop-in for pytds.tls.validate_host that reads the certificate via cryptography.
+
+    python-tds (<= 1.17.1) calls X509.get_extension(), which pyOpenSSL removed in
+    26.2.0; our cryptography>=50 floor (CVE fix) requires pyOpenSSL >= 26.3, so the
+    stock function raises AttributeError whenever the certificate CN differs from
+    the host name. Matching follows RFC 6125: an IP host is checked against IP
+    SANs, a DNS host against DNS SANs, and the CN is consulted only when the
+    certificate has no SAN of the host's type.
+    """
+    host = name.decode("ascii").lower()
+    crypto_cert = cert.to_cryptography()
+
+    try:
+        san = crypto_cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        ).value
+        san_dns = san.get_values_for_type(x509.DNSName)
+        san_ips = san.get_values_for_type(x509.IPAddress)
+    except x509.ExtensionNotFound:
+        san_dns, san_ips = [], []
+
+    try:
+        host_ip: Optional[Union[ipaddress.IPv4Address, ipaddress.IPv6Address]] = (
+            ipaddress.ip_address(host)
+        )
+    except ValueError:
+        host_ip = None
+
+    if host_ip is not None and san_ips:
+        return host_ip in san_ips
+    if host_ip is None and san_dns:
+        return any(_dns_name_matches(entry, host) for entry in san_dns)
+
+    return any(
+        str(attr.value).lower() == host
+        for attr in crypto_cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    )
+
+
+# pytds resolves validate_host as a module global during the TLS handshake.
+pytds.tls.validate_host = _pytds_validate_host
 
 # SQL statements that are safe for read-only access
 _READONLY_PATTERN = re.compile(
@@ -75,7 +136,7 @@ _DATABASE_DRIVERS: Dict[str, DatabaseDriverInfo] = {
     "mysql": DatabaseDriverInfo(DatabaseSubtype.MYSQL, "mysql+pymysql"),
     "mariadb": DatabaseDriverInfo(DatabaseSubtype.MARIADB, "mysql+pymysql"),
     "sqlite": DatabaseDriverInfo(DatabaseSubtype.SQLITE, None),
-    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pymssql"),
+    "mssql": DatabaseDriverInfo(DatabaseSubtype.MSSQL, "mssql+pytds"),
     "clickhouse": DatabaseDriverInfo(DatabaseSubtype.CLICKHOUSE, None),
 }
 
@@ -107,6 +168,134 @@ def _detect_subtype(connection_url: str) -> DatabaseSubtype:
     return info.subtype if info else DatabaseSubtype.UNKNOWN
 
 
+# Per-subtype icons, copied from the frontend data-source catalog so tool-call
+# icons match the catalog card. One DatabaseToolset backs every SQL subtype, so
+# the icon is picked from the subtype rather than hardcoded (FRO-190).
+_ICON_URL_BASE = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos"
+_SUBTYPE_ICON_URLS: Dict[DatabaseSubtype, str] = {
+    DatabaseSubtype.POSTGRESQL: f"{_ICON_URL_BASE}/postgresql.svg",
+    DatabaseSubtype.MYSQL: f"{_ICON_URL_BASE}/mysql-icon.svg",
+    DatabaseSubtype.MARIADB: f"{_ICON_URL_BASE}/mariadb-icon.svg",
+    DatabaseSubtype.MSSQL: f"{_ICON_URL_BASE}/microsoft-icon.svg",
+    DatabaseSubtype.SQLITE: "https://cdn.simpleicons.org/sqlite/003B57",
+    DatabaseSubtype.CLICKHOUSE: "https://cdn.simpleicons.org/clickhouse/FFCC01",
+}
+
+# Fallback for an unknown subtype; matches the catalog's generic "database/sql".
+_DEFAULT_DATABASE_ICON_URL = f"{_ICON_URL_BASE}/mysql-icon.svg"
+
+
+def _icon_url_for_subtype(subtype: DatabaseSubtype) -> str:
+    """Return the catalog icon URL for a database subtype."""
+    return _SUBTYPE_ICON_URLS.get(subtype, _DEFAULT_DATABASE_ICON_URL)
+
+
+def _parse_clickhouse_http_url(
+    url: str,
+) -> Tuple[str, str, Optional[Tuple[str, str]]]:
+    """Parse a clickhouse+http(s)://... URL into (base_url, database, auth).
+
+    Uses ``urllib.parse`` attributes so percent-encoded credentials, IPv6 hosts,
+    and user-with-empty-password (e.g. the ClickHouse ``default`` user) are all
+    handled correctly. ``database`` is percent-encoded for safe interpolation.
+    """
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    protocol = "https" if "https" in scheme else "http"
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (8443 if protocol == "https" else 8123)
+    host_repr = f"[{host}]" if ":" in host else host  # IPv6 literal
+    base_url = f"{protocol}://{host_repr}:{port}"
+
+    database = quote((parsed.path or "").strip("/") or "default", safe="")
+
+    auth: Optional[Tuple[str, str]] = None
+    if parsed.username is not None:
+        # urllib does not percent-decode userinfo automatically.
+        auth = (unquote(parsed.username), unquote(parsed.password or ""))
+
+    return base_url, database, auth
+
+
+def _execute_clickhouse_http(
+    base_url: str,
+    database: str,
+    auth: Optional[Tuple[str, str]],
+    sql: str,
+    effective_limit: int,
+    timeout_seconds: int = 60,
+    verify_ssl: bool = True,
+) -> Dict[str, Any]:
+    """Execute a read-only ClickHouse query over HTTP, parsing JSONEachRow.
+
+    The response is streamed line-by-line; iteration stops after
+    ``effective_limit`` rows so very large result sets are not buffered in memory.
+    """
+    params = {"database": database, "default_format": "JSONEachRow"}
+    session = requests.Session()
+    # Avoid silently picking up credentials from ~/.netrc when auth is None;
+    # toolset config is the single source of truth for credentials.
+    session.trust_env = False
+    try:
+        response = session.post(
+            base_url,
+            params=params,
+            data=sql.encode("utf-8"),
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+            auth=auth,
+            verify=verify_ssl,
+            timeout=timeout_seconds,
+            stream=True,
+        )
+    except requests.exceptions.RequestException as e:
+        raise ValueError(
+            f"ClickHouse connection error on {base_url} (db={database}): {e}. "
+            f"SQL: {sql[:500]}"
+        ) from e
+
+    with response:
+        if response.status_code != 200:
+            err_body = (response.text or "")[:2000]
+            raise ValueError(
+                f"ClickHouse HTTP error {response.status_code} on {base_url} "
+                f"(db={database}): {err_body or response.reason}. "
+                f"SQL: {sql[:500]}"
+            )
+
+        columns: List[str] = []
+        rows: List[List[Any]] = []
+        truncated = False
+        kept = 0
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if not raw_line:
+                continue
+            if kept >= effective_limit:
+                truncated = True
+                break
+            try:
+                obj = json.loads(raw_line)
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "ClickHouse JSONEachRow decode error on %s (db=%s): %s. Line: %s",
+                    base_url,
+                    database,
+                    e,
+                    raw_line[:200],
+                )
+                continue
+            if not columns:
+                columns = list(obj.keys())
+            rows.append([obj.get(k) for k in columns])
+            kept += 1
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "truncated": truncated,
+    }
+
+
 class DatabaseConfig(ToolsetConfig):
     """Configuration for the SQL database toolset.
 
@@ -128,7 +317,7 @@ class DatabaseConfig(ToolsetConfig):
         description=(
             "SQLAlchemy-compatible database connection URL. "
             "Supported databases: PostgreSQL, MySQL/MariaDB, SQLite, SQL Server. "
-            "Pure-Python drivers are used automatically (pg8000, PyMySQL, pymssql)."
+            "Pure-Python drivers are used automatically (pg8000, PyMySQL, python-tds)."
         ),
         examples=[
             "postgresql://user:pass@host:5432/db",
@@ -168,6 +357,48 @@ class DatabaseConfig(ToolsetConfig):
         le=10000,
     )
 
+    clickhouse_use_http_json: bool = Field(
+        default=False,
+        title="ClickHouse HTTP JSONEachRow",
+        description=(
+            "When True and connection_url is ClickHouse, execute read queries via the "
+            "ClickHouse HTTP API with default_format=JSONEachRow instead of the "
+            "SQLAlchemy clickhouse-sqlalchemy driver (TabSeparatedWithNamesAndTypes). "
+            "Use when result sets include DateTime64 with precision beyond microseconds "
+            "(e.g. OpenTelemetry logs), which can fail driver TSV parsing with "
+            "'unconverted data remains'. Default: False."
+        ),
+    )
+
+    timeout_seconds: int = Field(
+        default=60,
+        title="Query Timeout",
+        description=(
+            "Timeout in seconds for ClickHouse HTTP JSONEachRow queries when "
+            "clickhouse_use_http_json is enabled. Not applied to the SQLAlchemy driver path."
+        ),
+        ge=1,
+        le=600,
+    )
+
+    @model_validator(mode="after")
+    def _validate_clickhouse_http_json(self) -> "DatabaseConfig":
+        if not self.clickhouse_use_http_json:
+            return self
+        if "clickhouse" not in self.connection_url.lower():
+            raise ValueError(
+                "clickhouse_use_http_json requires a ClickHouse connection_url"
+            )
+        scheme = urlparse(self.connection_url).scheme.lower()
+        if "native" in scheme and "http" not in scheme:
+            logger.warning(
+                "clickhouse_use_http_json uses the ClickHouse HTTP API (port 8123); "
+                "connection_url appears to use the native protocol (%s). "
+                "Prefer clickhouse+http:// for this option.",
+                scheme,
+            )
+        return self
+
 
 class DatabaseToolset(Toolset):
     """Toolset for querying SQL databases via SQLAlchemy.
@@ -199,7 +430,8 @@ class DatabaseToolset(Toolset):
             description=description,
             type=ToolsetType.DATABASE,
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/database/",
-            icon_url="https://www.postgresql.org/favicon.ico",
+            # Placeholder; replaced per-subtype by _apply_icon_url().
+            icon_url=_DEFAULT_DATABASE_ICON_URL,
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],
             tags=[ToolsetTag.CORE],
@@ -215,18 +447,28 @@ class DatabaseToolset(Toolset):
             os.path.dirname(__file__), "instructions.jinja2"
         )
 
-        # Resolve subtype: explicit config > auto-detect later from connection URL
+        # Resolve subtype: explicit config > auto-detect later from connection URL.
+        # Unknown subtypes are user typos with no legitimate interpretation —
+        # raise so they surface as a visible failed toolset in the UI rather
+        # than silently falling back to UNKNOWN (which would then auto-detect
+        # from the URL, making the typo completely invisible).
         self._subtype: DatabaseSubtype = DatabaseSubtype.UNKNOWN
         if subtype_str:
             try:
                 self._subtype = DatabaseSubtype(subtype_str)
-            except ValueError:
-                logger.warning(
-                    f"Unknown database subtype '{subtype_str}', using UNKNOWN"
-                )
+            except ValueError as exc:
+                valid = ", ".join(s.value for s in DatabaseSubtype)
+                raise ValueError(
+                    f"Unknown database subtype '{subtype_str}'. "
+                    f"Valid values: {valid}. "
+                    "Omit `subtype` to auto-detect from the connection URL."
+                ) from exc
 
         # Set initial meta — updated with detected subtype in prerequisites_callable
         self.meta = {"type": "database", "subtype": self._subtype.value}
+
+        # Apply icon for the explicit subtype (or the default until detection).
+        self._apply_icon_url()
 
         self._user_llm_instructions = llm_instructions
         self._dialect: Optional[str] = None
@@ -244,12 +486,42 @@ class DatabaseToolset(Toolset):
             if self._subtype == DatabaseSubtype.UNKNOWN:
                 self._subtype = _detect_subtype(self.database_config.connection_url)
             self.meta = {"type": "database", "subtype": self._subtype.value}
+            # Re-apply now the subtype is known (covers auto-detect and lazy init).
+            self._apply_icon_url()
             return self._perform_health_check()
         except Exception as e:
-            return False, f"Failed to validate database configuration: {e}"
+            return False, f"Invalid database configuration: {e}"
+
+    def _apply_icon_url(self) -> None:
+        """Set the toolset and per-tool icon from the resolved subtype.
+
+        Tools are updated directly (not just the toolset) so the correct icon is
+        stamped onto results even under lazy init, where ToolExecutor has already
+        registered the tools and won't re-copy the toolset icon.
+        """
+        icon_url = _icon_url_for_subtype(self._subtype)
+        self.icon_url = icon_url
+        for tool in self.tools:
+            tool.icon_url = icon_url
 
     def _perform_health_check(self) -> Tuple[bool, str]:
         try:
+            if self.database_config.clickhouse_use_http_json:
+                base_url, database, auth = _parse_clickhouse_http_url(
+                    self.database_config.connection_url
+                )
+                _execute_clickhouse_http(
+                    base_url,
+                    database,
+                    auth,
+                    "SELECT 1",
+                    effective_limit=1,
+                    timeout_seconds=self.database_config.timeout_seconds,
+                    verify_ssl=self.database_config.verify_ssl,
+                )
+                self._dialect = "clickhouse"
+                self._update_tool_descriptions()
+                return True, "Connected to ClickHouse (HTTP JSONEachRow)"
             url = _normalise_url(self.database_config.connection_url)
             engine = self._create_engine(url)
             with engine.connect() as conn:
@@ -277,18 +549,34 @@ class DatabaseToolset(Toolset):
                 )
 
     def _create_engine(self, url: str):
-        connect_args = {}
+        connect_args: Dict[str, Any] = {}
+        # Match on the parsed URL scheme, not a substring of the whole URL: a
+        # username or password can contain another engine's name (e.g.
+        # postgresql://mssql_sync_user@host/db) and would otherwise pick the
+        # wrong driver's SSL arguments.
+        subtype = _detect_subtype(url)
 
-        if not self.database_config.verify_ssl:
-            if "postgresql" in url:
+        if subtype is DatabaseSubtype.MSSQL:
+            # pytds only enables TLS when a CA bundle is passed, and always
+            # verifies the server certificate against it — there is no
+            # encrypt-without-verification mode. verify_ssl=True therefore
+            # means an encrypted, certificate-verified connection (Azure SQL
+            # requires TLS); verify_ssl=False disables TLS entirely, which is
+            # what servers with self-signed certificates need.
+            #
+            # certifi.where() is resolved per connection, so a private CA added
+            # at startup via the CERTIFICATE env var (holmes/utils/cert_utils.py)
+            # is picked up here without any toolset-level setting.
+            if self.database_config.verify_ssl:
+                connect_args["cafile"] = certifi.where()
+        elif not self.database_config.verify_ssl:
+            if subtype is DatabaseSubtype.POSTGRESQL:
                 # pg8000 uses ssl_context parameter
                 connect_args["ssl_context"] = None
-            elif "mysql" in url or "pymysql" in url:
+            elif subtype in (DatabaseSubtype.MYSQL, DatabaseSubtype.MARIADB):
                 connect_args["ssl_disabled"] = True
-            elif "clickhouse" in url:
+            elif subtype is DatabaseSubtype.CLICKHOUSE:
                 connect_args["verify"] = False
-            elif "mssql" in url or "pymssql" in url:
-                connect_args["TrustServerCertificate"] = "yes"
 
         return sqlalchemy.create_engine(
             url, pool_pre_ping=True, connect_args=connect_args
@@ -328,6 +616,25 @@ class DatabaseToolset(Toolset):
         effective_limit = min(
             limit or self.database_config.max_rows, self.database_config.max_rows
         )
+
+        if self.database_config.clickhouse_use_http_json:
+            logger.debug(
+                "ClickHouse HTTP JSONEachRow query: %s",
+                sql[:80],
+            )
+            base_url, database, auth = _parse_clickhouse_http_url(
+                self.database_config.connection_url
+            )
+            return _execute_clickhouse_http(
+                base_url,
+                database,
+                auth,
+                sql,
+                effective_limit,
+                timeout_seconds=self.database_config.timeout_seconds,
+                verify_ssl=self.database_config.verify_ssl,
+            )
+
         url = _normalise_url(self.database_config.connection_url)
         engine = self._create_engine(url)
         try:

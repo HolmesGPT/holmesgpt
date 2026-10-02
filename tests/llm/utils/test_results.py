@@ -62,9 +62,16 @@ class TestStatus:
 
     @property
     def passed(self) -> bool:
-        return (
-            self.actual_score == 1
-        )  # TODO: possibly add `and not self.is_mock_failure`
+        # A test only counts as passed when BOTH the judge accepted the answer
+        # (actual_correctness_score == 1) AND pytest itself reported success.
+        # Checking pytest's status closes a long-standing reporting gap: any
+        # assertion that fires AFTER update_test_results has already logged the
+        # score (e.g. the max_tokens check or the memories_generated check) used
+        # to leave the GitHub markdown report showing :white_check_mark: even
+        # though pytest had failed the test.
+        if self.status and self.status not in ("passed", ""):
+            return False
+        return self.actual_score == 1
 
     @property
     def is_skipped(self) -> bool:

@@ -1,0 +1,90 @@
+# Test: Skill suggestion quality — Prometheus metric/label conventions.
+#
+# Request metrics in this environment use non-obvious conventions: the
+# shopfront_ metric prefix and a svc_id label (instead of standard
+# service/app labels), with failures tracked via outcome="failed" and a
+# failure_reason label. Holmes must discover these conventions by exploring
+# metric names and labels, then suggest a skill capturing them — and NOT
+# incident specifics. The unique failure_reason value
+# "upstream_timeout_gw-qz81x" is the canary: it must appear in the answer
+# but NOT in the suggested skill.
+
+user_prompt: |
+  Customers report intermittent checkout failures in our shop (namespace
+  app-273). Use the Prometheus metrics to find which service is failing and
+  tell me the exact failure reason recorded in the metrics.
+
+# Closed-loop validation: the captured metric/label-conventions skill must
+# be fetched on replay and the answer must stay correct.
+memories_generated: true
+rerun_with_memory: true
+
+# The replay has no SuggestSkills tool, so it is judged on the answer only.
+expected_replay_output:
+  - "Must identify checkout-v2 as the failing service and report the failure reason upstream_timeout_gw-qz81x"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must identify checkout-v2 as the failing service and report the exact failure reason upstream_timeout_gw-qz81x"
+  - "Must call the SuggestSkills tool with at least one suggestion"
+  - "The SuggestSkills suggestion(s) must capture the Prometheus conventions discovered during the investigation. At least two of the following must appear in the suggestion instructions: (a) request/HTTP metrics in this environment use the shopfront_ metric name prefix (e.g. shopfront_http_requests_total), (b) services are identified by the svc_id label rather than standard service/app/job labels, (c) failures are tracked via the outcome label (outcome=\"failed\") and/or the failure_reason label"
+  - "The SuggestSkills tool call arguments must NOT contain the specific failure reason value upstream_timeout_gw-qz81x (mentioning the failure_reason label NAME is fine), must NOT state the root cause or findings of this specific incident, and must NOT contain specific counter values or timestamps. Skills must capture reusable data-source knowledge, not incident memories. (This applies only to the SuggestSkills tool call arguments — the failure reason value appearing in other tool outputs or in the final answer is expected.)"
+
+tags:
+  - kubernetes
+  - prometheus
+  - metrics
+  - skills
+  - medium
+
+port_forwards:
+  - namespace: app-273
+    service: prometheus
+    local_port: 10273
+    remote_port: 9090
+
+setup_timeout: 300
+
+before_test: |
+  set -e
+  kubectl create namespace app-273 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml -n app-273
+  kubectl apply -f ../../shared/prometheus.yaml -n app-273
+
+  PODS_READY=false
+  for i in $(seq 1 90); do
+    if kubectl wait --for=condition=ready pod -l app=edge-gateway -n app-273 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=ready pod -l app=prometheus -n app-273 --timeout=5s 2>/dev/null; then
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PODS_READY" = false ]; then
+    echo "❌ Pods failed to become ready"
+    kubectl get pods -n app-273
+    exit 1
+  fi
+
+  # Verify the needle is discoverable: Prometheus must have scraped the
+  # failure series with the unique failure_reason value
+  NEEDLE_FOUND=false
+  for i in $(seq 1 60); do
+    if kubectl exec -n app-273 deployment/prometheus -- wget -q -O- \
+      "http://localhost:9090/api/v1/query?query=shopfront_http_requests_total" 2>/dev/null \
+      | grep -q "upstream_timeout_gw-qz81x"; then
+      NEEDLE_FOUND=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$NEEDLE_FOUND" = false ]; then
+    echo "❌ shopfront metrics not scraped by Prometheus"
+    kubectl logs -n app-273 deployment/prometheus --tail=20 || true
+    exit 1
+  fi
+  echo "✅ Test data ready in app-273"
+
+after_test: |
+  kubectl delete namespace app-273 --ignore-not-found

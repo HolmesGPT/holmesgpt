@@ -13,7 +13,7 @@ user_prompt: |
 
 expected_output:
   - "FAIL if fetch_webpage tool was called - this tool must never be used for Confluence pages"
-  - "FAIL if fetch_runbook tool was called - this tool must never be used for Confluence pages"
+  - "FAIL if fetch_skill tool was called - this tool must never be used for Confluence pages"
   - "Must report the AWS account ID: 938401784103"
 
 include_tool_calls: true

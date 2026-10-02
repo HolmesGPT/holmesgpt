@@ -1,0 +1,11 @@
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  victorialogs:
+    enabled: true
+    config:
+      api_url: "{{ env.VICTORIALOGS_URL }}"

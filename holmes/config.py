@@ -18,16 +18,20 @@ from pydantic import (
     SecretStr,
 )
 
-from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
 from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetTag
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
-from holmes.plugins.runbooks import (
-    RunbookCatalog,
-    load_runbook_catalog,
+from holmes.plugins.skills.git_skill_repos import (
+    GitSkillRepo,
+    GitSkillRepoManager,
+    parse_skill_repos_env,
+)
+from holmes.plugins.skills.skill_loader import (
+    SkillCatalog,
+    load_skill_catalog,
 )
 
 # Source plugin imports moved to their respective create methods to speed up startup
@@ -40,12 +44,55 @@ if TYPE_CHECKING:
     from holmes.plugins.sources.pagerduty import PagerDutySource
     from holmes.plugins.sources.prometheus.plugin import AlertManagerSource
 
+from holmes.common.env_vars import TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
 from holmes.core.config import config_path_dir
+from holmes.core.oauth_utils import (
+    eager_load_oauth_tools,
+    preload_oauth_tokens,
+    set_oauth_dal,
+)
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.definitions import RobustaConfig
-from holmes.utils.pydantic_utils import RobustaBaseConfig, load_model_from_file
+from holmes.utils.pydantic_utils import (
+    RobustaBaseConfig,
+    load_model_from_file,
+    parse_model_from_file,
+)
+
 
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
+
+
+def _parse_custom_skill_paths_env() -> List[str]:
+    raw = os.environ.get("CUSTOM_SKILL_PATHS")
+    if not raw:
+        return []
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
+    """Stable signature of a toolset's tools for change detection.
+
+    Includes tool name and description so additions, removals, and description
+    edits all trigger an executor swap.
+    """
+    return frozenset(
+        (tool.name, tool.description or "") for tool in (toolset.tools or [])
+    )
+
+
+def _toolset_tools_changed(current: List[Toolset], new: List[Toolset]) -> bool:
+    """Return True if the set of toolsets, or any shared toolset's tool list, changed."""
+    current_by_name = {ts.name: ts for ts in current}
+    new_by_name = {ts.name: ts for ts in new}
+    if current_by_name.keys() != new_by_name.keys():
+        return True
+    for name, new_ts in new_by_name.items():
+        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(
+            new_ts
+        ):
+            return True
+    return False
 
 
 class SupportedTicketSources(str, Enum):
@@ -94,7 +141,11 @@ class Config(RobustaBaseConfig):
     opsgenie_team_integration_key: Optional[SecretStr] = None
     opsgenie_query: Optional[str] = None
 
-    custom_runbook_catalogs: List[Union[str, FilePath]] = []
+    custom_skill_paths: List[Union[str, FilePath]] = []
+    # Git repositories to sync skills from (re-pulled periodically by the server's
+    # refresh loop; synced once per run in the CLI). Their checkouts are appended
+    # to the effective skill paths -- see all_skill_paths.
+    skill_repos: List[GitSkillRepo] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -122,6 +173,7 @@ class Config(RobustaBaseConfig):
 
     # TODO: Separate those fields to facade class, this shouldn't be part of the config.
     _toolset_manager: Optional[ToolsetManager] = PrivateAttr(None)
+    _skill_repo_manager: Optional[GitSkillRepoManager] = PrivateAttr(None)
     _llm_model_registry: Optional[LLMModelRegistry] = PrivateAttr(None)
     _dal: Optional[SupabaseDal] = PrivateAttr(None)
     _config_file_path: Optional[Path] = PrivateAttr(None)
@@ -145,11 +197,57 @@ class Config(RobustaBaseConfig):
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                custom_runbook_catalogs=self.custom_runbook_catalogs,
+                custom_skill_paths=self.all_skill_paths,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,
             )
         return self._toolset_manager
+
+    @property
+    def skill_repo_manager(self) -> GitSkillRepoManager:
+        if not self._skill_repo_manager:
+            # The manager rate-limits itself to the refresh cadence, so callers
+            # (the server refresh loop included) can invoke sync() freely.
+            try:
+                self._skill_repo_manager = GitSkillRepoManager(
+                    self.skill_repos,
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+            except ValueError as e:
+                # ValueError specifically, not Exception: the only thing the
+                # constructor rejects is the repo list itself, and a broad catch
+                # would swallow a genuine bug or filesystem fault here and make
+                # git-synced skills quietly vanish instead of surfacing it.
+                #
+                # A rejected repo list (two repos whose names collide -- easy to
+                # hit, since an omitted name is derived from the URL's last
+                # segment, so .../team-a/skills.git and .../team-b/skills.git
+                # both become "skills") must not take out the request path. This
+                # property is reached per request through all_skill_paths, and a
+                # raise here left the failed construction to be retried on every
+                # chat, turning a skills misconfiguration into a total outage.
+                # Serve no git-synced skills instead, and say so.
+                logging.error(
+                    f"Skill repos are misconfigured, so none will be loaded until "
+                    f"this is fixed: {e}"
+                )
+                self._skill_repo_manager = GitSkillRepoManager(
+                    [],
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+        return self._skill_repo_manager
+
+    @property
+    def all_skill_paths(self) -> List[Union[str, FilePath]]:
+        """Every path skills load from: configured paths plus git-repo checkouts.
+
+        The repo paths are `current` symlinks that keep pointing at the newest
+        checkout across syncs, so this list is stable even though the content
+        behind it moves. Accessing it clones the repos on first use.
+        """
+        paths: List[Union[str, FilePath]] = list(self.custom_skill_paths)
+        paths.extend(self.skill_repo_manager.skill_paths())
+        return paths
 
     @property
     def dal(self) -> SupabaseDal:
@@ -159,11 +257,10 @@ class Config(RobustaBaseConfig):
 
     @property
     def llm_model_registry(self) -> LLMModelRegistry:
-        if not self._llm_model_registry:
-            self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
-        return self._llm_model_registry
-
-
+        with self._executor_lock:
+            if not self._llm_model_registry:
+                self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
+            return self._llm_model_registry
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -211,14 +308,28 @@ class Config(RobustaBaseConfig):
             result._model_source = f"in {config_file}"
         # Fall through to env var check below
 
-        if result.model is None:
-            model_from_env = os.environ.get("MODEL")
-            if model_from_env and model_from_env.strip():
-                result.model = model_from_env
-                result._model_source = "via $MODEL"
+        result._apply_env_fallbacks()
 
         result.log_useful_info()
         return result
+
+    def _apply_env_fallbacks(self) -> None:
+        """Apply MODEL, CUSTOM_SKILL_PATHS and SKILL_REPOS when absent after YAML load/reload."""
+        if self.model is None:
+            model_from_env = os.environ.get("MODEL")
+            if model_from_env and model_from_env.strip():
+                self.model = model_from_env
+                self._model_source = "via $MODEL"
+
+        if not self.custom_skill_paths:
+            skill_paths = _parse_custom_skill_paths_env()
+            if skill_paths:
+                self.custom_skill_paths = skill_paths
+
+        if not self.skill_repos:
+            skill_repos = parse_skill_repos_env()
+            if skill_repos:
+                self.skill_repos = skill_repos
 
     @classmethod
     def load_from_env(cls):
@@ -249,44 +360,72 @@ class Config(RobustaBaseConfig):
             if val is not None:
                 kwargs[field_name] = val
         kwargs["cluster_name"] = Config.__get_cluster_name()
+        if kwargs["cluster_name"] and not os.environ.get("CLUSTER_NAME"):
+            os.environ["CLUSTER_NAME"] = kwargs["cluster_name"]
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
+        # CUSTOM_SKILL_PATHS / SKILL_REPOS share one env-fallback path with
+        # load_from_file, so the two loaders cannot drift.
+        result._apply_env_fallbacks()
         if "model" in kwargs:
             result._model_source = "via $MODEL"
         result.log_useful_info()
         return result
 
     @staticmethod
+    def get_robusta_global_config_value(key: str) -> Optional[str]:
+        """Read a value from Robusta's global_config. Returns None in CLI mode or on error."""
+        from holmes.common.env_vars import ROBUSTA_CONFIG_PATH
+
+        if not os.path.exists(ROBUSTA_CONFIG_PATH):
+            return None
+        try:
+            with open(ROBUSTA_CONFIG_PATH) as f:
+                yaml_content = yaml.safe_load(f)
+                config = RobustaConfig(**yaml_content)
+                return config.global_config.get(key)
+        except Exception:
+            logging.warning(
+                "Failed to load '%s' from Robusta config", key, exc_info=True
+            )
+            return None
+
+    @staticmethod
     def __get_cluster_name() -> Optional[str]:
-        config_file_path = ROBUSTA_CONFIG_PATH
         env_cluster_name = os.environ.get("CLUSTER_NAME")
         if env_cluster_name:
             return env_cluster_name
+        return Config.get_robusta_global_config_value("cluster_name")
 
-        if not os.path.exists(config_file_path):
-            logging.info(f"No robusta config in {config_file_path}")
-            return None
+    def get_skill_catalog(
+        self, user_id: Optional[str] = None, alert_name: Optional[str] = None
+    ) -> Optional[SkillCatalog]:
+        """Build the per-request skill catalog that feeds the system prompt.
 
-        logging.info(f"loading config {config_file_path}")
-        with open(config_file_path) as file:
-            yaml_content = yaml.safe_load(file)
-            config = RobustaConfig(**yaml_content)
-            return config.global_config.get("cluster_name")
+        Rebuilt every request, so this is where the personal tier and the collision hierarchy
+        are applied. `user_id` must be the END USER's id; absent (alert triage, triggered
+        workflows, scheduled prompts) no personal skills load.
 
-        return None
-
-    def get_runbook_catalog(self) -> Optional[RunbookCatalog]:
-        runbook_catalog = load_runbook_catalog(
-            dal=self.dal, custom_catalog_paths=self.custom_runbook_catalogs
+        The fetch_skill tool's own id list is NOT built here -- that toolset is cached across
+        requests and users, so per-user skills must never be baked into it. SkillsFetcher
+        resolves them at invoke time instead.
+        """
+        # `self.dal` is a lazily-constructing property, so no truthiness guard: the
+        # not-configured case is handled inside get_skill_hierarchy_config, which is
+        # TTL-cached and so adds no round trip per turn.
+        hierarchy = self.dal.get_skill_hierarchy_config()
+        return load_skill_catalog(
+            dal=self.dal,
+            custom_skill_paths=self.all_skill_paths,
+            user_id=user_id,
+            hierarchy=hierarchy,
+            alert_name=alert_name,
         )
-        return runbook_catalog
 
     # ── Unified factory methods ──
 
     @staticmethod
-    def _executor_cache_key(
-        tags: List[ToolsetTag], enable_all: bool
-    ) -> tuple:
+    def _executor_cache_key(tags: List[ToolsetTag], enable_all: bool) -> tuple:
         return (tuple(sorted(tags, key=lambda t: t.value)), enable_all)
 
     def create_tool_executor(
@@ -354,6 +493,9 @@ class Config(RobustaBaseConfig):
         tags = toolset_tag_filter or [ToolsetTag.CORE]
         cache_key = self._executor_cache_key(tags, enable_all_toolsets_possible)
 
+        # Make DAL available for OAuth cross-cluster token storage
+        set_oauth_dal(dal)
+
         if reuse_executor:
             with self._executor_lock:
                 if (
@@ -373,6 +515,9 @@ class Config(RobustaBaseConfig):
                 executor = ToolExecutor(toolsets, on_event=on_event)
                 self._cached_tool_executor = executor
                 self._cached_executor_key = cache_key
+
+                preload_oauth_tokens()
+                eager_load_oauth_tools(executor)
                 return executor
 
         toolsets = self.toolset_manager.prepare_toolsets(
@@ -382,7 +527,10 @@ class Config(RobustaBaseConfig):
             prerequisite_cache=prerequisite_cache,
             on_event=on_event,
         )
-        return ToolExecutor(toolsets, on_event=on_event)
+        preload_oauth_tokens()
+        executor = ToolExecutor(toolsets, on_event=on_event)
+        eager_load_oauth_tools(executor)
+        return executor
 
     def refresh_tool_executor(
         self,
@@ -390,13 +538,24 @@ class Config(RobustaBaseConfig):
         toolset_tag_filter: Optional[List[ToolsetTag]] = None,
         enable_all_toolsets_possible: bool = False,
     ) -> list[tuple[str, str, str]]:
-        """Refresh the cached tool executor and return a list of changes.
+        """Refresh the cached tool executor and return a list of toolset status changes.
 
-        Changes include status transitions, added toolsets, and removed toolsets.
-        The cached executor is always replaced with the freshly-loaded one so that
-        added/removed toolsets are picked up even when no status changes occur.
+        Prerequisites are re-checked for every toolset (which, for MCP toolsets,
+        re-fetches the remote tool list). The cached executor is then replaced
+        when either:
+
+        * a toolset's status transitioned (the returned ``changes`` list), or
+        * an existing toolset's tool list changed -- e.g. a remote MCP server
+          added or removed tools while staying healthy -- so the LLM sees the
+          new tools.
+
+        If neither condition holds, the cached executor is left in place.
         """
-        logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
+        logging.info(
+            "Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s",
+            toolset_tag_filter,
+            enable_all_toolsets_possible,
+        )
         # Normalize early so the same tags are used for both loading and caching.
         tags = toolset_tag_filter or [ToolsetTag.CORE]
 
@@ -418,21 +577,92 @@ class Config(RobustaBaseConfig):
 
         current_toolsets = cached_executor.toolsets
 
-        new_toolsets, changes = (
-            self.toolset_manager.refresh_toolsets_and_get_changes(
-                current_toolsets,
-                dal,
-                toolset_tag_filter=tags,
-                enable_all_toolsets_possible=enable_all_toolsets_possible,
-            )
+        new_toolsets, changes = self.toolset_manager.refresh_toolsets_and_get_changes(
+            current_toolsets,
+            dal,
+            toolset_tag_filter=tags,
+            enable_all_toolsets_possible=enable_all_toolsets_possible,
         )
 
-        if changes:
+        if changes or _toolset_tools_changed(current_toolsets, new_toolsets):
             with self._executor_lock:
-                self._cached_tool_executor = ToolExecutor(new_toolsets)
+                executor = ToolExecutor(new_toolsets)
+                preload_oauth_tokens()
+                eager_load_oauth_tools(executor)
+                self._cached_tool_executor = executor
                 self._cached_executor_key = cache_key
 
         return [(name, old.value, new.value) for name, old, new in changes]
+
+    def reload_toolsets(self) -> dict:
+        """Re-read config YAML and rebuild toolsets from scratch.
+
+        Parses the config file into a temporary Config via Pydantic validation,
+        then copies toolset-related fields (toolsets, MCP servers, custom toolsets,
+        additional toolsets, custom skill paths) and resets lazy singletons so the
+        next request rebuilds everything from the fresh values.
+        """
+        fresh = None
+        if self._config_file_path and Path(self._config_file_path).exists():
+            fresh = parse_model_from_file(Config, Path(self._config_file_path))
+
+        with self._executor_lock:
+            if fresh is not None:
+                self.toolsets = fresh.toolsets
+                self.mcp_servers = fresh.mcp_servers
+                self.custom_toolsets = fresh.custom_toolsets
+                self.custom_skill_paths = fresh.custom_skill_paths
+                previous_skill_repos = self.skill_repos
+                self.skill_repos = fresh.skill_repos
+                self.additional_toolsets = fresh.additional_toolsets
+                self._apply_env_fallbacks()
+                # Keep the manager when the repo config is unchanged: it holds
+                # the synced state and cached GitHub App tokens, and dropping it
+                # would force a full network re-sync on the next request.
+                if self.skill_repos != previous_skill_repos:
+                    self._skill_repo_manager = None
+            self._toolset_manager = None
+            self._cached_tool_executor = None
+            self._cached_executor_key = None
+        if fresh is None:
+            logging.warning(
+                "reload_toolsets called without a usable config file (%s); only caches cleared",
+                self._config_file_path,
+            )
+        else:
+            logging.info("Toolset config reloaded from %s", self._config_file_path)
+        return {"reloaded": True}
+
+    def reload_models(self) -> dict:
+        """Re-read model_list.yaml and model-related config fields, then rebuild the registry.
+
+        Re-parses the main config file to pick up changes to model, api_key,
+        api_base, api_version, and fast_model, then resets the lazy registry so
+        the next access constructs a fresh LLMModelRegistry with current values.
+        """
+        fresh = None
+        if self._config_file_path and Path(self._config_file_path).exists():
+            fresh = parse_model_from_file(Config, Path(self._config_file_path))
+
+        with self._executor_lock:
+            if fresh is not None:
+                self.model = fresh.model
+                self.api_key = fresh.api_key
+                self.api_base = fresh.api_base
+                self.api_version = fresh.api_version
+                self.fast_model = fresh.fast_model
+                self._apply_env_fallbacks()
+            self._llm_model_registry = None
+        registry = self.llm_model_registry
+        model_count = len(registry.models) if registry.models else 0
+        if fresh is None:
+            logging.warning(
+                "reload_models called without a usable config file (%s); only registry cleared",
+                self._config_file_path,
+            )
+        else:
+            logging.info("Model config + registry reloaded: %d models", model_count)
+        return {"models_loaded": model_count}
 
     def create_toolcalling_llm(
         self,
@@ -593,6 +823,7 @@ class Config(RobustaBaseConfig):
         return AlertManagerSource(
             url=self.alertmanager_url,  # type: ignore
             username=self.alertmanager_username,
+            password=self.alertmanager_password,
             alertname_filter=self.alertmanager_alertname,  # type: ignore
             label_filter=self.alertmanager_label,  # type: ignore
             filepath=self.alertmanager_file,
@@ -669,7 +900,11 @@ class Config(RobustaBaseConfig):
         msg = f"Model: {model_name}, {context_size} context, {max_response} max response ({source_hint})"
         display_logger.info(msg)
         if on_event is not None:
-            on_event(StatusEvent(kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg))
+            on_event(
+                StatusEvent(
+                    kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg
+                )
+            )
         return llm
 
     def get_models_list(self) -> List[str]:

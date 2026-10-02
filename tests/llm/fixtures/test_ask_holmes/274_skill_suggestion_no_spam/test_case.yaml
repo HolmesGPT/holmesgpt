@@ -1,0 +1,53 @@
+# Test: Skill suggestion restraint — no spam for trivial investigations.
+#
+# Negative counterpart of the 271-273 skill-suggestion evals: a trivial
+# cluster-health question answered with a single standard tool call. Nothing
+# environment-specific is discovered (no schema exploration, no failed
+# queries, no data-location discovery), so Holmes must NOT call the
+# SuggestSkills tool. A suggestion like "use the cluster health tool to check
+# cluster health" is exactly the kind of generic, useless skill this feature
+# must not produce.
+
+user_prompt: |
+  What is the current health status of our Elasticsearch cluster? Just tell
+  me the status color and the number of nodes.
+
+# The SuggestSkills frontend tool is available to the agent in every eval by
+# default (it mirrors the tool the Robusta UI attaches to each chat request,
+# letting the agent propose reusable environment know-how as "skills"). This
+# investigation is routine and teaches nothing reusable about the environment,
+# so a well-behaved agent must NOT propose any skill here.
+# `memories_generated: false` fails the test if it proposes one anyway -
+# guarding against skill spam, where users get flooded with low-value
+# suggestion chips after ordinary investigations.
+memories_generated: false
+
+include_tool_calls: true
+
+expected_output:
+  - "Must report the cluster status (green, yellow, or red) and the number of nodes"
+  - "Must NOT call the SuggestSkills tool — this was a trivial single-step lookup with standard tools; no environment-specific know-how was discovered, so suggesting a skill would be noise"
+
+tags:
+  - elasticsearch
+  - skills
+  - medium
+  - fast
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  HEALTH_RESPONSE=$(curl -sf -X GET "${ELASTICSEARCH_URL}/_cluster/health" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}")
+  if ! echo "$HEALTH_RESPONSE" | grep -q '"cluster_name"'; then
+    echo "❌ Failed to connect to Elasticsearch cluster"
+    exit 1
+  fi
+  echo "✅ Elasticsearch reachable"
+
+after_test: |
+  echo "No cleanup needed"

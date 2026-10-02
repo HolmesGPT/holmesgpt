@@ -2,11 +2,23 @@ import fnmatch
 import json
 import logging
 import os
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type
-from urllib.parse import urlparse
+from dataclasses import dataclass
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    FrozenSet,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+)
+from urllib.parse import urljoin, urlparse
 
 import requests  # type: ignore
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from requests.auth import HTTPDigestAuth  # type: ignore
 
 from holmes.core.tools import (
@@ -19,12 +31,184 @@ from holmes.core.tools import (
     Toolset,
     ToolsetType,
 )
+from holmes.plugins.toolsets.internet.ssrf import (
+    SSRFValidationError,
+    build_pinned_adapter,
+    validate_url,
+)
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.utils.header_rendering import render_header_templates
+from holmes.utils.pydantic_utils import ToolsetConfig
 
 logger = logging.getLogger(__name__)
 
 ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+SUPPORTED_SCHEMES = ("http", "https")
+SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+# Redirects are never followed blindly: the whitelist is enforced against the
+# ORIGINAL url only, so an allowed host that can be made to emit a 30x (open
+# redirect, attacker-controlled path/param, compromised upstream) would
+# otherwise pivot the request to cloud metadata or an in-cluster service. Every
+# hop is re-validated against match_endpoint() instead.
+REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+
+# Bound the manual redirect chain, mirroring requests' default.
+MAX_REDIRECTS = 5
+
+# Only these headers survive a redirect that crosses an origin. Everything else
+# is operator- or model-supplied and must be assumed to carry a secret: `auth`
+# of every type, `default_headers`, the Jinja-rendered `extra_headers` (which
+# exist precisely to inject tokens, e.g. "{{ env.MY_TOKEN }}"), and any header
+# the model passed to the tool.
+#
+# This is an allowlist rather than a list of known credential header names so
+# that a new way to configure a secret header cannot silently start leaking.
+# requests' own rebuild_auth() is no help here: it strips only 'Authorization',
+# and only when the HOSTNAME changes, so header-type auth and
+# same-host/different-port hops would keep the credential.
+CROSS_ORIGIN_SAFE_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "content-type",
+        "user-agent",
+    }
+)
+
+
+def _origin(url: str) -> Tuple[str, str, Optional[int]]:
+    """(scheme, host, effective port) — the origin a credential is scoped to."""
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port is None:
+        port = SCHEME_DEFAULT_PORTS.get(scheme)
+    return scheme, (parsed.hostname or "").lower(), port
+
+
+def _strip_credentials(headers: Dict[str, str]) -> Dict[str, str]:
+    """Keep only the headers that are safe to carry across an origin boundary.
+
+    See CROSS_ORIGIN_SAFE_HEADERS — anything not on that list is dropped rather
+    than matched against a list of known credential names.
+    """
+    return {k: v for k, v in headers.items() if k.lower() in CROSS_ORIGIN_SAFE_HEADERS}
+
+
+@dataclass(frozen=True)
+class ParsedHostPattern:
+    """A host whitelist entry parsed into its constraints.
+
+    scheme=None means any scheme is allowed; otherwise only that scheme.
+    ports=None means any port is allowed; otherwise the request port (or
+    scheme default if request omits the port) must be in the set.
+    host_pattern is either an exact lowercased host or a leading-wildcard
+    pattern starting with '*.'.
+    """
+
+    scheme: Optional[str]
+    host_pattern: str
+    ports: Optional[FrozenSet[int]]
+
+
+def _parse_host_pattern(entry: str) -> ParsedHostPattern:
+    """Parse a single 'hosts' entry into a ParsedHostPattern.
+
+    Accepts:
+      bare hostname           -> any scheme, any port
+      *.example.com           -> any scheme, any port
+      host:port               -> any scheme, that port only
+      http(s)://host          -> that scheme, scheme-default port
+      http(s)://host:port     -> that scheme, that port only
+      http(s)://*.host        -> that scheme, scheme-default port
+      http(s)://host:*        -> that scheme, any port
+      *.host:*                -> any scheme, any port (explicit wildcard)
+      [ipv6]:port / scheme://[ipv6]:port  -> IPv6 forms
+    """
+    if not isinstance(entry, str):
+        raise ValueError(f"Host pattern must be a string, got {type(entry).__name__}")
+    s = entry.strip()
+    if not s:
+        raise ValueError("Empty host pattern")
+
+    scheme: Optional[str] = None
+    if "://" in s:
+        scheme_part, _, rest = s.partition("://")
+        scheme = scheme_part.lower()
+        if scheme not in SUPPORTED_SCHEMES:
+            raise ValueError(
+                f"Unsupported scheme {scheme!r} in host pattern {entry!r}. "
+                f"Supported schemes: {', '.join(SUPPORTED_SCHEMES)}."
+            )
+        s = rest
+
+    for sep in ("/", "?", "#"):
+        if sep in s:
+            s = s.split(sep, 1)[0]
+
+    if "@" in s:
+        s = s.rsplit("@", 1)[-1]
+
+    host_pattern: str
+    port_str: Optional[str] = None
+
+    if s.startswith("["):
+        close = s.find("]")
+        if close == -1:
+            raise ValueError(f"Unclosed '[' in host pattern: {entry!r}")
+        host_pattern = s[1:close]
+        rest_after = s[close + 1 :]
+        if rest_after.startswith(":"):
+            port_str = rest_after[1:]
+        elif rest_after:
+            raise ValueError(
+                f"Unexpected content after IPv6 host in {entry!r}: {rest_after!r}"
+            )
+    elif s.count(":") == 1:
+        host_pattern, _, port_str = s.partition(":")
+    else:
+        host_pattern = s
+
+    if not host_pattern:
+        raise ValueError(f"Empty host in pattern: {entry!r}")
+
+    if "*" in host_pattern and not host_pattern.startswith("*."):
+        raise ValueError(
+            f"Wildcards in host patterns must be a leading '*.' "
+            f"(e.g. '*.example.com'). Got: {entry!r}"
+        )
+
+    host_pattern = host_pattern.lower()
+
+    ports: Optional[FrozenSet[int]]
+    if port_str is None:
+        if scheme is not None:
+            ports = frozenset({SCHEME_DEFAULT_PORTS[scheme]})
+        else:
+            ports = None
+    elif port_str == "*":
+        ports = None
+    elif port_str == "":
+        raise ValueError(f"Empty port in host pattern: {entry!r}")
+    else:
+        try:
+            port_num = int(port_str)
+        except ValueError as err:
+            raise ValueError(
+                f"Invalid port {port_str!r} in host pattern {entry!r}"
+            ) from err
+        if not (1 <= port_num <= 65535):
+            raise ValueError(
+                f"Port {port_num} out of range (1-65535) in host pattern {entry!r}"
+            )
+        ports = frozenset({port_num})
+
+    return ParsedHostPattern(scheme=scheme, host_pattern=host_pattern, ports=ports)
 
 
 class AuthConfig(BaseModel):
@@ -57,8 +241,22 @@ class AuthConfig(BaseModel):
 
 class EndpointConfig(BaseModel):
     hosts: List[str] = Field(
-        description="List of allowed host patterns (e.g., ['*.atlassian.net', 'confluence.mycompany.com'])",
-        examples=[["api.example.com"]],
+        description=(
+            "Allowed host patterns. Each entry is one of:\n"
+            "  - bare hostname ('api.example.com') -- any scheme, any port\n"
+            "  - leading wildcard ('*.example.com') -- any scheme, any port\n"
+            "  - host with port ('host.example.com:8080') -- any scheme, that port\n"
+            "  - URL with scheme ('https://api.example.com') -- that scheme, scheme-default port\n"
+            "  - URL with scheme + port ('https://api.example.com:8443') -- that scheme, that port\n"
+            "  - explicit any-port wildcard ('https://*.example.com:*') -- that scheme, any port"
+        ),
+        examples=[
+            [
+                "api.example.com",
+                "*.internal.example.com",
+                "https://jenkins.example.com:8080",
+            ]
+        ],
     )
     paths: List[str] = Field(
         default_factory=lambda: ["*"],
@@ -80,11 +278,22 @@ class EndpointConfig(BaseModel):
         examples=["https://api.example.com/health"],
     )
 
+    _parsed_hosts: List[ParsedHostPattern] = PrivateAttr(default_factory=list)
+
+    @model_validator(mode="after")
+    def _parse_and_cache_hosts(self) -> "EndpointConfig":
+        # Parsing both validates entries (raises on malformed) and populates the cache.
+        self._parsed_hosts = [_parse_host_pattern(h) for h in self.hosts]
+        return self
+
+    def parsed_hosts(self) -> List[ParsedHostPattern]:
+        return self._parsed_hosts
+
     def get_methods(self) -> List[str]:
         return [m.upper() for m in self.methods]
 
 
-class HttpToolsetConfig(BaseModel):
+class HttpToolsetConfig(ToolsetConfig):
     endpoints: List[EndpointConfig] = Field(default_factory=list)
     verify_ssl: bool = True
     timeout_seconds: int = 30
@@ -101,6 +310,15 @@ class HttpToolsetConfig(BaseModel):
     client_key_path: Optional[str] = Field(
         default=None,
         description="Path to client private key file for mTLS. If not set, the cert file is assumed to contain both cert and key.",
+    )
+    block_internal_ips: bool = Field(
+        default=False,
+        description="Reject requests whose host resolves to a loopback, link-local "
+        "(incl. 169.254.169.254 cloud metadata), private or reserved address, and pin "
+        "the connection to the validated IP to defeat DNS rebinding. Defaults to False "
+        "because whitelisted endpoints are commonly in-cluster services "
+        "(e.g. http://prometheus.monitoring.svc:9090). Enable it when every configured "
+        "endpoint is a public host.",
     )
 
 
@@ -232,7 +450,7 @@ class HttpToolset(Toolset):
             )
 
         except Exception as e:
-            return False, f"Failed to validate HTTP configuration: {str(e)}"
+            return False, f"Invalid HTTP configuration: {e}"
 
     def _build_curl_command(self, endpoint: EndpointConfig, url: str) -> str:
         parts = ["curl", "-v"]
@@ -279,7 +497,24 @@ class HttpToolset(Toolset):
             if cert:
                 request_kwargs["cert"] = cert
 
-            response = requests.get(url, **request_kwargs)
+            # The health-check URL is operator-configured, but it can still be
+            # open-redirected, which would replay the endpoint's credentials
+            # elsewhere. It is allowed to sit outside the endpoint's `paths`
+            # whitelist, so hops are constrained to its own origin rather than
+            # to match_endpoint().
+            response, redirect_error = self.request_with_validated_redirects(
+                "GET",
+                url,
+                request_kwargs,
+                check_redirect_target=self._same_origin_hop(url),
+            )
+            if redirect_error or response is None:
+                return (
+                    False,
+                    f"Health check failed for endpoint {endpoint_index} ({url}): "
+                    f"{redirect_error or 'request refused'}\n"
+                    f"To troubleshoot, run: {curl_cmd}",
+                )
 
             if response.ok:
                 logger.info(f"Health check passed for endpoint {endpoint_index}: {url}")
@@ -332,25 +567,52 @@ class HttpToolset(Toolset):
         if not parsed.scheme or not parsed.netloc:
             return None, f"Invalid URL format: {url}"
 
-        host = parsed.hostname or parsed.netloc
+        host = (parsed.hostname or parsed.netloc).lower()
+        scheme = parsed.scheme.lower()
         path = parsed.path or "/"
+        try:
+            req_port = parsed.port
+        except ValueError:
+            return None, f"Invalid port in URL: {url}"
 
         for endpoint in self.http_config.endpoints:
-            for host_pattern in endpoint.hosts:
-                if self._match_host(host, host_pattern):
+            for ph in endpoint.parsed_hosts():
+                if self._match_pattern(scheme, host, req_port, ph):
                     if self._match_path(path, endpoint.paths):
                         return endpoint, None
 
+        port_display = req_port if req_port is not None else "(default)"
         return (
             None,
-            f"URL not in whitelist. Host '{host}' with path '{path}' does not match any configured endpoint.",
+            f"URL not in whitelist. Scheme '{scheme}', host '{host}', "
+            f"port {port_display}, path '{path}' does not match any configured endpoint.",
         )
 
-    def _match_host(self, host: str, pattern: str) -> bool:
-        if pattern.startswith("*."):
-            return host.lower().endswith(pattern[1:].lower())
+    @staticmethod
+    def _match_pattern(
+        req_scheme: str,
+        req_host: str,
+        req_port: Optional[int],
+        pattern: ParsedHostPattern,
+    ) -> bool:
+        if pattern.scheme is not None and req_scheme != pattern.scheme:
+            return False
+
+        if pattern.host_pattern.startswith("*."):
+            if not req_host.endswith(pattern.host_pattern[1:]):
+                return False
         else:
-            return host.lower() == pattern.lower()
+            if req_host != pattern.host_pattern:
+                return False
+
+        if pattern.ports is not None:
+            effective_port = req_port
+            if effective_port is None:
+                effective_port = SCHEME_DEFAULT_PORTS.get(req_scheme)
+            if effective_port is None or effective_port not in pattern.ports:
+                return False
+
+        return True
 
     def _match_path(self, path: str, patterns: List[str]) -> bool:
         for pattern in patterns:
@@ -393,6 +655,122 @@ class HttpToolset(Toolset):
             if endpoint.auth.type == "digest":
                 return HTTPDigestAuth(endpoint.auth.username, endpoint.auth.password)
         return None
+
+    def _send(
+        self, method: str, url: str, request_kwargs: Dict[str, Any]
+    ) -> requests.Response:
+        """Send a single hop, never following redirects itself.
+
+        When `block_internal_ips` is enabled the host is resolved and validated
+        first and the socket is pinned to that exact IP, so a DNS rebind between
+        validation and connection cannot swap in an internal address.
+        """
+        kwargs = dict(request_kwargs)
+        kwargs["allow_redirects"] = False
+
+        if not (self._http_config and self._http_config.block_internal_ips):
+            return requests.request(method, url, **kwargs)
+
+        pinned_ip = validate_url(url, block_internal_ips=True)[0]
+        session = requests.Session()
+        adapter = build_pinned_adapter(pinned_ip)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        try:
+            return session.request(method, url, **kwargs)
+        finally:
+            session.close()
+
+    def _same_origin_hop(
+        self, origin_url: str
+    ) -> Callable[[str], Tuple[Optional["EndpointConfig"], Optional[str]]]:
+        """Hop validator that only permits redirects staying on the same origin.
+
+        Used for health checks, whose configured URL is allowed to sit outside
+        the endpoint's `paths` whitelist.
+        """
+
+        def check(next_url: str) -> Tuple[Optional["EndpointConfig"], Optional[str]]:
+            if _origin(next_url) != _origin(origin_url):
+                return None, "redirect leaves the origin of the configured URL"
+            return None, None
+
+        return check
+
+    def request_with_validated_redirects(
+        self,
+        method: str,
+        url: str,
+        request_kwargs: Dict[str, Any],
+        check_redirect_target: Optional[
+            Callable[[str], Tuple[Optional["EndpointConfig"], Optional[str]]]
+        ] = None,
+    ) -> Tuple[Optional[requests.Response], Optional[str]]:
+        """Perform a request, following redirects only to URLs that pass
+        `check_redirect_target` (the endpoint whitelist by default).
+
+        Returns (response, error) — when `error` is set the response is never
+        surfaced to the LLM.
+        """
+        if check_redirect_target is None:
+            check_redirect_target = self.match_endpoint
+
+        current_url = url
+        current_method = method
+        kwargs = dict(request_kwargs)
+
+        for _ in range(MAX_REDIRECTS + 1):
+            try:
+                response = self._send(current_method, current_url, kwargs)
+            except SSRFValidationError as e:
+                return None, f"Refusing to request {current_url}: {e}"
+
+            if response.status_code not in REDIRECT_STATUS_CODES:
+                return response, None
+
+            location = response.headers.get("location")
+            if not location:
+                # A 3xx with no Location is not a redirect we can follow; treat
+                # it as the final response.
+                return response, None
+
+            next_url = urljoin(current_url, location)
+            next_endpoint, next_error = check_redirect_target(next_url)
+            if next_error:
+                return None, (
+                    f"Refusing to follow redirect from {current_url} to {next_url}: "
+                    f"{next_error}"
+                )
+
+            # 301/302/303 downgrade a non-idempotent method to GET (browser and
+            # requests behaviour); 307/308 preserve method and body.
+            next_method = current_method
+            if response.status_code in (301, 302, 303) and current_method not in (
+                "GET",
+                "HEAD",
+            ):
+                next_method = "GET"
+                kwargs.pop("data", None)
+
+            if next_endpoint is not None and not self.is_method_allowed(
+                next_method, next_endpoint
+            ):
+                return None, (
+                    f"Refusing to follow redirect from {current_url} to {next_url}: "
+                    f"method {next_method} not allowed for the redirect target. "
+                    f"Allowed methods: {next_endpoint.get_methods()}"
+                )
+
+            if _origin(current_url) != _origin(next_url):
+                kwargs["headers"] = _strip_credentials(kwargs.get("headers") or {})
+                kwargs["auth"] = None
+
+            current_url = next_url
+            current_method = next_method
+
+        return None, (
+            f"Refusing to follow more than {MAX_REDIRECTS} redirects starting at {url}"
+        )
 
     def get_client_cert(self) -> Optional[Any]:
         if not self._http_config or not self._http_config.client_cert_path:
@@ -529,7 +907,16 @@ class HttpRequest(Tool, JsonFilterMixin):
             if method in ("POST", "PUT", "PATCH") and body:
                 request_kwargs["data"] = body
 
-            response = requests.request(method, url, **request_kwargs)
+            response, redirect_error = self._toolset.request_with_validated_redirects(
+                method, url, request_kwargs
+            )
+            if redirect_error or response is None:
+                return StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=redirect_error or "Request refused",
+                    params=params,
+                    url=url,
+                )
 
             try:
                 data = response.json()

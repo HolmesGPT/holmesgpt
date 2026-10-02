@@ -9,8 +9,6 @@ toolsets:
     enabled: true
   kubernetes/logs:
     enabled: true
-  kubernetes/kube-lineage-extras:
-    enabled: false
   bash:
     enabled: false
   helm/core:
@@ -23,9 +21,7 @@ toolsets:
     enabled: false
   kubernetes/kube-prometheus-stack:
     enabled: false
-  runbook:
-    enabled: false
-  kubernetes/krew-extras:
+  skills:
     enabled: false
   aks/node-health:
     enabled: false

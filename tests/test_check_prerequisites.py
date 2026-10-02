@@ -277,7 +277,7 @@ def test_check_prerequisites_stops_at_first_failure_command(mock_subprocess_run)
     toolset.check_prerequisites()
 
     assert toolset.status == ToolsetStatusEnum.FAILED
-    assert toolset.error == "`second_command_fails` returned 1"
+    assert toolset.error == "`second_command_fails` failed with exit code 1"
 
     # Verify execution order
     assert executed_commands == ["first_command", "second_command_fails"]

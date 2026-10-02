@@ -22,6 +22,19 @@ chgrp holmes-group /path/to/database.db
 
 ## Configuration
 
+**Connection URL format:**
+
+```
+sqlite:///[absolute_path_to_file]
+```
+
+**Important:** Use four slashes (`////`) for absolute paths:
+
+- `sqlite:////home/user/app.db` - Absolute path on Linux/Mac
+- `sqlite:////var/lib/app/data.db` - Another Linux example
+
+In Kubernetes, the database file is read from a mounted volume.
+
 === "Holmes CLI"
 
     **~/.holmes/config.yaml:**
@@ -41,32 +54,24 @@ chgrp holmes-group /path/to/database.db
         llm_instructions: "Application cache database"
     ```
 
-    **Connection URL format:**
-    ```
-    sqlite:///[absolute_path_to_file]
-    ```
-
-    **Important:** Use four slashes (`////`) for absolute paths:
-    - `sqlite:////home/user/app.db` - Absolute path on Linux/Mac
-    - `sqlite:////var/lib/app/data.db` - Another Linux example
-
     **In-memory database (testing only):**
+
     ```yaml
     connection_url: "sqlite:///:memory:"
     ```
 
 === "Holmes Helm Chart"
 
-    **Using mounted volume:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    extraVolumes:
+    additionalVolumes:
       - name: sqlite-db
         hostPath:
           path: /path/on/host/database.db
           type: File
 
-    extraVolumeMounts:
+    additionalVolumeMounts:
       - name: sqlite-db
         mountPath: /data/database.db
         readOnly: true
@@ -79,10 +84,51 @@ chgrp holmes-group /path/to/database.db
         llm_instructions: "Application database mounted from host"
     ```
 
-    **Multiple instances:**
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    extraVolumes:
+    holmes:
+      additionalVolumes:
+        - name: sqlite-db
+          hostPath:
+            path: /path/on/host/database.db
+            type: File
+
+      additionalVolumeMounts:
+        - name: sqlite-db
+          mountPath: /data/database.db
+          readOnly: true
+
+      toolsets:
+        app-sqlite:
+          type: database
+          config:
+            connection_url: "sqlite:////data/database.db"
+          llm_instructions: "Application database mounted from host"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Multiple instances
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    additionalVolumes:
       - name: app-db
         hostPath:
           path: /data/app.db
@@ -92,7 +138,7 @@ chgrp holmes-group /path/to/database.db
           path: /data/cache.db
           type: File
 
-    extraVolumeMounts:
+    additionalVolumeMounts:
       - name: app-db
         mountPath: /data/app.db
         readOnly: true
@@ -112,36 +158,19 @@ chgrp holmes-group /path/to/database.db
           connection_url: "sqlite:////data/cache.db"
     ```
 
-=== "Robusta Helm Chart"
+    Apply the configuration:
 
-    **Using mounted volume:**
-
-    ```yaml
-    holmes:
-      extraVolumes:
-        - name: sqlite-db
-          hostPath:
-            path: /path/on/host/database.db
-            type: File
-
-      extraVolumeMounts:
-        - name: sqlite-db
-          mountPath: /data/database.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/database.db"
-          llm_instructions: "Application database mounted from host"
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    **Multiple instances:**
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      extraVolumes:
+      additionalVolumes:
         - name: app-db
           hostPath:
             path: /data/app.db
@@ -151,7 +180,7 @@ chgrp holmes-group /path/to/database.db
             path: /data/cache.db
             type: File
 
-      extraVolumeMounts:
+      additionalVolumeMounts:
         - name: app-db
           mountPath: /data/app.db
           readOnly: true
@@ -169,6 +198,12 @@ chgrp holmes-group /path/to/database.db
           type: database
           config:
             connection_url: "sqlite:////data/cache.db"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Configuration Options

@@ -56,3 +56,68 @@ def test_depth_applies_after_filters():
     result = tool._invoke({"uid": "abc", "max_depth": 1}, context=None)
 
     assert result.data["dashboard"] == "...truncated at depth 1"
+
+
+def test_max_depth_zero_returns_error_on_success():
+    """max_depth=0 would silently destroy a SUCCESS payload; it must now surface an ERROR."""
+    data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
+    tool = _build_tool(data)
+
+    result = tool._invoke({"uid": "abc", "max_depth": 0}, context=None)
+
+    assert result.status is StructuredToolResultStatus.ERROR
+    assert result.error is not None
+    assert "max_depth" in result.error
+    assert ">= 1" in result.error or "omit" in result.error.lower()
+
+
+def test_max_depth_negative_returns_error_on_success():
+    """Negative max_depth is an undocumented full-response escape hatch; close it and fail loudly."""
+    data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
+    tool = _build_tool(data)
+
+    result = tool._invoke({"uid": "abc", "max_depth": -1}, context=None)
+
+    assert result.status is StructuredToolResultStatus.ERROR
+    assert result.error is not None
+    assert "max_depth" in result.error
+
+
+def test_max_depth_zero_preserves_upstream_error():
+    """If upstream already failed, the guard must not clobber the original error field."""
+    toolset = GrafanaToolset()
+    toolset._grafana_config = GrafanaDashboardConfig(url="http://example.com")
+    tool = GetDashboardByUID(toolset)
+    upstream_error = "HTTP 503: Elasticsearch cluster unreachable"
+    tool._make_grafana_request = lambda endpoint, params: StructuredToolResult(
+        status=StructuredToolResultStatus.ERROR,
+        error=upstream_error,
+        data={"status_code": 503, "body": "unreachable"},
+        params=params,
+        url="http://api",
+    )
+
+    result = tool._invoke({"uid": "abc", "max_depth": 0}, context=None)
+
+    assert result.status is StructuredToolResultStatus.ERROR
+    assert result.error == upstream_error
+
+
+def test_max_depth_omitted_returns_full_data():
+    """Omitting max_depth must return the full, untouched payload."""
+    data = {"dashboard": {"panels": [{"id": 1, "title": "CPU"}]}}
+    tool = _build_tool(data)
+
+    result = tool._invoke({"uid": "abc"}, context=None)
+
+    assert result.status is StructuredToolResultStatus.SUCCESS
+    assert result.data == data
+
+
+def test_max_depth_description_does_not_lure_zero():
+    """Regression: the LLM-facing description must not suggest 0 as a valid value."""
+    from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
+
+    desc = JsonFilterMixin.filter_parameters["max_depth"].description
+    assert "0 returns only top-level keys" not in desc
+    assert ">= 1" in desc

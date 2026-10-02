@@ -1,18 +1,19 @@
-# Test: DR Test Log Check — Missing Service Data
-# Tests that Holmes recognizes when it has no log data for the specific service
-# the customer is asking about and avoids diagnosing based on unrelated services.
+# Test: DR Test Log Check — Missing Service Data, Transparent Adjacent Reporting
+# Tests that Holmes is both transparent AND useful when it has no log data for the
+# specific service the customer is asking about:
+#   1. It must explicitly state no data was found for the exact entity asked about.
+#   2. It may (and should) still report what it DID find in similar-named services,
+#      as long as those findings are clearly labeled as being from different services,
+#      not from the one the user named.
 #
 # Scenario: Customer asks about "companyopswebjob" failing with 500s during a DR test.
 # Elasticsearch only has logs for "Company.Ops" (main service) and
-# "Company.Ops.Radar.WebJob" (unrelated service). Both contain job processing
-# failures, but neither is the service the customer asked about.
+# "Company.Ops.Radar.WebJob" (separate service). Both contain job processing
+# failures during the DR test, but neither is the service the customer asked about.
 #
-# Holmes should recognize it has no data for "companyopswebjob" and state that
-# clearly, rather than assuming the errors in unrelated services explain the issue.
-#
-# TDD Red: Holmes currently finds errors in Company.Ops and Company.Ops.Radar.WebJob
-# and incorrectly attributes them to companyopswebjob's 500 errors. The test passes
-# (green) when Holmes correctly identifies that it has no data for companyopswebjob.
+# The ideal Holmes response makes both facts plain: "I found no logs for
+# companyopswebjob, but here is what I found in the related services X and Y
+# (these are different services from the one you asked about)."
 #
 # Requirements:
 # - ELASTICSEARCH_URL: URL to Elasticsearch cluster
@@ -27,15 +28,21 @@ user_prompt: |
 include_tool_calls: true
 
 expected_output:
-  - "Must state that no log data was found for companyopswebjob or CompanyOpsWebJob"
-  - "Must NOT claim that errors from Company.Ops or Company.Ops.Radar.WebJob explain the companyopswebjob 500 errors"
-  - "Must NOT provide a root cause diagnosis for the companyopswebjob 500s based on unrelated service logs"
-  - "Must recommend obtaining logs specifically from companyopswebjob to investigate further"
+  # Both behaviors are required — transparency AND usefulness.
+  #
+  # Transparency: must call out that the exact service the user named has no data
+  - "Must state explicitly that no log data was found for companyopswebjob (the exact name the user asked about)"
+  # Usefulness: should still surface what WAS found in the related services
+  - "Must report findings from the index — specifically the job-failure logs from Company.Ops and/or Company.Ops.Radar.WebJob during the DR test window"
+  # The two must be combined transparently — substitution is fine, hidden substitution is not.
+  - "Must make it clear that any analysis or root-cause discussion is based on Company.Ops / Company.Ops.Radar.WebJob (related but different services), not on companyopswebjob's own logs. It is OK to analyze and answer based on the related services as long as this is disclosed."
 
 tags:
   - elasticsearch
   - medium
   - transparency
+  - regression
+  - multi-cluster
 
 setup_timeout: 300
 

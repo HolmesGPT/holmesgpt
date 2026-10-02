@@ -1,15 +1,14 @@
 # type: ignore
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from pydantic import TypeAdapter
 
 from holmes.core.resource_instruction import ResourceInstructions
-from holmes.core.supabase_dal import FindingType, SupabaseDal
-from holmes.plugins.runbooks import RobustaRunbookInstruction
+from holmes.core.supabase_dal import SupabaseDal
+from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.utils.global_instructions import Instructions
 from tests.llm.utils.test_case_utils import read_file
 
@@ -21,7 +20,6 @@ class TestSupabaseDal(SupabaseDal):
         self,
         test_case_folder: Path,
         issue_data: Optional[Dict] = None,
-        issues_metadata: Optional[List[Dict]] = None,
         resource_instructions: Optional[ResourceInstructions] = None,
         initialize_base: bool = True,
     ):
@@ -40,7 +38,6 @@ class TestSupabaseDal(SupabaseDal):
 
         self._issue_data = issue_data
         self._resource_instructions = resource_instructions
-        self._issues_metadata = issues_metadata
         self._test_case_folder = test_case_folder
 
     def get_issue_data(self, issue_id: Optional[str]) -> Optional[Dict]:
@@ -55,30 +52,31 @@ class TestSupabaseDal(SupabaseDal):
             return self._resource_instructions
         return None
 
-    def get_runbook_catalog(self) -> Optional[List[RobustaRunbookInstruction]]:
+    def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
+        # Fixture files keep the "runbook_" prefix to match existing test data
         file_path = self._get_fixture_file_path("runbook_catalog")
         if file_path.exists():
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
                     if isinstance(data, list):
-                        return [RobustaRunbookInstruction(**item) for item in data]
+                        return [RobustaSkillInstruction(**item) for item in data]
                     return None
             except Exception as e:
-                logging.warning(f"Failed to read runbook catalog fixture file: {e}")
+                logging.warning(f"Failed to read skill catalog fixture file: {e}")
         return None
 
-    def get_runbook_content(
-        self, runbook_id: str
-    ) -> Optional[RobustaRunbookInstruction]:
-        file_path = self._get_fixture_file_path(f"runbook_content_{runbook_id}")
+    def get_skill_content(
+        self, skill_id: str
+    ) -> Optional[RobustaSkillInstruction]:
+        file_path = self._get_fixture_file_path(f"runbook_content_{skill_id}")
         if file_path.exists():
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
-                    return RobustaRunbookInstruction(**data)
+                    return RobustaSkillInstruction(**data)
             except Exception as e:
-                logging.warning(f"Failed to read runbook content fixture file: {e}")
+                logging.warning(f"Failed to read skill content fixture file: {e}")
         return None
 
     def _get_fixture_file_path(self, entity_type: str) -> Path:
@@ -98,75 +96,6 @@ class TestSupabaseDal(SupabaseDal):
 
         return None
 
-    def get_resource_recommendation(
-        self,
-        limit: int = 10,
-        sort_by: str = "cpu_total",
-        namespace: Optional[str] = None,
-        name_pattern: Optional[str] = None,
-        kind: Optional[str] = None,
-        container: Optional[str] = None,
-        clusters: Optional[List[str]] = None,
-    ) -> Optional[List[Dict]]:
-        return []
-
-    def get_issues_metadata(
-        self,
-        start_datetime: str,
-        end_datetime: str,
-        limit: int = 100,
-        workload: Optional[str] = None,
-        ns: Optional[str] = None,
-        clusters: Optional[List[str]] = None,
-        include_external: bool = True,
-        finding_type: FindingType = FindingType.CONFIGURATION_CHANGE,
-    ) -> Optional[List[Dict]]:
-        if self._issues_metadata is not None:
-            filtered_data = []
-            target_clusters = clusters if clusters else [self.cluster]
-            for item in self._issues_metadata:
-                creation_date, start, end = [
-                    datetime.fromisoformat(dt.replace("Z", "+00:00")).astimezone(
-                        timezone.utc
-                    )
-                    for dt in (item["creation_date"], start_datetime, end_datetime)
-                ]
-                if not (start <= creation_date <= end):
-                    continue
-                if item.get("finding_type") != finding_type.value:
-                    continue
-                item_cluster = item.get("cluster")
-                if target_clusters == ["*"]:
-                    if not include_external and item_cluster == "external":
-                        continue
-                else:
-                    allowed = target_clusters + (["external"] if include_external else [])
-                    if item_cluster not in allowed:
-                        continue
-                if workload:
-                    if item.get("subject_name") != workload:
-                        continue
-                if ns:
-                    if item.get("subject_namespace") != ns:
-                        continue
-
-                filtered_item = {
-                    "id": item.get("id"),
-                    "title": item.get("title"),
-                    "subject_name": item.get("subject_name"),
-                    "subject_namespace": item.get("subject_namespace"),
-                    "subject_type": item.get("subject_type"),
-                    "description": item.get("description"),
-                    "starts_at": item.get("starts_at"),
-                    "ends_at": item.get("ends_at"),
-                }
-                filtered_data.append(filtered_item)
-            filtered_data = filtered_data[:limit]
-
-            return filtered_data if filtered_data else None
-        return None
-
-
 # Backwards-compatible aliases
 MockSupabaseDal = TestSupabaseDal
 
@@ -183,11 +112,6 @@ def load_test_dal(
     if issue_data_path.exists():
         issue_data = json.loads(read_file(issue_data_path))
 
-    issues_metadata_path = test_case_folder.joinpath(Path("issues_metadata.json"))
-    issues_metadata = None
-    if issues_metadata_path.exists():
-        issues_metadata = json.loads(read_file(issues_metadata_path))
-
     resource_instructions_path = test_case_folder.joinpath(
         Path("resource_instructions.json")
     )
@@ -201,7 +125,6 @@ def load_test_dal(
         test_case_folder=test_case_folder,
         issue_data=issue_data,
         resource_instructions=resource_instructions,
-        issues_metadata=issues_metadata,
         initialize_base=initialize_base,
     )
 

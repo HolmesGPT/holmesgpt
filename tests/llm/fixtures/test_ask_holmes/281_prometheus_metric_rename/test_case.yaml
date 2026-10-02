@@ -1,0 +1,219 @@
+# Test: consumed-by-topic Kafka metrics in this cluster live ONLY under
+# the team-renamed `acme_kafka_*` prefix, and the metric surface is
+# salted with NEAR-MISSES the agent must rule out one by one:
+#   - `kafka_server_brokertopicmetrics_messagesin_total{topic=...}` —
+#     upstream-shaped and per-topic, but produced-side (broker ingest),
+#     not consumed. Answering from it gives 48102, not 47823.
+#   - `kafka_consumer_records_consumed_total{client_id=...}` — consumed,
+#     but per client process with no topic dimension, and it resets on
+#     restart, so it cannot answer "total consumed on topic X".
+#   - `acme_kafka_msgs_produced_total{topic=...}` — right prefix, wrong
+#     direction.
+# The only series that answers the question is
+# `acme_kafka_msgs_consumed_total{topic="payments"} 47823`.
+#
+# This started as a skill-suggestion eval, but the decoys turned out to
+# be the hard part: opus-4.6 repeatedly answers from the per-client
+# series (9382+12077=21459, reasoning from the client_id naming
+# convention) instead of ruling it out and finding the per-topic
+# acme_kafka series. The decoys are realistic — Kafka's client-side
+# `records-consumed-total` JMX metric really is per-client and resets on
+# restart, and the broker-side `MessagesIn` metric really is
+# produced-side — so this is now a plain hard eval on answer
+# correctness: failing it means the model got fooled by a metric surface
+# any real Kafka + custom-relabeling environment could present.
+
+user_prompt: "How many messages have been consumed in total on the 'payments' Kafka topic in the app-281 cluster?"
+
+expected_output:
+  - "The payments topic has 47823 messages consumed"
+
+description: |
+  Forces a wrong→right metric-name correction with decoys. Upstream-named
+  kafka_* series exist but are produced-side or per-client; the only
+  consumed-per-topic series is the team-renamed acme_kafka_msgs_consumed_total,
+  so the agent must rule out several near-misses before answering.
+
+tags:
+  - prometheus
+  - kubernetes
+  - kafka
+  - hard
+
+port_forwards:
+  - namespace: app-281
+    service: prometheus
+    local_port: 10281
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-281 --save-config --dry-run=client -o yaml | kubectl apply -f - || true
+
+  # Static-text metrics exporter. A Python http.server keeps the
+  # surface area small and avoids ConfigMap-as-file-mount edge cases
+  # an earlier nginx version of this eval ran into. The exporter mixes
+  # upstream-named kafka_* decoys (produced-side / per-client) with the
+  # team-renamed acme_kafka_* series; only acme_kafka_msgs_consumed_total
+  # answers consumed-per-topic. HELP texts state each metric's semantics
+  # neutrally — no hint that a rename happened.
+  cat <<'EOF' | kubectl apply -n app-281 -f -
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: kafka-exporter-script
+  data:
+    serve.py: |
+      #!/usr/bin/env python3
+      from http.server import BaseHTTPRequestHandler, HTTPServer
+      METRICS = (
+          "# HELP kafka_server_brokertopicmetrics_messagesin_total Messages produced into each topic (broker ingest side)\n"
+          "# TYPE kafka_server_brokertopicmetrics_messagesin_total counter\n"
+          'kafka_server_brokertopicmetrics_messagesin_total{topic="payments"} 48102\n'
+          'kafka_server_brokertopicmetrics_messagesin_total{topic="checkout"} 11890\n'
+          'kafka_server_brokertopicmetrics_messagesin_total{topic="inventory"} 6517\n'
+          "# HELP kafka_consumer_records_consumed_total Records consumed per client process since process start (resets on restart)\n"
+          "# TYPE kafka_consumer_records_consumed_total counter\n"
+          'kafka_consumer_records_consumed_total{client_id="payments-svc-1"} 9382\n'
+          'kafka_consumer_records_consumed_total{client_id="payments-svc-2"} 12077\n'
+          'kafka_consumer_records_consumed_total{client_id="checkout-svc-1"} 4541\n'
+          "# HELP acme_kafka_msgs_produced_total Messages produced per topic\n"
+          "# TYPE acme_kafka_msgs_produced_total counter\n"
+          'acme_kafka_msgs_produced_total{topic="payments"} 48102\n'
+          'acme_kafka_msgs_produced_total{topic="checkout"} 11890\n'
+          'acme_kafka_msgs_produced_total{topic="inventory"} 6517\n'
+          "# HELP acme_kafka_msgs_consumed_total Messages consumed per topic\n"
+          "# TYPE acme_kafka_msgs_consumed_total counter\n"
+          'acme_kafka_msgs_consumed_total{topic="payments"} 47823\n'
+          'acme_kafka_msgs_consumed_total{topic="checkout"} 11204\n'
+          'acme_kafka_msgs_consumed_total{topic="inventory"} 6042\n'
+          "# HELP acme_kafka_consumer_lag_records Consumer lag per topic\n"
+          "# TYPE acme_kafka_consumer_lag_records gauge\n"
+          'acme_kafka_consumer_lag_records{topic="payments"} 3\n'
+          'acme_kafka_consumer_lag_records{topic="checkout"} 0\n'
+          'acme_kafka_consumer_lag_records{topic="inventory"} 12\n'
+      )
+      class Handler(BaseHTTPRequestHandler):
+          def log_message(self, *args, **kwargs):
+              pass
+          def do_GET(self):
+              if self.path == "/metrics":
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/plain; version=0.0.4")
+                  self.end_headers()
+                  self.wfile.write(METRICS.encode())
+              else:
+                  self.send_response(404)
+                  self.end_headers()
+      HTTPServer(("0.0.0.0", 80), Handler).serve_forever()
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: kafka-exporter
+  spec:
+    replicas: 1
+    selector:
+      matchLabels: { app: kafka-exporter }
+    template:
+      metadata:
+        labels: { app: kafka-exporter }
+      spec:
+        containers:
+        - name: server
+          image: python:3.11-alpine
+          command: ["python3", "/app/serve.py"]
+          ports:
+          - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 5
+          volumeMounts:
+          - name: script
+            mountPath: /app
+        volumes:
+        - name: script
+          configMap:
+            name: kafka-exporter-script
+            defaultMode: 0755
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: kafka-exporter
+  spec:
+    selector:
+      app: kafka-exporter
+    ports:
+    - port: 80
+      targetPort: 80
+  EOF
+
+  # Prometheus config pointing at the fake exporter
+  cat <<'EOF' | kubectl apply -n app-281 -f -
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: prometheus-config
+  data:
+    prometheus.yml: |
+      global:
+        scrape_interval: 5s
+        evaluation_interval: 5s
+      scrape_configs:
+      - job_name: 'kafka'
+        metrics_path: /metrics
+        static_configs:
+        - targets: ['kafka-exporter.app-281.svc.cluster.local:80']
+  EOF
+
+  kubectl apply -n app-281 -f ../../shared/prometheus.yaml
+
+  echo "⏳ Waiting for kafka-exporter to be ready..."
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=kafka-exporter -n app-281 --timeout=5s 2>/dev/null; then
+      echo "✅ kafka-exporter ready"; break
+    fi
+    sleep 1
+    [ "$i" -eq 60 ] && { kubectl describe pod -l app=kafka-exporter -n app-281; exit 1; }
+  done
+
+  echo "⏳ Waiting for prometheus to be ready..."
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-281 --timeout=5s 2>/dev/null; then
+      echo "✅ Prometheus ready"; break
+    fi
+    sleep 1
+    [ "$i" -eq 60 ] && { kubectl describe pod -l app=prometheus -n app-281; exit 1; }
+  done
+
+  # Wait for Prometheus to have actually scraped the exporter. Use the
+  # simple `up` metric scoped to our job — no curly braces or quotes that
+  # would need URL-encoding, and no dependency on the custom metric name
+  # actually arriving yet. Once `up{job="kafka"}` reports 1 we know the
+  # scrape config is wired and the exporter is reachable.
+  echo "⏳ Waiting for Prometheus to scrape the kafka job..."
+  for i in {1..60}; do
+    UP=$(kubectl exec -n app-281 deployment/prometheus -- \
+      wget -q -O- 'http://localhost:9090/api/v1/query?query=up' \
+      2>/dev/null | grep -o '"job":"kafka".*"value":\[[^]]*\]' || true)
+    if echo "$UP" | grep -q '"1"'; then
+      echo "✅ kafka scrape target is up"
+      break
+    fi
+    sleep 1
+    [ "$i" -eq 60 ] && {
+      echo "❌ kafka scrape target never came up"
+      kubectl exec -n app-281 deployment/prometheus -- \
+        wget -q -O- 'http://localhost:9090/api/v1/targets' 2>/dev/null | head -c 4000
+      kubectl logs -n app-281 deployment/kafka-exporter --tail=20 || true
+      exit 1
+    }
+  done
+
+after_test: |
+  kubectl delete namespace app-281 --wait=false || true

@@ -1,0 +1,235 @@
+{{- if .Values.mcpAddons.kubernetes.enabled }}
+{{- /* Resolve which Secret holds the MCP server's config.toml (if any).
+       Either:
+         - serverConfig: free-form TOML content; the chart generates a Secret.
+         - configSecret.secretName: name of an externally-managed Secret.
+       Both set is a config error. */ -}}
+{{- $serverConfig := .Values.mcpAddons.kubernetes.config.serverConfig | default "" -}}
+{{- $configSecretName := .Values.mcpAddons.kubernetes.config.configSecret.secretName | default "" -}}
+{{- if and $serverConfig $configSecretName -}}
+  {{- fail "mcpAddons.kubernetes.config: set either `serverConfig` (chart-generated Secret) or `configSecret.secretName` (external Secret), not both." -}}
+{{- end -}}
+{{- if $serverConfig -}}
+  {{- $configSecretName = printf "%s-k8s-mcp-server-config" .Release.Name -}}
+{{- end -}}
+{{- $useConfigFile := ne $configSecretName "" -}}
+{{- $configSecretKey := ternary "config.toml" (.Values.mcpAddons.kubernetes.config.configSecret.secretKey | default "config.toml") (ne $serverConfig "") -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-k8s-mcp-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+data: {}
+{{- if $serverConfig }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $configSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+type: Opaque
+stringData:
+  config.toml: |
+{{ $serverConfig | indent 4 }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-k8s-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-k8s-mcp
+      app.kubernetes.io/name: k8s-mcp-server
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-k8s-mcp
+        app.kubernetes.io/name: k8s-mcp-server
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp-server
+        app.kubernetes.io/part-of: holmes
+      annotations:
+        checksum/config: {{ .Values.mcpAddons.kubernetes | toYaml | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.mcpAddons.kubernetes.serviceAccount.name }}
+      {{- if .Values.mcpAddons.kubernetes.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.mcpAddons.kubernetes.nodeSelector | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.kubernetes.tolerations }}
+      tolerations:
+        {{- toYaml .Values.mcpAddons.kubernetes.tolerations | nindent 8 }}
+      {{- end }}
+      {{- if .Values.mcpAddons.kubernetes.affinity }}
+      affinity:
+        {{- toYaml .Values.mcpAddons.kubernetes.affinity | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: k8s-mcp
+        image: "{{ .Values.mcpAddons.kubernetes.registry }}/{{ .Values.mcpAddons.kubernetes.image }}"
+        imagePullPolicy: {{ .Values.mcpAddons.kubernetes.imagePullPolicy | default "IfNotPresent" }}
+        args:
+          - "--port"
+          - "8000"
+          {{- if .Values.mcpAddons.kubernetes.config.readOnly }}
+          - "--read-only"
+          {{- end }}
+          {{- if .Values.mcpAddons.kubernetes.config.disableDestructive }}
+          - "--disable-destructive"
+          {{- end }}
+          {{- if .Values.mcpAddons.kubernetes.config.toolsets }}
+          - "--toolsets"
+          - {{ .Values.mcpAddons.kubernetes.config.toolsets | quote }}
+          {{- end }}
+          {{- if .Values.mcpAddons.kubernetes.config.logLevel }}
+          - "--log-level"
+          - {{ .Values.mcpAddons.kubernetes.config.logLevel | quote }}
+          {{- end }}
+          {{- if $useConfigFile }}
+          - "--config"
+          - "/etc/kubernetes-mcp/config.toml"
+          {{- end }}
+          {{- range .Values.mcpAddons.kubernetes.config.extraArgs }}
+          - {{ . | quote }}
+          {{- end }}
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
+        env:
+        - name: KUBECONFIG
+          value: /etc/kubernetes/kubeconfig
+        {{- end }}
+        resources:
+          {{- toYaml .Values.mcpAddons.kubernetes.resources | nindent 10 }}
+        readinessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile }}
+        volumeMounts:
+        {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
+        - name: kubeconfig
+          mountPath: /etc/kubernetes
+          readOnly: true
+        {{- end }}
+        {{- if $useConfigFile }}
+        - name: mcp-config
+          mountPath: /etc/kubernetes-mcp
+          readOnly: true
+        {{- end }}
+        {{- end }}
+      {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile }}
+      volumes:
+      {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
+      - name: kubeconfig
+        secret:
+          secretName: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
+          defaultMode: 420
+          items:
+          - key: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretKey | default "kubeconfig" }}
+            path: kubeconfig
+      {{- end }}
+      {{- if $useConfigFile }}
+      - name: mcp-config
+        secret:
+          secretName: {{ $configSecretName }}
+          defaultMode: 420
+          items:
+          - key: {{ $configSecretKey }}
+            path: config.toml
+      {{- end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-k8s-mcp-server
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+spec:
+  selector:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+{{- if .Values.mcpAddons.kubernetes.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.mcpAddons.kubernetes.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+  {{- with .Values.mcpAddons.kubernetes.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.mcpAddons.kubernetes.serviceAccount.createClusterRoleBinding }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-k8s-mcp
+  labels:
+    app: {{ .Release.Name }}-k8s-mcp
+    app.kubernetes.io/name: k8s-mcp-server
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: holmes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.mcpAddons.kubernetes.serviceAccount.clusterRole }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.mcpAddons.kubernetes.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

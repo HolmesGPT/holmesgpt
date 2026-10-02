@@ -6,7 +6,6 @@ import time
 
 display_logger = logging.getLogger("holmes.display.llm")
 from abc import abstractmethod
-from math import floor
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
 
 import boto3
@@ -28,6 +27,7 @@ from holmes.common.env_vars import (
     AZURE_AD_TOKEN_AUTH,
     EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LLM_EXTRA_STRIP_MESSAGE_FIELDS,
     LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
     REASONING_EFFORT,
@@ -54,6 +54,105 @@ MODEL_LIST_FILE_LOCATION = os.environ.get(
 OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
+_warned_missing_model_lookups: set[tuple[str, str]] = set()
+
+# Names we've already warned operators about for missing cost-map entries.
+# Prevents spam when _init_models re-runs (e.g. Robusta resync path).
+_warned_unknown_cost_models: set[str] = set()
+
+
+def _litellm_name_for_entry(entry: "ModelEntry") -> str:
+    """Return the model-name string that will be passed to litellm.completion.
+
+    Mirrors OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai so that
+    pricing registered here resolves at completion time.
+    """
+    if entry.is_robusta_model:
+        split = entry.model.split("/")
+        return split[0] if len(split) == 1 else f"openai/{split[1]}"
+    return entry.model
+
+
+def _build_pricing_dict_from_extra(extra: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    """Pick pricing fields out of ModelEntry.model_extra; None if incomplete."""
+    if not extra:
+        return None
+    in_cost = extra.get("input_cost_per_token")
+    out_cost = extra.get("output_cost_per_token")
+    if in_cost is None or out_cost is None:
+        return None
+    pricing: Dict[str, float] = {
+        "input_cost_per_token": float(in_cost),
+        "output_cost_per_token": float(out_cost),
+    }
+    for k in ("cache_creation_input_token_cost", "cache_read_input_token_cost"):
+        v = extra.get(k)
+        if v is not None:
+            pricing[k] = float(v)
+    return pricing
+
+
+def _register_custom_pricing(litellm_name: str, pricing: Dict[str, float]) -> None:
+    """Register a single model's pricing with litellm, merging required metadata."""
+    entry: Dict[str, Any] = dict(pricing)
+    entry.setdefault("litellm_provider", "openai")
+    entry.setdefault("mode", "chat")
+    try:
+        litellm.register_model({litellm_name: entry})
+        logging.debug(
+            f"Registered custom pricing for '{litellm_name}': "
+            f"input={entry['input_cost_per_token']}, output={entry['output_cost_per_token']}"
+        )
+    except Exception as e:
+        logging.warning(
+            f"Failed to register custom pricing for '{litellm_name}': {e}"
+        )
+
+
+def _pricing_dict_from_bundled(bundled: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    """Extract pricing fields from a ``litellm.model_cost`` entry."""
+    if "input_cost_per_token" not in bundled or "output_cost_per_token" not in bundled:
+        return None
+    pricing: Dict[str, float] = {
+        "input_cost_per_token": float(bundled["input_cost_per_token"]),
+        "output_cost_per_token": float(bundled["output_cost_per_token"]),
+    }
+    for k in ("cache_creation_input_token_cost", "cache_read_input_token_cost"):
+        v = bundled.get(k)
+        if v is not None:
+            pricing[k] = float(v)
+    return pricing
+
+
+def _bundled_pricing_for_underlying_model(
+    raw_model_name: str,
+) -> Optional[Dict[str, float]]:
+    """Look up litellm's bundled pricing for a model name.
+
+    Robusta entries store the real upstream model (e.g.
+    ``bedrock/us.anthropic.claude-opus-4-6-v1``) in ``entry.model`` before
+    ``get_litellm_corrected_name_for_robusta_ai`` rewrites it to
+    ``openai/...``. The bundled litellm cost map keys Bedrock entries
+    *without* the ``bedrock/`` provider prefix, so we try the raw name
+    first then strip the provider prefix once.
+
+    Regional variants (``us.``/``eu.``/``au.``) are kept as-is on purpose:
+    they carry the AWS-Bedrock regional premium, and that is the price we
+    report. Stripping the regional prefix would silently switch us to a
+    different price tier.
+    """
+    if raw_model_name in litellm.model_cost:
+        bundled = litellm.model_cost[raw_model_name]
+    elif "/" in raw_model_name:
+        bare = raw_model_name.split("/", 1)[1]
+        bundled = litellm.model_cost.get(bare)
+    else:
+        bundled = None
+
+    if not bundled:
+        return None
+    return _pricing_dict_from_bundled(bundled)
+
 
 def get_context_window_compaction_threshold_pct() -> int:
     """Get the compaction threshold percentage at runtime to support test overrides."""
@@ -61,6 +160,27 @@ def get_context_window_compaction_threshold_pct() -> int:
 
 
 ROBUSTA_AI_MODEL_NAME = "Robusta"
+
+# Refreshes run every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS (default 300s); an
+# extended relay outage would otherwise log a failure every cycle. Only the
+# first failure and every Nth one after it get a full log line (review
+# feedback on ROB-795).
+ROBUSTA_REFRESH_FAILURE_LOG_EVERY = 5
+
+
+def _is_gemini_route(litellm_model_name: str) -> bool:
+    """True if the model goes through Google's Gemini GenerateContent API.
+
+    Covers `gemini/<model>` (Google AI Studio) and Vertex-AI Gemini routes.
+    Vertex-AI also hosts non-Gemini models (Claude, Llama, etc.) - those are NOT
+    Gemini and must keep cache_control_injection_points.
+    """
+    if litellm_model_name.startswith("gemini/"):
+        return True
+    if litellm_model_name.startswith(("vertex_ai/", "vertex_ai_beta/")):
+        # Only Vertex-hosted Gemini hits the GenerateContent CachedContent path.
+        return "gemini" in litellm_model_name.split("/", 1)[1].lower()
+    return False
 
 
 class ContextWindowUsage(BaseModel):
@@ -192,6 +312,10 @@ def _count_anthropic_image_tokens(message: dict) -> int:
 
 
 class LLM:
+    # Whether calls go through the Robusta platform, whose refusals are its own
+    # (see RelayRefusal) rather than a provider's.
+    is_robusta_model: bool = False
+
     @abstractmethod
     def __init__(self):
         self.model: str  # type: ignore
@@ -234,6 +358,7 @@ class LLM:
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one LLM completion request."""
         pass
 
 
@@ -347,6 +472,11 @@ class DefaultLLM(LLM):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
+        elif provider == "github_copilot":
+            # GitHub Copilot uses OAuth device flow for authentication, not
+            # traditional API keys.  LiteLLM handles the token lifecycle
+            # internally, so skip the standard key validation.
+            model_requirements = {"keys_in_environment": True, "missing_keys": []}
         elif provider == "azure":
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base, api_version=api_version
@@ -399,19 +529,27 @@ class DefaultLLM(LLM):
             )
             return OVERRIDE_MAX_CONTENT_SIZE
 
-        # Try each name variant
+        # Try each name variant. A model registered only with custom pricing
+        # (input/output_cost_per_token from model_list.yaml) gets normalized
+        # by litellm into a full ModelInfo whose max_input_tokens is None -
+        # treat that like a missing entry rather than returning None.
         for name in self._get_model_name_variants_for_lookup():
             try:
-                return litellm.model_cost[name]["max_input_tokens"]
+                max_input_tokens = litellm.model_cost[name]["max_input_tokens"]
             except Exception:
                 continue
+            if max_input_tokens:
+                return max_input_tokens
 
-        # Log which lookups we tried
-        logging.warning(
-            f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-            f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
-            f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
-        )
+        # Log which lookups we tried (once per model to avoid log spam)
+        warn_key = (self.model, "max_input_tokens")
+        if warn_key not in _warned_missing_model_lookups:
+            _warned_missing_model_lookups.add(warn_key)
+            logging.warning(
+                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
+                f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
+                f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
+            )
         return FALLBACK_CONTEXT_WINDOW_SIZE
 
     def _is_anthropic_model(self) -> bool:
@@ -533,6 +671,7 @@ class DefaultLLM(LLM):
         drop_params: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        """Execute one litellm completion request with the model's configured args."""
         tools_args = {}
         allowed_openai_params = None
 
@@ -560,7 +699,31 @@ class DefaultLLM(LLM):
                 allowed_openai_params = []
             allowed_openai_params.extend(existing_allowed)
 
-        self.args.setdefault("temperature", temperature)
+        # Strip a pre-existing `temperature: None` (e.g. from `temperature: null` in
+        # modelList) before applying the caller's value, so setdefault() is not blocked
+        # by a null sentinel and so no `temperature=None` leaks to providers that reject
+        # it (e.g. Bedrock Anthropic Opus 4.7). Preserves PR #698: when args holds a real
+        # temperature, setdefault is a no-op and the persisted value survives.
+        if self.args.get("temperature", ...) is None:
+            self.args.pop("temperature", None)
+        if temperature is not None:
+            self.args.setdefault("temperature", temperature)
+
+        # Always send an explicit output-token limit: without one, litellm falls
+        # back to provider defaults (4096 for Anthropic models missing from its
+        # cost map, e.g. proxy aliases), silently truncating long answers with
+        # finish_reason="length". Sends the same budget that input limiting and
+        # compaction already reserve (overridable via OVERRIDE_MAX_OUTPUT_TOKEN).
+        # An explicit max_tokens / max_completion_tokens in model args wins;
+        # `: null` sentinels are stripped like temperature above. litellm
+        # translates max_tokens per provider (max_completion_tokens for OpenAI
+        # reasoning models, maxTokens for Bedrock, maxOutputTokens for Gemini).
+        if self.args.get("max_tokens", ...) is None:
+            self.args.pop("max_tokens", None)
+        if self.args.get("max_completion_tokens", ...) is None:
+            self.args.pop("max_completion_tokens", None)
+        if "max_completion_tokens" not in self.args:
+            self.args.setdefault("max_tokens", self.get_maximum_output_token())
 
         # Get the litellm module to use (wrapped or unwrapped)
         litellm_to_use = self.tracer.wrap_llm(litellm) if self.tracer else litellm
@@ -568,7 +731,9 @@ class DefaultLLM(LLM):
         # Strip internal fields (e.g. token_count cache) so provider APIs only
         # receive valid message schema fields.  Shallow-copy only when needed to
         # avoid mutating the caller's dicts (which would invalidate the cache).
-        _INTERNAL_FIELDS = {"token_count"}
+        # Extra fields can be added via LLM_EXTRA_STRIP_MESSAGE_FIELDS env var
+        # (e.g. "provider_specific_fields") when a provider rejects them.
+        _INTERNAL_FIELDS = {"token_count"} | LLM_EXTRA_STRIP_MESSAGE_FIELDS
         sanitized_messages: List[Dict[str, Any]] = [
             {k: v for k, v in m.items() if k not in _INTERNAL_FIELDS}
             if m.keys() & _INTERNAL_FIELDS
@@ -589,6 +754,21 @@ class DefaultLLM(LLM):
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
 
+        # Gemini rejects GenerateContent requests that combine CachedContent with
+        # system_instruction / tools / tool_config, which is exactly what
+        # cache_control_injection_points produces for us. Skip the cache hint for
+        # Gemini routes (both Google AI Studio and Vertex-AI hosted Gemini); other
+        # providers - including non-Gemini models on Vertex like Claude - keep
+        # their cache benefit.
+        cache_kwargs: Dict[str, Any] = {}
+        if not _is_gemini_route(litellm_model_name):
+            cache_kwargs["cache_control_injection_points"] = [
+                {
+                    "location": "message",
+                    "index": -1,  # -1 targets the last message.
+                }
+            ]
+
         result = litellm_to_use.completion(
             model=litellm_model_name,
             api_key=self.api_key,
@@ -603,12 +783,7 @@ class DefaultLLM(LLM):
             **azure_ad_kwargs,
             **tools_args,
             **self.args,
-            cache_control_injection_points=[
-                {
-                    "location": "message",
-                    "index": -1,  # -1 targets the last message.
-                }
-            ],
+            **cache_kwargs,
         )
 
         if isinstance(result, ModelResponse):
@@ -619,7 +794,13 @@ class DefaultLLM(LLM):
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
 
     def get_maximum_output_token(self) -> int:
-        max_output_tokens = floor(min(64000, self.get_context_window_size() / 5))
+        # Reserve output budget = max(64k, 12% of the context window). The 64k
+        # floor keeps small and unknown models usable (the 200k fallback window
+        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
+        # a 1M-context model reserves 120k. The crossover is ~533k. This value
+        # is still capped below to the model's real max_output_tokens when the
+        # model is known to litellm.
+        max_output_tokens = max(64000, self.get_context_window_size() * 12 // 100)
 
         if OVERRIDE_MAX_OUTPUT_TOKEN:
             logging.debug(
@@ -627,24 +808,31 @@ class DefaultLLM(LLM):
             )
             return OVERRIDE_MAX_OUTPUT_TOKEN
 
-        # Try each name variant
+        # Try each name variant. As in get_context_window_size, a custom-priced
+        # model can be present in litellm.model_cost with max_output_tokens=None;
+        # skip it and fall through to the computed budget.
         for name in self._get_model_name_variants_for_lookup():
             try:
                 litellm_max_output_tokens = litellm.model_cost[name][
                     "max_output_tokens"
                 ]
-                if litellm_max_output_tokens < max_output_tokens:
-                    max_output_tokens = litellm_max_output_tokens
-                return max_output_tokens
             except Exception:
                 continue
+            if not litellm_max_output_tokens:
+                continue
+            if litellm_max_output_tokens < max_output_tokens:
+                max_output_tokens = litellm_max_output_tokens
+            return max_output_tokens
 
-        # Log which lookups we tried
-        logging.warning(
-            f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-            f"using {max_output_tokens} tokens for max_output_tokens. "
-            f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
-        )
+        # Log which lookups we tried (once per model to avoid log spam)
+        warn_key = (self.model, "max_output_tokens")
+        if warn_key not in _warned_missing_model_lookups:
+            _warned_missing_model_lookups.add(warn_key)
+            logging.warning(
+                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
+                f"using {max_output_tokens} tokens for max_output_tokens. "
+                f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
+            )
         return max_output_tokens
 
 
@@ -652,9 +840,20 @@ class LLMModelRegistry:
     def __init__(self, config: "Config", dal: SupabaseDal) -> None:
         self.config = config
         self._llms: dict[str, ModelEntry] = {}
-        self._default_robusta_model = None
+        self._default_robusta_model: Optional[str] = None
+        # Set when relay says the account opted out of Robusta-hosted models:
+        # the registry then serves only what the cluster configured, and an
+        # empty catalog must not be healed with the legacy fallback entry.
+        self._robusta_ai_disabled: bool = False
         self.dal = dal
         self._lock = threading.RLock()
+        self._robusta_refresh_failures = 0
+        # Not an RLock: refresh_robusta_models() only ever tries to acquire
+        # this non-blockingly, so a second overlapping refresh (the periodic
+        # loop and a get_model_params() resync can race) backs off instead of
+        # installing a response that may be older than the one already in
+        # flight (CodeRabbit review on ROB-795).
+        self._robusta_refresh_lock = threading.Lock()
 
         self._init_models()
 
@@ -662,8 +861,22 @@ class LLMModelRegistry:
     def default_robusta_model(self) -> Optional[str]:
         return self._default_robusta_model
 
+    @property
+    def robusta_ai_disabled(self) -> bool:
+        return self._robusta_ai_disabled
+
     def _init_models(self):
-        self._llms = self._parse_models_file(MODEL_LIST_FILE_LOCATION)
+        # Precedence for the model list file:
+        # 1. MODEL_LIST_FILE_LOCATION (env var, or its server default when the
+        #    file exists -- covers Helm deployments mounting /etc/holmes/...)
+        # 2. ~/.holmes/model_list.yaml (CLI default)
+        from holmes.core.config import config_path_dir
+
+        if os.path.exists(MODEL_LIST_FILE_LOCATION):
+            path = MODEL_LIST_FILE_LOCATION
+        else:
+            path = os.path.join(config_path_dir, "model_list.yaml")
+        self._llms = self._parse_models_file(path)
 
         if self._should_load_robusta_ai():
             self.configure_robusta_ai_model()
@@ -677,6 +890,63 @@ class LLMModelRegistry:
                 api_key=self.config.api_key,
                 api_version=self.config.api_version,
             )
+
+        self._register_pricing_for_loaded_models()
+
+    def _register_pricing_for_loaded_models(self) -> None:
+        """Make litellm aware of per-token prices for non-stock models.
+
+        Without this, models that aren't in litellm's bundled
+        ``model_prices_and_context_window.json`` (e.g. Robusta-hosted
+        variants, OpenAI-compatible internal endpoints) report
+        ``response_cost=0`` and Holmes emits zero cost in usage events.
+
+        Precedence, highest first:
+          1. User pricing in ``model_list.yaml`` (extras on ``ModelEntry``).
+          2. Auto-lookup against ``litellm.model_cost`` for Robusta entries
+             using the real upstream model name (e.g. a Robusta entry with
+             ``model="bedrock/us.anthropic.claude-opus-4-6-v1"`` pulls the
+             bundled Bedrock pricing and registers it under the corrected
+             ``openai/...`` name).
+
+        Models with no pricing match log one INFO line so operators know
+        why their usage events will report 0.
+        """
+        for entry in self._llms.values():
+            litellm_name = _litellm_name_for_entry(entry)
+
+            # 1. User pricing always wins.
+            user_pricing = _build_pricing_dict_from_extra(entry.model_extra or {})
+            if user_pricing is not None:
+                _register_custom_pricing(litellm_name, user_pricing)
+                continue
+
+            # 2. For Robusta entries, auto-discover pricing from the bundled
+            # cost map under the *real* upstream model name.
+            if (
+                entry.is_robusta_model
+                and entry.model != litellm_name
+                and litellm_name not in litellm.model_cost
+            ):
+                auto_pricing = _bundled_pricing_for_underlying_model(entry.model)
+                if auto_pricing is not None:
+                    _register_custom_pricing(litellm_name, auto_pricing)
+                    continue
+
+            # 3. Warn once per unknown un-priced model so the operator knows
+            # why usage-event costs will be 0.
+            if (
+                litellm_name not in litellm.model_cost
+                and litellm_name not in _warned_unknown_cost_models
+            ):
+                _warned_unknown_cost_models.add(litellm_name)
+                logging.info(
+                    f"Model '{litellm_name}' has no entry in litellm's cost map "
+                    "and no input/output_cost_per_token configured. "
+                    "Usage event costs for this model will be 0. "
+                    "Add input_cost_per_token and output_cost_per_token to its "
+                    "model_list.yaml entry to enable cost tracking."
+                )
 
     def _should_load_config_model(self) -> bool:
         if self.config.model is not None:
@@ -695,13 +965,21 @@ class LLMModelRegistry:
 
         return False
 
+    def reads_robusta_catalog(self) -> bool:
+        """Whether this agent fetches the account's model catalog from the
+        platform, and with it the account's Robusta AI opt-out. Otherwise it
+        runs the legacy single Robusta entry and never sees the setting; the
+        heartbeat advertises this so the platform can tell the two apart."""
+        return bool(
+            self.config.cluster_name
+            and LOAD_ALL_ROBUSTA_MODELS
+            and self.dal.enabled
+            and self.dal.account_id
+        )
+
     def configure_robusta_ai_model(self) -> None:
         try:
-            if not self.config.cluster_name or not LOAD_ALL_ROBUSTA_MODELS:
-                self._load_default_robusta_config()
-                return
-
-            if not self.dal.account_id or not self.dal.enabled:
+            if not self.reads_robusta_catalog():
                 self._load_default_robusta_config()
                 return
 
@@ -710,27 +988,184 @@ class LLMModelRegistry:
             robusta_models: RobustaModelsResponse | None = fetch_robusta_models(
                 account_id, token
             )
+            if robusta_models and robusta_models.robusta_ai_disabled:
+                # Deliberate, not a blip: never fall back to the legacy entry.
+                self._apply_robusta_ai_disabled()
+                return
+
+            # A fetch that failed at boot (the platform unreachable, or its
+            # settings store unreadable) cannot say whether the account opted
+            # out, so the legacy entry is loaded and the periodic refresh
+            # reads the catalog again. Until that refresh lands, an opted-out
+            # account's agent holds a Robusta-hosted entry it must not use;
+            # the platform refuses every call on it, so nothing leaves the
+            # account, and the refresh replaces the entry with the opt-out.
             if not robusta_models or not robusta_models.models:
                 self._load_default_robusta_config()
                 return
 
-            default_model = None
-            for model_name, model_data in robusta_models.models.items():
-                logging.info(f"Loading Robusta AI model: {model_name}")
-                self._llms[model_name] = self._create_robusta_model_entry(
-                    model_name=model_name, model_data=model_data
-                )
-                if model_data.is_default:
-                    default_model = model_name
-
-            if default_model:
-                logging.info(f"Setting default Robusta AI model to: {default_model}")
-                self._default_robusta_model: str = default_model  # type: ignore
+            logging.info(f"Loading Robusta AI models: {list(robusta_models.models)}")
+            self._install_robusta_models(robusta_models)
 
         except Exception:
             logging.exception("Failed to get all robusta models")
             # fallback to default behavior
             self._load_default_robusta_config()
+
+    def refresh_robusta_models(self) -> bool:
+        """Re-read the Robusta-hosted catalog into the running registry.
+
+        Startup is otherwise the only read, so an agent that lost that fetch
+        stays on the legacy fallback and later catalog edits never reach it
+        (ROB-795, ROB-707). A failed or empty fetch leaves the registry alone:
+        downgrading a healthy catalog on every relay blip would be worse than
+        briefly serving a stale list. Returns True when the registry changed.
+
+        Failures are logged on the first occurrence and every
+        `ROBUSTA_REFRESH_FAILURE_LOG_EVERY`th one after that - an outage that
+        outlives several refresh cycles would otherwise log the same failure
+        every cycle.
+
+        At most one refresh actually fetches+installs at a time: the periodic
+        refresh loop and a get_model_params() resync can overlap, and the
+        fetch runs outside `_lock` (it's a network call), so a naive
+        implementation could let an older response install after a newer one
+        and silently revert the catalog. An overlapping call backs off
+        (returns False) rather than waiting, so it can never block behind
+        someone else's network fetch.
+        """
+        with self._lock:
+            # Robusta AI is in play iff something Robusta-hosted is loaded -
+            # startup leaves either the catalog or the legacy fallback behind.
+            # An opted-out agent serves nothing Robusta-hosted, so the catalog
+            # can no longer tell us: it must keep polling for the account to be
+            # re-enabled. Both reads are of the same registry state, so they
+            # are taken together.
+            robusta_ai_in_play = (
+                any(entry.is_robusta_model for entry in self._llms.values())
+                or self._robusta_ai_disabled
+            )
+
+        # An agent that does not read the catalog is in legacy single-model
+        # mode from boot; refreshing must not promote it.
+        if not (robusta_ai_in_play and self.reads_robusta_catalog()):
+            return False
+
+        if not self._robusta_refresh_lock.acquire(blocking=False):
+            return False
+        try:
+            log_this_failure = (
+                self._robusta_refresh_failures == 0
+                or self._robusta_refresh_failures % ROBUSTA_REFRESH_FAILURE_LOG_EVERY
+                == 0
+            )
+
+            try:
+                robusta_models = fetch_robusta_models(
+                    *self.dal.get_ai_credentials(), log_failure=log_this_failure
+                )
+            except Exception:
+                self._robusta_refresh_failures += 1
+                if log_this_failure:
+                    logging.exception("Failed to refresh Robusta AI models")
+                return False
+
+            if robusta_models and robusta_models.robusta_ai_disabled:
+                self._robusta_refresh_failures = 0
+                return self._apply_robusta_ai_disabled()
+
+            if not robusta_models or not robusta_models.models:
+                self._robusta_refresh_failures += 1
+                if log_this_failure:
+                    logging.warning(
+                        "Keeping the loaded models: the catalog came back empty."
+                    )
+                return False
+
+            self._robusta_refresh_failures = 0
+
+            with self._lock:
+                previous_default = self._default_robusta_model
+                added, removed = self._install_robusta_models(robusta_models)
+                self._register_pricing_for_loaded_models()
+
+            changed = bool(added or removed) or (
+                self._default_robusta_model != previous_default
+            )
+            if changed:
+                logging.info(
+                    f"Refreshed Robusta AI models. added: {added}, removed: {removed}"
+                )
+            return changed
+        finally:
+            self._robusta_refresh_lock.release()
+
+    def _apply_robusta_ai_disabled(self) -> bool:
+        """Drop every Robusta-hosted entry and remember why.
+
+        Returns True when this changed the registry, so a refresh can report
+        it. The flag is the whole state: while it is set nothing Robusta-hosted
+        is loaded (installing a catalog clears it first), so re-applying an
+        opt-out the registry already holds changes nothing and logs nothing -
+        the refresh loop re-reads the flag every cycle.
+        """
+        with self._lock:
+            changed = not self._robusta_ai_disabled
+            self._llms = {
+                name: entry
+                for name, entry in self._llms.items()
+                if not entry.is_robusta_model
+            }
+            self._default_robusta_model = None
+            self._robusta_ai_disabled = True
+
+        if changed:
+            logging.info(
+                "Robusta-hosted models are disabled for this account; "
+                "serving only the models configured on this cluster."
+            )
+        return changed
+
+    def _install_robusta_models(
+        self, robusta_models: RobustaModelsResponse
+    ) -> tuple[list[str], list[str]]:
+        """Make the Robusta-hosted entries exactly `robusta_models`, and point
+        the default at whichever one relay flagged. Returns (added, removed).
+
+        Only Robusta-hosted entries are replaced - models the user defined in
+        model_list.yaml or via MODEL aren't ours to touch. Callers holding
+        `_lock` (the refresh path) keep it; startup runs single-threaded before
+        the registry is shared.
+        """
+        self._robusta_ai_disabled = False
+        incoming = set(robusta_models.models)
+        current = {n for n, entry in self._llms.items() if entry.is_robusta_model}
+
+        # Rebuilt rather than patched: whatever the catalog dropped is simply
+        # not carried over - the legacy `Robusta` entry among it, which is what
+        # heals an agent that booted without a catalog.
+        user_defined = {
+            name: entry
+            for name, entry in self._llms.items()
+            if not entry.is_robusta_model
+        }
+        hosted = {
+            name: self._create_robusta_model_entry(model_name=name, model_data=data)
+            for name, data in robusta_models.models.items()
+        }
+        self._llms = user_defined | hosted
+
+        # Relay flags exactly one model as the account's default.
+        defaults = [
+            name for name, data in robusta_models.models.items() if data.is_default
+        ]
+        if defaults:
+            self._default_robusta_model = defaults[0]
+        elif self._default_robusta_model not in self._llms:
+            # Nothing flagged and the previous default just left the catalog.
+            self._default_robusta_model = None
+
+        return sorted(incoming - current), sorted(current - incoming)
 
     def _load_default_robusta_config(self):
         if self._should_load_robusta_ai():
@@ -763,30 +1198,65 @@ class LLMModelRegistry:
         return True
 
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
+        if model_key:
+            model_params = self._loaded_model(model_key)
+            if model_params is not None:
+                display_logger.info(f"Using selected model: {model_key}")
+                return model_params
+
+            # The catalog may have gained this model since it was last read.
+            # Any name is worth a look: a customer's models carry their own
+            # prefix, so keying on `Robusta/` left exactly those unable to
+            # recover. Unlike _init_models, refreshing never rebuilds from
+            # the model file and never falls back to the legacy entry, so a
+            # fetch that fails here cannot cost us the models we do have.
+            #
+            # Deliberately NOT under `_lock`: this is a network call that can
+            # run ~74s against an unreachable relay (5 attempts x 10s timeout
+            # plus 24s of backoff). `_lock` is reentrant, so holding it across
+            # the refresh silently serialized every other reader behind that
+            # whole window - including ones asking for non-Robusta models
+            # (ROB-795 review).
+            logging.warning(f"Model {model_key} is not loaded; refreshing.")
+            self.refresh_robusta_models()
+
+            # Re-read regardless of what the refresh returned: a refresh
+            # already in flight on another thread makes this one back off
+            # (returning False) yet may have installed exactly what we want.
+            model_params = self._loaded_model(model_key)
+            if model_params is not None:
+                display_logger.info(f"Using selected model: {model_key}")
+                return model_params
+
+            logging.error(f"Couldn't find model: {model_key} in model list")
+
+        return self._fallback_model()
+
+    def _loaded_model(self, model_key: str) -> Optional[ModelEntry]:
+        """Point lookup against the loaded registry; None when it isn't there."""
+        with self._lock:
+            model_params = self._llms.get(model_key)
+            return model_params.model_copy() if model_params is not None else None
+
+    def _fallback_model(self) -> ModelEntry:
+        """The entry to serve when no specific model was asked for, or the
+        requested one couldn't be found even after a refresh."""
         with self._lock:
             if not self._llms:
+                if self._robusta_ai_disabled:
+                    raise Exception(
+                        "No LLM models are configured on this cluster and "
+                        "Robusta-hosted models are disabled for this account. "
+                        "Configure a model on the cluster (MODEL, "
+                        "MODEL_LIST_FILE_LOCATION or the model list), or enable "
+                        "Robusta-hosted models in Settings > LLM Models."
+                    )
                 raise Exception(
                     "No LLM models were loaded. Configure a model using one of: "
                     "--model '<provider/model>', export MODEL='<provider/model>', "
                     "or MODEL_LIST_FILE_LOCATION/config model list. "
                     "Setting only an API key (for example OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, AZURE_API_KEY) is not enough without a model."
                 )
-
-            if model_key:
-                model_params = self._llms.get(model_key)
-                if model_params:
-                    display_logger.info(f"Using selected model: {model_key}")
-                    return model_params.model_copy()
-
-                if model_key.startswith("Robusta/"):
-                    logging.warning("Resyncing Registry and Robusta models.")
-                    self._init_models()
-                    model_params = self._llms.get(model_key)
-                    if model_params:
-                        display_logger.info(f"Using selected model: {model_key}")
-                        return model_params.model_copy()
-
-                logging.error(f"Couldn't find model: {model_key} in model list")
 
             if self._default_robusta_model:
                 model_params = self._llms.get(self._default_robusta_model)

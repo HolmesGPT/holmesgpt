@@ -1,0 +1,24 @@
+# ROB-310 remote tools steering, case "all clusters": a neutral fleet-wide
+# question (no tool names in the prompt) must make Holmes run BOTH the local
+# tool (for its own cluster, which is absent from the agent_name enum) AND
+# the remote tool once per agent in the enum. Verification codes are unique
+# per cluster and only discoverable by calling the tools.
+user_prompt: |
+  What is the diagnostics verification_code of every cluster/agent in our
+  fleet, including this one? Report each cluster with its exact code,
+  verbatim.
+
+expected_output:
+  - Must report verification code RTC-EVAL-USEAST-c4k7n2 for prod-us-east
+  - Must report verification code RTC-EVAL-EUWEST-9p3q8d for prod-eu-west
+  - Must report verification code RTC-EVAL-APSOUTH-x6m1v5 for prod-ap-south
+  - Must report verification code RTC-EVAL-STGCORE-t2w9z4 for staging-core
+  - Must have called the local fetch_cluster_diagnostics tool (not remote_fetch_cluster_diagnostics) for prod-us-east
+  - Must have called remote_fetch_cluster_diagnostics for each of prod-eu-west, prod-ap-south and staging-core
+
+include_tool_calls: true
+
+tags:
+  - medium
+  - question-answer
+  - fast

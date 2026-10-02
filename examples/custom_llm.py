@@ -41,6 +41,7 @@ class MyCustomLLM(LLM):
         temperature: Optional[float] = None,
         drop_params: Optional[bool] = None,
     ) -> ModelResponse:
+        """Return a canned response demonstrating the LLM interface."""
         return ModelResponse(
             choices=[
                 {

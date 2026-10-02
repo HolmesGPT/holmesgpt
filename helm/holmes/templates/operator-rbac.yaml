@@ -9,6 +9,11 @@ metadata:
     app.kubernetes.io/name: holmes-operator
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -19,6 +24,11 @@ metadata:
     app.kubernetes.io/name: holmes-operator
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 rules:
 # HealthCheck CRD permissions
 - apiGroups: ["holmesgpt.dev"]
@@ -35,6 +45,19 @@ rules:
 - apiGroups: ["holmesgpt.dev"]
   resources: ["scheduledhealthchecks/status"]
   verbs: ["get", "patch", "update"]
+
+# TriggeredHealthCheck CRD permissions
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["triggeredhealthchecks"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: ["holmesgpt.dev"]
+  resources: ["triggeredhealthchecks/status"]
+  verbs: ["get", "patch", "update"]
+
+# Watch Deployments to fire rollout triggers
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
 
 # Events for audit trail
 - apiGroups: [""]
@@ -63,6 +86,11 @@ metadata:
     app.kubernetes.io/name: holmes-operator
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole

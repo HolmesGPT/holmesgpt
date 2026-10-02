@@ -32,7 +32,12 @@ The fastest way to use HolmesGPT is via the Robusta platform, which can be used 
 
 ### Get Started
 
-1. **Sign up:** [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section){:target="\_blank"}
+1. **Sign up** — pick the region closest to your clusters:
+
+    ```robusta-region
+    [platform.robusta.dev](https://platform.robusta.dev/signup/?utm_source=docs&utm_medium=holmesgpt-docs&utm_content=ui_installation_section)
+    ```
+
 2. **Connect your cluster:** Follow the in-app wizard
 3. **Ask Holmes:** Analyze alerts or troubleshoot issues
 

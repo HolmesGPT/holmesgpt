@@ -1,0 +1,78 @@
+# Test: Time-window gap in external observability data.
+# Holmes is on production-eu-west-2; the ES index has data for the cluster
+# the user named, BUT only covering the last ~30 minutes. The user asks
+# about an incident from 6 hours ago. Holmes must flag the time-window
+# gap rather than say "no issues" or invent something from the recent data.
+
+user_prompt: |
+  We had a P1 incident 6 hours ago in production-eu-west-2 — checkout-service was
+  throwing 500s and customers couldn't pay. Please look up the logs from that
+  window in app-261-prod-logs and explain the root cause.
+
+cluster_name: "production-eu-west-2"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must explicitly state that the app-261-prod-logs index has no log data covering the time window the user asked about (~6 hours ago) — only recent data is present"
+  - "Must NOT invent a root cause for the 6-hours-ago incident from the recent INFO/healthy log entries that ARE present"
+  - "Should suggest checking log retention / a longer-retention archive / a different index for the actual incident time window"
+
+tags:
+  - elasticsearch
+  - medium
+  - transparency
+  - multi-cluster
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  LOGS_INDEX="app-261-prod-logs"
+
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_NOW=$(ts "minutes=0")
+  T_5M=$(ts "minutes=5")
+  T_15M=$(ts "minutes=15")
+  T_25M=$(ts "minutes=25")
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"service":{"type":"keyword"},"cluster":{"type":"keyword"},"level":{"type":"keyword"},"message":{"type":"text"}}}}' > /dev/null
+
+  # Only RECENT (last 30 min) data — none from 6h ago.
+  BULK_FILE=$(es_temp_file "logs" "261")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"timestamp":"${T_25M}","service":"checkout-service","cluster":"production-eu-west-2","level":"INFO","message":"Healthy: p95 latency 220ms"}
+  {"index":{}}
+  {"timestamp":"${T_15M}","service":"payment-service","cluster":"production-eu-west-2","level":"INFO","message":"All payment provider connections healthy"}
+  {"index":{}}
+  {"timestamp":"${T_5M}","service":"checkout-service","cluster":"production-eu-west-2","level":"INFO","message":"Healthy: success rate 99.8% over last 5 minutes"}
+  {"index":{}}
+  {"timestamp":"${T_NOW}","service":"checkout-service","cluster":"production-eu-west-2","level":"INFO","message":"Healthy: p95 latency 215ms"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+  rm -f "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+  echo "Test data ready: 4 recent INFO records, none from 6h ago window."
+
+after_test: |
+  echo "Skipping index cleanup (reentrant)"

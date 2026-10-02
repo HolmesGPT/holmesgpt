@@ -9,7 +9,7 @@ Tests the full client experience:
 This test mocks LLM and bash tool responses but uses the real:
 - Server endpoints
 - _execute_tool_decisions()
-- extract_bash_session_prefixes()
+- extract_bash_session_prefixes_by_agent()
 """
 
 import json
@@ -23,6 +23,7 @@ from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import Tool, ToolInvokeContext, ToolParameter, Toolset
+from holmes.utils.approval_tokens import mint_prefix_token
 from holmes.utils.stream import StreamEvents
 from server import app
 
@@ -30,6 +31,18 @@ from server import app
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+def _signed_metadata(prefixes, agent=None, extra=None, suffix=""):
+    """Build a 'tool_call_metadata=...' blob with a valid server signature,
+    matching what Holmes writes for saved bash prefixes. Without the signature
+    the prefixes are rejected as forged (approval.session-prefix-forgery)."""
+    meta = dict(extra or {})
+    meta["bash_session_approved_prefixes"] = prefixes
+    if agent is not None:
+        meta["bash_session_approved_agent"] = agent
+    meta["bash_session_approval_token"] = mint_prefix_token(prefixes, agent)
+    return f"tool_call_metadata={json.dumps(meta)}{suffix}"
 
 
 def create_mock_llm_response(content: str, tool_calls=None):
@@ -348,7 +361,7 @@ def test_bash_session_prefix_memory_flow(
     # 1. _execute_tool_decisions runs, executes call_1, injects prefixes into message
     # 2. LLM is called again, returns call_2 (kubectl get nodes)
     # 3. call_2 is executed - but at this point, the message with prefixes
-    #    IS in the conversation, so extract_bash_session_prefixes should find it
+    #    IS in the conversation, so extract_bash_session_prefixes_by_agent should find it
 
     # Check if we got approval_required or answer_end
     if StreamEvents.APPROVAL_REQUIRED.value in event_types:
@@ -501,11 +514,13 @@ class TestExtractTextFromContent:
 
 
 class TestExtractBashSessionPrefixesWithArrayContent:
-    """Tests for extract_bash_session_prefixes with array content format."""
+    """Tests for extract_bash_session_prefixes_by_agent with array content format."""
 
     def test_extract_from_array_content(self):
         """Test extraction from messages with array content (real-world format)."""
-        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+        from holmes.core.tool_calling_llm import (
+            extract_bash_session_prefixes_by_agent,
+        )
 
         messages = [
             {"role": "system", "content": "You are helpful"},
@@ -517,18 +532,27 @@ class TestExtractBashSessionPrefixesWithArrayContent:
                 "content": [
                     {
                         "type": "text",
-                        "text": 'tool_call_metadata={"tool_name": "bash", "tool_call_id": "tooluse_abc123", "bash_session_approved_prefixes": ["rm"]}Output: file removed',
+                        "text": _signed_metadata(
+                            ["rm"],
+                            extra={
+                                "tool_name": "bash",
+                                "tool_call_id": "tooluse_abc123",
+                            },
+                            suffix="Output: file removed",
+                        ),
                     }
                 ],
             },
         ]
 
-        prefixes = extract_bash_session_prefixes(messages)
+        prefixes = extract_bash_session_prefixes_by_agent(messages).get("", [])
         assert "rm" in prefixes
 
     def test_extract_from_string_content(self):
         """Test extraction from messages with string content."""
-        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+        from holmes.core.tool_calling_llm import (
+            extract_bash_session_prefixes_by_agent,
+        )
 
         messages = [
             {"role": "system", "content": "You are helpful"},
@@ -536,34 +560,39 @@ class TestExtractBashSessionPrefixesWithArrayContent:
                 "role": "tool",
                 "tool_call_id": "call_123",
                 "name": "bash",
-                "content": 'tool_call_metadata={"tool_name": "bash", "tool_call_id": "call_123", "bash_session_approved_prefixes": ["kubectl get"]}',
+                "content": _signed_metadata(
+                    ["kubectl get"],
+                    extra={"tool_name": "bash", "tool_call_id": "call_123"},
+                ),
             },
         ]
 
-        prefixes = extract_bash_session_prefixes(messages)
+        prefixes = extract_bash_session_prefixes_by_agent(messages).get("", [])
         assert "kubectl get" in prefixes
 
     def test_extract_multiple_prefixes_mixed_formats(self):
         """Test extraction from messages with mixed content formats."""
-        from holmes.core.tool_calling_llm import extract_bash_session_prefixes
+        from holmes.core.tool_calling_llm import (
+            extract_bash_session_prefixes_by_agent,
+        )
 
         messages = [
             {
                 "role": "tool",
-                "content": 'tool_call_metadata={"bash_session_approved_prefixes": ["kubectl get"]}',
+                "content": _signed_metadata(["kubectl get"]),
             },
             {
                 "role": "tool",
                 "content": [
                     {
                         "type": "text",
-                        "text": 'tool_call_metadata={"bash_session_approved_prefixes": ["rm", "grep"]}',
+                        "text": _signed_metadata(["rm", "grep"]),
                     }
                 ],
             },
         ]
 
-        prefixes = extract_bash_session_prefixes(messages)
+        prefixes = extract_bash_session_prefixes_by_agent(messages).get("", [])
         assert "kubectl get" in prefixes
         assert "rm" in prefixes
         assert "grep" in prefixes

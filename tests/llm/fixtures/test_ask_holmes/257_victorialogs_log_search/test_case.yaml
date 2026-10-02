@@ -1,0 +1,73 @@
+# Test: VictoriaLogs Log Search with LogsQL
+# Tests that Holmes can search VictoriaLogs and find specific error codes.
+#
+# Requirements:
+# - VICTORIALOGS_URL: URL to a VictoriaLogs server (e.g., http://localhost:9428)
+#
+# Anti-hallucination: The test injects 3 specific error codes (VLERR-XXXX format) tied
+# to a unique stream label. The LLM cannot know these without actually querying the server.
+
+user_prompt: "Search VictoriaLogs for ERROR level log messages from the 'payment-api-257' service in the 'app-257' namespace. What error codes (format VLERR-XXXX) appear in those logs?"
+
+expected_output:
+  - "Must identify ERROR level logs from the payment-api-257 service"
+  - "Must list the 3 specific error codes that were injected: VLERR-7291, VLERR-4058, and VLERR-9463"
+  - "Should mention the error messages associated with these codes"
+
+tags:
+  - victorialogs
+  - logs
+  - medium
+
+setup_timeout: 120
+
+before_test: |
+  # Note: this fixture uses GNU date (-d 'N minute(s) ago'); CI runs on Linux.
+  set -euo pipefail
+  : "${VICTORIALOGS_URL:?VICTORIALOGS_URL must be set}"
+
+  # Verify the server is reachable (ignore body, just check status).
+  HEALTH=$(curl -sf "${VICTORIALOGS_URL}/health" || true)
+  if [ -z "$HEALTH" ]; then
+    echo "❌ Failed to reach VictoriaLogs at ${VICTORIALOGS_URL}/health"
+    exit 1
+  fi
+  echo "✅ Connected to VictoriaLogs at ${VICTORIALOGS_URL}"
+
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  # Build a deterministic batch of logs scoped to this eval. The 3 error codes
+  # below are the anti-hallucination markers.
+  curl -sf -X POST \
+    "${VICTORIALOGS_URL}/insert/jsonline?_stream_fields=service,namespace&_msg_field=message&_time_field=time" \
+    -H "Content-Type: application/stream+json" \
+    --data-binary @- <<EOF
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"INFO","message":"Service started successfully"}
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"ERROR","message":"Database connection timeout - VLERR-7291: Failed to connect to primary database after 30s"}
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"WARN","message":"Retrying database connection"}
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"ERROR","message":"Payment validation failed - VLERR-4058: Invalid card number format"}
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"INFO","message":"Processing order batch complete"}
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"ERROR","message":"Stock sync failed - VLERR-9463: External inventory API returned 503"}
+  {"time":"$NOW","service":"payment-api-257","namespace":"app-257","level":"INFO","message":"Recovered from temporary outage"}
+  EOF
+
+  # Give VictoriaLogs a moment to flush the ingestion buffer
+  sleep 3
+
+  # Verify the documents are queryable. Use a tight time window around NOW to
+  # avoid colliding with prior inserts from other runs.
+  COUNT=$(curl -sf -X POST "${VICTORIALOGS_URL}/select/logsql/query" \
+    --data-urlencode 'query={service="payment-api-257",namespace="app-257"} level:ERROR' \
+    -d "start=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
+    -d "end=$(date -u -d '1 minute' +%Y-%m-%dT%H:%M:%SZ)" \
+    -d 'limit=10' \
+    | wc -l)
+
+  if [ "$COUNT" -lt "3" ]; then
+    echo "❌ Expected at least 3 ERROR rows but got $COUNT"
+    exit 1
+  fi
+  echo "✅ Inserted and verified $COUNT ERROR log lines"
+
+after_test: |
+  echo "No cleanup needed (logs auto-expire by retention)."

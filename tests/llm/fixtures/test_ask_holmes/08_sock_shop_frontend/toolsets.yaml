@@ -1,8 +1,6 @@
 toolsets:
   prometheus/metrics:
     enabled: False
-  kubernetes/kube-lineage-extras:
-    enabled: true
   kubernetes/logs:
     enabled: true
   kubernetes/core:

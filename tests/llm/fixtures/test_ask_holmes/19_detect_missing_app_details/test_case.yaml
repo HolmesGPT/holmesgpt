@@ -1,8 +1,10 @@
 user_prompt: "Why is personal-certs-validator in a crashloopbackoff?"
 expected_output: |
-  Either tells the user that "personal-certs-validator" could not be found or answers about db-certs-authenticator
-  and makes it clear that it is answering about something slightly different (i.e. says you seem to be referring to, or the closest match is...)
-  To pass, EITHER behavior is acceptable. (saying you can't find it OR answering about db-certs-authenticator)
+  Holmes must be BOTH transparent and useful:
+  1. Make it clear that no resource named exactly "personal-certs-validator" was found.
+  2. Surface findings about db-certs-authenticator (the similarly-named resource that DOES exist) — its state and likely cause — while clearly labeling it as a different resource from what the user named (phrases like "you may be referring to", "the closest match is", or similar are acceptable).
+
+  Responses that ONLY say "could not find it" without offering the adjacent finding are insufficient. Responses that diagnose db-certs-authenticator as if it were personal-certs-validator without disclosing the name mismatch are also insufficient.
 tags:
   - easy
   - transparency

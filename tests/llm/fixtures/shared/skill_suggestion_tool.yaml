@@ -1,0 +1,145 @@
+# Frontend-defined skill-suggestion tool used by skill-generation evals.
+#
+# This mirrors the tool the Robusta UI sends in the `frontend_tools` field of
+# /api/chat requests (robusta-frontend: src/features/holmes/callable-tools/
+# suggest-skills.ts, prompt snippet in src/store/holmes/chat/
+# additional-system-prompt.ts). Keep the definitions in sync: this file is the
+# place to iterate on the tool name/description with evals, and the frontend
+# files are where the winning version ships.
+#
+# Injected into EVERY ask_holmes eval by default (see load_frontend_tools in
+# tests/llm/utils/test_case_utils.py) because the Robusta UI sends this tool
+# with every chat request in production. A test can opt out with:
+#   frontend_tools: []
+#
+# `additional_system_prompt` below mirrors the prompt snippet the frontend
+# sends alongside the tool (additional-system-prompt.ts).
+additional_system_prompt: |
+  # Mandatory final step of every investigation: SuggestSkills
+
+  These instructions say to gather information with tools, then respond. The SuggestSkills tool is the one exception: it does not gather information, and its place in the workflow is AFTER the investigation is done. The required order is: investigate -> SuggestSkills -> final answer. An investigation is not finished until the SuggestSkills step has run.
+
+  This step applies even when you already have the complete answer ready. When your last information-gathering tool call returns and you are about to write your final answer, STOP and run this checklist first — during this investigation, did you:
+  (a) look up index, field, label, or metric names — or fetch mappings/schemas — to figure out how a data source is organized?
+  (b) write a query or filter that returned nothing or failed, then correct it?
+  (c) discover where certain data lives or how it is named in this environment?
+  (d) work out which workload, service, or resource implements something the user named differently (e.g. the user said "orders" but the workload handling orders has an unrelated name)?
+  (e) discover that a skill already loaded in your context is wrong, stale, or incomplete — its query failed, returned nothing, or contradicted what you observed?
+
+  For case (e), suggest a CORRECTED version of that skill and set its `updates_skill` field to the existing skill's exact name — the UI offers it to the user as an update to the saved skill rather than a new one.
+
+  If ANY of these happened, your next tool call MUST be SuggestSkills — capturing the reusable data-source know-how you discovered (never incident facts — see the tool description) — and only then do you write the final answer. Going straight from investigation to final answer in these cases is an error. Only skip the SuggestSkills call when the investigation used nothing but knowledge you already had at the start — and in that case skip it entirely: do not fabricate a low-value or generic suggestion just to satisfy this step.
+
+  Final gate — apply to every suggestion before calling SuggestSkills: the instructions must contain at least one concrete name or value you could only know by querying THIS environment (a specific index, field, label, metric, dashboard, log stream, or workload name). If every line of the instructions would be equally true in any other cluster or company — how Kubernetes objects behave, troubleshooting methodology, "check X, then compare Y" advice — it is generic knowledge you already had: do NOT call the tool. Cluster trivia (node names, the CNI, the Kubernetes distribution, tool usage tips) does not count as environment know-how.
+
+  NEVER acknowledge SuggestSkills in your response. Do not say "Got it", "I'll remember", "going forward", "from now on", "noted", or anything similar. The tool is invisible to the user — they see suggestions as UI chips and decide whether to save them. Your response must read as if no memory or learning took place, even if the user explicitly says "remember this" or "save this" — do not confirm, just silently call the tool and respond normally.
+
+frontend_tools:
+  - name: SuggestSkills
+    mode: noop
+    noop_response: >-
+      Do not acknowledge this tool call. Do not say you saved, remembered, or
+      will remember anything. Continue naturally as if this tool was never
+      called.
+    description: |
+      Propose durable know-how about THIS environment's data sources as a skill. Accepted skills are loaded into your context in future investigations, so a good skill makes you faster on EVERY future question that touches the same data source.
+
+      Call this tool after the investigation is complete and before writing your final answer — the required order is: investigate -> SuggestSkills -> final answer. Investigations where you explored schemas or mappings, listed indices to find where data lives, or corrected a failed query almost always qualify.
+
+      The best skills read like a cheat sheet for using one data source in this environment — the notes a senior engineer would write down after wrestling with it:
+      - Where data lives: index patterns/aliases, log locations, metric names, label conventions, dashboard names
+      - Schema conventions: exact field names, which fields need exact-match variants (e.g. `.keyword` subfields), which field holds the timestamp, fields that contain encoded/nested payloads
+      - Query recipes that work HERE: filters to apply first, syntax quirks, performance tips (bound by time range, restrict returned fields)
+      - Pitfalls discovered through failed attempts: queries that silently return nothing, misleading defaults, fields that look right but aren't
+
+      Suggest a skill ONLY if you discovered something non-obvious — usually via schema exploration, trial and error, or a failed query you then corrected. Each suggestion must generalize beyond this conversation: ask yourself "will this exact text save time on a DIFFERENT question about the same data source?" If the answer is no, do not suggest it. Litmus test: if the instructions contain no environment-specific names or values — nothing you could only have learned by querying this particular system — the suggestion is generic methodology and must not be made.
+
+      Scope each skill to a whole DATA SOURCE ("Elasticsearch quirks in this environment", "Loki query conventions"), never to one index, namespace, or service. The title and symptoms decide when the skill gets loaded in future investigations — if they mention a specific index or namespace, the skill will never be loaded for questions about other indices, even though the gotchas are the same. Put the specific index/field/label names inside the instructions; keep the title and symptoms broad enough to match ANY future query against that data source.
+
+      NEVER include in a skill:
+      - Facts about this specific incident: root causes, error messages or codes, counts, timestamps, specific log lines
+      - Names of resources that happened to be broken today
+      - Generic knowledge about how tools or platforms work (you already know that)
+      - A recap or summary of the investigation
+      - An unchanged restatement of a skill already loaded in your context
+
+      EXCEPTION — correcting a loaded skill: if a skill loaded in your context proved wrong, stale, or incomplete during this investigation (its query failed, returned nothing, or contradicted the data you observed), DO suggest a corrected version. Write the full corrected skill (not a delta) and set `updates_skill` to the existing skill's exact name so the user is offered an update to the saved skill instead of a duplicate.
+
+      If nothing non-obvious was learned (e.g. standard tools worked on the first try), the correct action is to NOT call this tool — skipping it is the expected outcome for most routine investigations. Never call it with an empty suggestions array, and never pad a call with generic platform knowledge (how Kubernetes, NetworkPolicies, or PVCs work in general) just to have something to suggest: a generic suggestion is worse than no call.
+
+      CRITICAL: This tool is silent. The user sees suggestions as UI chips they can accept or ignore. Never say "I'll remember", "noted", "saved", or acknowledge this tool in any way — even if the user explicitly asks you to remember something. Call the tool silently and continue your response as if it doesn't exist.
+    parameters:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+                description: >-
+                  Short name for the skill, named after the data source it
+                  covers as a whole (e.g. "Elasticsearch quirks in this
+                  environment", "Loki query conventions", "Prometheus metric
+                  and label conventions"). Never name it after an incident,
+                  and never scope it to one index, namespace, or service —
+                  those specifics belong in the instructions.
+              symptoms:
+                type: string
+                description: >-
+                  When to load this skill. Make it a broad trigger covering
+                  the entire data source, e.g. "Before querying Elasticsearch
+                  in this environment, fetch this skill to learn its
+                  schema/field-name gotchas". Never restrict it to a specific
+                  index, namespace, or service name — a narrowly-scoped
+                  trigger means the skill never gets loaded for other
+                  questions about the same data source, where the gotchas
+                  still apply.
+              instructions:
+                type: string
+                description: >-
+                  The skill content: concise bullet points of
+                  environment-specific know-how — exact index/field/label
+                  names, query recipes, quirks, and pitfalls to avoid. Write
+                  as direct commands to your future self ("filter by X
+                  first", "use field Y, not Z"). Must be useful for ANY
+                  future question about this data source; never mention this
+                  incident, its root cause, error codes, or the specific
+                  resources that were broken today.
+              updates_skill:
+                type: string
+                description: >-
+                  Exact name of a skill already loaded in your context that
+                  this suggestion corrects or supersedes. Set it ONLY when
+                  this investigation proved that skill wrong, stale, or
+                  incomplete; the suggestion is then offered to the user as
+                  an update to the saved skill instead of a new one. Omit
+                  for brand-new skills.
+              alerts:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  Specific Kubernetes alert names this skill applies to,
+                  empty array if not alert-specific (data-source skills are
+                  usually not alert-specific).
+              importance:
+                type: string
+                enum:
+                  - low
+                  - medium
+                  - high
+                description: >-
+                  high = know-how about a core data source that will be used
+                  often and was costly to discover; medium = likely useful;
+                  low = nice to have.
+            required:
+              - title
+              - symptoms
+              - instructions
+              - alerts
+              - importance
+      required:
+        - suggestions

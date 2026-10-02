@@ -3,9 +3,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from holmes.core.conversation_links import sanitize_conversation_link
 from holmes.plugins.prompts import load_and_render_prompt
-from holmes.plugins.runbooks import RunbookCatalog
-from holmes.utils.global_instructions import Instructions, generate_runbooks_args
+from holmes.plugins.skills.skill_loader import SkillCatalog
+from holmes.utils.global_instructions import Instructions, generate_skills_args
 from holmes.version import get_version
 
 
@@ -13,22 +14,23 @@ class PromptComponent(str, Enum):
     # User prompt components
     FILES = "files"
     TODOWRITE_REMINDER = "todowrite_reminder"
-    TIME_RUNBOOKS = "time_runbooks"
+    TIME_SKILLS = "time_skills"
     # System prompt components
     INTRO = "intro"
     ASK_USER = "ask_user"
     TODOWRITE_INSTRUCTIONS = "todowrite_instructions"
-    AI_SAFETY = "ai_safety"
     TOOLSET_INSTRUCTIONS = "toolset_instructions"
     PERMISSION_ERRORS = "permission_errors"
     GENERAL_INSTRUCTIONS = "general_instructions"
     STYLE_GUIDE = "style_guide"
     CLUSTER_NAME = "cluster_name"
+    SCOPED_NAMESPACES = "scoped_namespaces"
+    CONVERSATION_LINK = "conversation_link"
     SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
 
 
 # Components that are disabled by default (can be explicitly enabled via overrides or env var)
-DISABLED_BY_DEFAULT = {PromptComponent.AI_SAFETY}
+DISABLED_BY_DEFAULT: set = set()
 
 
 class InvalidImageDictError(ValueError):
@@ -75,6 +77,16 @@ def build_vision_content(
     return content
 
 
+def get_scoped_namespaces() -> List[str]:
+    """
+    Namespaces this Holmes instance's RBAC is limited to (comma-separated in the
+    SCOPED_NAMESPACES env var; the helm chart sets it when namespaceScopedRBAC is on).
+    Empty means cluster-wide access - no scope instructions are added to the prompt.
+    """
+    scoped_namespaces = os.environ.get("SCOPED_NAMESPACES", "")
+    return [ns.strip() for ns in scoped_namespaces.split(",") if ns.strip()]
+
+
 def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     """
     Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable.
@@ -82,7 +94,7 @@ def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
     Environment variable: ENABLED_PROMPTS
     - If not set: all prompts are ENABLED (production default)
     - If set to "none": all prompts are disabled
-    - Comma-separated names (e.g., "files,ai_safety,time_runbooks")
+    - Comma-separated names (e.g., "files,time_skills")
     """
     enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
 
@@ -137,11 +149,10 @@ def append_all_files_to_user_prompt(
 
 def get_tasks_management_system_reminder() -> str:
     return (
-        "\n\n<system-reminder>\nIMPORTANT: You have access to the TodoWrite tool. It creates a TodoList, in order to track progress. It's very important. You MUST use it:\n1. FIRST: Ask your self which sub problems you need to solve in order to answer the question."
-        "Do this, BEFORE any other tools\n2. "
-        "AFTER EVERY TOOL CALL: If required, update the TodoList\n3. "
-        "\n\nFAILURE TO UPDATE TodoList = INCOMPLETE INVESTIGATION\n\n"
-        "Example flow:\n- Think and divide to sub problems → create TodoList → Perform each task on the list → Update list → Verify your solution\n</system-reminder>"
+        "\n\n<system-reminder>\nFor multi-step questions, use the TodoWrite tool: "
+        "break the question into sub-problems before other tool calls, keep task "
+        "statuses updated as you work, and verify your solution before answering."
+        "\n</system-reminder>"
     )
 
 
@@ -149,10 +160,10 @@ def _has_content(value: Optional[str]) -> bool:
     return bool(value and isinstance(value, str) and value.strip())
 
 
-def _should_enable_runbooks(context: Dict[str, str]) -> bool:
+def _should_enable_skills(context: Dict[str, str]) -> bool:
     return any(
         (
-            _has_content(context.get("runbook_catalog")),
+            _has_content(context.get("skill_catalog")),
             _has_content(context.get("custom_instructions")),
             _has_content(context.get("global_instructions")),
         )
@@ -163,13 +174,13 @@ def generate_user_prompt(
     user_prompt: str,
     context: Dict[str, str],
 ) -> str:
-    runbooks_enabled = _should_enable_runbooks(context)
+    skills_enabled = _should_enable_skills(context)
 
     return load_and_render_prompt(
         "builtin://base_user_prompt.jinja2",
         context={
             "user_prompt": user_prompt,
-            "runbooks_enabled": runbooks_enabled,
+            "skills_enabled": skills_enabled,
             **context,
         },
     )
@@ -177,11 +188,12 @@ def generate_user_prompt(
 
 def build_system_prompt(
     toolsets: List[Any],
-    runbooks: Optional[RunbookCatalog],
+    skills: Optional[SkillCatalog],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
     ask_user_enabled: bool,
     prompt_component_overrides: Dict[PromptComponent, bool],
+    conversation_link: Optional[str] = None,
 ) -> Optional[str]:
     """
     Build the system prompt for both CLI and server modes.
@@ -198,17 +210,22 @@ def build_system_prompt(
         "intro_enabled": is_enabled(PromptComponent.INTRO),
         "ask_user_enabled": ask_user_enabled and is_enabled(PromptComponent.ASK_USER),
         "todowrite_enabled": is_enabled(PromptComponent.TODOWRITE_INSTRUCTIONS),
-        "ai_safety_enabled": is_enabled(PromptComponent.AI_SAFETY),
         "toolset_instructions_enabled": toolset_instructions_enabled,
         "permission_errors_enabled": is_enabled(PromptComponent.PERMISSION_ERRORS),
         "general_instructions_enabled": is_enabled(
             PromptComponent.GENERAL_INSTRUCTIONS
         ),
         "style_guide_enabled": is_enabled(PromptComponent.STYLE_GUIDE),
-        "runbooks_enabled": bool(runbooks and getattr(runbooks, "catalog", True))
-        and is_enabled(PromptComponent.TIME_RUNBOOKS),
+        "skills_enabled": bool(skills and getattr(skills, "skills", True))
+        and is_enabled(PromptComponent.TIME_SKILLS),
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
+        else None,
+        "scoped_namespaces": get_scoped_namespaces()
+        if is_enabled(PromptComponent.SCOPED_NAMESPACES)
+        else [],
+        "conversation_link": sanitize_conversation_link(conversation_link)
+        if is_enabled(PromptComponent.CONVERSATION_LINK)
         else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
         "system_prompt_additions": system_prompt_additions
@@ -225,7 +242,7 @@ UserPromptContent = Union[str, List[Dict[str, Any]]]
 
 def build_user_prompt(
     user_prompt: str,
-    runbooks: Optional[RunbookCatalog],
+    skills: Optional[SkillCatalog],
     global_instructions: Optional[Instructions],
     file_paths: Optional[List[Path]],
     include_todowrite_reminder: bool,
@@ -247,12 +264,12 @@ def build_user_prompt(
     if include_todowrite_reminder and is_enabled(PromptComponent.TODOWRITE_REMINDER):
         user_prompt += get_tasks_management_system_reminder()
 
-    if is_enabled(PromptComponent.TIME_RUNBOOKS):
-        runbooks_ctx = generate_runbooks_args(
-            runbook_catalog=runbooks,
+    if is_enabled(PromptComponent.TIME_SKILLS):
+        skills_ctx = generate_skills_args(
+            skill_catalog=skills,
             global_instructions=global_instructions,
         )
-        user_prompt = generate_user_prompt(user_prompt, runbooks_ctx)
+        user_prompt = generate_user_prompt(user_prompt, skills_ctx)
 
     if images:
         return build_vision_content(user_prompt, images)
@@ -262,7 +279,7 @@ def build_user_prompt(
 def build_prompts(
     toolsets: List[Any],
     user_prompt: str,
-    runbooks: Optional[RunbookCatalog],
+    skills: Optional[SkillCatalog],
     global_instructions: Optional[Instructions],
     system_prompt_additions: Optional[str],
     cluster_name: Optional[str],
@@ -271,6 +288,7 @@ def build_prompts(
     include_todowrite_reminder: bool,
     images: Optional[List[Union[str, Dict[str, Any]]]],
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
+    conversation_link: Optional[str] = None,
 ) -> Tuple[Optional[str], UserPromptContent]:
     """Build both system and user prompts."""
     if prompt_component_overrides is None:
@@ -278,15 +296,16 @@ def build_prompts(
 
     system_prompt = build_system_prompt(
         toolsets=toolsets,
-        runbooks=runbooks,
+        skills=skills,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,
         ask_user_enabled=ask_user_enabled,
         prompt_component_overrides=prompt_component_overrides,
+        conversation_link=conversation_link,
     )
     user_content = build_user_prompt(
         user_prompt=user_prompt,
-        runbooks=runbooks,
+        skills=skills,
         global_instructions=global_instructions,
         file_paths=file_paths,
         include_todowrite_reminder=include_todowrite_reminder,
@@ -300,7 +319,7 @@ def build_initial_ask_messages(
     initial_user_prompt: str,
     file_paths: Optional[List[Path]],
     tool_executor: Any,  # ToolExecutor type
-    runbooks: Optional[RunbookCatalog] = None,
+    skills: Optional[SkillCatalog] = None,
     system_prompt_additions: Optional[str] = None,
     global_instructions: Optional[Instructions] = None,
     cluster_name: Optional[str] = None,
@@ -310,7 +329,7 @@ def build_initial_ask_messages(
     system_prompt, user_prompt = build_prompts(
         toolsets=tool_executor.toolsets,
         user_prompt=initial_user_prompt,
-        runbooks=runbooks,
+        skills=skills,
         global_instructions=global_instructions,
         system_prompt_additions=system_prompt_additions,
         cluster_name=cluster_name,

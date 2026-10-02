@@ -1,0 +1,133 @@
+# Test: ES log severity field is named "severity" not "level"
+#
+# This eval forces a real failed→succeeded tool-call correction. The test
+# index contains 10 ERROR-severity documents, but they use a custom
+# "severity" field instead of the standard "level" field used by most
+# log schemas. A fresh LLM defaulting to a level:"ERROR" query returns
+# zero hits; the only way to find the data is to inspect the mapping or
+# a sample doc, then re-query with severity:"ERROR".
+#
+# The LLM should capture this lesson as an env-specific memory
+# ("this index uses 'severity' for log levels, not 'level'").
+
+# Phrasing matters: by saying "where level is ERROR" we describe the
+# question using the conventional log-field terminology, which biases
+# the agent into running `level:"ERROR"` as its first query. That call
+# returns zero hits (this index has only `severity`, no `level`) and
+# the agent has to read the mapping and re-query with `severity:"ERROR"`
+# to recover. THAT correction is the durable env-specific lesson the
+# SuggestSkills tool should capture.
+#
+# An earlier iteration tried a softer phrasing ("how many ERROR-level
+# entries are there") and discovered the agent solves it on the first
+# try (presumably from mapping enrichment) without ever issuing the
+# wrong call — and therefore correctly emits zero memories. That's a
+# different eval (whether emission happens on natural queries) than
+# what this fixture is meant to test (whether the correction shape is
+# captured when one is forced). Keep the biased phrasing here so the
+# wrong→right correction is reliably triggered.
+user_prompt: 'In the elasticsearch index ''app-275-logs-qe7p2k4d'', run a `term: { level: "ERROR" }` query and tell me how many hits come back. If that returns zero, find the right field for log level and re-run the query.'
+
+# The replay re-asks the exact same question, so the primary-vs-replay
+# metrics in the report compare with-skill vs without-skill on identical
+# input. With the captured skill loaded the agent should skip (or
+# instantly recover from) the wrong-field dead end instead of
+# re-discovering the schema through the mapping.
+
+expected_output:
+  - "There are 10 entries with ERROR severity / level in app-275-logs-qe7p2k4d"
+
+memories_generated: true
+rerun_with_memory: true
+
+tags:
+  - elasticsearch
+  - question-answer
+  - medium
+  - skills
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  export HOLMES_ES_TEST_INDEX="app-275-logs-qe7p2k4d"
+  echo "Using test index: $HOLMES_ES_TEST_INDEX"
+
+  # Clean up any existing index first
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  echo "⏳ Creating test index with explicit mapping (severity, not level)..."
+
+  # Create the index with explicit mapping — note: NO "level" field exists,
+  # only "severity". This is the env-specific quirk this eval teaches.
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": { "number_of_shards": 1, "number_of_replicas": 0 },
+      "mappings": {
+        "properties": {
+          "severity": { "type": "keyword" },
+          "message":  { "type": "text" },
+          "service":  { "type": "keyword" },
+          "@timestamp": { "type": "date" }
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "❌ Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+  sleep 2
+
+  # 10 ERROR, 5 WARN, 15 INFO — all using the "severity" field. Pad the
+  # seconds field so i >= 10 still produces a valid ISO timestamp; an
+  # earlier version of this fixture concatenated "0${i}" which produced
+  # "12:00:010" for i=10 and ES rejected the doc.
+  BULK_DATA=""
+  for i in $(seq 1 10); do
+    TS=$(printf '2026-05-14T12:00:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity\":\"ERROR\",\"service\":\"checkout-275\",\"message\":\"DB connection refused $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 5); do
+    TS=$(printf '2026-05-14T12:01:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity\":\"WARN\",\"service\":\"checkout-275\",\"message\":\"Slow query $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+  for i in $(seq 1 15); do
+    TS=$(printf '2026-05-14T12:02:%02dZ' "$i")
+    BULK_DATA="${BULK_DATA}{\"index\":{}}\n{\"severity\":\"INFO\",\"service\":\"checkout-275\",\"message\":\"Health check $i\",\"@timestamp\":\"${TS}\"}\n"
+  done
+
+  BULK_RESPONSE=$(echo -e "$BULK_DATA" | curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @-)
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "❌ Bulk insert had errors: $BULK_RESPONSE"
+    exit 1
+  fi
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  DOC_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$DOC_COUNT" = "30" ]; then
+    echo "✅ Index created with $DOC_COUNT docs (10 ERROR / 5 WARN / 15 INFO) using 'severity' field"
+  else
+    echo "❌ Expected 30 documents, found: $DOC_COUNT"
+    exit 1
+  fi
+
+after_test: |
+  echo "⏳ Cleaning up test index: app-275-logs-qe7p2k4d"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-275-logs-qe7p2k4d" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  echo "✅ Cleanup complete"

@@ -130,8 +130,11 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 
 3. **Install HolmesGPT:**
    ```bash
-   helm install holmesgpt robusta/holmes -f values.yaml
+   helm install holmes robusta/holmes -f values.yaml
    ```
+
+    !!! note "The namespace Holmes runs in"
+        This command installs Holmes into the namespace of your current kubectl context, `default` unless you set another. `helm list -A` shows the namespace of each release. Every Kubernetes secret your values read, through `extraEnvVarsSecrets` or `additionalEnvVars`, must be in that namespace: if one is missing, the Holmes pod does not start. It stays in `CreateContainerConfigError`, and its events show `Error: secret "<name>" not found`. An `additionalEnvVars` entry whose `secretKeyRef` sets `optional: true` is the exception: the pod starts without that secret.
 
 ## Usage
 
@@ -140,7 +143,7 @@ After installation, test the service with a simple API call:
 ```bash
 # Port forward to access the service locally
 # Note: Service name is {release-name}-holmes
-kubectl port-forward svc/holmesgpt-holmes 8080:80
+kubectl port-forward svc/holmes-holmes 8080:80
 
 # If you used a different release name or namespace:
 # kubectl port-forward svc/{your-release-name}-holmes 8080:80 -n {your-namespace}
@@ -161,17 +164,56 @@ curl -X POST http://localhost:8080/api/chat \
 For complete API documentation, see the [HTTP API Reference](../reference/http-api.md).
 
 
+## Serving the API over HTTPS (TLS)
+
+By default the pod serves the API over plain HTTP. HolmesGPT can serve **HTTPS directly from the pod** (in-app TLS) — no ingress, gateway, or sidecar proxy is required. This is disabled by default and is fully backward compatible: existing installs are unchanged until you enable it.
+
+When enabled, the chart mounts your TLS secret into the pod, points the server at it via the `HOLMES_SSL_*` environment variables, and switches the Service `appProtocol` to HTTPS automatically. The liveness/readiness probes also switch to HTTPS — except when `caCertsSecretKey` is set for mTLS, in which case the chart falls back to `tcpSocket` probes because the kubelet cannot present a client certificate.
+
+**Provide your own certificate.** The chart does not generate a self-signed certificate — supply a Kubernetes TLS secret containing `tls.crt` and `tls.key`. You can create it with [cert-manager](https://cert-manager.io/) or manually:
+
+```bash
+kubectl create secret tls holmes-tls \
+  --cert=/path/to/tls.crt \
+  --key=/path/to/tls.key \
+  -n {your-namespace}
+```
+
+**Enable TLS in `values.yaml`:**
+
+```yaml
+tls:
+  enabled: true
+  secretName: holmes-tls               # required: secret with tls.crt and tls.key
+  # keyfilePasswordSecretKey: ""       # optional: key in the secret with the encrypted-key password
+  # caCertsSecretKey: ca.crt           # optional: a key in the same secret; enables mTLS
+```
+
+To require client certificates (**mutual TLS**), add a CA bundle under an extra key in the same secret (e.g. `ca.crt`) and set `caCertsSecretKey` to that key name. Clients without a certificate signed by that CA are rejected.
+
+> **Note**: Enabling `tls` without `secretName` fails the Helm render with a clear error, so a misconfiguration can't silently downgrade to HTTP. The server reads the certificate once at startup and does not hot-reload it — after rotating the certificate/secret, restart the pod (`kubectl rollout restart deployment/{release-name}-holmes`).
+
+After enabling, port-forward and call the service over `https` (use `-k` for a self-signed/private-CA certificate):
+
+```bash
+kubectl port-forward svc/holmes-holmes 8080:80
+curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
+  -d '{"ask": "list pods in namespace default?", "model": "anthropic/claude-sonnet-4-5-20250929"}'
+```
+
 ## Upgrading
+
+Use the release name you installed with; `helm list -A` shows it.
 
 ```bash
 helm repo update
-helm upgrade holmesgpt robusta/holmes -f values.yaml
+helm upgrade holmes robusta/holmes -f values.yaml
 ```
 
 ## Uninstalling
 
 ```bash
-helm uninstall holmesgpt
+helm uninstall holmes
 ```
 
 ## Next Steps

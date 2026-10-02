@@ -1,0 +1,60 @@
+# Test: VictoriaLogs stream/label discovery
+# Tests that Holmes can use the streams or field_values tools to enumerate
+# distinct services in a given namespace.
+#
+# Requirements:
+# - VICTORIALOGS_URL: URL to a VictoriaLogs server (e.g., http://localhost:9428)
+
+user_prompt: "Which services have logs in the 'app-258' namespace in VictoriaLogs in the last 5 minutes? List them by name."
+
+expected_output:
+  - "Must call victorialogs_streams or victorialogs_field_values to discover the services"
+  - "Must list these three services: checkout-258, inventory-258, and shipping-258"
+
+include_tool_calls: true
+
+tags:
+  - victorialogs
+  - logs
+  - medium
+
+setup_timeout: 120
+
+before_test: |
+  # Note: this fixture uses GNU date (-d 'N minutes ago'); CI runs on Linux.
+  set -euo pipefail
+  : "${VICTORIALOGS_URL:?VICTORIALOGS_URL must be set}"
+
+  curl -sf "${VICTORIALOGS_URL}/health" >/dev/null
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  # Insert a few log lines per service so each shows up as its own stream.
+  curl -sf -X POST \
+    "${VICTORIALOGS_URL}/insert/jsonline?_stream_fields=service,namespace&_msg_field=message&_time_field=time" \
+    -H "Content-Type: application/stream+json" \
+    --data-binary @- <<EOF
+  {"time":"$NOW","service":"checkout-258","namespace":"app-258","message":"Cart updated"}
+  {"time":"$NOW","service":"checkout-258","namespace":"app-258","message":"Order placed"}
+  {"time":"$NOW","service":"inventory-258","namespace":"app-258","message":"Stock decremented"}
+  {"time":"$NOW","service":"inventory-258","namespace":"app-258","message":"Low stock warning"}
+  {"time":"$NOW","service":"shipping-258","namespace":"app-258","message":"Label printed"}
+  {"time":"$NOW","service":"shipping-258","namespace":"app-258","message":"Tracking number issued"}
+  EOF
+
+  sleep 3
+
+  # Verify each service stream is queryable.
+  for svc in checkout-258 inventory-258 shipping-258; do
+    LINES=$(curl -sf -X POST "${VICTORIALOGS_URL}/select/logsql/query" \
+      --data-urlencode "query={namespace=\"app-258\",service=\"${svc}\"}" \
+      -d "start=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
+      -d 'limit=10' | wc -l)
+    if [ "$LINES" -lt 1 ]; then
+      echo "❌ No logs found for service ${svc}"
+      exit 1
+    fi
+  done
+  echo "✅ All three services have queryable streams in app-258"
+
+after_test: |
+  echo "No cleanup needed (logs auto-expire by retention)."

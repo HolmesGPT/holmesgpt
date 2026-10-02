@@ -1,26 +1,30 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: java-api-checker
+  name: invoice-export
   namespace: app-12
 spec:
   template:
     spec:
       containers:
-      - name: java-beans
+      - name: exporter
         image: python:3.9-slim
-        command: ["python", "/scripts/generate_logs.py"]
-        volumeMounts:
-        - name: script-volume
-          mountPath: /scripts
+        command:
+          - python
+          - -c
+          - |
+            import os
+            import sys
+
+            print("invoice-export starting")
+            bucket = os.environ.get("EXPORT_BUCKET")
+            if not bucket:
+                sys.stderr.write("FATAL: required environment variable EXPORT_BUCKET is not set\n")
+                sys.exit(1)
+            print(f"exporting invoices to {bucket}")
         resources:
           requests:
             memory: "64Mi"
             cpu: "10m"
-      volumes:
-      - name: script-volume
-        secret:
-          secretName: java-api-checker-logs-script
-          defaultMode: 0755
       restartPolicy: Never
   backoffLimit: 1

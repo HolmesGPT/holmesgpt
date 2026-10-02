@@ -7,6 +7,8 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
 
 ## Configuration
 
+In Kubernetes, `extended` is recommended, since Holmes runs in a container with a minimal filesystem.
+
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -17,8 +19,10 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
         enabled: true
         config:
           builtin_allowlist: "core"  # "none", "core", or "extended"
-          allow:                     # additional prefixes (merged with builtins)
-            - "my-custom-tool"
+          # allow:
+          #   - "helm list"
+          #   - "kubectl rollout history"
+          #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
           deny:
             - "kubectl get secret"
             - "kubectl describe secret"
@@ -33,7 +37,33 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
     | `--bash-always-deny` | Automatically deny commands not in the allow list |
     | `--bash-always-allow` | Automatically approve all commands (use with caution) |
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    toolsets:
+      bash:
+        enabled: true
+        config:
+          builtin_allowlist: "extended"
+          # allow:
+          #   - "helm list"
+          #   - "kubectl rollout history"
+          #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
+          deny:
+            - "kubectl get secret"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -42,13 +72,19 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
           enabled: true
           config:
             builtin_allowlist: "extended"
-            allow:
-              - "my-custom-command"
+            # allow:
+            #   - "helm list"
+            #   - "kubectl rollout history"
+            #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
             deny:
               - "kubectl get secret"
     ```
 
-    `extended` is recommended for Helm deployments where Holmes runs in a container with a minimal filesystem.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Builtin Allowlist Levels
 
@@ -60,16 +96,16 @@ The `builtin_allowlist` field controls which commands are pre-approved:
 |----------|----------|
 | Kubernetes | `kubectl get`, `kubectl describe`, `kubectl logs`, `kubectl top`, `kubectl explain`, `kubectl api-resources`, `kubectl config view`, `kubectl config current-context`, `kubectl cluster-info`, `kubectl version`, `kubectl auth can-i`, `kubectl diff`, `kubectl events` |
 | JSON | `jq` |
-| Text processing | `grep`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr` |
+| Text processing | `grep`, `head`, `tail`, `sort`, `uniq`, `wc`, `cut`, `tr`, `echo` |
 | System info | `id`, `whoami`, `hostname`, `uname`, `date`, `which`, `type` |
 
 **`extended`** (Helm default) - adds these on top of `core`:
 
 | Category | Commands | Why container-only |
 |----------|----------|--------------------|
-| File reading | `cat`, `echo`, `base64` | Can read sensitive files (~/.ssh, ~/.aws) on local machines |
+| File reading | `cat`, `base64` | Can read sensitive files (~/.ssh, ~/.aws) on local machines |
 | Filesystem | `ls`, `find`, `stat`, `du`, `df` | Exposes local filesystem structure |
-| Archives | `tar -tf`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
+| Archives | `tar -tf`, `tar -tvf`, `gzip -l`, `zcat`, `zgrep` | Can inspect local archives |
 
 **`none`** - empty builtin list. Only commands in your `allow` list and previously approved commands are allowed.
 
@@ -113,6 +149,31 @@ kubectl get pods | grep error | head -10
 ```
 
 This requires `kubectl get`, `grep`, and `head` to all be allowed.
+
+A prefix can be as narrow as you like — it is matched against the start of the
+command and must end on a whitespace or `/` boundary, so it can pin a subcommand
+or the leading part of a URL. It constrains the start of the command and nothing
+else; read the warning under the table before relying on a URL-scoped entry.
+
+| Allow entry | Allows | Still needs approval |
+|-------------|--------|----------------------|
+| `helm list` | `helm list -A`, `helm list -n prod -o json` | `helm upgrade my-release ./chart` |
+| `kubectl rollout history` | `kubectl rollout history deployment/nginx` | `kubectl rollout restart deployment/nginx` |
+| `curl https://prometheus.monitoring.svc:9090/api/v1` | `curl https://prometheus.monitoring.svc:9090/api/v1/targets` | `curl https://example.com` |
+
+!!! warning "A prefix does not restrict where a command goes"
+    It constrains the start of the command and nothing else. With the `curl`
+    entry above, `curl https://prometheus.monitoring.svc:9090/api/v1/targets
+    https://example.com` also matches, and so does the same command with
+    `--next` or `-o`, because each still *starts* with the allowed prefix.
+    `deny` entries are matched the same way, so they don't catch it either.
+    A URL-scoped prefix cuts approval prompts for the endpoint you use most;
+    it is not an egress control. If Holmes must not reach other destinations,
+    leave `curl` out of the allow list and approve each command as it comes up.
+
+Because matching starts at the beginning of the command, put the part you are
+scoping on first and flags last — `curl https://host/api/v1/targets -s` matches
+the prefix above, `curl -s https://host/api/v1/targets` does not.
 
 ## Large Tool Result Storage
 

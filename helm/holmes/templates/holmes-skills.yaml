@@ -1,0 +1,12 @@
+{{- if .Values.customSkills }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-holmes-skills
+  namespace: {{ .Release.Namespace }}
+data:
+  {{- range $name, $skill := .Values.customSkills }}
+  {{ $name }}.SKILL.md: |-
+{{ $skill.content | indent 4 }}
+  {{- end }}
+{{- end }}

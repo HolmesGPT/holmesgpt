@@ -1,0 +1,100 @@
+# Test: Mixed-source topology — Holmes has BOTH kubectl (local cluster only)
+# AND a global external backend (Elasticsearch) that contains data for many
+# clusters. User asks about a non-local cluster. Holmes must route to the
+# external backend (ES) for that cluster's data — not waste time on
+# kubectl (which can only see the local cluster), and not blame the local
+# cluster's healthy pods as the answer.
+
+user_prompt: |
+  The checkout-service in production-us-east-2 is throwing 500 errors right
+  now. Investigate the root cause using app-269-prod-logs.
+
+cluster_name: "production-eu-west-2"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must investigate using the Elasticsearch toolset (app-269-prod-logs) — that's where the production-us-east-2 data is"
+  - "Must identify the root cause from the us-east-2 logs: payment-service upstream timeouts to stripe-us, triggering checkout-service circuit-breaker"
+  - "Findings must be labeled as belonging to production-us-east-2, not production-eu-west-2"
+  - "Must NOT present the local cluster's (production-eu-west-2) healthy kubectl state as the answer to a question about production-us-east-2"
+
+tags:
+  - kubernetes
+  - elasticsearch
+  - medium
+  - transparency
+  - multi-cluster
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  # ----- Set up KIND-local checkout-service (healthy) ------
+  kubectl create namespace app-269 --save-config --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml -n app-269
+  READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=checkout-service -n app-269 --timeout=5s 2>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" != "true" ]; then
+    echo "checkout-service did not become ready in namespace app-269"
+    kubectl get pods -n app-269 -o wide || true
+    exit 1
+  fi
+
+  # ----- Set up multi-cluster ES data ------
+  LOGS_INDEX="app-269-prod-logs"
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_30M=$(ts "minutes=30")
+  T_1H=$(ts "hours=1")
+  T_2H=$(ts "hours=2")
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"service":{"type":"keyword"},"cluster":{"type":"keyword"},"level":{"type":"keyword"},"message":{"type":"text"}}}}' > /dev/null
+
+  BULK_FILE=$(es_temp_file "logs" "269")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-us-east-2","level":"ERROR","message":"POST /api/checkout failed: payment provider response timeout after 30s (stripe-us)"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"payment-service","cluster":"production-us-east-2","level":"ERROR","message":"Upstream timeout calling stripe-us /v1/charges after 30000ms"}
+  {"index":{}}
+  {"timestamp":"${T_1H}","service":"checkout-service","cluster":"production-us-east-2","level":"ERROR","message":"Circuit-breaker open for payment-service (failure rate 41%)"}
+  {"index":{}}
+  {"timestamp":"${T_30M}","service":"checkout-service","cluster":"production-us-east-2","level":"ERROR","message":"POST /api/checkout failed: circuit-breaker open"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-eu-west-2","level":"INFO","message":"Healthy: p95 latency 220ms"}
+  {"index":{}}
+  {"timestamp":"${T_30M}","service":"payment-service","cluster":"production-eu-west-2","level":"INFO","message":"Adyen-eu healthy"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+  rm -f "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+  echo "Test data: local KIND checkout-service (healthy) + ES with us-east-2 incident & eu-west-2 healthy"
+
+after_test: |
+  kubectl delete namespace app-269 --ignore-not-found
+  echo "ES index skipped (reentrant)"

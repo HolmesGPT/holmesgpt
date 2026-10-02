@@ -14,6 +14,7 @@ from holmes.plugins.toolsets.coralogix.toolset_coralogix import (
 )
 from holmes.plugins.toolsets.coralogix.utils import (
     CoralogixConfig,
+    get_ui_base_url,
     normalize_datetime,
 )
 
@@ -46,6 +47,229 @@ def coralogix_toolset(coralogix_config):
 )
 def test_normalize_datetime(input_date, expected_output):
     assert normalize_datetime(input_date) == expected_output
+
+
+class TestUIPermalinkBaseURL:
+    """Tests for get_ui_base_url (ROB-1395).
+
+    The Coralogix team UI hostname differs from the API domain in most regions
+    (e.g. US2 API domain is us2.coralogix.com / cx498.coralogix.com but the UI
+    lives at <team>.app.cx498.coralogix.com), so permalinks must not reuse the
+    API domain verbatim.
+    """
+
+    @pytest.mark.parametrize(
+        "domain,expected_host",
+        [
+            # US1 (Ohio)
+            ("us1.coralogix.com", "app.coralogix.us"),
+            ("coralogix.us", "app.coralogix.us"),
+            # US2 (Oregon) - the originally reported bug
+            ("us2.coralogix.com", "app.cx498.coralogix.com"),
+            ("cx498.coralogix.com", "app.cx498.coralogix.com"),
+            # US3 (Iowa)
+            ("us3.coralogix.com", "app.us3.coralogix.com"),
+            # EU1 (Ireland) - only region whose team hostname has no 'app.' prefix
+            ("eu1.coralogix.com", "coralogix.com"),
+            ("coralogix.com", "coralogix.com"),
+            # EU2 (Stockholm)
+            ("eu2.coralogix.com", "app.eu2.coralogix.com"),
+            # AP1 (Mumbai)
+            ("ap1.coralogix.com", "app.coralogix.in"),
+            ("coralogix.in", "app.coralogix.in"),
+            # AP2 (Singapore)
+            ("ap2.coralogix.com", "app.coralogixsg.com"),
+            ("coralogixsg.com", "app.coralogixsg.com"),
+            # AP3 (Jakarta)
+            ("ap3.coralogix.com", "app.ap3.coralogix.com"),
+            # GOV1 (AWS GovCloud, FedRAMP)
+            ("gov1.coralogixgov.us", "app.gov1.coralogixgov.us"),
+        ],
+    )
+    def test_maps_api_domain_to_team_ui_hostname(self, domain, expected_host):
+        """Each documented Coralogix domain maps to its official team UI hostname."""
+        config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
+        assert get_ui_base_url(config) == f"https://acme.{expected_host}"
+
+    @pytest.mark.parametrize(
+        "domain",
+        [
+            "US2.Coralogix.com",  # case-insensitive
+            " us2.coralogix.com ",  # surrounding whitespace
+            "us2.coralogix.com/",  # trailing slash
+            "us2.coralogix.com.",  # trailing dot (FQDN form)
+            "https://us2.coralogix.com",  # scheme pasted in by mistake
+        ],
+    )
+    def test_domain_is_normalized_before_mapping(self, domain):
+        """Domain casing/whitespace/scheme/trailing chars are normalized before lookup."""
+        config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
+        assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_unknown_non_coralogix_domain_falls_back_to_domain_itself(self):
+        """Non-Coralogix (custom) domains keep the {team_slug}.{domain} behavior."""
+        config = CoralogixConfig(
+            api_key="k", team_slug="acme", domain="logs.my-company.internal"
+        )
+        assert get_ui_base_url(config) == "https://acme.logs.my-company.internal"
+
+    @pytest.mark.parametrize(
+        "domain,expected_host",
+        [
+            # hypothetical future regions: assume the modern app.<domain> scheme
+            # that us3/eu2/ap3 follow
+            ("us4.coralogix.com", "app.us4.coralogix.com"),
+            ("eu3.coralogix.com", "app.eu3.coralogix.com"),
+            ("me1.coralogix.com", "app.me1.coralogix.com"),
+            ("gov2.coralogixgov.us", "app.gov2.coralogixgov.us"),
+        ],
+    )
+    def test_unknown_coralogix_domain_assumes_app_prefix(self, domain, expected_host):
+        """Unmapped Coralogix regions get the modern app.<domain> UI hostname."""
+        config = CoralogixConfig(api_key="k", team_slug="acme", domain=domain)
+        assert get_ui_base_url(config) == f"https://acme.{expected_host}"
+
+    def test_custom_domain_containing_coralogix_is_not_app_prefixed(self):
+        """A custom domain that merely contains 'coralogix' is used as-is."""
+        config = CoralogixConfig(
+            api_key="k", team_slug="acme", domain="logs.coralogix-proxy.internal"
+        )
+        assert get_ui_base_url(config) == "https://acme.logs.coralogix-proxy.internal"
+
+    def test_domain_already_app_prefixed_is_not_double_prefixed(self):
+        """A domain mistakenly set to the UI hostname doesn't get a second app. prefix."""
+        config = CoralogixConfig(
+            api_key="k", team_slug="acme", domain="app.us4.coralogix.com"
+        )
+        assert get_ui_base_url(config) == "https://acme.app.us4.coralogix.com"
+
+    def test_no_team_slug_and_no_ui_url_returns_none(self):
+        """Without team_slug or ui_url there is no UI base URL."""
+        config = CoralogixConfig(api_key="k", domain="us2.coralogix.com")
+        assert get_ui_base_url(config) is None
+
+    def test_ui_url_override_is_used_verbatim(self):
+        """A configured ui_url is used as the permalink base."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            ui_url="https://acme.app.cx498.coralogix.com",
+        )
+        assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_ui_url_override_wins_over_team_slug_and_domain(self):
+        """ui_url takes precedence over team_slug + domain derivation."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="eu2.coralogix.com",
+            team_slug="other-team",
+            ui_url="https://acme.app.cx498.coralogix.com",
+        )
+        assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_ui_url_trailing_slash_is_stripped(self):
+        """A trailing slash on ui_url is stripped."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            ui_url="https://acme.app.cx498.coralogix.com/",
+        )
+        assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_ui_url_without_scheme_gets_https(self):
+        """A scheme-less ui_url gets an https:// prefix."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            ui_url="acme.app.cx498.coralogix.com",
+        )
+        assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_ui_url_with_uppercase_scheme_is_not_double_prefixed(self):
+        """An uppercase scheme is recognized; no second https:// is prepended."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            ui_url="HTTPS://acme.app.cx498.coralogix.com",
+        )
+        assert get_ui_base_url(config) == "HTTPS://acme.app.cx498.coralogix.com"
+
+    def test_deprecated_team_hostname_field_gets_mapped_hostname(self):
+        """Deprecated team_hostname configs also get the mapped UI hostname."""
+        config = CoralogixConfig(
+            api_key="k", domain="us2.coralogix.com", team_hostname="acme"
+        )
+        assert config.team_slug == "acme"
+        assert "team_hostname" not in (config.model_extra or {})
+        assert get_ui_base_url(config) == "https://acme.app.cx498.coralogix.com"
+
+    def test_team_slug_wins_over_deprecated_team_hostname(self):
+        """team_slug is preferred and the deprecated field is dropped when both are set."""
+        config = CoralogixConfig(
+            api_key="k",
+            domain="us2.coralogix.com",
+            team_slug="new-team",
+            team_hostname="old-team",
+        )
+        assert config.team_slug == "new-team"
+        assert "team_hostname" not in config.model_dump()
+        assert get_ui_base_url(config) == "https://new-team.app.cx498.coralogix.com"
+
+
+class TestUIPermalinkToolURL:
+    """End-to-end (tool-level) permalink tests for ROB-1395."""
+
+    PARAMS = {
+        "query": "source logs | lucene 'error' | limit 100",
+        "description": "test query",
+        "query_type": "Logs",
+        "start_date": "2024-01-01T00:00:00Z",
+        "end_date": "2024-01-01T01:00:00Z",
+    }
+
+    def _invoke(self, config: CoralogixConfig):
+        """Invoke the tool with the DataPrime API stubbed out."""
+        toolset = CoralogixToolset()
+        toolset.config = config
+        tool = ExecuteDataPrimeQuery(toolset)
+        with patch(
+            "holmes.plugins.toolsets.coralogix.toolset_coralogix.execute_dataprime_query"
+        ) as mock_execute:
+            mock_execute.return_value = ([{"log": "test"}], None)
+            return tool._invoke(self.PARAMS, Mock())
+
+    def test_us2_permalink_points_to_team_ui_hostname(self):
+        """US2 tool invocations produce permalinks on the official UI hostname."""
+        result = self._invoke(
+            CoralogixConfig(api_key="k", team_slug="acme", domain="us2.coralogix.com")
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.url is not None
+        assert result.url.startswith(
+            "https://acme.app.cx498.coralogix.com/#/query-new/logs?"
+        )
+        # the API domain must not leak into the UI link
+        assert "us2.coralogix.com" not in result.url
+
+    def test_ui_url_override_used_for_permalink(self):
+        """ui_url override is reflected in the tool result URL."""
+        result = self._invoke(
+            CoralogixConfig(
+                api_key="k",
+                domain="us2.coralogix.com",
+                ui_url="https://acme.app.cx498.coralogix.com",
+            )
+        )
+        assert result.url is not None
+        assert result.url.startswith(
+            "https://acme.app.cx498.coralogix.com/#/query-new/logs?"
+        )
+
+    def test_no_team_slug_no_ui_url_yields_no_permalink_but_succeeds(self):
+        """Missing team_slug/ui_url yields no URL but the tool still succeeds."""
+        result = self._invoke(CoralogixConfig(api_key="k", domain="us2.coralogix.com"))
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.url is None
 
 
 class TestExecuteDataPrimeQuery:

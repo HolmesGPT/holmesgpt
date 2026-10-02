@@ -275,6 +275,8 @@ def responses():
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.com"))
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.us"))
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.in"))
+        # Coralogix docs site (domain-table drift check in test_domain_map_sync.py)
+        rsps.add_passthru("https://coralogix.com")
 
         # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
         rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
@@ -292,4 +294,21 @@ def responses():
         rsps.add_passthru("https://burgergooglenetworkspam.co.uk")
         rsps.add_passthru("https://www.google.com")
         rsps.add_passthru("https://www.burgergooglenetworkspam.co.uk")
+        # example.com — stable public host for the internet-toolset SSRF eval
+        # (286_internet_fetch_public_url_allowed).
+        rsps.add_passthru("https://www.example.com")
+        rsps.add_passthru("http://www.example.com")
+        rsps.add_passthru("https://example.com")
+        rsps.add_passthru("http://example.com")
         yield rsps
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip tests marked with @pytest.mark.manual unless explicitly requested."""
+    markexpr = config.getoption("-m", default="")
+    if "manual" in markexpr:
+        return  # User explicitly requested manual tests
+    skip_manual = pytest.mark.skip(reason="Manual test — run with: pytest -m manual")
+    for item in items:
+        if "manual" in item.keywords:
+            item.add_marker(skip_manual)

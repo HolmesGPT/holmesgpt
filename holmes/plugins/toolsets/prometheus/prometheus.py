@@ -2,10 +2,12 @@ import json
 import logging
 import os
 import time
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type, Union
-from urllib.parse import urljoin
+from enum import Enum
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
+from urllib.parse import urljoin, urlparse
 
 import dateutil.parser
+import re
 import requests  # type: ignore
 from prometrix.auth import PrometheusAuthorization
 from prometrix.connect.aws_connect import AWSPrometheusConnect
@@ -59,6 +61,31 @@ MAX_METADATA_TIMEOUT_SECONDS = 60
 DEFAULT_METADATA_TIME_WINDOW_HRS = 1
 
 
+class PrometheusSubtype(str, Enum):
+    """Stable identifiers for the Prometheus toolset variants.
+
+    Exposed to users as the top-level `subtype:` YAML field on the
+    `prometheus/metrics` toolset. Mirrors the `DatabaseSubtype` pattern
+    used by the Database toolset.
+    """
+
+    PROMETHEUS = "prometheus"
+    CORALOGIX = "coralogix"
+    GOOGLE_MANAGED_PROMETHEUS = "google-managed-prometheus"
+    GRAFANA_CLOUD = "grafana-cloud"
+    VICTORIAMETRICS = "victoriametrics"
+    AWS_MANAGED_PROMETHEUS = "aws-managed-prometheus"
+    AZURE_MANAGED_PROMETHEUS = "azure-managed-prometheus"
+
+
+def get_config_field(config: dict[str, Any], field: str) -> Any:
+    """Return the value of ``field`` from ``config``, falling back to the
+    matching upper-cased environment variable. Empty/None config values fall
+    through to the env var; missing or empty env vars return ``None``.
+    """
+    return config.get(field) or os.environ.get(field.upper()) or None
+
+
 def format_ssl_error_message(prometheus_url: str, error: SSLError) -> str:
     """Format a clear SSL error message with remediation steps."""
     return (
@@ -75,6 +102,12 @@ def format_ssl_error_message(prometheus_url: str, error: SSLError) -> str:
 
 class PrometheusConfig(ToolsetConfig):
     """Prometheus toolset configuration."""
+
+    _name: ClassVar[Optional[str]] = "Prometheus"
+    _description: ClassVar[Optional[str]] = "Connect to a self-hosted Prometheus server."
+    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg"
+    _docs_anchor: ClassVar[Optional[str]] = "configuration"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.PROMETHEUS.value
 
     _deprecated_mappings: ClassVar[Dict[str, Optional[str]]] = {
         "headers": "additional_headers",
@@ -191,7 +224,120 @@ class PrometheusConfig(ToolsetConfig):
         return False
 
 
+class CoralogixPrometheusConfig(PrometheusConfig):
+    """Coralogix Prometheus-compatible endpoint configuration."""
+
+    _name: ClassVar[Optional[str]] = "Coralogix"
+    _description: ClassVar[Optional[str]] = "Connect to Coralogix's Prometheus-compatible endpoint."
+    _icon_url: ClassVar[Optional[str]] = "https://avatars.githubusercontent.com/u/35295744?s=200&v=4"
+    _docs_anchor: ClassVar[Optional[str]] = "coralogix-prometheus"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.CORALOGIX.value
+
+    prometheus_url: str = Field(  # type: ignore[assignment]
+        title="URL",
+        description="Coralogix Prometheus query endpoint URL",
+        examples=[
+            "https://prom-api.eu2.coralogix.com",
+        ],
+    )
+    additional_headers: Dict[str, str] = Field(
+        default={"token": "{{ env.CORALOGIX_API_KEY }}"},
+        title="Headers",
+        description="Must include your Coralogix API key as a 'token' header",
+        examples=[
+            {"token": "{{ env.CORALOGIX_API_KEY }}"},
+        ],
+    )
+    discover_metrics_from_last_hours: int = Field(
+        default=72,
+        title="Discover Metrics From Last Hours",
+        description="Time window in hours for metric discovery. Coralogix benefits from a longer lookback window.",
+    )
+
+
+class GooglePrometheusConfig(PrometheusConfig):
+    """Google Managed Prometheus configuration."""
+
+    _name: ClassVar[Optional[str]] = "Google Managed Prometheus"
+    _description: ClassVar[Optional[str]] = "Connect to Google Cloud Managed Prometheus using Workload Identity."
+    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/google-cloud.svg"
+    _docs_anchor: ClassVar[Optional[str]] = "google-managed-prometheus"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.GOOGLE_MANAGED_PROMETHEUS.value
+
+    prometheus_url: str = Field(  # type: ignore[assignment]
+        title="URL",
+        description="Google Managed Prometheus frontend service URL",
+        examples=[
+            "http://frontend.default.svc.cluster.local:9090",
+        ],
+    )
+
+
+class GrafanaCloudPrometheusConfig(PrometheusConfig):
+    """Grafana Cloud (Mimir) Prometheus-compatible endpoint configuration."""
+
+    _name: ClassVar[Optional[str]] = "Grafana Cloud"
+    _description: ClassVar[Optional[str]] = "Connect to Grafana Cloud's Prometheus (Mimir) endpoint."
+    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg"
+    _docs_anchor: ClassVar[Optional[str]] = "grafana-cloud-mimir"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.GRAFANA_CLOUD.value
+
+    prometheus_url: str = Field(  # type: ignore[assignment]
+        title="URL",
+        description="Grafana Cloud Prometheus endpoint URL",
+        examples=[
+            "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom",
+        ],
+    )
+    additional_headers: Dict[str, str] = Field(
+        default={"Authorization": "Basic {{ env.GRAFANA_CLOUD_AUTH }}"},
+        title="Headers",
+        description="Authorization header with Basic auth (base64 of instance_id:cloud_access_policy_token) or Bearer token",
+        examples=[
+            {"Authorization": "Basic <base64_encoded_credentials>"},
+            {"Authorization": "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"},
+        ],
+    )
+
+
+class VictoriaMetricsConfig(PrometheusConfig):
+    """VictoriaMetrics — Prometheus-compatible TSDB (vmsingle / vmselect)."""
+
+    _name: ClassVar[Optional[str]] = "VictoriaMetrics"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to VictoriaMetrics, a Prometheus-compatible TSDB."
+    )
+    _icon_url: ClassVar[Optional[str]] = "https://cdn.simpleicons.org/victoriametrics/621773"
+    _docs_anchor: ClassVar[Optional[str]] = "configuration"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.VICTORIAMETRICS.value
+
+    prometheus_url: str = Field(  # type: ignore[assignment]
+        title="URL",
+        description=(
+            "VictoriaMetrics HTTP API endpoint. Typically port 8428 for vmsingle, "
+            "8481 for vmselect."
+        ),
+        examples=[
+            "http://vmsingle-vmsingle.monitoring.svc.cluster.local:8428",
+            "http://vmselect.monitoring.svc.cluster.local:8481/select/0/prometheus",
+        ],
+    )
+
+
 class AMPConfig(PrometheusConfig):
+    _name: ClassVar[Optional[str]] = "AWS Managed Prometheus"
+    _description: ClassVar[Optional[str]] = "Connect to AWS Managed Service for Prometheus using IAM credentials."
+    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/aws.svg"
+    _docs_anchor: ClassVar[Optional[str]] = "aws-managed-prometheus-amp"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.AWS_MANAGED_PROMETHEUS.value
+
+    prometheus_url: str = Field(  # type: ignore[assignment]
+        title="URL",
+        description="AWS Managed Prometheus workspace endpoint URL",
+        examples=[
+            "https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/",
+        ],
+    )
     aws_access_key: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
     aws_region: str
@@ -240,13 +386,52 @@ class AMPConfig(PrometheusConfig):
 
 
 class AzurePrometheusConfig(PrometheusConfig):
+    _name: ClassVar[Optional[str]] = "Azure Managed Prometheus"
+    _description: ClassVar[Optional[str]] = "Connect to Azure Monitor Managed Prometheus using Azure AD."
+    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
+    _docs_anchor: ClassVar[Optional[str]] = "azure-managed-prometheus"
+    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.AZURE_MANAGED_PROMETHEUS.value
+    # These fields are Optional at the Pydantic level so managed identity
+    # (azure_use_managed_id=True) and the env-var fallback in __init__ keep
+    # working, but the UI form requires them — users configuring this
+    # through the frontend are expected to paste values directly. CLI/Helm
+    # users can omit them and rely on env vars or managed identity.
+    _ui_required_fields: ClassVar[List[str]] = [
+        "azure_client_id",
+        "azure_client_secret",
+        "azure_tenant_id",
+    ]
+
+    prometheus_url: str = Field(  # type: ignore[assignment]
+        title="URL",
+        description="Azure Monitor Prometheus workspace endpoint URL",
+        examples=[
+            "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/",
+        ],
+    )
     azure_resource: Optional[str] = None
     azure_metadata_endpoint: Optional[str] = None
     azure_token_endpoint: Optional[str] = None
     azure_use_managed_id: bool = False
-    azure_client_id: Optional[str] = None
-    azure_client_secret: Optional[str] = None
-    azure_tenant_id: Optional[str] = None
+    azure_client_id: Optional[str] = Field(
+        default=None,
+        title="Client ID",
+        description="Azure AD application client ID",
+        examples=["00000000-0000-0000-0000-000000000000"],
+    )
+    azure_client_secret: Optional[str] = Field(
+        default=None,
+        title="Client Secret",
+        description="Azure AD application client secret",
+        examples=["{{ env.AZURE_CLIENT_SECRET }}"],
+        json_schema_extra={"format": "password"},
+    )
+    azure_tenant_id: Optional[str] = Field(
+        default=None,
+        title="Tenant ID",
+        description="Azure AD tenant ID",
+        examples=["00000000-0000-0000-0000-000000000000"],
+    )
     verify_ssl: bool = True
 
     # Refresh the Azure bearer token every N seconds (default: 15 minutes)
@@ -303,6 +488,30 @@ class AzurePrometheusConfig(PrometheusConfig):
                 "AZURE_USE_MANAGED_ID", "false"
             ).lower() in ("true", "1")
 
+        # Runtime semantics: if we're NOT using managed identity, then after
+        # the env-var fallback above, client_id / tenant_id / client_secret
+        # must be populated. Raise a clear error here rather than letting
+        # prometrix fail later with an opaque auth error. (UI users see the
+        # Pydantic/schema-level `required` marker via _ui_required_fields;
+        # this check catches CLI/Helm users whose env vars are also empty.)
+        if not self.azure_use_managed_id:
+            missing = [
+                name
+                for name, value in (
+                    ("azure_client_id", self.azure_client_id),
+                    ("azure_tenant_id", self.azure_tenant_id),
+                    ("azure_client_secret", self.azure_client_secret),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(
+                    f"Azure Managed Prometheus: missing credentials {missing}. "
+                    "Either set these fields in the config, set the matching "
+                    "AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_CLIENT_SECRET env "
+                    "vars, or set `azure_use_managed_id: true` to use managed identity."
+                )
+
         # Convert None to empty string for prometrix compatibility (prometrix checks != "")
         azure_client_id = self.azure_client_id or ""
         azure_tenant_id = self.azure_tenant_id or ""
@@ -336,18 +545,43 @@ class AzurePrometheusConfig(PrometheusConfig):
 
     @staticmethod
     def is_azure_config(config: dict[str, Any]) -> bool:
-        """Check if config dict or environment variables indicate Azure Prometheus config."""
-        # Check for explicit Azure fields in config
-        if (
-            "azure_client_id" in config
-            or "azure_tenant_id" in config
-            or "azure_use_managed_id" in config
-        ):
+        """Return True if the config (dict + AZURE_* env vars) is complete enough
+        to actually use Azure Managed Prometheus auth.
+
+        Mirrors the completeness rules enforced in ``__init__``: either
+        ``azure_use_managed_id`` is enabled, or all three of
+        ``azure_client_id`` / ``azure_tenant_id`` / ``azure_client_secret`` are
+        resolvable. A partial Azure signal (e.g. ``AZURE_CLIENT_ID`` set on the
+        pod for an unrelated subsystem like Azure AI Foundry) logs a warning
+        explaining why Azure auth was skipped, then returns ``False`` so the
+        toolset falls back to plain Prometheus instead of failing on a missing
+        client secret.
+        """
+        creds = {
+            field: get_config_field(config, field)
+            for field in AzurePrometheusConfig._ui_required_fields
+        }
+        use_managed_id = str(
+            get_config_field(config, "azure_use_managed_id") or ""
+        ).lower() in ("true", "1")
+
+        if use_managed_id or all(creds.values()):
             return True
 
-        # Check for Azure environment variables
-        if os.environ.get("AZURE_CLIENT_ID") or os.environ.get("AZURE_TENANT_ID"):
-            return True
+        found = [f"{f}/{f.upper()}" for f, v in creds.items() if v]
+        missing = [f"{f}/{f.upper()}" for f, v in creds.items() if not v]
+
+        if found:
+            logging.warning(
+                "Partial Azure Managed Prometheus credentials detected "
+                "(found: %s; missing: %s). Not using Azure auth — falling back "
+                "to plain Prometheus. To enable Azure, provide all of "
+                "azure_client_id / azure_tenant_id / azure_client_secret "
+                "(in the toolset config or as AZURE_* env vars), or set "
+                "azure_use_managed_id: true for managed identity.",
+                ", ".join(found),
+                ", ".join(missing),
+            )
 
         return False
 
@@ -1778,16 +2012,16 @@ class ExecuteRangeQuery(BasePrometheusTool):
 
 class PrometheusToolset(Toolset):
     config_classes: ClassVar[
-        list[Type[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]]]
-    ] = [PrometheusConfig, AMPConfig, AzurePrometheusConfig]
-    config: Optional[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]] = None
+        list[Type[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]]]
+    ] = [PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]
+    config: Optional[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]] = None
 
     def __init__(self):
         super().__init__(
             name="prometheus/metrics",
             description="Prometheus integration to fetch metadata and execute PromQL queries",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/",
-            icon_url="https://upload.wikimedia.org/wikipedia/commons/3/38/Prometheus_software_logo.svg",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
                 ListPrometheusRules(toolset=self),
@@ -1802,8 +2036,42 @@ class PrometheusToolset(Toolset):
             tags=[
                 ToolsetTag.CORE,
             ],
+            # Intent to expose for cross-cluster remote tool calls; the
+            # per-instance locality heuristic (remote_exposure_default) narrows
+            # this to the in-cluster instances only.
+            expose_remotely=True,
         )
         self._reload_llm_instructions()
+
+    # In-cluster URL host patterns: only instances pointed at a server INSIDE
+    # the cluster are useful to run remotely (an external SaaS endpoint is
+    # reachable from the caller directly). See design doc Business Logic B.
+    _IN_CLUSTER_HOST_RE = re.compile(
+        r"(\.svc(\.cluster\.local)?$|\.svc[:/]|\.cluster\.local$|"
+        r"^localhost$|^127\.|^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[01])\.)"
+    )
+
+    def remote_exposure_default(
+        self, instance_config: Optional[Dict[str, Any]] = None
+    ) -> Optional[bool]:
+        """Expose a prometheus instance remotely only when its URL is
+        in-cluster. Auto-detected URLs are always in-cluster. A configured
+        URL is judged by host: *.svc / *.cluster.local / localhost / RFC1918
+        => in-cluster (expose); anything else (public DNS / SaaS) => don't.
+        None when undeterminable (fall back to expose_remotely)."""
+        url = (instance_config or {}).get("prometheus_url") if instance_config else None
+        if not url:
+            # No explicit URL => auto-detected at runtime => in-cluster.
+            return True
+        try:
+            host = urlparse(str(url)).hostname or ""
+        except Exception:
+            return None
+        if not host:
+            return None
+        if "." not in host and ":" not in host:
+            return True  # single-label hostname => in-cluster service name
+        return bool(self._IN_CLUSTER_HOST_RE.search(host))
 
     def _reload_llm_instructions(self):
         template_file_path = os.path.abspath(
@@ -1820,9 +2088,50 @@ class PrometheusToolset(Toolset):
             },
         )
 
+    @classmethod
+    def _subtype_to_config_class(cls) -> Dict[str, Type[PrometheusConfig]]:
+        """Derive the subtype -> config class map from ``config_classes``.
+
+        Each variant declares its own ``_subtype`` ClassVar, so there's a
+        single source of truth (the class itself). Building the map on the
+        fly avoids the hand-maintained dict/enum drift risk: adding a new
+        variant is a one-step change (append to ``config_classes``) rather
+        than two (which invites forgetting the second).
+        """
+        return {
+            cls_._subtype: cls_  # type: ignore[misc]
+            for cls_ in cls.config_classes
+            if getattr(cls_, "_subtype", None)
+        }
+
     def determine_prometheus_class(
-        self, config: dict[str, Any]
-    ) -> Type[Union[PrometheusConfig, AMPConfig, AzurePrometheusConfig]]:
+        self, config: dict[str, Any], subtype: Optional[str] = None
+    ) -> Type[PrometheusConfig]:
+        # Explicit `subtype:` on the toolset YAML wins over field-shape detection.
+        if subtype:
+            try:
+                resolved = PrometheusSubtype(subtype)
+            except ValueError as exc:
+                valid = ", ".join(s.value for s in PrometheusSubtype)
+                raise ValueError(
+                    f"Unknown prometheus subtype '{subtype}'. "
+                    f"Valid values: {valid}. "
+                    "Omit `subtype` to auto-detect from the configuration fields."
+                ) from exc
+            mapping = self._subtype_to_config_class()
+            config_cls = mapping.get(resolved.value)
+            if config_cls is None:
+                # Every PrometheusSubtype should have a matching config class
+                # registered in ``config_classes``. If this fires, the enum
+                # and the registered variants have drifted — fix by adding
+                # the missing config class rather than catching this error.
+                raise RuntimeError(
+                    f"PrometheusSubtype '{resolved.value}' has no registered "
+                    f"config class in PrometheusToolset.config_classes. "
+                    f"Known subtypes: {sorted(mapping)}."
+                )
+            return config_cls
+
         has_aws_fields = "aws_region" in config
         if has_aws_fields:
             return AMPConfig
@@ -1845,40 +2154,78 @@ class PrometheusToolset(Toolset):
         }
         self.tools = [t for t in self.tools if t.name not in incompatible]
 
+    def _set_meta_from_config(self) -> None:
+        """Set self.meta with type/subtype so the frontend can distinguish
+        catalog cards that share the `prometheus/metrics` backend toolset
+        (e.g. Prometheus vs VictoriaMetrics vs Coralogix)."""
+        subtype = getattr(type(self.config), "_subtype", None) if self.config else None
+        self.meta = {"type": "prometheus", "subtype": subtype}
+
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
+        # Normalize: a missing config block is equivalent to an empty dict.
+        # Either way we want to build a PrometheusConfig (possibly with
+        # auto-discovered URL) rather than short-circuit.
+        config = config or {}
         try:
-            if config:
-                config_cls = self.determine_prometheus_class(config)
-                self.config = config_cls(**config)  # type: ignore
-                if isinstance(self.config, AzurePrometheusConfig):
-                    self._disable_azure_incompatible_tools()
-                self._reload_llm_instructions()
-                return self._is_healthy()
-        except Exception:
-            logging.exception("Failed to create prometheus config")
-            return False, "Failed to create prometheus config"
-        try:
-            prometheus_url = os.environ.get("PROMETHEUS_URL")
-            if not prometheus_url:
-                prometheus_url = self.auto_detect_prometheus_url()
-                if not prometheus_url:
+            config_cls = self.determine_prometheus_class(config, self.subtype)
+            self.config = config_cls(**config)  # type: ignore
+
+            # Auto-discovery fallback: if the user didn't provide a URL AND
+            # they're on the generic PrometheusConfig (sibling variants
+            # make the URL required at validation time), try env var then
+            # in-cluster service discovery. This lets a user override
+            # settings like `verify_ssl` or timeouts while still relying
+            # on auto-discovery for the URL.
+            #
+            # We use `type(...) is PrometheusConfig` (not isinstance) on
+            # purpose: every sibling variant (VictoriaMetrics, AMP, Azure,
+            # etc.) redeclares `prometheus_url` as required, so an instance
+            # of those classes can never reach this branch with a missing
+            # URL — Pydantic already rejected it. Restricting discovery to
+            # the exact generic class avoids silently auto-filling a URL
+            # for a variant whose user *wanted* an explicit value.
+            if (
+                not self.config.prometheus_url
+                and type(self.config) is PrometheusConfig
+            ):
+                discovered = (
+                    os.environ.get("PROMETHEUS_URL")
+                    or self.auto_detect_prometheus_url()
+                )
+                if not discovered:
                     return (
                         False,
                         "Unable to auto-detect prometheus. Define prometheus_url in the configuration for tool prometheus/metrics",
                     )
+                self.config.prometheus_url = discovered
+                # Respect PROMETHEUS_AUTH_HEADER only when the user didn't
+                # supply their own additional_headers.
+                if not self.config.additional_headers:
+                    self.config.additional_headers = add_prometheus_auth(
+                        os.environ.get("PROMETHEUS_AUTH_HEADER")
+                    )
+                logging.info(f"Prometheus auto discovered at url {discovered}")
 
-            self.config = PrometheusConfig(
-                prometheus_url=prometheus_url,
-                additional_headers=add_prometheus_auth(
-                    os.environ.get("PROMETHEUS_AUTH_HEADER")
-                ),
-            )
-            logging.info(f"Prometheus auto discovered at url {prometheus_url}")
+            self._set_meta_from_config()
+            if isinstance(self.config, AzurePrometheusConfig):
+                self._disable_azure_incompatible_tools()
             self._reload_llm_instructions()
+
+            # Single-instance path of the locality heuristic: the wrapper's
+            # remote_exposed_instances() applies it per instance, but an
+            # unwrapped prometheus (one instance, flat config) would otherwise
+            # publish remotely even when pointed at an external SaaS endpoint.
+            # Judge the resolved config (auto-discovered URLs included).
+            exposure = self.remote_exposure_default(
+                self.config.model_dump(exclude_none=True)
+            )
+            if exposure is not None:
+                self.expose_remotely = exposure
+
             return self._is_healthy()
         except Exception as e:
             logging.exception("Failed to set up prometheus")
-            return False, str(e)
+            return False, f"Invalid Prometheus configuration: {e}"
 
     def auto_detect_prometheus_url(self) -> Optional[str]:
         url: Optional[str] = PrometheusDiscovery.find_prometheus_url()

@@ -55,6 +55,13 @@ class ScheduledHealthCheckConditionType(str, Enum):
     EXECUTION_FAILED = "ExecutionFailed"
 
 
+class TriggeredHealthCheckConditionType(str, Enum):
+    """TriggeredHealthCheck condition types."""
+
+    READY = "Ready"
+    TRIGGER_FAILED = "TriggerFailed"
+
+
 class HealthCheckConditionType(str, Enum):
     """HealthCheck condition types."""
 
@@ -164,6 +171,83 @@ class ScheduledHealthCheckStatus(BaseModel):
     message: Optional[str] = None
     active: List[ScheduledCheckActiveRef] = Field(default_factory=list)
     history: List[ScheduledCheckHistoryEntry] = Field(default_factory=list)
+    conditions: List[HealthCheckCondition] = Field(default_factory=list)
+
+
+class TriggerSelector(BaseModel):
+    """Label selector for matching resources that fire a trigger."""
+
+    matchLabels: dict = Field(default_factory=dict)
+
+
+class DeploymentRolloutTrigger(BaseModel):
+    """Fire when a Deployment matching the selector rolls out a new pod template."""
+
+    selector: TriggerSelector = Field(default_factory=TriggerSelector)
+
+
+class TriggeredHealthCheckSpec(BaseModel):
+    """TriggeredHealthCheck CRD spec.
+
+    Self-contained, mirroring ScheduledHealthCheck: it embeds the check definition
+    inline and spawns a HealthCheck child when the trigger fires (rather than
+    referencing a separate HealthCheck/template).
+    """
+
+    enabled: bool = Field(default=True)
+    deploymentRollout: DeploymentRolloutTrigger
+    # How long to wait after a new version is rolled out before running the check.
+    # Gives the rollout time to finish and gives crashes/errors time to show up.
+    # Default 5 minutes; 0 checks immediately; up to 7 days (e.g. 86400 = a day later).
+    # The wait is saved on the resource, so it still completes if the operator restarts.
+    delaySeconds: int = Field(default=300, ge=0, le=604800)
+    # Suppress re-firing for the same Deployment within this many seconds. 0 disables.
+    cooldownSeconds: int = Field(default=0, ge=0)
+    # Inline HealthCheck definition (same fields as HealthCheckSpec)
+    query: str = Field(..., min_length=1, max_length=5000)
+    timeout: int = Field(default=120, ge=1, le=300)
+    mode: CheckMode = Field(default=CheckMode.MONITOR)
+    model: Optional[str] = None
+    destinations: List[DestinationConfig] = Field(default_factory=list)
+
+
+class TriggeredDeploymentCooldown(BaseModel):
+    """Last fire time for a Deployment, used to enforce cooldownSeconds."""
+
+    deployment: str
+    lastTriggerTime: str
+
+
+class TriggeredCheckHistoryEntry(BaseModel):
+    """History entry for a triggered check execution."""
+
+    triggerTime: str
+    deployment: str
+    checkName: str
+    oldImage: Optional[str] = None
+    newImage: Optional[str] = None
+
+
+class PendingCheck(BaseModel):
+    """A check scheduled to run later (delaySeconds), persisted in status so it
+    survives operator restarts."""
+
+    deployment: str
+    fireAt: str
+    scheduledAt: str
+    oldImage: Optional[str] = None
+    newImage: Optional[str] = None
+
+
+class TriggeredHealthCheckStatus(BaseModel):
+    """TriggeredHealthCheck CRD status."""
+
+    lastTriggerTime: Optional[str] = None
+    lastTriggerDeployment: Optional[str] = None
+    triggerCount: int = 0
+    cooldowns: List[TriggeredDeploymentCooldown] = Field(default_factory=list)
+    pending: List[PendingCheck] = Field(default_factory=list)
+    history: List[TriggeredCheckHistoryEntry] = Field(default_factory=list)
     conditions: List[HealthCheckCondition] = Field(default_factory=list)
 
 

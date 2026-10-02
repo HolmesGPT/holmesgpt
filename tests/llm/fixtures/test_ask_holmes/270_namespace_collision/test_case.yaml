@@ -1,0 +1,67 @@
+# Test: Same-named resource in multiple namespaces.
+# `checkout-service` deployment exists in both app-270-prod and app-270-staging
+# namespaces, with different problems in each (prod: crashlooping due to bad
+# image; staging: healthy). User asks "why is checkout-service down?" without
+# specifying a namespace. Holmes must NOT silently pick one — it must
+# surface that the name is ambiguous (exists in 2 namespaces) and either ask
+# or address both.
+
+user_prompt: "Why is checkout-service down?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must identify that checkout-service exists in MORE THAN ONE namespace (both app-270-prod and app-270-staging) and acknowledge that ambiguity"
+  - "Must NOT silently pick one namespace's checkout-service and report on it as if it were the only one — must mention both findings"
+  - "Should identify that the app-270-prod checkout-service is crashlooping (ImagePullBackOff or similar) while app-270-staging is healthy — or ask the user which namespace they meant"
+
+tags:
+  - kubernetes
+  - medium
+  - transparency
+  - multi-cluster
+
+setup_timeout: 180
+
+before_test: |
+  kubectl create namespace app-270-prod --save-config --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-270-staging --save-config --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f prod.yaml -n app-270-prod
+  kubectl apply -f staging.yaml -n app-270-staging
+
+  # Wait for prod's bad-image pod to enter ImagePullBackOff
+  PROD_READY=false
+  for i in $(seq 1 60); do
+    STATUS=$(kubectl get pod -l app=checkout-service -n app-270-prod -o jsonpath='{.items[0].status.containerStatuses[0].state.waiting.reason}' 2>/dev/null || true)
+    if [[ "$STATUS" == "ImagePullBackOff" || "$STATUS" == "ErrImagePull" ]]; then
+      echo "prod checkout-service in $STATUS"
+      PROD_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$PROD_READY" != "true" ]; then
+    echo "prod checkout-service did not reach ImagePullBackOff/ErrImagePull in time (app=checkout-service, namespace app-270-prod)"
+    kubectl get pods -l app=checkout-service -n app-270-prod -o wide || true
+    exit 1
+  fi
+
+  # Wait for staging's healthy pod
+  STAGING_READY=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=ready pod -l app=checkout-service -n app-270-staging --timeout=5s 2>/dev/null; then
+      echo "staging checkout-service ready"
+      STAGING_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$STAGING_READY" != "true" ]; then
+    echo "staging checkout-service did not become ready in time (app=checkout-service, namespace app-270-staging)"
+    kubectl get pods -l app=checkout-service -n app-270-staging -o wide || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-270-prod --ignore-not-found
+  kubectl delete namespace app-270-staging --ignore-not-found

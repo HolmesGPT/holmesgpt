@@ -1,40 +1,47 @@
-user_prompt: "What is the issue with job java-api-checker in namespace app-12"
+user_prompt: "What is the issue with job invoice-export in namespace app-12"
 expected_output:
-  - The `java-api-checker` job repeatedly fails to connect to the database at `prod-db:3333`
+  - The `invoice-export` job fails because the required `EXPORT_BUCKET` environment variable is not set
 before_test: |
-  # Create namespace first since the secret depends on it (|| true ignores if it already exists)
   kubectl create namespace app-12 || true
-  kubectl create secret generic java-api-checker-logs-script \
-  --from-file=generate_logs.py=./generate_logs.py \
-  -n app-12 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./job.yaml
-  # Wait for job pods and specific log lines to appear (60s total) - MUST succeed or test fails
+  # Wait for job pod and the fatal log line to appear (60s total) - MUST succeed or test fails
   LOGS_READY=false
   for i in {1..20}; do
-    # Get any pod from the job (jobs create pods that may be in Error state)
-    POD_NAME=$(kubectl get pods -n app-12 -l job-name=java-api-checker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "Target host: prod-db, port: 3333" && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "FATAL: Unable to connect to required database"; then
-      echo "✅ Required log lines detected in job pod!"
+    POD_NAME=$(kubectl get pods -n app-12 -l job-name=invoice-export -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-12 2>/dev/null | grep -q "FATAL: required environment variable EXPORT_BUCKET is not set"; then
+      echo "✅ Required log line detected in job pod!"
       LOGS_READY=true
       break
     else
-      echo "⏳ Attempt $i/20: waiting for job pod with specific log lines, checking in 3s..."
+      echo "⏳ Attempt $i/20: waiting for job pod with fatal log line, checking in 3s..."
       sleep 3
     fi
   done
   if [ "$LOGS_READY" = false ]; then
-    echo "❌ Required log lines not found after 60s"
+    echo "❌ Required log line not found after 60s"
     kubectl get pods -n app-12
-    POD_NAME=$(kubectl get pods -n app-12 -l job-name=java-api-checker -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    POD_NAME=$(kubectl get pods -n app-12 -l job-name=invoice-export -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
     if [ -n "$POD_NAME" ]; then
       kubectl logs "$POD_NAME" -n app-12 --tail=50
     fi
     exit 1
   fi
 after_test: |
-  kubectl delete -f ./job.yaml
-  kubectl delete secret java-api-checker-logs-script -n app-12 --ignore-not-found
+  kubectl delete -f ./job.yaml --ignore-not-found
   kubectl delete namespace app-12 --ignore-not-found
 tags:
+  - skills
   - easy
   - regression
+
+# The SuggestSkills frontend tool is available to the agent in every eval by
+# default (it mirrors the tool the Robusta UI attaches to each chat request,
+# letting the agent propose reusable environment know-how as "skills"). This
+# scenario is deliberately free of anything environment-specific to learn: the
+# job fails on a missing required env var that is visible directly in the job
+# spec and in a single log line — no schema discovery, no failed-then-corrected
+# queries, no naming surprises, no script hidden in a Secret. A well-behaved
+# agent must NOT propose any skill here; `memories_generated: false` fails the
+# test if it proposes one anyway, guarding against skill spam after ordinary
+# investigations.
+memories_generated: false

@@ -1,5 +1,12 @@
 """
 LLM Summarize Transformer for fast model summarization of large tool outputs.
+
+LEGACY — disabled by default and NOT recommended. This predates the
+spill-to-disk mechanism (see docs/reference/context-management.md) and never
+worked well in practice: summarization is lossy (the original tool output is
+unrecoverable afterwards), adds latency and cost to every large tool call,
+and modern models do better working from the full data spilled to disk.
+Kept for backwards compatibility with existing configs that reference it.
 """
 
 import logging
@@ -16,6 +23,10 @@ logger = logging.getLogger(__name__)
 class LLMSummarizeTransformer(BaseTransformer):
     """
     Transformer that uses a fast LLM model to summarize large tool outputs.
+
+    LEGACY — disabled by default and NOT recommended (see module docstring).
+    Prefer the spill-to-disk mechanism, which preserves the full tool output
+    on disk for the model to read back.
 
     This transformer applies summarization when:
     1. A fast model is available

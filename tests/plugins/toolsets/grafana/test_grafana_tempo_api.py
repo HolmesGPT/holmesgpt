@@ -54,6 +54,7 @@ class TestGrafanaTempoAPI:
         mock_get.assert_called_once_with(
             f"{api.base_url}/api/echo",
             headers=api.headers,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -84,6 +85,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/v2/traces/123abc",
             headers=api.headers,
             params={"start": "1000", "end": "2000"},
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -103,6 +105,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/v2/traces/123abc",
             headers=api.headers,
             params={},
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -139,6 +142,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/search",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -171,6 +175,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/search",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -205,6 +210,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/v2/search/tags",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -240,6 +246,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/v2/search/tag/resource.service.name/values",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -270,6 +277,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/metrics/query",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -306,6 +314,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/metrics/query_range",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -330,6 +339,7 @@ class TestGrafanaTempoAPI:
             f"{api.base_url}/api/metrics/query",
             headers=api.headers,
             params=expected_params,
+            auth=None,
             timeout=30,
             verify=True,
         )
@@ -378,6 +388,7 @@ class TestGrafanaTempoAPI:
             expected_url,
             headers=api.headers,
             params={},
+            auth=None,
             timeout=30,
             verify=True,
         )

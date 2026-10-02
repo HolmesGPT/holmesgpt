@@ -2,7 +2,7 @@ toolsets:
   argocd/core:
     description: "Set of tools to get argocd metadata like list of apps, repositories, projects, etc."
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/argocd/"
-    icon_url: "https://argo-cd.readthedocs.io/en/stable/assets/logo.png"
+    icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/argo.svg"
     llm_instructions: |
       You have access to a set of ArgoCD tools for debugging Kubernetes application deployments.
       If an application's name does not exist in kubernetes, it may exist in argocd: call the tool `argocd_app_list` to find it.

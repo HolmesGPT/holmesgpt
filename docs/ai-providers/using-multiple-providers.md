@@ -4,12 +4,15 @@ Define multiple model configurations and switch between them by name. This is us
 
 ## Configuration
 
+Define the models in a model list, each with the credentials its provider needs. Keep only the models of the providers you use: HolmesGPT fails to load the model list when a model reads an environment variable (`{{ env.VAR_NAME }}`) that is not set. In Kubernetes, the secret then holds only the keys those models read.
+
+In Kubernetes, when multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+
 === "Holmes CLI"
 
-    **1. Create a model list file:**
+    **1. Create `~/.holmes/model_list.yaml`:**
 
     ```yaml
-    # model_list.yaml
     sonnet:
         aws_access_key_id: "your-access-key"
         aws_region_name: us-east-1
@@ -28,13 +31,7 @@ Define multiple model configurations and switch between them by name. This is us
         temperature: 0
     ```
 
-    **2. Set the environment variable:**
-
-    ```bash
-    export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
-    ```
-
-    **3. Use models by name:**
+    **2. Use models by name:**
 
     ```bash
     holmes ask "what pods are failing?" --model=sonnet --no-interactive
@@ -45,60 +42,27 @@ Define multiple model configurations and switch between them by name. This is us
 
     **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
 
+    **Custom path:** To load the model list from a different location, set `MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml`.
+
 === "Holmes Helm Chart"
 
-    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables.
-
-    **Create the Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    # Example with all providers - only include what you're using
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      --from-literal=azure-api-key="..." \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="..." \
-      -n <namespace>
-
-    # Example with just OpenAI and Anthropic
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
+    kubectl create secret generic holmes-using-multiple-providers \
+      --from-literal=OPENAI_API_KEY="sk-..." \
+      --from-literal=AZURE_API_KEY="..." \
+      --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
+      --from-literal=AWS_ACCESS_KEY_ID="AKIA..." \
+      --from-literal=AWS_SECRET_ACCESS_KEY="..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    # values.yaml
-    # Reference only the API keys you created in the secret
-    additionalEnvVars:
-      - name: AZURE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: azure-api-key
-      - name: ANTHROPIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: anthropic-api-key
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-access-key-id
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-secret-access-key
-      - name: OPENAI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: openai-api-key
+    extraEnvVarsSecrets:
+      - holmes-using-multiple-providers
 
     # Configure the model list using the environment variables
     modelList:
@@ -149,63 +113,32 @@ Define multiple model configurations and switch between them by name. This is us
           type: enabled
     ```
 
-    When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
-    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables. All Holmes configuration is nested under the `holmes:` key.
-
-    **Create the Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    # Example with all providers - only include what you're using
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      --from-literal=azure-api-key="..." \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="..." \
-      -n <namespace>
-
-    # Example with just OpenAI and Anthropic
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
+    kubectl create secret generic holmes-using-multiple-providers \
+      --from-literal=OPENAI_API_KEY="sk-..." \
+      --from-literal=AZURE_API_KEY="..." \
+      --from-literal=ANTHROPIC_API_KEY="sk-ant-..." \
+      --from-literal=AWS_ACCESS_KEY_ID="AKIA..." \
+      --from-literal=AWS_SECRET_ACCESS_KEY="..." \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    # values.yaml
     holmes:
-      # Reference only the API keys you created in the secret
-      additionalEnvVars:
-        - name: AZURE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: azure-api-key
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: anthropic-api-key
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-secret-access-key
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openai-api-key
+      extraEnvVarsSecrets:
+        - holmes-using-multiple-providers
 
       # Configure the model list using the environment variables
       modelList:
@@ -256,7 +189,11 @@ Define multiple model configurations and switch between them by name. This is us
             type: enabled
     ```
 
-    When multiple providers are defined, users can select which model to use from a dropdown in the Robusta UI, or specify a `model` parameter when using the HTTP API directly.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Model Parameters
 
@@ -302,6 +239,28 @@ Clients can specify the model in their API requests:
 
 ### Robusta AI Integration
 If you're a Robusta customer, you can also use [Robusta AI](robusta-ai.md) which provides access to multiple models without managing individual API keys.
+
+## Custom Model Pricing
+
+HolmesGPT reports per-call LLM cost in its usage events. The cost number comes from LiteLLM's bundled cost map. For first-party names (`gpt-5`, `claude-opus-4-5-20251101`) and standard Bedrock IDs LiteLLM already has prices, so the cost field is populated automatically. Robusta-hosted models also work without configuration: Holmes looks up pricing for the *real* upstream model name (e.g. `bedrock/us.anthropic.claude-opus-4-6-v1`) in LiteLLM's bundled map and registers it under the internal routing name automatically.
+
+You only need to add per-token pricing yourself if you're pointing Holmes at a model LiteLLM doesn't recognise — an internal OpenAI-compatible endpoint, a private-preview model, or a fork. In that case, add `input_cost_per_token` and `output_cost_per_token` (and optionally Anthropic cache pricing) to the model's entry:
+
+```yaml
+my-internal-opus:
+    model: openai/opus-4.6
+    api_base: https://llm.internal.example.com/v1
+    api_key: "{{ env.INTERNAL_LLM_KEY }}"
+    input_cost_per_token: 0.000003
+    output_cost_per_token: 0.000015
+    # Optional Anthropic prompt-cache pricing
+    cache_creation_input_token_cost: 0.00000375
+    cache_read_input_token_cost: 0.0000003
+```
+
+Values are USD per token. Both `input_cost_per_token` and `output_cost_per_token` must be set — configuring only one is ignored. User-configured pricing always wins over the auto-lookup.
+
+If Holmes can't find pricing through any mechanism, it logs one `INFO` line at startup naming the model so you know its usage-event costs will be `0`.
 
 ## See Also
 

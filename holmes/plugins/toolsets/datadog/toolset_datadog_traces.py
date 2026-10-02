@@ -57,7 +57,7 @@ class DatadogTracesToolset(Toolset):
             name="datadog/traces",
             description="Toolset for interacting with Datadog APM to fetch and analyze traces",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
-            icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
                 GetSpans(toolset=self),
@@ -81,7 +81,7 @@ class DatadogTracesToolset(Toolset):
             return success, error_msg
         except Exception as e:
             logging.exception("Failed to set up Datadog traces toolset")
-            return False, f"Failed to parse Datadog configuration: {str(e)}"
+            return False, f"Invalid Datadog Traces configuration: {e}"
 
     def _perform_healthcheck(self, dd_config: DatadogTracesConfig) -> Tuple[bool, str]:
         """Perform health check on Datadog traces API."""
@@ -130,8 +130,8 @@ class DatadogTracesToolset(Toolset):
             else:
                 return False, f"Datadog API error: {e.status_code} - {e.response_text}"
         except Exception as e:
-            logging.exception("Failed during Datadog traces healthcheck")
-            return False, f"Healthcheck failed with exception: {str(e)}"
+            logging.exception("Failed during Datadog traces health check")
+            return False, f"Datadog Traces health check failed: {e}"
 
 
 class BaseDatadogTracesTool(Tool):

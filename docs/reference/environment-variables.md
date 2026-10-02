@@ -56,6 +56,74 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## Server Security
+
+### HOLMES_API_KEY
+**Default:** not set (authentication disabled)
+
+When set, all API requests must include this key via either:
+
+- `X-API-Key: <key>` header, or
+- `Authorization: Bearer <key>` header
+
+Health check endpoints (`/healthz`, `/readyz`) are always exempt.
+
+**Generating a key:**
+```bash
+# Generate a random key with 32 bytes of entropy
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Or use openssl
+openssl rand -base64 32
+```
+
+**Example:**
+```bash
+export HOLMES_API_KEY=my-secret-key-here
+```
+
+**Docker example:**
+```bash
+docker run -d \
+  -e HOLMES_API_KEY=your-generated-key \
+  ...
+```
+
+### HOLMES_APPROVAL_SIGNING_KEY
+**Default:** not set (an ephemeral key is generated per process at startup)
+
+HMAC signing key for tool-approval tokens. Holmes mints a short-lived JWT
+for every tool call that requires user approval and verifies the same JWT
+when the user approves. This prevents a client from forging an approval
+for a tool call Holmes never proposed.
+
+When unset, Holmes generates a 32-byte random key at startup. Approvals
+still work, but **in-flight approvals are invalidated on every restart** —
+users will see "Approval token validation failed" if they approve a
+modal after Holmes restarted. Set this env var to keep approvals working
+across restarts.
+
+**Generating a key:**
+```bash
+openssl rand -base64 32
+```
+
+The env var is used verbatim as the HMAC key — any string works, but use a
+high-entropy value like the snippet above. A short or guessable key
+silently weakens the signature and lets a client forge approval tokens.
+
+**Example (Kubernetes):**
+```yaml
+additionalEnvVars:
+  - name: HOLMES_APPROVAL_SIGNING_KEY
+    valueFrom:
+      secretKeyRef:
+        name: holmes-secrets
+        key: approval-signing-key
+```
+
+Tokens expire after 30 days.
+
 ## SSL/TLS
 
 ### CERTIFICATE
@@ -80,6 +148,41 @@ Base64-encoded custom CA certificate for outbound HTTPS requests. When set, the 
     holmes:
       certificate: "<base64-encoded CA cert>"
     ```
+
+### API Server HTTPS (`HOLMES_SSL_*`)
+
+Serve the HolmesGPT API over **HTTPS directly from the application** (in-app TLS — no reverse proxy or ingress required). When both `HOLMES_SSL_CERTFILE` and `HOLMES_SSL_KEYFILE` are set, the server listens with TLS; otherwise it serves plain HTTP. If only one of the two is set, if a referenced file is missing, or if `HOLMES_SSL_CA_CERTS` / `HOLMES_SSL_KEYFILE_PASSWORD` is set without both server-side files, the server **fails to start** rather than silently falling back to HTTP.
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `HOLMES_SSL_CERTFILE` | for HTTPS | Path to the PEM server certificate. Setting this **and** `HOLMES_SSL_KEYFILE` enables HTTPS. |
+| `HOLMES_SSL_KEYFILE` | for HTTPS | Path to the PEM private key for the certificate. |
+| `HOLMES_SSL_KEYFILE_PASSWORD` | optional | Password for an encrypted private key. |
+| `HOLMES_SSL_CA_CERTS` | optional | Path to a CA bundle used to **verify client certificates**. Setting it enables mutual TLS (mTLS) — clients without a CA-signed certificate are rejected. |
+
+=== "Holmes CLI"
+
+    ```bash
+    export HOLMES_SSL_CERTFILE=/path/to/tls.crt
+    export HOLMES_SSL_KEYFILE=/path/to/tls.key
+    # optional:
+    export HOLMES_SSL_KEYFILE_PASSWORD=changeit
+    export HOLMES_SSL_CA_CERTS=/path/to/ca.crt   # enables mTLS
+    ```
+
+=== "Holmes Helm Chart"
+
+    Provide a TLS secret and enable `tls` (see the [Kubernetes installation guide](../installation/kubernetes-installation.md)):
+
+    ```yaml
+    tls:
+      enabled: true
+      secretName: holmes-tls   # secret with tls.crt and tls.key
+      # caCertsSecretKey: ca.crt   # optional: key in the secret, enables mTLS
+    ```
+
+!!! note "Certificate rotation"
+    The server reads the certificate once at startup and does not hot-reload it. After rotating the certificate (or its secret), restart the process/pod for the new certificate to take effect.
 
 ## Tool Result Size Limits
 
@@ -130,10 +233,31 @@ Absolute maximum tokens for a single tool response, regardless of context window
 export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 ```
 
+## Tool Subprocess Memory Limit
+
+### TOOL_MEMORY_LIMIT_MB
+**Default:** `800` on x86_64, `1500` on ARM / aarch64
+
+Per-subprocess virtual-memory cap (in MB) applied to every tool command Holmes runs. Implemented by prefixing each command with `ulimit -v <value × 1024>`. When a command exceeds the cap, the kernel kills it (exit `137`) and Holmes prefixes the output with an `[OOM]` hint instructing the LLM to retry with a narrower query.
+
+The cap limits **virtual address space**, not resident memory — Go binaries like `kubectl` can reserve hundreds of MB at startup, so set this too low and you will break commands that would otherwise use little RAM. On Kubernetes, keep this comfortably below the pod's `resources.limits.memory`. On macOS the cap is silently ignored (BSD kernel does not enforce `ulimit -v`).
+
+See [Tool Execution Safety](../data-sources/tool-execution-safety.md) for the full mechanism, implications, and tuning guidance.
+
+**Example:**
+```bash
+export TOOL_MEMORY_LIMIT_MB=2000
+```
+
 ## HolmesGPT Configuration
 
 ### MODEL_LIST_FILE_LOCATION
 Path to a YAML file that defines named model configurations. When set, you can reference models by name using `--model=<name>` in the CLI or the `model` parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.
+
+If unset, HolmesGPT looks for the model list file in this order:
+
+1. `/etc/holmes/config/model_list.yaml` (server / Helm default)
+2. `~/.holmes/model_list.yaml` (CLI default)
 
 **Example:**
 ```bash
@@ -141,6 +265,25 @@ export MODEL_LIST_FILE_LOCATION="/path/to/model_list.yaml"
 ```
 
 See [Using Multiple Providers](../ai-providers/using-multiple-providers.md) for the model list file format and usage.
+
+### LITELLM_MODEL_COST_MAP_URL
+Overrides the URL LiteLLM fetches the model catalog (`model_prices_and_context_window.json`) from. LiteLLM uses that catalog to know each model's context window, max output tokens, and pricing. By default LiteLLM pulls it from `raw.githubusercontent.com`, which is unreachable from networks that block GitHub egress.
+
+Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:
+
+```robusta-region
+https://api.robusta.dev/litellm/model_prices_and_context_window.json
+```
+
+The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to `raw.githubusercontent.com`.
+
+**Helm example:**
+
+```robusta-region {lang=yaml}
+additionalEnvVars:
+  - name: LITELLM_MODEL_COST_MAP_URL
+    value: https://api.robusta.dev/litellm/model_prices_and_context_window.json
+```
 
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
@@ -150,7 +293,7 @@ Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holme
 export HOLMES_CONFIG_PATH="/path/to/custom/config.yaml"
 ```
 
-### HOLMES_LOG_LEVEL
+### LOG_LEVEL
 Controls the logging verbosity of HolmesGPT.
 
 **Values:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
@@ -158,7 +301,43 @@ Controls the logging verbosity of HolmesGPT.
 
 **Example:**
 ```bash
-export HOLMES_LOG_LEVEL="DEBUG"
+export LOG_LEVEL="DEBUG"
+```
+
+### ENABLE_JSON_LOGS_FORMAT
+When enabled, HolmesGPT emits logs as JSON (one object per line) instead of the default colored text format. This makes logs easier to index, search, and filter with log scrapers such as Filebeat.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export ENABLE_JSON_LOGS_FORMAT="true"
+```
+
+### SCOPED_NAMESPACES
+Comma-separated list of namespaces this Holmes instance's Kubernetes RBAC is limited to. When set, Holmes is told its access scope in the system prompt, so investigations start scoped to those namespaces instead of discovering the restriction from `Forbidden` errors. The Helm chart sets it automatically when `namespaceScopedRBAC` is enabled; set it yourself when scoping RBAC manually.
+
+**Default:** unset (cluster-wide access assumed)
+
+**Example:**
+```bash
+export SCOPED_NAMESPACES="monitoring"        # single namespace
+export SCOPED_NAMESPACES="monitoring,default"  # multiple namespaces
+```
+
+### TRACE_TOKEN_USAGE
+When enabled, logs aggregated token usage (input, output, cached, total, cost) once per completed `/api/chat` request at `INFO` level. Useful for debugging token consumption and cost issues.
+
+**Default:** `false`
+
+**Example:**
+```bash
+export TRACE_TOKEN_USAGE="true"
+```
+
+**Sample output:**
+```
+Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, output=603, cached=0, total=45893, cost=$0.0656
 ```
 
 ### HOLMES_CACHE_DIR
@@ -176,6 +355,33 @@ export HOLMES_PASSTHROUGH_BLOCKED_HEADERS="authorization,cookie,set-cookie,x-int
 ```
 
 See [HTTP Header Propagation](../data-sources/header-propagation.md) for details.
+
+### HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS
+**Default:** `false`
+
+When set to `true`, the `connectivity_check` toolset's `tcp_check` tool may probe
+private/internal destinations without them being listed in its `allowed_hosts`
+setting. Use it if you don't want to maintain an allowlist — at your own risk:
+the model picks the host and port, and `tcp_check`'s open/refused/filtered
+outcomes make that a usable network scanner if an investigation reads
+attacker-controlled text. A warning is logged at startup while it is on.
+
+Cloud-metadata (`169.254.169.254`), loopback and link-local targets remain
+blocked — this variable never unblocks them. The one setting that does is
+`block_internal_ips: false`, which removes those checks independently of this
+variable; a deployment that sets both gets the unrestricted behaviour of
+`block_internal_ips: false`. `block_private_ips: true` still overrides this.
+While it is on, any
+configured `allowed_hosts` entries are ignored entirely — they neither restrict
+destinations nor exempt one from the metadata/loopback block. Equivalent to
+setting `allow_all_hosts: true` in the toolset config.
+
+**Example:**
+```bash
+export HOLMES_CONNECTIVITY_CHECK_ALLOW_ALL_HOSTS=true
+```
+
+See [Connectivity Check](../data-sources/builtin-toolsets/connectivity-check.md) for details.
 
 ## Data Source Configuration
 

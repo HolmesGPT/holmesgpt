@@ -141,7 +141,7 @@ class RabbitMQToolset(Toolset):
             name="rabbitmq/core",
             description="Provides tools to interact with RabbitMQ to diagnose cluster health, node status, and specifically network partitions (split-brain).",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/rabbitmq/",
-            icon_url="https://cdn.worldvectorlogo.com/logos/rabbitmq.svg",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/rabbitmq.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[
                 ListConfiguredClusters(toolset=self),

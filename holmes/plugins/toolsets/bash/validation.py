@@ -6,13 +6,12 @@ against allow/deny lists, with support for composed commands (pipes, &&, etc.).
 """
 
 import logging
+import os
 import re
+import shlex
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
-
-import bashlex
-from bashlex import ast
 
 from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH, load_bool
 
@@ -25,8 +24,40 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
 )
+from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
+from holmes.plugins.toolsets.bash.command_arg_rules import (
+    dangerous_argv_reason,
+    is_argv_checked_command,
+)
+from holmes.plugins.toolsets.bash.shell_parser import (
+    ParsedCommand,
+    ShellParseError,
+    parse_command,
+    scan_for_deny_checks,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Argument-level (argv) security checks.
+#
+# Prefix matching validates only a command's *name*. Some allow-listed commands
+# accept arguments (or shell redirections) that turn a read-only tool into
+# arbitrary code execution, file writes, or deletion. These checks inspect the
+# parsed argv/redirections and DENY those primitives regardless of allow-list
+# membership or prior approval, so they are never auto-executed. (This operates
+# on the parsed command; commands shell_parser cannot parse are routed to
+# approval by validate_command and so are never auto-executed either.)
+#
+# Scope note: `tar`/`zcat`/`zgrep`/`gzip` are intentionally NOT in the builtin
+# allow lists (see default_lists.py); any use of them already requires approval,
+# so they need no argv rule here.
+#
+# The per-command rules (find/sort/uniq) live in command_arg_rules.py and the
+# generic argv/target helpers in argv_utils.py; this module turns a reported
+# reason into a DENY/APPROVAL verdict.
+# ---------------------------------------------------------------------------
 
 
 class ValidationStatus(Enum):
@@ -43,6 +74,7 @@ class DenyReason(Enum):
     HARDCODED_BLOCK = "hardcoded_block"
     DENY_LIST = "deny_list"
     PREFIX_NOT_IN_COMMAND = "fabricated_prefix"
+    DANGEROUS_ARGUMENT = "dangerous_argument"
 
 
 @dataclass
@@ -96,34 +128,9 @@ def get_effective_lists(config: BashExecutorConfig) -> Tuple[List[str], List[str
     return allow_list, deny_list
 
 
-class CommandSegmentExtractor(ast.nodevisitor):
-    """
-    Bashlex AST visitor that extracts command segments.
-
-    Sets contains_compound_command flag when compound statements are encountered,
-    but continues traversal to extract inner command segments.
-    """
-
-    def __init__(self, command: str):
-        self.command = command
-        self.segments: List[str] = []
-        self.contains_compound_command: bool = False
-
-    def visitcommand(self, node, *args, **kwargs):
-        """Extract the command text for simple commands."""
-        cmd_text = self.command[node.pos[0] : node.pos[1]].strip()
-        self.segments.append(cmd_text)
-
-    def visitcompound(self, node, *args, **kwargs):
-        """Flag compound statements but continue traversal to extract inner segments."""
-        self.contains_compound_command = True
-
-
 def parse_command_segments(command: str) -> Tuple[List[str], bool]:
     """
     Parse a command into segments separated by |, &&, ||, ;, &.
-
-    Uses bashlex AST visitor for proper shell parsing.
 
     Returns:
         Tuple of (segments, contains_compound_command):
@@ -131,14 +138,99 @@ def parse_command_segments(command: str) -> Tuple[List[str], bool]:
         - contains_compound_command: True if compound statements (for, while, if, etc.) were detected
 
     Raises:
-        bashlex.errors.ParsingError: If bashlex cannot parse the command
-        NotImplementedError: If bashlex encounters unsupported syntax (e.g. case statements)
+        ShellParseError: If the command cannot be parsed (invalid or unsupported syntax)
     """
-    parts = bashlex.parse(command)
-    extractor = CommandSegmentExtractor(command)
-    for part in parts:
-        extractor.visit(part)
-    return (extractor.segments, extractor.contains_compound_command)
+    parsed = parse_command(command)
+    return (parsed.segments, parsed.contains_compound_command)
+
+
+def _unsafe_args_approval_mode() -> bool:
+    # Unknown/empty values fail safe to the strict "deny" behaviour.
+    return os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower() == "approval"
+
+
+def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
+    """Block an exec/write vector: DENIED by default, or (in approval mode)
+    APPROVAL_REQUIRED so a human can allow it. Either way it never auto-executes."""
+    if approval_mode:
+        return ValidationResult(
+            status=ValidationStatus.APPROVAL_REQUIRED,
+            message=(
+                f"Command requires approval: {reason}. The bash toolset is "
+                "read-only, so this is not auto-executed."
+            ),
+            prefixes_needing_approval=[],
+        )
+    return ValidationResult(
+        status=ValidationStatus.DENIED,
+        deny_reason=DenyReason.DANGEROUS_ARGUMENT,
+        message=(
+            f"Command blocked for security reasons: {reason}. The bash toolset "
+            "is read-only; this is not auto-executed."
+        ),
+    )
+
+
+def check_dangerous_argv(parsed: ParsedCommand) -> Optional[ValidationResult]:
+    """Argv-level and redirection security checks that prefix matching cannot see.
+
+    Returns:
+        - DENIED if any command segment uses a dangerous argument primitive or
+          writes to a real file via output redirection (checked first, so a hard
+          deny is never downgraded to approval);
+        - APPROVAL_REQUIRED if an argv-checked command (find/sort/uniq) builds an
+          argument via shell expansion, whose runtime value we cannot inspect
+          statically and which could smuggle a blocked primitive;
+        - None otherwise.
+
+    This inspects the parsed command, so it applies to commands shell_parser can
+    parse. Commands it cannot parse never reach here — validate_command routes
+    them to APPROVAL_REQUIRED (human in the loop), so they are never auto-executed.
+
+    How the exec/write vectors are handled is set by HOLMES_BASH_UNSAFE_ARGS_MODE:
+      - "deny" (default): block them outright (they are never auto-executed and
+        cannot be approved);
+      - "approval": still not auto-executed, but a human may approve a genuinely
+        read-only use (e.g. `find … -exec grep …`).
+    Any other value falls back to "deny". This does NOT auto-run anything either
+    way — it only chooses between blocking and prompting a human.
+    """
+    approval_mode = _unsafe_args_approval_mode()
+
+    # DENY (or, in approval mode, gate) checks first, across ALL segments, so a
+    # hard block is never downgraded by an earlier segment that merely contains a
+    # shell expansion.
+    for argv in parsed.command_argvs:
+        reason = dangerous_argv_reason(argv)
+        if reason:
+            return _unsafe_arg_result(reason, approval_mode)
+
+    if parsed.write_redirect_targets:
+        target = parsed.write_redirect_targets[0]
+        return _unsafe_arg_result(
+            f"output redirection to '{target}' writes to the filesystem",
+            approval_mode,
+        )
+
+    # No hard deny. A runtime expansion ($(...), `...`, $VAR/${VAR}, <(...)) in an
+    # argv-checked command's arguments can expand into a blocked primitive that the
+    # static checks above cannot see, so require explicit approval rather than
+    # auto-allowing it.
+    for argv, arg_is_dynamic in zip(
+        parsed.command_argvs, parsed.command_arg_dynamic, strict=True
+    ):
+        if arg_is_dynamic and is_argv_checked_command(os.path.basename(argv[0])):
+            return ValidationResult(
+                status=ValidationStatus.APPROVAL_REQUIRED,
+                message=(
+                    f"'{os.path.basename(argv[0])}' builds an argument via shell "
+                    "expansion, which cannot be verified as read-only and requires "
+                    "approval."
+                ),
+                prefixes_needing_approval=[],
+            )
+
+    return None
 
 
 def check_hardcoded_blocks(segment: str) -> Optional[str]:
@@ -164,7 +256,7 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
     """
     Check for blocked patterns anywhere in a raw command string using word boundaries.
 
-    This is the fallback safety check for when bashlex can't parse the command.
+    This is the fallback safety check for when shell_parser can't parse the command.
     It scans the entire raw command for any pattern from the given list.
 
     Args:
@@ -178,6 +270,171 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
     for pattern in blocked_list:
         if re.search(rf"\b{re.escape(pattern.lower())}\b", command_lower):
             return pattern
+    return None
+
+
+# Words that start a command without being its name (`do find ...`, `! find ...`).
+_RAW_LEADING_KEYWORDS = frozenset(
+    {"!", "{", "}", "do", "then", "else", "elif", "if", "while", "until", "time", "coproc"}
+)
+_RAW_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_RAW_OPERATOR_CHARS = "();<>|&"
+# Escaped operator characters are hidden from shlex (which can't tell `\;` from
+# `;`) as private-use characters, and restored afterwards.
+_RAW_ESCAPED = {c: chr(0xE000 + ord(c)) for c in _RAW_OPERATOR_CHARS}
+_RAW_UNESCAPE = str.maketrans({v: k for k, v in _RAW_ESCAPED.items()})
+_RAW_HEREDOC = re.compile(r"""(?<!<)<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2""")
+
+
+def _strip_heredoc_bodies(command: str) -> str:
+    """Drop heredoc bodies, which are data (`key: >`, HTML), not commands.
+    Bodies of unquoted heredocs that contain a substitution are kept: bash runs
+    those substitutions."""
+    lines = command.split("\n")
+    out: List[str] = []
+    i = 0
+    while i < len(lines):
+        out.append(lines[i])
+        # a `<<` inside quotes is not a heredoc
+        heredocs = [m.groups() for m in _RAW_HEREDOC.finditer(lines[i])
+                    if lines[i][: m.start()].count("'") % 2 == 0 and lines[i][: m.start()].count('"') % 2 == 0]
+        i += 1
+        for strip_tabs, quote, delimiter in heredocs:
+            end = i
+            while end < len(lines) and (lines[end].lstrip("\t") if strip_tabs else lines[end]) != delimiter:
+                end += 1
+            body = lines[i:end]
+            if not quote and any(re.search(r"`|\$\(", line) for line in body):
+                out += body
+            i = end + 1 if end < len(lines) else end
+            if end < len(lines):
+                out.append(lines[end])
+    return "\n".join(out)
+
+
+def _raw_tokens(command: str) -> List[str]:
+    """Best-effort shell tokenization for commands shell_parser can't parse.
+    Lines that can't be tokenized (e.g. unbalanced quotes) are skipped. Escaped
+    operator characters stay hidden in the tokens (see _RAW_ESCAPED)."""
+    hidden = re.sub(r"\\([();<>|&])", lambda m: _RAW_ESCAPED[m.group(1)], _strip_heredoc_bodies(command))
+    tokens: List[str] = []
+    for chunk in [hidden] + hidden.splitlines():
+        lexer = shlex.shlex(chunk, posix=True, punctuation_chars=_RAW_OPERATOR_CHARS)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        try:
+            chunk_tokens = list(lexer)
+        except ValueError:
+            continue
+        if chunk is hidden:
+            tokens = chunk_tokens
+            break
+        tokens += chunk_tokens + [";"]
+    return tokens
+
+
+def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
+    """(argvs, write redirect targets) from a shlex tokenization of the command."""
+    tokens = _raw_tokens(command)
+    argvs: List[List[str]] = [[]]
+    # (argv, mode, arith depth) enclosing an open $( / <( / >( / $(( / ((
+    parents: List[Tuple[List[str], str, int]] = []
+    targets: List[str] = []
+    # "cmd": tokens are commands; "test": inside `[[ ]]`, "arith": inside
+    # `$(( ))` / `(( ))`. In the last two `<` and `>` compare, not redirect.
+    mode, depth = "cmd", 0
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        argv = argvs[-1]
+        is_operator = bool(tok) and all(c in _RAW_OPERATOR_CHARS for c in tok)
+        if tok.endswith("$") and nxt.startswith("((") or mode == "cmd" and not argv and tok.startswith("(("):
+            # arithmetic: `>` and `<` inside compare
+            opener = nxt if tok.endswith("$") else tok
+            if tok.endswith("$"):
+                argv.append(tok.rstrip("$") + "$((...))")
+            parents.append((argv, mode, depth))
+            mode, depth = "arith", opener.count("(") - opener.count(")")
+            argvs.append([])
+            i += 2 if tok.endswith("$") else 1
+            continue
+        if tok.endswith("$") and nxt.startswith("(") or tok in ("<(", ">("):
+            # command / process substitution: a word here, a command inside
+            argv.append(tok.rstrip("$") + "$(...)")
+            parents.append((argv, mode, depth))
+            mode, depth = "cmd", 0
+            argvs.append([])
+            i += 1 if tok in ("<(", ">(") else 2
+            continue
+        if mode == "arith":
+            if is_operator:
+                depth += tok.count("(") - tok.count(")")
+                if depth <= 0 and parents:
+                    parent, mode, depth = parents.pop()
+                    argvs.append(parent)
+            i += 1
+            continue
+        if mode == "test":
+            if tok == "]]" or ";" in tok:
+                mode = "cmd"
+            i += 1
+            continue
+        if tok == "[[" and not argv:
+            mode = "test"
+            i += 1
+            continue
+        if is_operator:
+            if ">" in tok:
+                op = tok[tok.index(">") - 1 :] if tok.index(">") > 0 else tok
+                is_fd = ("&" in op or op.startswith("<")) and (nxt.isdigit() or nxt == "-")
+                if not is_fd and not is_benign_redirect_target(nxt.translate(_RAW_UNESCAPE)):
+                    targets.append(nxt.translate(_RAW_UNESCAPE))
+                i += 2
+                continue
+            if "<" in tok:
+                i += 2  # input redirect and its source
+                continue
+            if tok.startswith(")") and parents:
+                parent, mode, depth = parents.pop()
+                argvs.append(parent)
+            else:
+                argvs.append([])
+            i += 1
+            continue
+        if tok.isdigit() and nxt and nxt[0] in "<>":
+            i += 1  # fd number of a redirect, e.g. the `2` in `2>&1`
+            continue
+        word = tok.strip("`").lstrip("$").translate(_RAW_UNESCAPE)
+        if tok != "$" and not (not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))):
+            argv.append(word)
+        i += 1
+    return argvs, targets
+
+
+def check_unsafe_args_in_raw_command(command: str) -> Optional[str]:
+    """Coarse argv and write-redirect checks for commands shell_parser can't parse.
+
+    Uses both tree-sitter's best-effort tree and a shlex tokenization. Keeps
+    commands that would be denied for a dangerous argument (`find -exec`,
+    `sort -o`, ...) or a file write (`> file`) denied even when the full parser
+    gives up. It errs toward flagging.
+
+    Returns:
+        A reason if the command appears to use such a primitive, None otherwise
+    """
+    try:
+        tree_argvs, tree_targets = scan_for_deny_checks(command)
+    except Exception:  # best effort only
+        tree_argvs, tree_targets = [], []
+    raw_argvs, raw_targets = _raw_argvs(command)
+    targets = tree_targets + raw_targets
+    if targets:
+        return f"output redirection to '{targets[0]}' writes to the filesystem"
+    for argv in tree_argvs + raw_argvs:
+        reason = dangerous_argv_reason(argv)
+        if reason:
+            return reason
     return None
 
 
@@ -321,8 +578,8 @@ def validate_command(
 
     # Parse command into segments and detect compound statements
     try:
-        segments, contains_compound_command = parse_command_segments(command)
-    except (bashlex.errors.ParsingError, NotImplementedError):
+        parsed = parse_command(command)
+    except ShellParseError:
         # Can't parse — do safety checks on raw string, then ask user to approve
         blocked = check_blocked_in_raw_command(command, HARDCODED_BLOCKS)
         if blocked:
@@ -338,11 +595,24 @@ def validate_command(
                 deny_reason=DenyReason.DENY_LIST,
                 message=f"Command matches deny list pattern '{denied}'. This command is blocked by configuration.",
             )
+        unsafe = check_unsafe_args_in_raw_command(command)
+        if unsafe:
+            return _unsafe_arg_result(unsafe, _unsafe_args_approval_mode())
         return ValidationResult(
             status=ValidationStatus.APPROVAL_REQUIRED,
             message="Command contains complex syntax which requires approval.",
             prefixes_needing_approval=[],
         )
+
+    segments = parsed.segments
+    contains_compound_command = parsed.contains_compound_command
+
+    # Deny checks must also see the words bash will run, not only the quoted
+    # source: `kubectl get 'secret'` must match deny entry `kubectl get secret`.
+    for argv in parsed.command_argvs:
+        result = validate_segment(" ".join(argv), [], deny_list)
+        if result.status == ValidationStatus.DENIED:
+            return result
 
     # Validate each segment against deny/allow lists
     unapproved_segments: List[str] = []
@@ -356,6 +626,16 @@ def validate_command(
 
         if result.status == ValidationStatus.APPROVAL_REQUIRED:
             unapproved_segments.append(segment)
+
+    # Argv-level security check: code-exec/write primitives and output
+    # redirections that prefix matching cannot see (applies to every command
+    # node, including those inside pipes/compound statements). Runs AFTER the
+    # per-segment loop so a hardcoded-block / deny-list DENY there is never
+    # pre-empted by an argv approval (e.g. the shell-expansion gate, or an
+    # exec/write vector in approval mode).
+    dangerous = check_dangerous_argv(parsed)
+    if dangerous:
+        return dangerous
 
     # Compound commands always require approval, even if all segments are allowed.
     # Only unapproved-segment approvals save prefixes to the allow list —

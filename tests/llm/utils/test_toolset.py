@@ -42,10 +42,18 @@ class TestToolsetManager:
         test_case_folder: str,
         allow_toolset_failures: bool = False,
         toolsets_config_path: Optional[str] = None,
+        additional_skill_paths: Optional[list] = None,
+        enable_todo: bool = False,
     ):
         self.test_case_folder = test_case_folder
         self.allow_toolset_failures = allow_toolset_failures
         self.toolsets_config_path = toolsets_config_path
+        # Extra directories the SkillsToolset should scan in addition to the
+        # test fixture folder. Used by the rerun_with_memory replay flow to
+        # inject captured suggestions (rendered as SKILL.md files in a
+        # tempdir) as available skills, and by pre_loaded_skills_path.
+        self.additional_skill_paths = additional_skill_paths or []
+        self.enable_todo = enable_todo
 
         # Initialize components
         self._initialize_toolsets()
@@ -171,20 +179,29 @@ class TestToolsetManager:
                 or toolset.name in database_toolsets
             ):
                 continue
-            # Replace RunbookToolset with one that has test folder search path
-            if toolset.name == "runbook":
-                from holmes.plugins.toolsets.runbook.runbook_fetcher import (
-                    RunbookToolset,
+            # Todos (TodoWrite tool) are disabled by default in evals. Drop the
+            # core_investigation toolset entirely unless the test opts in via
+            # enable_todo, so the tool isn't even offered to the LLM.
+            if toolset.name == "core_investigation" and not self.enable_todo:
+                continue
+            # Replace SkillsToolset with one that has test folder search path
+            if toolset.name == "skills":
+                from holmes.plugins.toolsets.skills.skills_fetcher import (
+                    SkillsToolset,
                 )
 
-                new_runbook_toolset = RunbookToolset(
-                    dal=dal, additional_search_paths=[self.test_case_folder]
+                new_skills_toolset = SkillsToolset(
+                    dal=dal,
+                    additional_search_paths=[
+                        self.test_case_folder,
+                        *self.additional_skill_paths,
+                    ],
                 )
-                new_runbook_toolset.enabled = toolset.enabled
-                new_runbook_toolset.status = toolset.status
+                new_skills_toolset.enabled = toolset.enabled
+                new_skills_toolset.status = toolset.status
                 if toolset.config:
-                    new_runbook_toolset.config.update(toolset.config)
-                toolset = new_runbook_toolset
+                    new_skills_toolset.config.update(toolset.config)
+                toolset = new_skills_toolset
             elif toolset.name == "kubernetes/core":
                 if not isinstance(toolset, YAMLToolset):
                     raise ValueError(

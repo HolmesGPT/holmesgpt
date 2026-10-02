@@ -1,13 +1,56 @@
 certificate: "" # base64 encoded
 logLevel: INFO
+# When true, logs are emitted as JSON (one object per line) instead of colored
+# text. Useful for log scrapers like Filebeat. When Holmes is deployed as a
+# subchart of the Robusta umbrella chart, global.enableJsonLogsFormat takes
+# precedence over this value.
+enableJsonLogsFormat: false
+
+# Values shared with/from a parent umbrella chart. Declared so templates can
+# safely reference .Values.global.* when Holmes is installed standalone.
+global: {}
+
+# Serve the Holmes API over HTTPS directly from the pod (in-app TLS, no ingress/proxy).
+# When enabled you must provide your own TLS secret via secretName (e.g. issued by
+# cert-manager or created manually); the chart does not generate a self-signed cert.
+tls:
+  enabled: false
+  # Name of a kubernetes.io/tls (or generic) secret containing tls.crt and tls.key.
+  secretName: ""
+  # Optional: key within secretName holding the password for an encrypted private
+  # key (tls.key). Sourced via secretKeyRef so the password is not stored in the
+  # pod spec in plaintext.
+  keyfilePasswordSecretKey: ""
+  # Optional: key within the same secret holding a CA bundle. When set, mTLS is
+  # enabled and the server requires & verifies client certificates.
+  caCertsSecretKey: ""
 
 additionalEnvVars: []
 additional_env_vars: []
+# Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /
+# configMapRef) loaded onto the Holmes pod. Prefer `extraEnvVarsSecrets` below
+# when all you need is to mount one or more Secrets by name — this block
+# remains for the configMapRef case and for sharing entries with the runner
+# (e.g. ROBUSTA_UI_TOKEN, SLACK_TOKEN) without declaring each key twice.
+additional_env_froms: []
 imagePullSecrets: []
 podAnnotations: {}
+commonLabels: {}
+commonAnnotations: {}
 
 replicas: 1
 imagePullPolicy: IfNotPresent
+
+# Deployment rollout strategy.
+# Leave unset (empty) to use the Kubernetes default (RollingUpdate with maxSurge=25%, maxUnavailable=25%).
+# Set maxSurge: 0 if you need zero extra capacity during upgrades (e.g. tight resource quotas).
+# Example:
+#   strategy:
+#     type: RollingUpdate
+#     rollingUpdate:
+#       maxSurge: 0
+#       maxUnavailable: 1
+strategy: {}
 
 autoscaling:
   enabled: false
@@ -22,13 +65,30 @@ registry: robustadev
 
 sentryDSN: ""
 
+#Enabled custom DNS configuration for runner
+dnsConfig:
+  enabled: false
+  policy: ClusterFirst
+  nameservers: []
+  searches: []
+  options: []
+
 enableAccountsCreate: true
 revisionHistoryLimit: 10
 
 createServiceAccount: true
 customServiceAccountName: ""
 
+
+k8sRBAC: false
+
 customClusterRoleRules: []
+
+# Render the Holmes RBAC as a namespaced Role + RoleBinding instead of a
+# ClusterRole + ClusterRoleBinding, restricting Holmes to the release namespace.
+# Namespace-scoped installs in different namespaces then cannot collide on
+# cluster-scoped RBAC names. Default false = cluster-wide, as always.
+namespaceScopedRBAC: false
 
 # CRD permissions for common Kubernetes operators and tools
 crdPermissions:
@@ -82,7 +142,7 @@ toolsets:
     enabled: true
   prometheus/metrics:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   connectivity_check:
     enabled: true
@@ -91,6 +151,58 @@ toolsets:
     config:
       builtin_allowlist: "extended"
 mcp_servers: {}
+
+# Paths inside the Holmes container to scan for custom skills (SKILL.md files).
+# Use this when you mount skill files yourself via `additionalVolumes` /
+# `initContainers`. Each path may be a directory (scanned for SKILL.md files
+# up to 2 levels deep) or an individual SKILL.md file. The chart sets
+# CUSTOM_SKILL_PATHS in the Holmes pod from this list (joined with `customSkills`).
+customSkillPaths: []
+  # - /etc/holmes/my-skills
+
+# Inline skill definitions. When non-empty, the chart creates a ConfigMap
+# named `<release>-holmes-skills` and mounts it at /etc/holmes/skills/, with
+# each entry projected to /etc/holmes/skills/<name>/SKILL.md. The mount path
+# is automatically appended to CUSTOM_SKILL_PATHS, so you do not need to add
+# /etc/holmes/skills to customSkillPaths.
+customSkills: {}
+  # my-skill:
+  #   content: |
+  #     ---
+  #     description: My custom skill description
+  #     ---
+  #     ## Goal
+  #     ...
+
+# Git repositories to sync skills from. Holmes clones each repo at startup and
+# re-pulls it periodically (every TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+# default 5 minutes), so pushed skill changes reach a running agent without a
+# pod restart. The chart sets SKILL_REPOS in the Holmes pod from this list and,
+# for entries with tokenSecret, injects the token env var from that Secret.
+# After rotating a credential Secret, run `helm upgrade`: the chart checksums
+# the Secret data into the pod template, so the upgrade rolls the pod with the
+# new credential. A Secret edit alone does not reach running pods (env comes
+# from secretKeyRef); without an upgrade, restart the Deployment yourself.
+skillRepos: []
+# Size of the emptyDir holding the git checkouts (only created when skillRepos
+# is set). Holmes gc's the object store on every update, so this needs to fit
+# roughly two checkouts of your largest repo, not one per push.
+skillReposVolumeSize: 1Gi
+  # - name: team-skills            # optional; defaults to the repo name from the URL
+  #   url: https://github.com/acme/holmes-skills.git
+  #   branch: main                 # optional; defaults to the repo's default branch
+  #   subPath: skills              # optional; subdirectory holding the SKILL.md dirs
+  #   username: oauth2             # optional; "x-token-auth" for Bitbucket tokens
+  #   tokenSecret:                 # omit for public repos / GitHub App auth
+  #     name: holmes-skills-git-credentials
+  #     key: token
+  #   githubApp:                   # alternative to tokenSecret: GitHub App auth.
+  #     appId: "123456"            # Holmes mints short-lived installation tokens
+  #     installationId: "7890"     # from the App's private key on every sync.
+  #     privateKeySecret:
+  #       name: holmes-github-app
+  #       key: GITHUB_APP_PRIVATE_KEY
+  #     apiUrl: https://api.github.com   # optional; override for GitHub Enterprise
 
 resources:
   requests:
@@ -122,6 +234,36 @@ args: []
 
 priorityClassName: ""
 
+# List of Kubernetes Secret names whose keys are auto-mounted as env vars on
+# the Holmes pod via `envFrom`. Use this together with the `envRef:` sugar
+# below to avoid repeating each API key in `additionalEnvVars`. Every listed
+# Secret becomes an `envFrom.secretRef` entry, so keys across secrets share a
+# single env-var namespace — same-name keys shadow each other in list order.
+#
+# Example:
+#   kubectl create secret generic holmes-llm-keys \
+#     --from-literal=OPENAI_API_KEY=sk-... \
+#     --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
+#     -n <namespace>
+#   kubectl create secret generic holmes-aws-keys \
+#     --from-literal=AWS_ACCESS_KEY_ID=... \
+#     --from-literal=AWS_SECRET_ACCESS_KEY=... \
+#     -n <namespace>
+#
+#   extraEnvVarsSecrets:
+#     - holmes-llm-keys
+#     - holmes-aws-keys
+#   modelList:
+#     gpt-4.1:
+#       model: openai/gpt-4.1
+#       api_key: envRef:OPENAI_API_KEY   # rewritten to "{{ env.OPENAI_API_KEY }}"
+extraEnvVarsSecrets: []
+
+# List of models available to Holmes. Any string value prefixed with
+# `envRef:` is rewritten at chart-render time to the runtime env-var
+# templating (`{{ env.<KEY> }}`), so you never repeat the key name in an
+# `additionalEnvVars` block. Set `extraEnvVarsSecrets` above so the
+# underlying Kubernetes Secrets are actually mounted on the pod.
 modelList: {}
 
 # MCP (Model Context Protocol) Add-ons
@@ -136,7 +278,7 @@ mcpAddons:
       name: "aws-api-mcp-sa"
       annotations: {}  # Add EKS IRSA annotations here, e.g., eks.amazonaws.com/role-arn
 
-    image: "aws-api-mcp-server:2.0.1"
+    image: "aws-api-mcp-server:2.1.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
 
     resources:
@@ -156,7 +298,7 @@ mcpAddons:
     # When multiAccount.profiles is defined, the chart will use EKS token projection
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
-      image: "multi-aws-api-mcp-server:2.0.1"
+      image: "multi-aws-api-mcp-server:2.1.0"
       # See docs/data-sources/builtin-toolsets/aws.md for configuration examples
       profiles: {}
       llm_account_descriptions: ""
@@ -170,44 +312,18 @@ mcpAddons:
     # Set to override the default investigation patterns and guidelines
     llmInstructions: ""
 
-    nodeSelector: {}
-    tolerations: []
-    affinity: {}
+    # Additional environment variables for the AWS MCP container
+    additionalEnvVars: []
 
-  mariadb:
-    enabled: false
+    # Extra volumes to add to the AWS MCP pod
+    extraVolumes: []
 
-    image: "mariadb-http-mcp-minimal:1.0.6"
-    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    # Extra volume mounts to add to the AWS MCP container
+    extraVolumeMounts: []
 
-    config:
-      host: ""       # MariaDB host
-      port: "3306"   # MariaDB port
-      database: ""   # Database name
-      username: ""   # Username
-      password: ""   # Password
-      namespace: ""  # Kubernetes mcp server namespace
+    # Extra init containers to add to the AWS MCP pod
+    extraInitContainers: []
 
-      readOnlyMode: true
-      maxPoolSize: "5"
-      useSSL: true  # Use SSL for database connection
-
-    resources:
-      requests:
-        memory: "256Mi"
-        cpu: "250m"
-      limits:
-        memory: "512Mi"
-        cpu: "500m"
-
-
-    networkPolicy:
-      enabled: true  # Network policy to restrict access to MCP server (recommended)
-
-    # Custom LLM instructions (optional). Leave empty to use default instructions
-    llmInstructions: ""
-
-    annotations: {}
     nodeSelector: {}
     tolerations: []
     affinity: {}
@@ -326,7 +442,7 @@ mcpAddons:
       tenantId: ""                      # Azure tenant ID (required for workload identity)
       subscriptionId: ""                # Default Azure subscription ID
       clientId: ""                      # Azure client ID (required for workload-identity and managed-identity)
-      readOnlyMode: false               # read-only mode blocks any post requests. Limit the Azure roles to read-only
+      readOnlyMode: true                # Blocks write operations against the Azure API. Set to false to allow writes (use with caution). Default true matches AWS/MariaDB MCP addons.
       authMethod: "workload-identity"   # Options: workload-identity, managed-identity, service-principal
       enableSecurityPolicy: false       # Enable additional security policies
       timeout: "120"                    # Command execution timeout in seconds
@@ -366,7 +482,7 @@ mcpAddons:
   #   kubectl create secret generic github-mcp-token --from-literal=token=<YOUR_GITHUB_PAT> -n <NAMESPACE>
   # Option 2 - GitHub App: Deploys a self-hosted MCP server using the github-app-mcp image
   #   which generates and auto-refreshes installation tokens from GitHub App credentials
-  #   kubectl create secret generic github-app-secret --from-literal=GITHUB_APP_ID=... -n <NAMESPACE>
+  #   kubectl create secret generic holmes-github-app --from-literal=GITHUB_APP_ID=... -n <NAMESPACE>
   #
   # GITHUB ENTERPRISE:
   # Set config.host to your GitHub Enterprise hostname (e.g., "github.mycompany.com")
@@ -376,7 +492,9 @@ mcpAddons:
   github:
     enabled: false
 
-    image: "github-mcp:1.0.1"
+    # github-mcp:2.0.0 = native HTTP mode (github-mcp-server v1.4.0+). PAT auth only.
+    # The github-app path uses auth.githubApp.image and is unchanged.
+    image: "github-mcp:2.0.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -388,17 +506,22 @@ mcpAddons:
       secretKey: "token"  # Key in secret (default: "token")
 
       # Option 2: GitHub App installation token
-      # Deploys a self-hosted MCP server that generates and refreshes installation tokens
+      # Deploys a self-hosted MCP server that generates and caches installation tokens
       # from GitHub App credentials. Uses a separate image with built-in token management.
-      #   kubectl create secret generic github-app-secret \
+      #   kubectl create secret generic holmes-github-app \
       #     --from-literal=GITHUB_APP_ID=<APP_ID> \
       #     --from-literal=GITHUB_APP_INSTALLATION_ID=<INSTALLATION_ID> \
       #     --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem \
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.0"                          # Image with GitHub App token management
+        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+        # ALPHA. Serve every organization the App is installed on, routing each
+        # tool call to that organization's installation token. Runs multiOrgImage
+        # instead of image, and makes GITHUB_APP_INSTALLATION_ID optional.
+        multiOrg: false
+        multiOrgImage: "github-app-mcp:2.0.0"
 
     config:
       # GitHub Enterprise hostname (leave empty for github.com)
@@ -413,11 +536,19 @@ mcpAddons:
 
       # Toolsets to enable (comma-separated list of toolset names)
       # Available: repos, issues, pull_requests, actions, code_security, users, context, etc.
-      # Default: repos, issues, pull_requests, actions (covers most investigation needs)
-      toolsets: "repos,issues,pull_requests,actions"
+      # Default: repos, issues, pull_requests, actions, context (covers most investigation needs).
+      # 'context' exposes the read-only get_me tool, which Holmes uses to validate
+      # the GitHub token at startup (a bad PAT marks the toolset disabled instead of
+      # appearing connected). Keep 'context' enabled unless you have a reason not to.
+      # Note: when using GitHub App auth, 'context' is automatically stripped — App
+      # installation tokens 403 on GET /user, so get_me is not a valid auth probe.
+      # Ignored when `tools` below is set (tools takes precedence as a hard allowlist).
+      toolsets: "repos,issues,pull_requests,actions,context"
 
-      # Individual tools to enable (comma-separated, optional)
-      # Use this for fine-grained control. Leave empty to use all tools from enabled toolsets.
+      # Individual tools to enable (comma-separated, optional).
+      # When set, restricts Holmes to EXACTLY this list of tools — takes precedence
+      # over `toolsets` above. Leave empty (the default) to expose every tool from
+      # the toolsets listed above.
       # Example: "get_file_contents,list_commits,list_workflow_runs"
       tools: ""
 
@@ -433,6 +564,85 @@ mcpAddons:
 
     # Custom LLM instructions (optional) - leave empty to use default
     llmInstructions: ""
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # GitLab MCP Server Configuration
+  # Provides access to GitLab projects, merge requests, issues, pipelines, and code.
+  # Supports both gitlab.com (cloud) and self-hosted GitLab instances.
+  #
+  # AUTHENTICATION:
+  # Create a GitLab Personal Access Token with scopes: api, read_repository (and write_repository if you
+  # want Holmes to create branches/MRs). Then store it in a Kubernetes secret:
+  #   kubectl create secret generic gitlab-mcp-token --from-literal=token=<YOUR_GITLAB_PAT> -n <NAMESPACE>
+  #
+  # SELF-HOSTED GITLAB:
+  # Set config.apiUrl to your instance API URL (e.g., "https://gitlab.mycompany.com/api/v4").
+  # For self-signed certificates, mount a CA bundle via config.caCert.secretName (preferred)
+  # or disable verification entirely with config.verifySsl: false (insecure).
+  gitlabMcp:
+    enabled: false
+
+    registry: docker.io
+    image: "supercorp/supergateway:3.4.3"
+    imagePullPolicy: IfNotPresent
+
+    # Pinned version of the @zereight/mcp-gitlab npm package executed via npx.
+    mcpGitlabVersion: "2.1.46"
+
+    auth:
+      # K8s secret holding the GitLab Personal Access Token.
+      # kubectl create secret generic gitlab-mcp-token --from-literal=token=<PAT> -n <NAMESPACE>
+      secretName: ""      # Required when enabled=true
+      secretKey: "token"
+
+    config:
+      # GitLab API URL — set to your self-hosted instance for on-prem GitLab.
+      # Examples: "https://gitlab.com/api/v4", "https://gitlab.mycompany.com/api/v4"
+      apiUrl: "https://gitlab.com/api/v4"
+
+      # When true, blocks all write operations (no MR/issue creation, no commits).
+      readOnly: false
+
+      # Optional feature toggles for the @zereight/mcp-gitlab server
+      useWiki: false        # USE_GITLAB_WIKI — enable wiki tools
+      useMilestone: false   # USE_MILESTONE — enable milestone tools
+      usePipeline: true     # USE_PIPELINE — enable pipeline/CI tools (recommended)
+
+      # Scope the MCP server to specific projects (optional)
+      projectId: ""           # GITLAB_PROJECT_ID — default project ID
+      allowedProjectIds: ""   # GITLAB_ALLOWED_PROJECT_IDS — comma-separated allowlist
+
+      # Tool exposure (optional). Mirrors the github addon pattern.
+      # `toolsets` enables groups of tools; `tools` is a hard allowlist that takes precedence.
+      toolsets: ""   # GITLAB_TOOLSETS — comma-separated toolset IDs (empty = all)
+      tools: ""      # GITLAB_TOOLS — comma-separated individual tool names
+
+      # SSL/TLS for self-hosted GitLab
+      # Preferred: mount a trusted CA bundle via the caCert block below.
+      # Last resort: set verifySsl: false (disables ALL TLS verification — insecure).
+      verifySsl: true
+      caCert:
+        secretName: ""      # K8s secret containing the CA bundle (sets GITLAB_CA_CERT_PATH)
+        secretKey: "ca.crt"
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: true
+
+    # Custom LLM instructions (optional) - leave empty to use default
+    llmInstructions: ""
+
+    # Additional environment variables to inject into the gitlab-mcp container
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []
@@ -519,29 +729,93 @@ mcpAddons:
   # Provides safe kubectl command execution with security controls
   # WARNING: This addon can execute write operations. Configure allowedCommands carefully.
   kubernetesRemediation:
-    enabled: false
+    enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.0.0"
+    image: "kubernetes-remediation-mcp:1.4.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    # Bearer-token authentication for the server's HTTP endpoint. Without it,
+    # any pod that can reach the port gets the full tool surface (including
+    # cluster mutations) with the remediation ServiceAccount's RBAC, bypassing
+    # Holmes's human-approval gate. The chart generates a random per-release
+    # token Secret and wires both the server and Holmes automatically; the
+    # token is preserved across `helm upgrade` (rotate by deleting the Secret
+    # and upgrading again).
+    # Requires server image >= 1.2.0; when running an older pinned image, the
+    # extra env/header are ignored and behavior is unchanged (unauthenticated).
+    auth:
+      enabled: true
+      # Name of a pre-existing Secret holding the token under the key "token".
+      # When set, the chart creates no Secret and uses this one on both sides.
+      # Required for clusterless rendering (`helm template`, ArgoCD), where the
+      # auto-generated token cannot be looked up and would otherwise change on
+      # every render. Create it once with, e.g.:
+      #   kubectl create secret generic my-remediation-auth \
+      #     --from-literal=token="$(openssl rand -hex 32)"
+      existingSecret: ""
 
     serviceAccount:
       create: true
       name: "k8s-remediation-mcp-sa"
       annotations: {}
-      clusterRole: "cluster-admin"  # Override with a more restrictive role as needed
+      clusterRole: ""        # empty -> chart creates the scoped, least-privilege
+                             # ClusterRole below. Set to bring-your-own ClusterRole name.
 
     config:
-      # Comma-separated list of allowed kubectl subcommands
-      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate"
+      # Hard verb allowlist for the approval-gated run_kubectl_command fallback
+      allowedCommands: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
       # Comma-separated list of blocked flags
       dangerousFlags: "--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid"
+      # Pre-approved read-only commands for run_preapproved_kubectl_command (auto-approved)
+      preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
+      # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
+      diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+
+      # ---- Diagnostic-pod target policy (server >= 1.2.0) ----
+      # run_preapproved_diagnostic_image is auto-approved and its images are
+      # network-probing tools, so the probe TARGET is the security boundary.
+      # Without this policy, prompt-injected agent output could point curl at the
+      # cloud metadata service and read instance credentials back, or POST cluster
+      # data to an external collector, with no human in the loop.
+      #
+      # Master switch. false disables ALL target checks, including the
+      # cloud-metadata/link-local ranges, and restores that behaviour. Prefer the
+      # two narrower knobs below; only disable if neither fits your environment.
+      diagnosticTargetPolicyEnabled: true
+      # Allow probes to reach hosts outside the cluster. false keeps probes
+      # in-cluster so an auto-approved probe cannot ship data to an external host.
+      # Cloud-metadata and link-local stay denied either way.
+      diagnosticAllowExternalTargets: false
+      # DNS suffixes counted as cluster-internal. Set this if you run a custom
+      # cluster domain (e.g. ".svc,.svc.mycorp.internal").
+      diagnosticInternalDnsSuffixes: ".svc,.svc.cluster.local,.cluster.local"
+      # ---- read_file_from_container path policy (ROB-973) ----
+      # The tool is auto-approved and runs with cluster-wide pods/exec, so the
+      # path policy is the only control between a prompt-injected investigation
+      # and every file in every container. Allow roots are an explicit list of
+      # application/config/log locations, never "/". Secret mounts
+      # (/var/run/secrets, /var/secrets, /vault/secrets, ...), credential
+      # files (.aws, .kube, .env, *.pem, *.key, *credentials*, ...) and
+      # /proc,/sys,/dev are denied by the server unconditionally on top of
+      # these lists and cannot be re-enabled here.
+      fileReadAllowedPaths: "/app,/config,/data,/etc,/home,/opt,/srv,/tmp,/usr,/var/lib,/var/log,/var/tmp,/var/www,/workspace"
+      fileReadDeniedPaths: "/var/run/secrets/,/run/secrets/,/var/run/secrets/kubernetes.io/serviceaccount/"
+      # Refuse a read when the path cannot be resolved with `readlink -f` inside
+      # the target container (images without coreutils/busybox), instead of
+      # falling back to the unverified literal path. Server >= 1.4.0; ignored
+      # by older images. false restores the fail-open behaviour.
+      fileReadRequireCanonicalization: true
+      # Enable the approval-gated fallback (set false for a fully locked-down mode)
+      allowArbitraryKubectlCommands: true
       # Command timeout in seconds
       timeout: "60"
       # Log level
       logLevel: "INFO"
-      # Comma-separated list of allowed images for the run_image tool (leave empty to disable)
-      allowedImages: ""
+      # Enable GPU node diagnostics (run_gpu_node_diagnostics)
+      gpuDiagnosticsEnabled: false
+      # Enable the dcgm_* GPU checks — requires dcgmi installed on the GPU hosts
+      dcgmEnabled: false
 
     resources:
       requests:
@@ -552,16 +826,115 @@ mcpAddons:
         cpu: "200m"
 
     networkPolicy:
-      enabled: false
+      enabled: true          # ingress-only; inert where the CNI doesn't enforce
 
-    # Tools that can only be called after a runbook invocation (prevents ad-hoc write operations)
-    # Use ["*"] to restrict all tools, or specify tool names like ["kubectl", "run_image"]
-    restrictedTools:
-      - "*"
-    # Tools that require user confirmation before execution
-    # Use ["*"] to require approval for all tools, or specify tool names
+    # HolmesGPT-side approval mapping. Only the mutating fallback prompts a human;
+    # the read-only tools (read_file_from_container, run_preapproved_kubectl_command,
+    # run_preapproved_diagnostic_image, get_remediation_mcp_config) run immediately.
+    # Add "read_file_from_container" here to require a human for every in-pod
+    # file read (the server path policy above still applies either way).
     approvalRequiredTools:
-      - "*"
+      - "run_kubectl_command"
+
+    # Optional override of the default LLM instructions
+    llmInstructions: ""
+
+    additionalEnvVars: []
+
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
+  # Kubernetes MCP Server Configuration
+  # Provides advanced Kubernetes cluster access via the containers/kubernetes-mcp-server
+  # Uses in-cluster ServiceAccount by default. For external clusters, provide a kubeconfig secret.
+  # Repository: https://github.com/containers/kubernetes-mcp-server
+  kubernetes:
+    enabled: false
+
+    image: "kubernetes-mcp-server:v0.0.61-oauth"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
+    imagePullPolicy: IfNotPresent
+
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      annotations: {}
+      # Create a ClusterRoleBinding for the ServiceAccount
+      # Set to false for OAuth mode (the OAuth token provides permissions instead)
+      createClusterRoleBinding: true
+      # ClusterRole to bind to the ServiceAccount
+      # Use "view" for read-only access or "cluster-admin" for full access
+      clusterRole: "view"
+
+    config:
+      # Enable read-only mode (disables all write operations)
+      readOnly: true
+      # Disable destructive operations (delete/update) while allowing other writes
+      disableDestructive: false
+      # Comma-separated list of toolsets to enable
+      # Available: config, core, helm, tekton, kubevirt, kiali, kcp
+      # Default (empty): enables "config" and "core" toolsets
+      toolsets: ""
+      # Log level (0-9, similar to kubectl verbosity)
+      logLevel: ""
+      # Extra CLI arguments to pass to the server
+      extraArgs: []
+      # Kubeconfig secret for connecting to external clusters
+      # Create a secret: kubectl create secret generic k8s-mcp-kubeconfig --from-file=kubeconfig=/path/to/kubeconfig -n <NAMESPACE>
+      kubeconfig:
+        secretName: ""    # Name of K8s secret containing the kubeconfig file
+        secretKey: "kubeconfig"  # Key in secret (default: "kubeconfig")
+      # Inline TOML server config. The chart creates a Secret containing this
+      # content and mounts it at /etc/kubernetes-mcp/config.toml. Use this for
+      # OAuth/OIDC settings — the kubernetes-mcp-server only accepts those via
+      # config.toml (no CLI flags or env vars exist for them).
+      # For OAuth mode also set serviceAccount.createClusterRoleBinding=false.
+      #
+      # Example (OpenShift OAuth, opaque-token passthrough):
+      #   serverConfig: |
+      #     require_oauth = true
+      #     accept_opaque_tokens = true
+      #     cluster_auth_mode = "passthrough"
+      #
+      # Example (Microsoft Entra ID / Azure AD):
+      #   serverConfig: |
+      #     require_oauth = true
+      #     authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
+      #     oauth_audience = "6dae42f8-4368-4678-94ff-3960e28e3630"
+      #     oauth_scopes = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
+      #     issuer_url = "https://sts.windows.net/<TENANT_ID>/"
+      #
+      # Mutually exclusive with `configSecret.secretName` below.
+      serverConfig: ""
+      # Reference an externally-managed Secret containing config.toml. Use this
+      # if you'd rather create the Secret out-of-band:
+      #   kubectl create secret generic k8s-mcp-config --from-file=config.toml=/path/to/config.toml -n <NAMESPACE>
+      configSecret:
+        secretName: ""         # Name of K8s secret containing config.toml
+        secretKey: "config.toml"  # Key in secret (default: "config.toml")
+      # OAuth settings for Holmes → k8s-mcp-server authentication.
+      # Passed as-is into the Holmes mcp_servers oauth config.
+      # Example for OpenShift OAuth (per-user RBAC):
+      #   oauth:
+      #     enabled: true
+      #     authorization_url: "https://oauth-openshift.apps.<cluster>/oauth/authorize"
+      #     token_url: "https://oauth-openshift.apps.<cluster>/oauth/token"
+      #     client_id: "mcp-openshift"
+      #     client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+      #     callback_port: 10234
+      #     scopes: ["user:full"]
+      oauth: {}
+
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "512Mi"
+
+    networkPolicy:
+      enabled: false
 
     llmInstructions: ""
 
@@ -578,9 +951,17 @@ mcpAddons:
   confluenceMcp:
     enabled: false
 
-    image: "mcp-atlassian:latest"
-    registry: "ghcr.io/sooperset"
+    image: "mcp-atlassian:v0.21.2"
+    registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
+
+    #Enabled custom DNS configuration for confluenceMcp
+    dnsConfig:
+      enabled: false
+      policy: ClusterFirst
+      nameservers: [ ]
+      searches: [ ]
+      options: [ ]
 
     auth:
       secretName: ""         # Required: name of K8s secret containing Confluence credentials
@@ -608,6 +989,9 @@ mcpAddons:
       enabled: false
 
     llmInstructions: ""
+
+    # Additional environment variables for the Confluence MCP container
+    additionalEnvVars: []
 
     nodeSelector: {}
     tolerations: []
@@ -647,3 +1031,9 @@ operator:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+
+
+
+
+
+       

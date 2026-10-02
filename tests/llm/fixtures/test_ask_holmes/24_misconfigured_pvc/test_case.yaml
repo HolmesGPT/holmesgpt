@@ -2,6 +2,7 @@ user_prompt: "What is the issue with redis?"
 expected_output:
   - The PersistentVolumeClaim (pvc) is misconfigured
 tags:
+  - skills
   - easy
   - kubernetes
   - regression
@@ -30,3 +31,13 @@ before_test: |
 after_test: |
   kubectl delete -f manifest.yaml -n app-24
   kubectl delete namespace app-24 || true
+
+# The SuggestSkills frontend tool is available to the agent in every eval by
+# default (it mirrors the tool the Robusta UI attaches to each chat request,
+# letting the agent propose reusable environment know-how as "skills"). This
+# investigation is routine and teaches nothing reusable about the environment,
+# so a well-behaved agent must NOT propose any skill here.
+# `memories_generated: false` fails the test if it proposes one anyway -
+# guarding against skill spam, where users get flooded with low-value
+# suggestion chips after ordinary investigations.
+memories_generated: false

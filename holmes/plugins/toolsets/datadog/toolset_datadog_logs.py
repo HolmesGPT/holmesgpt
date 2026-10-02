@@ -70,7 +70,7 @@ class DatadogLogsToolset(Toolset):
             name="datadog/logs",
             description="Toolset for fetching logs from Datadog, including historical data for pods no longer in the cluster",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/",
-            icon_url="https://imgix.datadoghq.com//img/about/presskit/DDlogo.jpg",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/datadog.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             tools=[],  # Initialize with empty tools first
             tags=[ToolsetTag.CORE],
@@ -82,7 +82,7 @@ class DatadogLogsToolset(Toolset):
     def _perform_healthcheck(self) -> Tuple[bool, str]:
         """Perform health check on Datadog logs API."""
         if not self.dd_config:
-            return False, "Datadog configuration not initialized"
+            return False, "Internal error: Datadog configuration not initialized"
         try:
             logging.info("Performing Datadog logs configuration healthcheck...")
             headers = get_headers(self.dd_config)
@@ -119,8 +119,8 @@ class DatadogLogsToolset(Toolset):
             else:
                 return False, f"Datadog API error: {e.status_code} - {e.response_text}"
         except Exception as e:
-            logging.exception("Failed during Datadog traces healthcheck")
-            return False, f"Healthcheck failed with exception: {str(e)}"
+            logging.exception("Failed during Datadog logs health check")
+            return False, f"Datadog Logs health check failed: {e}"
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         if not config:
@@ -137,8 +137,8 @@ class DatadogLogsToolset(Toolset):
             return success, error_msg
 
         except Exception as e:
-            logging.exception("Failed to set up Datadog toolset")
-            return (False, f"Failed to parse Datadog configuration: {str(e)}")
+            logging.exception("Failed to set up Datadog Logs toolset")
+            return (False, f"Invalid Datadog Logs configuration: {e}")
 
     def _reload_instructions(self):
         """Load Datadog logs specific troubleshooting instructions."""
@@ -224,7 +224,7 @@ class GetLogs(Tool):
             url = f"{self.toolset.dd_config.api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)
 
-            storage = self.toolset.dd_config.storage_tiers[-1]
+            storage = self.toolset.dd_config.storage_tier
             payload = {
                 "filter": {
                     "query": params.get("query", "*"),

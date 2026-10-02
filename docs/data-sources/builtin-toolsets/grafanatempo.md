@@ -1,66 +1,58 @@
 # Tempo
 
-By enabling this toolset, HolmesGPT will be able to fetch trace information from Tempo to debug performance related issues, like high latency in your application.
+Connect HolmesGPT to Tempo for distributed trace analysis. Useful for diagnosing performance issues like high latency, slow operations, and request failures across microservices.
 
-## Proxying through Grafana
+## When to Use This
 
-This is the recommended approach because we intend to add more capabilities to the toolset that are only available with Grafana.
+- ✅ Your applications emit distributed traces to Tempo
+- ✅ You need to debug latency or identify slow operations
+- ✅ You want to correlate errors with specific traces
 
-### Prerequisites
+## Prerequisites
 
-A [Grafana service account token](https://grafana.com/docs/grafana/latest/administration/service-accounts/) with the following permissions:
+- Tempo instance receiving traces from your applications
+- Grafana with a Tempo datasource configured (recommended) OR direct Tempo API access
 
-* Basic role -> Viewer
-* Data sources -> Reader
+## Configuration
 
-Check out this [video](https://www.loom.com/share/f969ab3af509444693802254ab040791?sid=aa8b3c65-2696-4f69-ae47-bb96e8e03c47) on creating a Grafana service account token.
+HolmesGPT supports three ways to connect to Tempo. Pick the one that matches your setup:
 
-**Getting Grafana URL**
+| Setup | When to use |
+|-------|-------------|
+| [Self-Hosted Tempo via Grafana Proxy](#self-hosted-tempo-via-grafana-proxy) (recommended) | You run your own Grafana with a Tempo datasource configured |
+| [Self-Hosted Tempo - Direct Connection](#self-hosted-tempo-direct-connection) | Self-hosted Tempo without Grafana, including multi-tenant setups needing `X-Scope-OrgID` |
+| [Grafana Cloud](#grafana-cloud) | Your Grafana Cloud stack (queries Tempo via your Grafana Cloud Grafana) |
 
-You can find the Grafana URL required for Tempo in your Grafana cloud account settings.
+### Self-Hosted Tempo via Grafana Proxy
 
-**Obtaining the datasource UID**
+HolmesGPT queries your self-hosted Tempo through your Grafana instance's datasource proxy. Recommended when you already have Grafana — it handles authentication and you only need one API key. This is also the only mode that produces clickable "View in Grafana" links in Holmes's responses.
 
-You may have multiple Tempo data sources set up in Grafana. HolmesGPT uses a single Tempo datasource to fetch the traces and it needs to know the UID of this datasource.
+**Required:**
 
-A simple way to get the datasource UID is to access the Grafana API by running the following request:
+- A [Grafana service account token](https://grafana.com/docs/grafana/latest/administration/service-accounts/) with:
+    - Basic role → Viewer
+    - Data sources → Reader
+- Tempo datasource UID from Grafana
+
+See this [video](https://www.loom.com/share/f969ab3af509444693802254ab040791?sid=aa8b3c65-2696-4f69-ae47-bb96e8e03c47) for a walkthrough of creating the service account token.
+
+**Find your Tempo datasource UID:**
 
 ```bash
-# port forward if you are using Robusta's Grafana from your Kubernetes cluster
+# Port forward to Grafana
 kubectl port-forward svc/robusta-grafana 3000:80
-# List the Tempo data sources
-curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[] | select(.type == "tempo")'
+
+# Get Tempo datasource UID
+curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[] | select(.type == "tempo") | .uid'
 ```
-
-This will return something like:
-
-```json
-{
-    "id": 3,
-    "uid": "klja8hsa-8a9c-4b35-1230-7baab22b02ee",
-    "orgId": 1,
-    "name": "Tempo",
-    "type": "tempo",
-    "typeName": "Tempo",
-    "typeLogoUrl": "/public/app/plugins/datasource/tempo/img/tempo_icon.svg",
-    "access": "proxy",
-    "url": "http://tempo-query-frontend.tempo:3100",
-    "user": "",
-    "database": "",
-    "basicAuth": false,
-    "isDefault": false,
-    "jsonData": {
-        "tlsSkipVerify": true
-    },
-    "readOnly": false
-}
-```
-
-In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`.
-
-### Configuration (Grafana Proxy)
 
 === "Holmes CLI"
+
+    Set the environment variable:
+
+    ```bash
+    export GRAFANA_TEMPO_API_KEY=your-grafana-service-account-token
+    ```
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
@@ -69,8 +61,8 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
       grafana/tempo:
         enabled: true
         config:
-          api_key: <your grafana service account token>
-          api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
+          api_url: <your grafana url>  # e.g. http://grafana.monitoring.svc.cluster.local
+          api_key: "{{ env.GRAFANA_TEMPO_API_KEY }}"
           grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
@@ -82,24 +74,74 @@ In this case, the Tempo datasource UID is `klja8hsa-8a9c-4b35-1230-7baab22b02ee`
     holmes ask "The payments DB is very slow, check tempo for any trace data"
     ```
 
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-grafanatempo \
+      --from-literal=GRAFANA_TEMPO_API_KEY=your-grafana-service-account-token \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-grafanatempo
+
+    toolsets:
+      grafana/tempo:
+        enabled: true
+        config:
+          api_url: <your grafana url>  # e.g. http://grafana.monitoring.svc.cluster.local
+          api_key: "{{ env.GRAFANA_TEMPO_API_KEY }}"
+          grafana_datasource_uid: <the UID of the tempo data source in Grafana>
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-grafanatempo \
+      --from-literal=GRAFANA_TEMPO_API_KEY=your-grafana-service-account-token \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-grafanatempo
+
       toolsets:
         grafana/tempo:
           enabled: true
           config:
-            api_key: <your grafana API key>
-            api_url: <your grafana url> # e.g. https://acme-corp.grafana.net
+            api_url: <your grafana url>  # e.g. http://grafana.monitoring.svc.cluster.local
+            api_key: "{{ env.GRAFANA_TEMPO_API_KEY }}"
             grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
-## Direct Connection
+    Apply the configuration:
 
-The toolset can directly connect to a Tempo instance without proxying through a Grafana instance. This is done by not setting the `grafana_datasource_uid` field. Not setting this field makes HolmesGPT assume that it is directly connecting to Tempo.
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
-### Configuration (Direct Connection)
+### Self-Hosted Tempo - Direct Connection
+
+HolmesGPT connects directly to a self-hosted Tempo API endpoint without going through Grafana.
+
+In Kubernetes, no secret is needed in this mode — direct Tempo connections don't carry an API key.
 
 === "Holmes CLI"
 
@@ -110,14 +152,36 @@ The toolset can directly connect to a Tempo instance without proxying through a 
       grafana/tempo:
         enabled: true
         config:
-          api_url: http://tempo.monitoring
+          api_url: http://tempo.monitoring.svc.cluster.local:3200
           additional_headers:
-            X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
+            X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Tempo
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    toolsets:
+      grafana/tempo:
+        enabled: true
+        config:
+          api_url: http://tempo.monitoring.svc.cluster.local:3200
+          additional_headers:
+            X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Tempo
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -125,10 +189,132 @@ The toolset can directly connect to a Tempo instance without proxying through a 
         grafana/tempo:
           enabled: true
           config:
-            api_url: http://tempo.monitoring
+            api_url: http://tempo.monitoring.svc.cluster.local:3200
             additional_headers:
-              X-Scope-OrgID: "<tenant id>" # Set the X-Scope-OrgID if tempo multitenancy is enabled
+              X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Tempo
     ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Grafana Cloud
+
+Query Tempo through your Grafana Cloud Grafana instance's datasource proxy. Same flow as the self-hosted proxy option, just pointed at your Grafana Cloud URL.
+
+**Required:**
+
+- Your Grafana Cloud Grafana URL (e.g., `https://myorg.grafana.net`)
+- A Grafana Cloud service account token with:
+    - Basic role → Viewer
+    - Data sources → Reader
+- Tempo datasource UID from your Grafana Cloud Grafana
+
+**Find your Tempo datasource UID:**
+
+In your Grafana Cloud Grafana UI → Connections → Data sources → click on the Tempo datasource. The UID appears in the URL. Or via the API:
+
+```bash
+curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.grafana.net/api/datasources | jq '.[] | select(.type == "tempo") | .uid'
+```
+
+=== "Holmes CLI"
+
+    Set the environment variable:
+
+    ```bash
+    export GRAFANA_CLOUD_TEMPO_API_KEY=your-grafana-cloud-service-account-token
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+    ```yaml
+    toolsets:
+      grafana/tempo:
+        enabled: true
+        config:
+          api_url: https://<your-stack>.grafana.net
+          api_key: "{{ env.GRAFANA_CLOUD_TEMPO_API_KEY }}"
+          grafana_datasource_uid: <the UID of the Tempo datasource>
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-grafanatempo-cloud \
+      --from-literal=GRAFANA_CLOUD_TEMPO_API_KEY=your-grafana-cloud-service-account-token \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-grafanatempo-cloud
+
+    toolsets:
+      grafana/tempo:
+        enabled: true
+        config:
+          api_url: https://<your-stack>.grafana.net
+          api_key: "{{ env.GRAFANA_CLOUD_TEMPO_API_KEY }}"
+          grafana_datasource_uid: <the UID of the Tempo datasource>
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-grafanatempo-cloud \
+      --from-literal=GRAFANA_CLOUD_TEMPO_API_KEY=your-grafana-cloud-service-account-token \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-grafanatempo-cloud
+
+      toolsets:
+        grafana/tempo:
+          enabled: true
+          config:
+            api_url: https://<your-stack>.grafana.net
+            api_key: "{{ env.GRAFANA_CLOUD_TEMPO_API_KEY }}"
+            grafana_datasource_uid: <the UID of the Tempo datasource>
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+## Multiple Instances
+
+```multi-instance
+toolset: grafana/tempo
+name: Grafana Tempo
+config: |
+  api_url: <your grafana url>
+  api_key: <your grafana service account token>
+  grafana_datasource_uid: <the UID of the Tempo datasource>
+```
 
 ## Advanced Configuration
 
@@ -147,21 +333,22 @@ toolsets:
 
 ### External URL
 
-If HolmesGPT accesses Tempo through an internal URL but you want clickable links in results to use a different URL:
+Only applies to the **Self-Hosted Tempo via Grafana Proxy** setup. If HolmesGPT reaches Grafana through an internal URL but you want the clickable "View in Grafana" links in responses to use a public URL:
 
 ```yaml
 toolsets:
   grafana/tempo:
     enabled: true
     config:
-      api_url: http://tempo.internal:3100  # Internal URL for API calls
-      external_url: https://tempo.example.com  # URL for links in results
+      api_url: http://grafana.monitoring.svc.cluster.local  # Internal URL for API calls
+      api_key: <your grafana API key>
       grafana_datasource_uid: <tempo datasource uid>
+      external_url: https://grafana.example.com  # URL used in clickable links
 ```
 
 ### Custom Label Mappings
 
-Tempo uses resource attributes to identify Kubernetes resources. If your setup uses different attribute names, you can customize the mappings:
+Tempo uses resource attributes to identify Kubernetes resources. If your setup uses non-default attribute names, you can customize the mappings:
 
 ```yaml
 toolsets:
@@ -169,6 +356,7 @@ toolsets:
     enabled: true
     config:
       api_url: https://grafana.example.com
+      api_key: <your grafana API key>
       grafana_datasource_uid: <tempo datasource uid>
       labels:
         pod: "k8s.pod.name"           # default
@@ -183,10 +371,11 @@ toolsets:
 ### Finding Slow Traces
 
 ```bash
-homles ask "Find traces where the payment service is taking longer than 1 second"
+holmes ask "Find traces where the payment service is taking longer than 1 second"
 ```
 
 Holmes will use TraceQL to search for slow operations:
+
 ```
 {resource.service.name="payment" && duration > 1s}
 ```
@@ -194,10 +383,11 @@ Holmes will use TraceQL to search for slow operations:
 ### Analyzing Errors
 
 ```bash
-homles ask "Show me traces with HTTP 500 errors in the frontend service"
+holmes ask "Show me traces with HTTP 500 errors in the frontend service"
 ```
 
 Holmes will search using:
+
 ```
 {resource.service.name="frontend" && span.http.status_code = 500}
 ```

@@ -18,18 +18,22 @@ Dynatrace, Grafana and Prometheus which normalise dots to underscores.
 Two sets of constants are provided below to keep the distinction explicit.
 """
 
+import json
 import logging
 import os
 from typing import Any, Dict, Optional
 
-from holmes.core.tracing import DummySpan, SpanType, TracingFactory
+from holmes.core.tracing import (
+    HOLMES_LANGFUSE_ATTRIBUTES,
+    DummySpan,
+    SpanType,
+    TracingFactory,
+)
 
 try:
     from opentelemetry import context as otel_context
     from opentelemetry import trace
     from opentelemetry import metrics
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -37,12 +41,98 @@ try:
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.metrics.view import View
     from opentelemetry.trace import StatusCode
+    from opentelemetry.sdk.trace.sampling import (
+        ALWAYS_ON,
+        Decision,
+        Sampler,
+        SamplingResult,
+    )
 
     OTEL_AVAILABLE = True
 except ImportError:
     OTEL_AVAILABLE = False
 
+# OTLP exporters — gRPC and HTTP variants ship as separate packages, so each
+# is imported independently and selected at runtime based on
+# OTEL_EXPORTER_OTLP_PROTOCOL (see _create_exporters).
+try:
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+        OTLPSpanExporter as GRPCSpanExporter,
+    )
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+        OTLPMetricExporter as GRPCMetricExporter,
+    )
+
+    GRPC_EXPORTER_AVAILABLE = True
+except ImportError:
+    GRPC_EXPORTER_AVAILABLE = False
+
+try:
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+        OTLPSpanExporter as HTTPSpanExporter,
+    )
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+        OTLPMetricExporter as HTTPMetricExporter,
+    )
+
+    HTTP_EXPORTER_AVAILABLE = True
+except ImportError:
+    HTTP_EXPORTER_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+# Default OTLP endpoints per protocol (OTel spec: gRPC uses 4317, HTTP uses 4318)
+DEFAULT_GRPC_ENDPOINT = "http://localhost:4317"
+DEFAULT_HTTP_ENDPOINT = "http://localhost:4318"
+
+# Max chars for input/output span attributes; bounded for OTLP limits. Override via env.
+_MAX_ATTR_CHARS = int(os.environ.get("HOLMES_OTEL_MAX_ATTR_CHARS", 100000))
+
+
+def _to_attr_str(value: Any) -> str:
+    """Render a value as a bounded string: verbatim if str, else JSON, truncated."""
+    if isinstance(value, str):
+        rendered = value
+    else:
+        try:
+            rendered = json.dumps(value, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            rendered = str(value)
+    return rendered[:_MAX_ATTR_CHARS]
+
+
+# HTTP method names used by the httpx auto-instrumentation as span names.
+_HTTP_METHOD_SPAN_NAMES = {
+    "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE",
+}
+
+if OTEL_AVAILABLE:
+
+    class _DropOrphanHttpSampler(Sampler):
+        """Drop root httpx spans (background HTTP calls) that would bury real investigation traces.
+
+        Only drops spans that are both a root (no parent) and named like a bare
+        HTTP method; httpx spans nested in an investigation are kept.
+        """
+
+        def __init__(self, delegate: "Sampler" = ALWAYS_ON):
+            self._delegate = delegate
+
+        def should_sample(
+            self, parent_context, trace_id, name, kind=None,
+            attributes=None, links=None, trace_state=None,
+        ) -> "SamplingResult":
+            parent_span = trace.get_current_span(parent_context)
+            parent_ctx = parent_span.get_span_context() if parent_span else None
+            is_root = not (parent_ctx and parent_ctx.is_valid)
+            if is_root and name in _HTTP_METHOD_SPAN_NAMES:
+                return SamplingResult(Decision.DROP, attributes, trace_state)
+            return self._delegate.should_sample(
+                parent_context, trace_id, name, kind, attributes, links, trace_state
+            )
+
+        def get_description(self) -> str:
+            return f"DropOrphanHttp({self._delegate.get_description()})"
 
 # ---------------------------------------------------------------------------
 # OTel GenAI semantic convention — span attribute names (dot-delimited)
@@ -183,26 +273,48 @@ class OTelSpan:
 
         return OTelSpan(new_span, self._tracer, token)
 
-    def log(self, *args: Any, **kwargs: Any) -> None:
-        """Log attributes to the span.
+    # Braintrust-style metric names → OTel GenAI semantic convention attributes
+    _METRIC_ATTR_MAP = {
+        "prompt_tokens": ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+        "completion_tokens": ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+        "total_tokens": ATTR_GEN_AI_USAGE_TOTAL_TOKENS,
+    }
 
-        Supported keyword arguments:
-            input: Stored as the ``input`` span attribute (truncated to 4096 chars).
-            output: Stored as the ``output`` span attribute (truncated to 4096 chars).
-            metadata: A ``dict`` whose entries are set as individual span attributes.
-        """
-        if "input" in kwargs:
-            val = str(kwargs["input"])
-            self._span.set_attribute("input", val[:4096])
-        if "output" in kwargs:
-            val = str(kwargs["output"])
-            self._span.set_attribute("output", val[:4096])
+    def log(self, *args: Any, **kwargs: Any) -> None:
+        """Set span attributes from input/output/error (Langfuse, gated), metadata, and metrics."""
+        # Langfuse-specific input/output/error; gated (off by default).
+        if HOLMES_LANGFUSE_ATTRIBUTES:
+            if "input" in kwargs:
+                self._span.set_attribute(
+                    "langfuse.observation.input", _to_attr_str(kwargs["input"])
+                )
+            if "output" in kwargs:
+                self._span.set_attribute(
+                    "langfuse.observation.output", _to_attr_str(kwargs["output"])
+                )
+            if kwargs.get("error"):
+                self._span.set_attribute("langfuse.observation.level", "ERROR")
+                self._span.set_attribute(
+                    "langfuse.observation.status_message", _to_attr_str(kwargs["error"])
+                )
         if "metadata" in kwargs and isinstance(kwargs["metadata"], dict):
             for k, v in kwargs["metadata"].items():
-                if isinstance(v, (str, int, float, bool)):
+                if isinstance(v, (int, float, bool)):
                     self._span.set_attribute(k, v)
+                elif isinstance(v, str):
+                    # cap free-text metadata
+                    self._span.set_attribute(k, v[:_MAX_ATTR_CHARS])
+                elif isinstance(v, (list, tuple)) and all(
+                    isinstance(e, str) for e in v
+                ):
+                    # string-array attribute (e.g. tags)
+                    self._span.set_attribute(k, list(v))
                 else:
-                    self._span.set_attribute(k, str(v))
+                    self._span.set_attribute(k, str(v)[:_MAX_ATTR_CHARS])
+        if "metrics" in kwargs and isinstance(kwargs["metrics"], dict):
+            for k, v in kwargs["metrics"].items():
+                if isinstance(v, (int, float)):
+                    self._span.set_attribute(self._METRIC_ATTR_MAP.get(k, k), v)
 
     def end(self) -> None:
         """End the span and detach from context."""
@@ -210,17 +322,16 @@ class OTelSpan:
         self._span.end()
 
     def _safe_detach(self) -> None:
-        """Detach context token, tolerating cross-context calls (generators/threads)."""
-        if self._token is not None:
-            try:
-                otel_context.detach(self._token)
-            except ValueError:
-                # Token created in a different context (e.g., streaming generator
-                # yielding across thread/coroutine boundaries). This is expected
-                # for long-lived spans that wrap generators. The span still exports
-                # correctly; we just can't restore the previous context.
-                logger.debug("Context detach skipped (cross-context span lifecycle)")
-            self._token = None
+        """Detach our context token only when in LIFO order, else skip (ROB-278)."""
+        if self._token is None:
+            return
+        token, self._token = self._token, None
+        # Out-of-order detach makes OTel log "Failed to detach context" (it swallows
+        # the error, so try/except can't help); only detach when our span is current.
+        if trace.get_current_span() is self._span:
+            otel_context.detach(token)
+        else:
+            logger.debug("Context detach skipped (cross-context span lifecycle)")
 
     def set_attributes(self, name: Optional[str] = None, span_type: Optional[str] = None, span_attributes: Optional[Dict[str, Any]] = None) -> None:
         """Update the span's name and/or set additional attributes.
@@ -255,8 +366,10 @@ class OpenTelemetryTracer:
     """OpenTelemetry implementation of Holmes tracing.
 
     Configures a :class:`TracerProvider` and :class:`MeterProvider` with OTLP
-    gRPC exporters, creates metric instruments, and optionally auto-instruments
-    ``httpx`` for W3C trace-context propagation to MCP servers.
+    exporters (gRPC by default, or HTTP/protobuf when
+    ``OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf``), creates metric instruments,
+    and optionally auto-instruments ``httpx`` for W3C trace-context propagation
+    to MCP servers.
     """
 
     def __init__(self, service_name: str = "holmesgpt"):
@@ -270,7 +383,8 @@ class OpenTelemetryTracer:
             ImportError: If the OpenTelemetry SDK packages are not installed.
 
         Environment variables read:
-            ``OTEL_EXPORTER_OTLP_ENDPOINT``, ``OTEL_EXPORTER_OTLP_HEADERS``,
+            ``OTEL_EXPORTER_OTLP_ENDPOINT``, ``OTEL_EXPORTER_OTLP_PROTOCOL``,
+            ``OTEL_EXPORTER_OTLP_HEADERS``,
             ``OTEL_EXPORTER_OTLP_METRICS_ENDPOINT``, ``OTEL_SERVICE_NAME``.
         """
         if not OTEL_AVAILABLE:
@@ -280,17 +394,26 @@ class OpenTelemetryTracer:
 
         resource = Resource.create({"service.name": service_name})
 
-        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+        protocol = _get_otlp_protocol()
+        default_endpoint = (
+            DEFAULT_HTTP_ENDPOINT if protocol == "http/protobuf" else DEFAULT_GRPC_ENDPOINT
+        )
+        endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", default_endpoint)
+        metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT")
         headers_str = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
         headers = _parse_otel_headers(headers_str)
-        insecure = not endpoint.startswith("https://")
+
+        trace_exporter, metric_exporter = _create_exporters(
+            protocol=protocol,
+            endpoint=endpoint,
+            metrics_endpoint=metrics_endpoint,
+            headers=headers,
+        )
 
         # --- Traces ---
-        trace_provider = TracerProvider(resource=resource)
-        trace_exporter = OTLPSpanExporter(
-            endpoint=endpoint,
-            insecure=insecure,
-            headers=headers or None,
+        # Drop orphan httpx root spans so they don't bury real investigation traces.
+        trace_provider = TracerProvider(
+            resource=resource, sampler=_DropOrphanHttpSampler()
         )
         trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
         trace.set_tracer_provider(trace_provider)
@@ -298,13 +421,6 @@ class OpenTelemetryTracer:
         self._provider = trace_provider
 
         # --- Metrics ---
-        metrics_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", endpoint)
-        logger.info("OTel metrics exporter endpoint: %s (traces: %s)", metrics_endpoint, endpoint)
-        metric_exporter = OTLPMetricExporter(
-            endpoint=metrics_endpoint,
-            insecure=insecure,
-            headers=headers or None,
-        )
         metric_reader = PeriodicExportingMetricReader(
             metric_exporter, export_interval_millis=30000
         )
@@ -390,6 +506,104 @@ class OpenTelemetryTracer:
         """Flush pending spans/metrics and shut down both providers."""
         self._provider.shutdown()
         self._meter_provider.shutdown()
+
+
+def _get_otlp_protocol() -> str:
+    """Read and validate ``OTEL_EXPORTER_OTLP_PROTOCOL``.
+
+    Returns:
+        The normalized protocol: ``"grpc"`` (default) or ``"http/protobuf"``.
+
+    Raises:
+        ValueError: If the env var is set to an unsupported value
+            (e.g. ``http/json``, which the Python OTLP exporters don't implement).
+    """
+    protocol = (os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL") or "grpc").strip().lower()
+    if protocol not in ("grpc", "http/protobuf"):
+        raise ValueError(
+            f"Unsupported OTEL_EXPORTER_OTLP_PROTOCOL: {protocol!r}. "
+            "Supported values: 'grpc', 'http/protobuf'"
+        )
+    return protocol
+
+
+def _append_signal_path(endpoint: str, signal_path: str) -> str:
+    """Append an OTLP/HTTP per-signal path (e.g. ``v1/traces``) to a base endpoint.
+
+    Per the OTel spec, ``OTEL_EXPORTER_OTLP_ENDPOINT`` is a *base* URL for
+    OTLP/HTTP and exporters must append the per-signal path. If the endpoint
+    already ends with the signal path (user supplied a full URL), it is used
+    as-is to avoid double-appending.
+    """
+    if endpoint.rstrip("/").endswith(signal_path):
+        return endpoint
+    return endpoint.rstrip("/") + "/" + signal_path
+
+
+def _create_exporters(
+    protocol: str,
+    endpoint: str,
+    metrics_endpoint: Optional[str],
+    headers: Dict[str, str],
+) -> tuple:
+    """Create the OTLP span and metric exporters for the given protocol.
+
+    Args:
+        protocol: ``"grpc"`` or ``"http/protobuf"`` (validated by
+            :func:`_get_otlp_protocol`).
+        endpoint: Base OTLP endpoint. For HTTP, per-signal paths
+            (``v1/traces`` / ``v1/metrics``) are appended.
+        metrics_endpoint: Optional per-signal metrics endpoint
+            (``OTEL_EXPORTER_OTLP_METRICS_ENDPOINT``) — used verbatim when set.
+        headers: OTLP headers; passed to both exporters.
+
+    Returns:
+        A ``(trace_exporter, metric_exporter)`` tuple.
+
+    Raises:
+        ImportError: If the exporter package for the requested protocol is
+            not installed.
+    """
+    if protocol == "http/protobuf":
+        if not HTTP_EXPORTER_AVAILABLE:
+            raise ImportError(
+                "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf requires the "
+                "opentelemetry-exporter-otlp-proto-http package. "
+                "Install with: pip install opentelemetry-exporter-otlp-proto-http"
+            )
+        traces_endpoint = _append_signal_path(endpoint, "v1/traces")
+        resolved_metrics_endpoint = metrics_endpoint or _append_signal_path(
+            endpoint, "v1/metrics"
+        )
+        logger.info(
+            "OTel exporter protocol: http/protobuf, traces endpoint: %s, metrics endpoint: %s",
+            traces_endpoint,
+            resolved_metrics_endpoint,
+        )
+        return (
+            HTTPSpanExporter(endpoint=traces_endpoint, headers=headers or None),
+            HTTPMetricExporter(endpoint=resolved_metrics_endpoint, headers=headers or None),
+        )
+
+    if not GRPC_EXPORTER_AVAILABLE:
+        raise ImportError(
+            "OTEL_EXPORTER_OTLP_PROTOCOL=grpc requires the "
+            "opentelemetry-exporter-otlp-proto-grpc package. "
+            "Install with: pip install opentelemetry-exporter-otlp-proto-grpc"
+        )
+    insecure = not endpoint.startswith("https://")
+    resolved_metrics_endpoint = metrics_endpoint or endpoint
+    logger.info(
+        "OTel exporter protocol: grpc, traces endpoint: %s, metrics endpoint: %s",
+        endpoint,
+        resolved_metrics_endpoint,
+    )
+    return (
+        GRPCSpanExporter(endpoint=endpoint, insecure=insecure, headers=headers or None),
+        GRPCMetricExporter(
+            endpoint=resolved_metrics_endpoint, insecure=insecure, headers=headers or None
+        ),
+    )
 
 
 def _parse_otel_headers(headers_str: str) -> Dict[str, str]:

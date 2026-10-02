@@ -1,0 +1,20 @@
+# ROB-310 remote tools steering, case "own cluster by name": Holmes is asked
+# about its OWN cluster (prod-us-east, named explicitly). It must learn its
+# own cluster identity from the tool-description steering, answer with the
+# LOCAL tool, and never call the remote tool (prod-us-east is deliberately
+# absent from the agent_name enum).
+user_prompt: |
+  What is the diagnostics verification_code of cluster prod-us-east?
+  Reply with the exact code.
+
+expected_output:
+  - Must report verification code RTC-EVAL-USEAST-c4k7n2
+  - Must have called the local fetch_cluster_diagnostics tool
+  - Must NOT have called the remote_fetch_cluster_diagnostics tool
+
+include_tool_calls: true
+
+tags:
+  - medium
+  - question-answer
+  - fast

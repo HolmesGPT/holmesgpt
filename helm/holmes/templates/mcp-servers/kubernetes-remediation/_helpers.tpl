@@ -1,39 +1,85 @@
 {{/*
+Name of the Secret holding the HTTP bearer token shared by the remediation
+server (MCP_AUTH_TOKEN) and the Holmes pod (K8S_REMEDIATION_MCP_TOKEN).
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authSecretName" -}}
+{{- if .Values.mcpAddons.kubernetesRemediation.auth.existingSecret -}}
+{{- .Values.mcpAddons.kubernetesRemediation.auth.existingSecret -}}
+{{- else -}}
+{{- .Release.Name -}}-k8s-remediation-mcp-auth
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolve the HTTP bearer token shared by the remediation server and Holmes.
+Precedence: existing in-cluster Secret > freshly generated. (There is no
+plaintext value knob — the token only ever lives in a Secret, so it never lands
+in values or a pod-template annotation.)
+The generated value is memoized on .Values so every caller in a single render
+(the Secret's data and both pods' checksum annotations) sees the SAME token —
+otherwise the enabling upgrade would write a random token in the Secret while a
+pod-checksum lookup still saw the not-yet-created Secret as empty, and the next
+upgrade would roll that pod spuriously. lookup returns nothing under
+`helm template`/ArgoCD, so set auth.existingSecret for clusterless rendering.
+When auth.existingSecret is set but not yet present at render time, this emits
+nothing; the pods still read the token via secretKeyRef at runtime.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authToken" -}}
+{{- $auth := .Values.mcpAddons.kubernetesRemediation.auth -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "holmes.kubernetesRemediationMcp.authSecretName" .) -}}
+{{- if and $existing $existing.data (hasKey $existing.data "token") -}}
+{{- index $existing.data "token" | b64dec -}}
+{{- else if not $auth.existingSecret -}}
+{{- if not (hasKey .Values "_k8sRemediationAuthToken") -}}
+{{- $_ := set .Values "_k8sRemediationAuthToken" (randAlphaNum 48) -}}
+{{- end -}}
+{{- index .Values "_k8sRemediationAuthToken" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Checksum of the auth token for pod-template annotations: rolls the pods when
+the token rotates (env comes from a Secret via secretKeyRef, which does not
+restart pods on its own). Same source as the Secret data, so a stable token
+produces a stable checksum and no needless restarts.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authTokenChecksum" -}}
+{{- include "holmes.kubernetesRemediationMcp.authToken" . | sha256sum -}}
+{{- end -}}
+
+{{/*
 Define the LLM instructions for Kubernetes Remediation MCP
 */}}
 {{- define "holmes.kubernetesRemediationMcp.llmInstructions" -}}
 {{- if .Values.mcpAddons.kubernetesRemediation.llmInstructions -}}
 {{ .Values.mcpAddons.kubernetesRemediation.llmInstructions }}
 {{- else -}}
-This MCP server provides the ability to execute kubectl commands for Kubernetes remediation and write operations.
+This MCP server lets you diagnose AND act on the cluster beyond what your own pod's RBAC allows: read files inside containers, run diagnostic pods, and remediate (mutate) the cluster.
 
-IMPORTANT: For Kubernetes **read operations** (get, describe, logs), always prefer the built-in Kubernetes toolset or other read-only tools — they are faster, more efficient, and don't require special authorization. Use this MCP server specifically for **write operations** (edit, patch, delete, scale, rollout, drain, etc.) when you need to remediate or fix an issue.
+Use this server ONLY for things the built-in tools can't do. NEVER use it for `get`/`describe`/`logs` — the built-in Kubernetes tools are faster and need no approval.
 
-## When to Use This MCP Server
+## Prefer the no-approval tools (reach for these first)
 
-Use this MCP when you need to:
-- Remediate Kubernetes issues (restart pods, scale deployments, cordon nodes, etc.)
-- Execute kubectl write commands (edit, patch, delete, scale, rollout, drain, cordon, uncordon, taint, label, annotate)
+These run immediately, no human needed:
 
-Do NOT use this MCP for:
-- Reading pod status, logs, or resource descriptions — use the built-in Kubernetes toolset instead
-- General cluster exploration — use other read-only tools
+- `read_file_from_container` — read a single file from inside a container (config files, on-disk logs under the allowed roots). Secret/token mounts, credential files (.aws, .kube, .env, *.pem, *.key, ...) and /proc, /sys, /dev are always refused, and a path the container cannot resolve with `readlink` is refused — use `run_kubectl_command` for those.
+- `run_preapproved_kubectl_command` — run a read-only diagnostic command (ps/top/df/ls/netstat/ss via exec). Use `read_file_from_container` instead of `cat`.
+- `run_preapproved_diagnostic_image` — launch a short-lived pod from a pre-approved troubleshooting image (nicolaka/netshoot, busybox, curlimages/curl) for network/DNS/HTTP probing. The pod is auto-deleted.
+- `get_remediation_mcp_config` — inspect the live effective policy.
 
-## Available Operations
+## run_kubectl_command always pauses for a human
 
-The kubectl tool accepts arguments as a list. Examples:
-- `["scale", "deployment/my-app", "--replicas=3", "-n", "production"]`
-- `["rollout", "restart", "deployment/my-app", "-n", "production"]`
-- `["cordon", "node-1"]`
-- `["drain", "node-1", "--ignore-daemonsets", "--delete-emptydir-data"]`
-- `["patch", "deployment/my-app", "-n", "production", "-p", "{\"spec\":{\"replicas\":3}}"]`
+`run_kubectl_command` is the catch-all for everything not pre-approved — all mutations, arbitrary exec, non-allowlisted images. It ALWAYS requires human approval, so expect a wait. Use it only when a pre-approved tool can't accomplish the task, and express the full intent in one clear command.
 
-## Important Guidelines
+## What gets refused
 
-- Always confirm the current state before making changes (use the built-in Kubernetes toolset to get/describe first)
-- Use namespace flags (-n) to target specific namespaces
-- For destructive operations (delete, drain), verify the target carefully
-- Check rollout status after making changes to deployments
-- Use labels and selectors to target specific resources when possible
+Non-allowlisted images, non-pre-approved read commands, denied file paths (secret/token mounts), blocked flags (`--kubeconfig`/`--context`/`--token`/`--as`/...), shell metacharacters, and verbs outside the hard allowlist.
+
+## Examples
+
+- `read_file_from_container(namespace="prod", pod="api-xxx", path="/app/config.yaml")`
+- `run_preapproved_kubectl_command(args=["exec","api-xxx","-n","prod","--","ps","aux"])`
+- `run_preapproved_diagnostic_image(image="nicolaka/netshoot", namespace="prod", command=["dig","my-svc"])`
+- `run_kubectl_command(args=["rollout","restart","deployment/api","-n","prod"])`
 {{- end -}}
 {{- end -}}

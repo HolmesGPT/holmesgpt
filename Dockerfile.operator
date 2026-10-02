@@ -2,8 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Build-tooling version floors, kept in sync with the main Dockerfile. CVE fixes:
+#   wheel >= 0.46.2     CVE-2026-24049
+#   pip >= 26.1         CVE-2026-3219/6357, CVE-2025-8869
+#   setuptools >= 80.0  CVE-2026-1703; also drops the jaraco-context 5.3.0
+#                       vendored under setuptools/_vendor (CVE-2026-23949)
+ARG PIP_MIN_VERSION=26.1
+ARG WHEEL_MIN_VERSION=0.46.2
+ARG SETUPTOOLS_MIN_VERSION=80.0.0
+
 COPY pyproject.toml poetry.lock* ./
-RUN pip install --no-cache-dir poetry && \
+# Upgrade build tooling first so poetry and the package installs it runs use the
+# CVE-patched pip/setuptools/wheel.
+RUN pip install --no-cache-dir -U \
+        "pip>=${PIP_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "wheel>=${WHEEL_MIN_VERSION}" && \
+    pip install --no-cache-dir poetry && \
     poetry config virtualenvs.create false && \
     poetry install --no-interaction --no-ansi --no-root
 

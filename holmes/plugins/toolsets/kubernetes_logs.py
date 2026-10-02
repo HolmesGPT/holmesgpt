@@ -54,7 +54,7 @@ class KubernetesLogsToolset(Toolset):
             name="kubernetes/logs",
             description="Read Kubernetes pod logs using a unified API",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/",
-            icon_url="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRPKA-U9m5BxYQDF1O7atMfj9EMMXEoGu4t0Q&s",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg",
             prerequisites=[prerequisite],
             enabled=True,
             tools=[],  # Initialize with empty tools first
@@ -82,7 +82,7 @@ class KubernetesLogsToolset(Toolset):
         except subprocess.TimeoutExpired:
             return False, "kubectl command timed out"
         except FileNotFoundError:
-            return False, "kubectl command not found"
+            return False, "kubectl command not found (ensure kubectl is installed and in PATH)"
         except Exception as e:
             return False, f"kubectl health check error: {str(e)}"
 

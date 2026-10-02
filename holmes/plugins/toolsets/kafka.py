@@ -1368,7 +1368,7 @@ class KafkaToolset(Toolset):
             description="Fetches metadata from multiple Kafka clusters",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/kafka/",
-            icon_url="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT-cR1JrBgJxB_SPVKUIRwtiHnR8qBvLeHXjQ&s",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kafka.svg",
             tags=[ToolsetTag.CORE],
             tools=[
                 ListKafkaClusters(self),

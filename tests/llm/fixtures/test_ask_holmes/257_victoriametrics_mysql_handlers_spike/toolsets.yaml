@@ -1,0 +1,9 @@
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10257
+      # The imported data is from 2026-03-31. The toolset computes
+      # start = now - (hours * 3600) for metric discovery APIs.
+      # 87600h = 10 years covers any realistic test execution date.
+      discover_metrics_from_last_hours: 87600

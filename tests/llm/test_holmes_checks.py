@@ -235,7 +235,6 @@ def test_holmes_check(
                     input=str(test_case.checks),
                     output=str(actual_results) if actual_results else str(e),
                     expected=str(test_case.expected_results),
-                    dataset_record_id=test_case.id,
                     scores={},
                     tags=test_case.tags or [],
                 )
@@ -259,7 +258,6 @@ def test_holmes_check(
         input=str(test_case.checks),
         output=str(actual_results),
         expected=str(test_case.expected_results),
-        dataset_record_id=test_case.id,
         scores={"correctness": score},
         tags=test_case.tags or [],
     )

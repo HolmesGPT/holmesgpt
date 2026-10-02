@@ -60,7 +60,7 @@ class OpenSearchQueryAssistToolset(Toolset):
             name="opensearch/query_assist",
             description="OpenSearch query assist with PPL queries.",
             experimental=True,
-            icon_url="https://opensearch.org/assets/brand/PNG/Mark/opensearch_mark_default.png",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/opensearch.svg",
             tools=[PplQueryAssistTool(self)],
             tags=[ToolsetTag.CORE],
             prerequisites=[ToolsetEnvironmentPrerequisite(env=["OPENSEARCH_URL"])],

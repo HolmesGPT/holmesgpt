@@ -8,6 +8,9 @@ from typing import Optional
 RECOMMENDED_OPENAI_MODEL = "gpt-4.1"
 RECOMMENDED_ANTHROPIC_MODEL = "anthropic/claude-opus-4-1-20250805"
 
+# Default user_id for CLI mode (no authenticated user)
+DEFAULT_CLI_USER = "__no_user__"
+
 # Default model for HolmesGPT
 DEFAULT_MODEL = RECOMMENDED_OPENAI_MODEL
 FALLBACK_CONTEXT_WINDOW_SIZE = (
@@ -28,6 +31,12 @@ ENABLED_BY_DEFAULT_TOOLSETS = os.environ.get(
 )
 HOLMES_HOST = os.environ.get("HOLMES_HOST", "0.0.0.0")
 HOLMES_PORT = int(os.environ.get("HOLMES_PORT", 5050))
+# TLS: when both certfile and keyfile are set, the API server serves HTTPS instead
+# of HTTP. HOLMES_SSL_CA_CERTS additionally enables mTLS (client-cert verification).
+HOLMES_SSL_CERTFILE = os.environ.get("HOLMES_SSL_CERTFILE", "")
+HOLMES_SSL_KEYFILE = os.environ.get("HOLMES_SSL_KEYFILE", "")
+HOLMES_SSL_KEYFILE_PASSWORD = os.environ.get("HOLMES_SSL_KEYFILE_PASSWORD", "")
+HOLMES_SSL_CA_CERTS = os.environ.get("HOLMES_SSL_CA_CERTS", "")
 ROBUSTA_CONFIG_PATH = os.environ.get(
     "ROBUSTA_CONFIG_PATH", "/etc/robusta/config/active_playbooks.yaml"
 )
@@ -54,13 +63,31 @@ AZURE_COGNITIVE_SERVICES_SCOPE = os.environ.get(
 
 ENABLE_TELEMETRY = load_bool("ENABLE_TELEMETRY", False)
 DEVELOPMENT_MODE = load_bool("DEVELOPMENT_MODE", False)
+# When true, logs are emitted as JSON (one object per line) instead of the
+# default colored text format. Useful for log scrapers like Filebeat. Matches
+# the toggle used by the Robusta runner and relay. Defaults to false.
+ENABLE_JSON_LOGS_FORMAT = load_bool("ENABLE_JSON_LOGS_FORMAT", False)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
 
 EXTRA_HEADERS = os.environ.get("EXTRA_HEADERS", "")
 THINKING = os.environ.get("THINKING", "")
 REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "").strip().lower()
-TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.00000001"))
+
+
+def _load_temperature() -> Optional[float]:
+    # Set TEMPERATURE to an empty string / "none" / "null" to send NO temperature at
+    # all. Required for models that reject the parameter (e.g. Anthropic Opus 4.7+:
+    # "temperature is deprecated for this model"); LiteLLM's drop_params can't strip
+    # it because the deprecation isn't in its static param metadata, so it must be
+    # omitted at the source.
+    raw = os.environ.get("TEMPERATURE", "0.00000001").strip()
+    if raw.lower() in ("", "none", "null"):
+        return None
+    return float(raw)
+
+
+TEMPERATURE = _load_temperature()
 
 # Set default memory limit based on CPU architecture
 # ARM architectures typically need more memory
@@ -96,6 +123,7 @@ MAX_OUTPUT_TOKEN_RESERVATION = int(
 BASH_TOOL_UNSAFE_ALLOW_ALL = load_bool("BASH_TOOL_UNSAFE_ALLOW_ALL", False)
 
 LOG_LLM_USAGE_RESPONSE = load_bool("LOG_LLM_USAGE_RESPONSE", False)
+TRACE_TOKEN_USAGE = load_bool("TRACE_TOKEN_USAGE", False)
 
 
 MAX_GRAPH_POINTS = float(os.environ.get("MAX_GRAPH_POINTS", 300))
@@ -137,6 +165,16 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 
+# Extra message fields to strip before sending messages to the provider API.
+# Comma-separated. Set this if a provider rejects a field with an error like:
+#   "messages.N.<field>: Extra inputs are not permitted"
+# Example: LLM_EXTRA_STRIP_MESSAGE_FIELDS="provider_specific_fields,reasoning_content"
+LLM_EXTRA_STRIP_MESSAGE_FIELDS = frozenset(
+    f.strip()
+    for f in os.environ.get("LLM_EXTRA_STRIP_MESSAGE_FIELDS", "").split(",")
+    if f.strip()
+)
+
 ENABLE_CONNECTION_KEEPALIVE = load_bool("ENABLE_CONNECTION_KEEPALIVE", False)
 KEEPALIVE_IDLE = int(os.environ.get("KEEPALIVE_IDLE", 2))
 KEEPALIVE_INTVL = int(os.environ.get("KEEPALIVE_INTVL", 2))
@@ -156,6 +194,9 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
+# Disables TodoWrite for scheduled prompts so the report ends up in ChatResponse.analysis
+# rather than being buried in conversation_history behind a trailing TodoWrite call.
+ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
@@ -173,4 +214,82 @@ MCP_RETRY_BACKOFF_SCHEDULE = [30, 60, 120]
 # Filesystem storage for large tool results
 HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
     "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
+)
+
+# Conversation Worker (M2)
+ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
+CONVERSATION_WORKER_MAX_CONCURRENT = int(
+    os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
+)
+# An in-flight conversation holding its executor slot longer than this is
+# considered stuck and triggers a WARNING while claiming is blocked at full
+# capacity (ROB-759). Long-running conversations are legitimate, so the
+# default is deliberately generous; local/dev stacks set it much lower.
+CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
+)
+
+# Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
+# Tool calls run in their own pool so they never compete with user chats.
+TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))
+# Hard cap on the uncompressed serialized tool result returned to the caller.
+REMOTE_TOOL_RESULT_MAX_BYTES = int(
+    os.environ.get("REMOTE_TOOL_RESULT_MAX_BYTES", 1024 * 1024)
+)
+# Results whose data exceeds this many chars are stored gzip+base64 in the DB
+# (relay inflates before replying, callers always see plain text).
+REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS = int(
+    os.environ.get("REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS", 100_000)
+)
+# Only used when realtime is disabled or disconnected. When realtime is enabled
+# and connected, Holmes relies on Postgres Changes notifications and does not
+# poll.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME", 30)
+)
+# Safety-net poll interval when realtime IS connected. Supabase Realtime
+# has at-most-once delivery, so this caps the maximum latency for a missed
+# broadcast/pgchanges notification.
+CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME = int(
+    os.environ.get("CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME", 300)
+)
+CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS", 1.0)
+)
+CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS = int(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_RECONNECT_MAX_SECONDS", 120)
+)
+CONVERSATION_WORKER_REALTIME_ENABLED = load_bool(
+    "CONVERSATION_WORKER_REALTIME_ENABLED", True
+)
+CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_AUTH_REFRESH_INTERVAL_SECONDS", 60)
+)
+# Upper bound on how long a silently-dead realtime WebSocket can go undetected.
+# The realtime library can leave a stale connection in place when the server
+# closes the socket cleanly (ConnectionClosedOK) — _listen_task exits, no
+# auto-reconnect fires, and is_connected still reports True. We re-evaluate
+# liveness every tick and trigger a full reconnect on any failure signal.
+CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS", 5)
+)
+# When True (default), Holmes subscribes to a Broadcast channel
+# (holmes:submit:{account_id}:{cluster_id}) to detect new pending
+# conversations — the initiator (Frontend/Relay) must send a broadcast
+# after creating the conversation.  Avoids WAL replication overhead at scale.
+# When False, Holmes subscribes to Postgres Changes on the
+# Conversations table instead (no initiator action needed beyond the RPC).
+CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
+    "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", True
+)
+# Initial backoff (seconds) when checking is_realtime_enabled() RPC fails
+# due to connectivity issues. The verifier doubles this on each retry up
+# to CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS.
+CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = float(
+    os.environ.get(
+        "CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS", 5.0
+    )
+)
+CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS", 120.0)
 )

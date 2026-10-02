@@ -1,0 +1,257 @@
+"""Regression checks for the Kubernetes Remediation MCP Helm wiring.
+
+These assert the chart values/templates encode the new approval-legible model
+without needing the `helm` binary: the legacy restricted_tools mechanism is gone,
+the scoped ClusterRole (no cluster-admin) is rendered, the NetworkPolicy is on,
+the new config env vars are wired, and approval maps to run_kubectl_command.
+"""
+
+import re
+from pathlib import Path
+
+import yaml
+
+HELM_DIR = Path(__file__).resolve().parents[1] / "helm" / "holmes"
+TEMPLATE_DIR = HELM_DIR / "templates" / "mcp-servers" / "kubernetes-remediation"
+
+
+def _values() -> dict:
+    with open(HELM_DIR / "values.yaml") as f:
+        return yaml.safe_load(f)["mcpAddons"]["kubernetesRemediation"]
+
+
+def test_values_drop_restricted_tools_and_map_approval():
+    v = _values()
+    assert "restrictedTools" not in v
+    assert v["approvalRequiredTools"] == ["run_kubectl_command"]
+
+
+def test_values_defaults_are_plug_and_play():
+    """A fresh install with only `enabled: true` gets the scoped role, the
+    NetworkPolicy, and every config key the pinned server version reads."""
+    v = _values()
+    assert v["enabled"] is False  # opt-in
+    # 1.2.0 carries the diagnostic-pod target policy (ROB-910), 1.3.0 the GPU
+    # node diagnostics tool (dcgmEnabled), 1.4.0 the `ps` argument policy
+    # (ROB-974) and the fail-closed file-read policy (ROB-973); the config keys
+    # asserted below only take effect on the version that introduced them.
+    assert v["image"] == "kubernetes-remediation-mcp:1.4.0"
+    assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
+    assert v["networkPolicy"]["enabled"] is True
+    assert v["config"]["allowArbitraryKubectlCommands"] is True
+    # New config keys present
+    for key in (
+        "preapprovedCommands",
+        "diagnosticImages",
+        "fileReadAllowedPaths",
+        "fileReadDeniedPaths",
+        "fileReadRequireCanonicalization",
+    ):
+        assert key in v["config"], key
+    # Old run_image image allowlist is gone
+    assert "allowedImages" not in v["config"]
+
+
+def test_values_file_read_policy_is_not_rooted_at_slash():
+    """ROB-973: with "/" as the allow root the policy degrades to a denylist, and
+    the auto-approved read_file_from_container tool can return any credential
+    file the denylist did not anticipate. The default must be explicit roots,
+    never "/", and canonicalization must fail closed."""
+    cfg = _values()["config"]
+    roots = [r.strip() for r in cfg["fileReadAllowedPaths"].split(",")]
+    assert "/" not in roots
+    assert roots, "allow roots must not be empty"
+    for root in ("/app", "/etc", "/var/log"):
+        assert root in roots, root
+    for root in ("/root", "/var/secrets", "/run", "/mnt"):
+        assert root not in roots, root
+    assert cfg["fileReadRequireCanonicalization"] is True
+
+
+def test_values_default_to_the_restrictive_diagnostic_target_policy():
+    """The diagnostic target policy must ship on, and in-cluster-only, so a fresh
+    install is not exposed to the ROB-910 SSRF/exfiltration path."""
+    cfg = _values()["config"]
+    assert cfg["diagnosticTargetPolicyEnabled"] is True
+    assert cfg["diagnosticAllowExternalTargets"] is False
+    assert cfg["diagnosticInternalDnsSuffixes"] == ".svc,.svc.cluster.local,.cluster.local"
+
+
+def test_rbac_template_is_scoped_not_cluster_admin():
+    text = (TEMPLATE_DIR / "rbac.yaml").read_text()
+    assert "cluster-admin" not in text
+    # secrets must NOT be granted (defense in depth)
+    assert "secrets" not in text
+    # gated on create AND empty clusterRole
+    assert "serviceAccount.create" in text
+    assert "not .Values.mcpAddons.kubernetesRemediation.serviceAccount.clusterRole" in text
+    # representative scoped rules
+    assert "pods/eviction" in text
+    assert "deployments/scale" in text
+
+
+def test_deployment_binding_has_no_cluster_admin_default():
+    """The Deployment binds the chart's scoped ClusterRole by default and wires
+    every policy env var the server reads."""
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    assert 'default "cluster-admin"' not in text
+    assert "k8s-remediation-mcp-role" in text
+    # new env vars wired through the ConfigMap
+    for key in (
+        "KUBECTL_PREAPPROVED_COMMANDS",
+        "KUBECTL_DIAGNOSTIC_IMAGES",
+        "KUBECTL_FILE_READ_ALLOWED_PATHS",
+        "KUBECTL_FILE_READ_DENIED_PATHS",
+        "KUBECTL_FILE_READ_REQUIRE_CANONICALIZATION",
+        "KUBECTL_ALLOW_ARBITRARY_COMMANDS",
+    ):
+        assert key in text, key
+    assert "KUBECTL_ALLOWED_IMAGES" not in text
+
+
+def test_deployment_wires_diagnostic_target_policy_env():
+    """Each target-policy key must appear twice: once in the ConfigMap data and
+    once as a container env entry. A key present only in the ConfigMap is
+    silently ignored by the server."""
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    for key in (
+        "KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED",
+        "KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS",
+        "KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES",
+    ):
+        assert text.count(key) >= 2, f"{key} not wired through both ConfigMap and env"
+
+
+def test_deployment_configmap_keys_all_reach_the_container():
+    """Every KUBECTL_*/DCGM_*/GPU_DIAG_* key defined in the ConfigMap block must
+    also be referenced as an env var, so a newly added value cannot be dropped
+    on the floor."""
+    import re
+
+    key_re = r"(KUBECTL_[A-Z_]+|DCGM_[A-Z_]+|GPU_DIAG_[A-Z_]+)"
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    defined = set(re.findall(rf"^  {key_re}:", text, re.MULTILINE))
+    referenced = set(re.findall(rf"key: {key_re}", text))
+    assert defined, "no ConfigMap keys found — did the template layout change?"
+    assert defined == referenced, (
+        f"ConfigMap/env mismatch: only in ConfigMap={defined - referenced}, "
+        f"only in env={referenced - defined}"
+    )
+
+
+def test_gpu_diagnostics_chart_wiring():
+    """DCGM is opt-in (dcgmEnabled: false wired to DCGM_ENABLED), GPU pods run
+    in the release namespace, and the scoped ClusterRole grants pods/attach —
+    kubectl run --rm -i (used by all pod-launching tools) attaches to stream
+    output."""
+    assert _values()["config"]["gpuDiagnosticsEnabled"] is False  # opt-in
+    assert _values()["config"]["dcgmEnabled"] is False
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    assert text.count("GPU_DIAG_ENABLED") >= 2, "not wired through both ConfigMap and env"
+    assert text.count("DCGM_ENABLED") >= 2, "not wired through both ConfigMap and env"
+    assert "GPU_DIAG_NAMESPACE: {{ .Release.Namespace | quote }}" in text
+    rbac = (TEMPLATE_DIR / "rbac.yaml").read_text()
+    assert "pods/attach" in rbac
+    # kubectl run --rm -i also watches the pod; without it kubectl polls noisily
+    assert '"get", "list", "watch", "create", "delete"' in rbac
+
+
+def test_values_support_additional_env_vars():
+    """additionalEnvVars is the escape hatch for server knobs the chart doesn't
+    wire as first-class values; appended last so entries can override
+    chart-wired vars."""
+    assert _values()["additionalEnvVars"] == []
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    assert "kubernetesRemediation.additionalEnvVars" in text
+
+
+def test_docs_inline_diagnostic_egress_policy_is_valid_and_restrictive():
+    """The docs page carries the diagnostic-pod egress NetworkPolicy inline, because
+    the chart does not install it (NetworkPolicy is namespaced and the namespace
+    comes from the caller). Operators copy-paste it, so assert it stays parseable
+    and actually restrictive: egress-only, selecting the label the server stamps,
+    and never widened to 0.0.0.0/0 without the denied ranges carved back out."""
+    doc = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "data-sources"
+        / "builtin-toolsets"
+        / "kubernetes-remediation-mcp.md"
+    ).read_text()
+
+    blocks = [
+        b
+        for b in re.findall(r"```yaml\n(.*?)```", doc, re.S)
+        if "kubernetes-remediation-diagnostic-pod-egress" in b
+    ]
+    assert len(blocks) == 1, f"expected exactly one inlined policy, found {len(blocks)}"
+
+    policy = yaml.safe_load(blocks[0])
+    assert policy["kind"] == "NetworkPolicy"
+    assert policy["spec"]["policyTypes"] == ["Egress"]
+    assert policy["spec"]["podSelector"]["matchLabels"] == {
+        "robusta.dev/diagnostic-pod": "true"
+    }
+
+    rules = policy["spec"]["egress"]
+    assert rules, "egress policy allows no destinations at all"
+
+    # EVERY rule must be scoped by `to`. A rule carrying only `ports` matches all
+    # destinations on those ports — that is how an "allow cluster DNS" rule
+    # silently becomes "allow exfiltration over port 53 to any resolver".
+    for i, rule in enumerate(rules):
+        assert rule.get("to"), (
+            f"egress rule {i} has no `to`, so it matches every destination on "
+            f"{rule.get('ports', 'all ports')}"
+        )
+
+    # Only approved peer kinds, and only approved CIDRs.
+    for i, rule in enumerate(rules):
+        for peer in rule["to"]:
+            assert set(peer) <= {"ipBlock", "namespaceSelector", "podSelector"}, (
+                f"egress rule {i} has an unexpected peer kind: {sorted(peer)}"
+            )
+
+    cidrs = [
+        peer["ipBlock"]["cidr"]
+        for rule in rules
+        for peer in rule["to"]
+        if "ipBlock" in peer
+    ]
+    # RFC1918 only. 169.254.0.0/16, 127.0.0.0/8 etc. must be denied by omission.
+    assert set(cidrs) == {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}, cidrs
+
+    # The DNS rule must be pinned to kube-dns rather than left open.
+    dns_rules = [
+        r
+        for r in rules
+        if any(p.get("port") == 53 for p in r.get("ports", []))
+    ]
+    assert len(dns_rules) == 1, "expected exactly one port-53 egress rule"
+    assert any(
+        "podSelector" in peer or "ipBlock" in peer for peer in dns_rules[0]["to"]
+    ), "the DNS rule must name its destination"
+
+
+def test_networkpolicy_is_ingress_only_and_scoped():
+    text = (TEMPLATE_DIR / "networkpolicy.yaml").read_text()
+    assert "Ingress" in text
+    assert "egress" not in text.lower()
+    assert "app: holmes" in text
+    assert "kubernetes.io/metadata.name" in text  # release-namespace selector
+
+
+def test_toolset_config_emits_approval_not_restricted():
+    text = (HELM_DIR / "templates" / "toolset-config.yaml").read_text()
+    # Find the k8s remediation block
+    assert "kubernetes_remediation" in text
+    assert "restricted_tools" not in text
+    assert "approvalRequiredTools" in text
+
+
+def test_llm_instructions_mention_the_tool_split():
+    text = (TEMPLATE_DIR / "_helpers.tpl").read_text()
+    assert "run_kubectl_command" in text
+    assert "read_file_from_container" in text
+    assert "run_preapproved_diagnostic_image" in text
+    assert "run_preapproved_kubectl_command" in text

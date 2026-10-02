@@ -235,8 +235,9 @@ class NewrelicConfig(ToolsetConfig):
 
     api_key: str = Field(
         title="API Key",
-        description="New Relic API key for authentication",
-        examples=["NRAK-XXXXXXXXXXXXXXXXXXXXXXXXXX"],
+        description="New Relic User API Key (starts with NRAK-). Create one at https://one.newrelic.com/admin-portal/api-keys/launcher (or the EU equivalent).",
+        examples=["{{ env.NEW_RELIC_API_KEY }}"],
+        json_schema_extra={"format": "password"},
     )
     account_id: str = Field(
         title="Account ID",
@@ -253,6 +254,12 @@ class NewrelicConfig(ToolsetConfig):
         title="Multi-Account Mode",
         description="Enable multi-account support for querying across accounts",
     )
+    timeout_seconds: int = Field(
+        default=30,
+        gt=0,
+        title="Request Timeout",
+        description="Request timeout in seconds for New Relic API calls",
+    )
 
 
 class NewRelicToolset(Toolset):
@@ -262,6 +269,7 @@ class NewRelicToolset(Toolset):
     account_id: Optional[str] = None
     is_eu_datacenter: bool = False
     enable_multi_account: bool = False
+    timeout_seconds: int = 30
 
     @property
     def base_url(self) -> str:
@@ -301,6 +309,7 @@ class NewRelicToolset(Toolset):
             api_key=self.api_key,
             account_id=effective_account_id,
             is_eu_datacenter=self.is_eu_datacenter,
+            timeout_seconds=self.timeout_seconds,
         )
 
     def __init__(self):
@@ -308,7 +317,7 @@ class NewRelicToolset(Toolset):
             name="newrelic",
             description="Toolset for interacting with New Relic to fetch logs, traces, and execute freeform NRQL queries",
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/newrelic/",
-            icon_url="https://companieslogo.com/img/orig/NEWR-de5fcb2e.png?t=1720244493",
+            icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/new-relic.svg",
             prerequisites=[CallablePrerequisite(callable=self.prerequisites_callable)],  # type: ignore
             tools=[],
             tags=[ToolsetTag.CORE],
@@ -318,7 +327,7 @@ class NewRelicToolset(Toolset):
         self, config: dict[str, Any]
     ) -> tuple[bool, Optional[str]]:
         if not config:
-            return False, "No configuration provided"
+            return False, "No configuration provided for New Relic toolset"
 
         try:
             nr_config = NewrelicConfig(**config)
@@ -326,17 +335,31 @@ class NewRelicToolset(Toolset):
             self.api_key = nr_config.api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
             self.enable_multi_account = nr_config.enable_multi_account or False
-
-            # Tool uses enable_multi_account flag.
-            self.tools = [ExecuteNRQLQuery(self)]
-            if self.enable_multi_account:
-                self.tools.append(ListOrganizationAccounts(self))
-            template_file_path = os.path.abspath(
-                os.path.join(os.path.dirname(__file__), "newrelic.jinja2")
-            )
-            self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
-
-            return True, None
+            self.timeout_seconds = nr_config.timeout_seconds
         except Exception as e:
-            logging.exception("Failed to set up New Relic toolset")
-            return False, str(e)
+            logging.exception("Failed to parse New Relic configuration")
+            return False, f"Invalid New Relic configuration: {e}"
+
+        # Health check: run a minimal NRQL query so we catch bad credentials or
+        # an unreachable account at config time instead of on first real query.
+        # NrAuditEvent is auto-populated by New Relic for every API call, so it
+        # exists on every account regardless of what's being instrumented.
+        try:
+            api = self.create_api_client()
+            api.execute_nrql_query(
+                "SELECT count(*) FROM NrAuditEvent SINCE 1 day ago LIMIT 1"
+            )
+        except Exception as e:
+            logging.exception("New Relic health check failed")
+            return False, f"New Relic health check failed: {e}"
+
+        # Tool list uses enable_multi_account flag.
+        self.tools = [ExecuteNRQLQuery(self)]
+        if self.enable_multi_account:
+            self.tools.append(ListOrganizationAccounts(self))
+        template_file_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "newrelic.jinja2")
+        )
+        self._load_llm_instructions(jinja_template=f"file://{template_file_path}")
+
+        return True, None

@@ -34,6 +34,17 @@ before_test: |
 after_test: |
   kubectl delete -f manifests.yaml
 tags:
+  - skills
   - counting
   - easy
   - regression
+
+# The SuggestSkills frontend tool is available to the agent in every eval by
+# default (it mirrors the tool the Robusta UI attaches to each chat request,
+# letting the agent propose reusable environment know-how as "skills"). This
+# investigation is routine and teaches nothing reusable about the environment,
+# so a well-behaved agent must NOT propose any skill here.
+# `memories_generated: false` fails the test if it proposes one anyway -
+# guarding against skill spam, where users get flooded with low-value
+# suggestion chips after ordinary investigations.
+memories_generated: false

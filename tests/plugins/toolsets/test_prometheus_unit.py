@@ -1,7 +1,13 @@
+import logging
+
 import pytest
 
 from holmes.plugins.toolsets.prometheus.prometheus import (
+    AzurePrometheusConfig,
+    PrometheusConfig,
+    PrometheusToolset,
     adjust_step_for_max_points,
+    get_config_field,
 )
 
 
@@ -192,3 +198,134 @@ class TestMaxPointsOverride:
             max_points_override=1000,
         )
         assert result == 3.6
+
+
+AZURE_ENV_VARS = (
+    "AZURE_CLIENT_ID",
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZURE_USE_MANAGED_ID",
+)
+
+
+@pytest.fixture
+def clean_azure_env(monkeypatch):
+    for name in AZURE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+class TestGetConfigField:
+    """get_config_field reads ``field`` from the config dict, falling back to
+    the upper-cased env var (e.g. ``AZURE_CLIENT_ID``)."""
+
+    def test_returns_config_value_when_present(self, clean_azure_env):
+        assert (
+            get_config_field({"azure_client_id": "from-config"}, "azure_client_id")
+            == "from-config"
+        )
+
+    def test_falls_back_to_env_var(self, clean_azure_env):
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "from-env")
+        assert get_config_field({}, "azure_client_id") == "from-env"
+
+    def test_config_takes_precedence_over_env_var(self, clean_azure_env):
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "from-env")
+        assert (
+            get_config_field({"azure_client_id": "from-config"}, "azure_client_id")
+            == "from-config"
+        )
+
+    def test_empty_config_value_falls_through_to_env(self, clean_azure_env):
+        """Empty string in YAML (e.g. ``azure_client_id: ""``) should not
+        suppress the env-var fallback — the empty value is no value."""
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "from-env")
+        assert (
+            get_config_field({"azure_client_id": ""}, "azure_client_id") == "from-env"
+        )
+
+    def test_missing_returns_none(self, clean_azure_env):
+        assert get_config_field({}, "azure_client_id") is None
+
+    def test_empty_env_var_returns_none(self, clean_azure_env):
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "")
+        assert get_config_field({}, "azure_client_id") is None
+
+    def test_non_string_config_value_passes_through(self, clean_azure_env):
+        """Bool/int config values (e.g. ``azure_use_managed_id: true``) must
+        not be coerced — callers handle the type-specific normalization."""
+        assert (
+            get_config_field({"azure_use_managed_id": True}, "azure_use_managed_id")
+            is True
+        )
+
+
+class TestIsAzureConfig:
+    """is_azure_config must match the completeness check inside
+    AzurePrometheusConfig.__init__ — a partial signal (e.g. AZURE_CLIENT_ID
+    alone, common when the LLM uses Azure AI Foundry) should NOT select the
+    Azure variant, and the user should be warned why."""
+
+    def test_no_signals_returns_false(self, clean_azure_env, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert AzurePrometheusConfig.is_azure_config({}) is False
+        assert "Azure" not in caplog.text
+
+    def test_partial_env_vars_warns_and_returns_false(self, clean_azure_env, caplog):
+        """Regression: user had AZURE_CLIENT_ID + AZURE_TENANT_ID from their
+        Azure AI Foundry LLM setup, and an internal prometheus_url. Holmes
+        must NOT hijack into Azure auth."""
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "from-llm")
+        clean_azure_env.setenv("AZURE_TENANT_ID", "from-llm")
+        with caplog.at_level(logging.WARNING):
+            assert AzurePrometheusConfig.is_azure_config({}) is False
+        assert "Partial Azure" in caplog.text
+        assert "azure_client_secret" in caplog.text
+
+    def test_partial_config_field_warns_and_returns_false(
+        self, clean_azure_env, caplog
+    ):
+        with caplog.at_level(logging.WARNING):
+            assert (
+                AzurePrometheusConfig.is_azure_config({"azure_client_id": "x"})
+                is False
+            )
+        assert "Partial Azure" in caplog.text
+
+    def test_full_env_vars_returns_true_no_warning(self, clean_azure_env, caplog):
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "x")
+        clean_azure_env.setenv("AZURE_TENANT_ID", "y")
+        clean_azure_env.setenv("AZURE_CLIENT_SECRET", "z")
+        with caplog.at_level(logging.WARNING):
+            assert AzurePrometheusConfig.is_azure_config({}) is True
+        assert "Partial Azure" not in caplog.text
+
+    def test_managed_id_in_config_returns_true(self, clean_azure_env, caplog):
+        with caplog.at_level(logging.WARNING):
+            assert (
+                AzurePrometheusConfig.is_azure_config({"azure_use_managed_id": True})
+                is True
+            )
+        assert "Partial Azure" not in caplog.text
+
+    def test_managed_id_env_var_returns_true(self, clean_azure_env, caplog):
+        clean_azure_env.setenv("AZURE_USE_MANAGED_ID", "true")
+        with caplog.at_level(logging.WARNING):
+            assert AzurePrometheusConfig.is_azure_config({}) is True
+        assert "Partial Azure" not in caplog.text
+
+    def test_determine_prometheus_class_with_partial_azure_env(
+        self, clean_azure_env, caplog
+    ):
+        """End-to-end: the user's exact scenario — partial Azure env vars on
+        the pod plus a plain prometheus_url config — must resolve to the
+        generic PrometheusConfig, not AzurePrometheusConfig."""
+        clean_azure_env.setenv("AZURE_CLIENT_ID", "from-llm")
+        clean_azure_env.setenv("AZURE_TENANT_ID", "from-llm")
+        toolset = PrometheusToolset()
+        with caplog.at_level(logging.WARNING):
+            cls = toolset.determine_prometheus_class(
+                {"prometheus_url": "https://internal.example:8030", "verify_ssl": True}
+            )
+        assert cls is PrometheusConfig
+        assert "Partial Azure" in caplog.text

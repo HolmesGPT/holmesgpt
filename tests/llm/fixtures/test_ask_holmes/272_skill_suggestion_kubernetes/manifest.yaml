@@ -1,0 +1,147 @@
+# Three microservices in namespace app-272. Order processing is handled by
+# the non-obviously-named "atlas-core" deployment, exposed through the
+# "orders-api" service. Holmes must discover this topology mapping (the
+# durable know-how the suggested skill should capture).
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: atlas-core-app
+stringData:
+  run.sh: |
+    #!/bin/sh
+    i=0
+    while true; do
+      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      i=$((i+1))
+      if [ $((i % 5)) -eq 0 ]; then
+        echo "{\"ts\":\"$ts\",\"level\":\"error\",\"msg\":\"order request completed with failure\",\"ctx\":{\"stage\":\"inventory-reserve\",\"code\":\"ORD-ERR-4Q8Z2F\",\"upstream\":\"inventory-grid\"}}"
+      else
+        echo "{\"ts\":\"$ts\",\"level\":\"info\",\"msg\":\"order request completed\",\"ctx\":{\"stage\":\"complete\",\"order_total_cents\":$((i * 137 % 10000))}}"
+      fi
+      sleep 2
+    done
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalog-sync-app
+stringData:
+  run.sh: |
+    #!/bin/sh
+    while true; do
+      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      echo "{\"ts\":\"$ts\",\"level\":\"info\",\"msg\":\"catalog sync cycle finished\",\"ctx\":{\"items_synced\":4821}}"
+      sleep 5
+    done
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: notification-relay-app
+stringData:
+  run.sh: |
+    #!/bin/sh
+    while true; do
+      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      echo "{\"ts\":\"$ts\",\"level\":\"info\",\"msg\":\"notification batch dispatched\",\"ctx\":{\"batch_size\":18}}"
+      sleep 7
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atlas-core
+  labels:
+    app: atlas-core
+    domain: orders
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: atlas-core }
+  template:
+    metadata:
+      labels:
+        app: atlas-core
+        domain: orders
+    spec:
+      containers:
+        - name: atlas-core
+          image: busybox:1.36
+          command: ["sh", "/scripts/run.sh"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+      volumes:
+        - name: scripts
+          secret:
+            secretName: atlas-core-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+spec:
+  selector: { app: atlas-core }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-sync
+  labels: { app: catalog-sync }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: catalog-sync }
+  template:
+    metadata:
+      labels: { app: catalog-sync }
+    spec:
+      containers:
+        - name: catalog-sync
+          image: busybox:1.36
+          command: ["sh", "/scripts/run.sh"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+      volumes:
+        - name: scripts
+          secret:
+            secretName: catalog-sync-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-relay
+  labels: { app: notification-relay }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: notification-relay }
+  template:
+    metadata:
+      labels: { app: notification-relay }
+    spec:
+      containers:
+        - name: notification-relay
+          image: busybox:1.36
+          command: ["sh", "/scripts/run.sh"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
+      volumes:
+        - name: scripts
+          secret:
+            secretName: notification-relay-app

@@ -1,0 +1,81 @@
+# Test: Output-side labeling discipline in global / multi-cluster topology.
+#
+# Holmes is on production-eu-west-2; the ES index has data for MANY clusters
+# (production-us-east-1, production-eu-west-2, production-ap-southeast-1, plus
+# staging). The user asks an open-ended "what's broken across our fleet?"
+# question — Holmes legitimately needs to investigate across clusters. The
+# eval verifies that every fact in Holmes's final answer carries the cluster
+# it came from. Generic "checkout-service is failing" without saying WHICH
+# cluster is a fail — it leads operators to act on the wrong cluster.
+
+user_prompt: |
+  Something's broken — we're getting paged. Look at the app-265-prod-logs index
+  for the last 3 hours and tell me what's going on across our fleet.
+
+cluster_name: "production-eu-west-2"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must identify that an incident is happening in production-us-east-1 (payment-service stripe-us timeouts → checkout-service circuit-breaker open)"
+  - "Every problem/error finding in the answer must be explicitly attributed to a specific cluster (e.g. 'in production-us-east-1: …') — not stated as a bare 'checkout-service is failing' without the cluster context"
+  - "Must NOT misattribute errors across clusters — the stripe-us issue is in production-us-east-1; production-eu-west-2 and production-ap-southeast-1 are healthy in the data"
+  - "If Holmes mentions production-eu-west-2 (its local cluster) it must describe it accurately as healthy in this time window, not blame it for the incident"
+
+tags:
+  - elasticsearch
+  - medium
+  - transparency
+  - multi-cluster
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  LOGS_INDEX="app-265-prod-logs"
+
+  ts() { python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)-timedelta($1)).strftime('%Y-%m-%dT%H:%M:%SZ'))"; }
+  T_30M=$(ts "minutes=30")
+  T_1H=$(ts "hours=1")
+  T_2H=$(ts "hours=2")
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"service":{"type":"keyword"},"cluster":{"type":"keyword"},"level":{"type":"keyword"},"message":{"type":"text"}}}}' > /dev/null
+
+  BULK_FILE=$(es_temp_file "logs" "265")
+  cat > "$BULK_FILE" << BULK_EOF
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-us-east-1","level":"ERROR","message":"POST /api/checkout failed: payment provider response timeout after 30s (stripe-us)"}
+  {"index":{}}
+  {"timestamp":"${T_1H}","service":"payment-service","cluster":"production-us-east-1","level":"ERROR","message":"Upstream timeout calling stripe-us /v1/charges after 30000ms"}
+  {"index":{}}
+  {"timestamp":"${T_30M}","service":"checkout-service","cluster":"production-us-east-1","level":"ERROR","message":"Circuit-breaker open for payment-service (failure rate 41%)"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-eu-west-2","level":"INFO","message":"Healthy: p95 latency 218ms"}
+  {"index":{}}
+  {"timestamp":"${T_30M}","service":"payment-service","cluster":"production-eu-west-2","level":"INFO","message":"Adyen-eu responding normally, p95 180ms"}
+  {"index":{}}
+  {"timestamp":"${T_2H}","service":"checkout-service","cluster":"production-ap-southeast-1","level":"INFO","message":"Healthy: success rate 99.9%"}
+  {"index":{}}
+  {"timestamp":"${T_30M}","service":"payment-service","cluster":"production-ap-southeast-1","level":"INFO","message":"All payment provider connections healthy"}
+  BULK_EOF
+  sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE" > /dev/null
+  rm -f "$BULK_FILE"
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+  echo "Test data: production-us-east-1 (incident), eu-west-2 (healthy), ap-southeast-1 (healthy)"
+
+after_test: |
+  echo "Skipping index cleanup (reentrant)"

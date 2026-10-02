@@ -14,7 +14,7 @@ toolsets:
     enabled: true
   internet:
     enabled: true
-  runbook:
+  skills:
     enabled: true
   robusta:
     enabled: true
