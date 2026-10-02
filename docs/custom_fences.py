@@ -831,8 +831,12 @@ def on_page_markdown(markdown, page, config, **kwargs):
     """MkDocs hook: give the tab fences the path of the page being built, and where
     its markdown starts in its source.
 
-    MkDocs builds each page's Markdown instance from `mdx_configs` right after
-    this event."""
+    It reads two attributes of `page`: `page.file.src_uri`, the path that names the
+    page's secrets, the multi-instance link and every error, and
+    `page.file.content_string`, the page's source, whose front matter MkDocs has taken
+    off `markdown`, so that an error names the line in the source. A caller that runs
+    the fences without MkDocs passes a page with both. MkDocs builds each page's
+    Markdown instance from `mdx_configs` right after this event."""
     extension = config["mdx_configs"].setdefault(EXTENSION_NAME, {})
     extension["page"] = page.file.src_uri
     extension["offset"] = source_line_offset(markdown, page)
