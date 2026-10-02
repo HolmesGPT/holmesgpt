@@ -187,16 +187,24 @@ def execute_health_check(
                             slack_channel = dest_config.get(
                                 "channel"
                             ) or os.environ.get("SLACK_CHANNEL")
+                            slack_thread_ts = dest_config.get("thread_ts")
                             if slack_token and slack_channel:
                                 notification.channel = slack_channel
                                 slack_dest = SlackDestination(
-                                    token=slack_token, channel=slack_channel
+                                    token=slack_token,
+                                    channel=slack_channel,
+                                    thread_ts=slack_thread_ts,
                                 )
                                 slack_dest.send_issue(issue, llm_result)
 
                                 notification.status = "sent"
+                                dest_hint = (
+                                    f"{slack_channel} (thread {slack_thread_ts})"
+                                    if slack_thread_ts
+                                    else slack_channel
+                                )
                                 logging.info(
-                                    f"Sent Slack notification to {slack_channel} for check {check_name}"
+                                    f"Sent Slack notification to {dest_hint} for check {check_name}"
                                 )
                             else:
                                 notification.status = "skipped"

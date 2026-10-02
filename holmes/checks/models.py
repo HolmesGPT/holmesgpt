@@ -27,6 +27,8 @@ class DestinationConfig(BaseModel):
 
     webhook_url: Optional[str] = None
     channel: Optional[str] = None
+    # Slack: parent message ts — post alerts as replies in this thread (same channel)
+    thread_ts: Optional[str] = None
     integration_key: Optional[str] = None
 
 
