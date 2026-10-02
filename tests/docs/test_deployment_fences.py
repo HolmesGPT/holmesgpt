@@ -150,7 +150,7 @@ def build_page(tmp_path, text):
 def test_a_fence_opening_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, opening):
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=rf"^index\.md:3: unsupported form of a custom fence: {re.escape(repr(opening))}"):
-        build_page(tmp_path, f"{opening}\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n```\n")
+        build_page(tmp_path, f"{opening}\nmodelList:\n  gpt:\n    api_key: \"{{{{ env.OPENAI_API_KEY }}}}\"\n```\n")
 
 
 @pytest.mark.parametrize(
