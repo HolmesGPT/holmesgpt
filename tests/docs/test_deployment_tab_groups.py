@@ -69,7 +69,8 @@ def tab_groups(lines, offset=0):
     while i < len(lines):
         if lines[i].strip().startswith("~~~"):
             raise FenceError(offset + i + 1, "a `~~~` code fence; use backticks")
-        if cf.SUPPORTED_OPENING_RE.match(lines[i]):
+        opening = cf.SUPPORTED_OPENING_RE.match(lines[i])
+        if opening and not opening["region"]:
             # A custom fence ends at its own closing line; the code blocks of a
             # `cli` field inside it are indented, and are not its end.
             closing = next(

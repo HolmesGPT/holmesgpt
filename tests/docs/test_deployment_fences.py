@@ -137,6 +137,23 @@ def build_page(tmp_path, text):
 
 
 @pytest.mark.parametrize(
+    "opening",
+    [
+        "``` {.yaml-toolset-config}",
+        "```YAML-toolset-config",
+        "```yaml-helm-values {secret-qualifier=bearer}",
+        "```Robusta-Region",
+        "```robusta-region {.yaml}",
+    ],
+    ids=["brace", "case", "helm-values-qualifier", "region-case", "region-attribute"],
+)
+def test_a_fence_opening_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, opening):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: unsupported form of a custom fence: {re.escape(repr(opening))}"):
+        build_page(tmp_path, f"{opening}\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n```\n")
+
+
+@pytest.mark.parametrize(
     "values, path",
     [
         *[(f"{key}:\n  app: holmes\n", key) for key in ("config", "podLabels", "extraVolumes", "customToolsets")],

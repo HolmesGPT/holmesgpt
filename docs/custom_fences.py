@@ -23,10 +23,14 @@ name, and closed by the first line of three backticks:
     ```yaml-toolset-config
     ```yaml-toolset-config {reuse}
     ```yaml-toolset-config {secret-qualifier=<name>}
+    ```yaml-helm-values
+    ```yaml-helm-values {reuse}
     ```multi-instance
 
-`yaml-helm-values` takes the same forms as `yaml-toolset-config`. A `multi-instance` body has
-`toolset`, `name` and `config`. Any other form of these fences fails the build with a message naming
+A robusta-region fence opens at the start of a line or indented by four spaces, as
+```` ```robusta-region ```` or ```` ```robusta-region {lang=<language>} ````. A `multi-instance` body
+has `toolset`, `name` and `config`. A fence opening that names a custom fence in any other form
+(another case, superfences' `{.<name>}`, other attributes) fails the build with a message naming
 the page and the line, and so do a body that is not valid YAML, a value that is not the chart's,
 and a page whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`). This
 module reads only files and imports nothing from `holmes`; the checks that need Holmes, of each
@@ -93,10 +97,10 @@ that is written has a value.
   Holmes CLI tab alone, for a toolset that runs only in the CLI.
 - `test` (a derived CLI tab only): a command the CLI tab ends with, under "To test, run:".
 
-Every custom fence is in a page's own source: a fence in a file under `docs/snippets/` fails the
-build (`on_config`), since fences expand before the includes. An include, on a page or in a snippet,
-names a file under `docs/snippets/`, on a line of its own, indented by two spaces at most (in a
-`cli` field):
+Every custom fence is in a page's own source: one in a file under `docs/snippets/` fails the build
+(`on_config`). The three this module expands are expanded before the includes, so in a snippet one
+would render as a plain code block. An include, on a page or in a snippet, names a file under
+`docs/snippets/`, on a line of its own, unindented or, in a `cli` field, indented by two spaces:
 
     --8<-- "snippets/<file>.md"
 
@@ -227,20 +231,24 @@ NO_PAGE = (
 TOOLSET_CONFIG_FENCE = "yaml-toolset-config"
 HELM_VALUES_FENCE = "yaml-helm-values"
 MULTI_INSTANCE_FENCE = "multi-instance"
+# Rendered by superfences, as mkdocs.yml registers it; this module checks only its opening.
+ROBUSTA_REGION_FENCE = "robusta-region"
 # The page every multi-instance section links to, as a path under docs/.
 MULTI_INSTANCE_PAGE = "data-sources/multi-instance-toolsets.md"
 
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-# A line that opens one of the three fences in any form ...
+# A line that opens a fence naming a custom fence, in any form ...
 FENCE_OPENING_RE = re.compile(
-    r"^[ \t>]*(?:`{3,}|~{3,})\s*\.?"
-    rf"(?:{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE}|{MULTI_INSTANCE_FENCE})"
+    r"^[ \t>]*(?:`{3,}|~{3,}).*?"
+    rf"(?:{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE}|{MULTI_INSTANCE_FENCE}|{ROBUSTA_REGION_FENCE})",
+    re.IGNORECASE,
 )
-# ... and the forms pages write.
+# ... and the forms pages write. Only yaml-toolset-config fences take a secret qualifier.
 SUPPORTED_OPENING_RE = re.compile(
-    rf"^```(?:(?P<multi>{MULTI_INSTANCE_FENCE})"
-    rf"|(?P<deployment>{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE})"
-    r"(?: \{(?P<option>reuse|secret-qualifier=(?P<qualifier>[a-z0-9]+(?:-[a-z0-9]+)*))\})?)$"
+    rf"^```(?P<multi>{MULTI_INSTANCE_FENCE})$"
+    rf"|^```(?P<deployment>{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE})(?: \{{(?P<option>reuse"
+    rf"|(?<={TOOLSET_CONFIG_FENCE} \{{)secret-qualifier=(?P<qualifier>[a-z0-9]+(?:-[a-z0-9]+)*))\}})?$"
+    rf"|^(?:    )?```(?P<region>{ROBUSTA_REGION_FENCE})(?: \{{lang=[a-z]+\}})?$"
 )
 CLOSING_LINE = "```"
 # A line pymdownx.snippets reads as an include, in any form ...
@@ -677,9 +685,12 @@ def _custom_fences(lines: List[str], page: str, offset: int) -> Iterator[Tuple[i
         if not FENCE_OPENING_RE.match(lines[i]):
             i += 1
             continue
+        opening = SUPPORTED_OPENING_RE.match(lines[i])
+        if opening and opening["region"]:
+            i += 1
+            continue
         if not page:
             raise TabFenceError(f"a custom fence needs the page's path, {NO_PAGE}")
-        opening = SUPPORTED_OPENING_RE.match(lines[i])
         end = next((j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None)
         if not opening or not end:
             raise _unsupported(page, offset + i + 1, lines[i])
