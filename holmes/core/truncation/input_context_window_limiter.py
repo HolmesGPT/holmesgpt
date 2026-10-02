@@ -7,7 +7,7 @@ docs/reference/context-management.md
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import sentry_sdk
 from pydantic import BaseModel
@@ -80,7 +80,8 @@ class ContextWindowLimiterOutput(BaseModel):
 
 @sentry_sdk.trace
 def compact_if_necessary(
-    llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
+    llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]],
+    request_context: Optional[Dict[str, Any]] = None,
 ) -> ContextWindowLimiterOutput:
     """Compact the conversation history when it approaches the context-window threshold."""
     t0 = time.monotonic()
@@ -96,7 +97,8 @@ def compact_if_necessary(
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
         compaction_result = compact_conversation_history(
-            original_conversation_history=messages, llm=llm, tools=tools
+            original_conversation_history=messages, llm=llm, tools=tools,
+            request_context=request_context,
         )
         compaction_usage = compaction_result.usage
         compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
