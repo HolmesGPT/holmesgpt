@@ -9,7 +9,7 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
 
 With the chart, `kubectl run` needs permissions the chart's default RBAC does not grant: it creates the pod, attaches to it and deletes it when the command ends. The Helm values below add those rules. Unless `namespaceScopedRBAC` is `true`, the chart puts them in a ClusterRole, so Holmes can create pods in every namespace, and a pod it creates can run as any service account in its namespace; with `namespaceScopedRBAC: true` they are limited to the release namespace, and `kubectl run` works only there.
 
-The `curl .*` pattern below lets the model run `curl` with any arguments, so the temporary pod can request any URL it can reach, internal services and cloud metadata endpoints included. List only the URLs Holmes needs (for example `curl -s https://status\.example\.com/[^ ]*`, which also keeps the model from adding arguments) where that is too broad.
+The `curl .*` and `wget -qO- .*` patterns below let the model run `curl` and `wget -qO-` with any arguments, so the temporary pods can request any URL they can reach, internal services and cloud metadata endpoints included. List only the URLs Holmes needs (for example `curl -s https://status\.example\.com/[^ ]*`, which also keeps the model from adding arguments) where that is too broad.
 
 ```yaml-toolset-config
 customClusterRoleRules:
@@ -29,28 +29,10 @@ toolsets:
           allowed_commands:
             - "nslookup .*"
             - "ping -c 3 .*"
+            - "wget -qO- .*"
         - image: "curlimages/curl:8.8.0"
           allowed_commands:
             - "curl .*"
----
-cli: |
-  Add the following to **~/.holmes/config.yaml**:
-
-  ```yaml
-  toolsets:
-    kubectl-run:
-      enabled: true
-      config:
-        allowed_images:
-          - image: "busybox:1.36"
-            allowed_commands:
-              - "nslookup .*"
-              - "ping -c 3 .*"
-              - "wget -qO- .*"
-          - image: "curlimages/curl:8.8.0"
-            allowed_commands:
-              - "curl .*"
-  ```
 ```
 
 ## Security
