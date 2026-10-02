@@ -205,8 +205,16 @@ def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monke
             "mcp_servers:\n  jenkins:\n    description: Jenkins\n    config:\n      mode: streamable-http\n",
             r"`mcp_servers\.jenkins\.config` is not a config the toolset accepts: .*url",
         ),
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      prometheus_url: http://prometheus:9090\n      timout: 10\n",
+            r"`toolsets\.prometheus/metrics\.config` is not a config the toolset accepts: .*`timout` is not a field it declares",
+        ),
+        (
+            "mcp_servers:\n  jira:\n    description: Jira\n    config:\n      url: https://mcp.example.com/mcp\n      oauth:\n        client_idd: holmes\n",
+            r"`mcp_servers\.jira\.config` is not a config the toolset accepts: .*`oauth\.client_idd` is not a field it declares",
+        ),
     ],
-    ids=["built-in", "custom-named", "subtype", "mcp_servers"],
+    ids=["built-in", "custom-named", "subtype", "mcp_servers", "undeclared-key", "undeclared-nested-key"],
 )
 def test_a_toolset_config_its_toolset_refuses_fails_the_build(tmp_path, monkeypatch, values, error):
     monkeypatch.chdir(REPO)

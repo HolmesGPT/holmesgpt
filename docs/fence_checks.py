@@ -16,16 +16,18 @@ Toolset configs. A block's `config` must be one that a config class of its tools
 built-in toolset of that name, else the toolset of the type `type:` names, and the MCP toolset for
 an `mcp_servers` entry; with `subtype:`, the class of that subtype. It is checked with each
 `<placeholder>` replaced and with only the group's environment set: its secret's keys and its
-`additionalEnvVars`.
+`additionalEnvVars`. Every key of the config, and of a nested config the class declares as a
+model, is a field the class declares: config classes accept undeclared keys (`extra="allow"`) to
+keep deprecated names working, and a page shows only current names.
 """
 
 import functools
 import os
 import re
 from contextlib import contextmanager
-from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional
+from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, get_args
 
-from pydantic import Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from docs import custom_fences as cf
 from holmes.config import Config
@@ -125,6 +127,28 @@ def _filled(value):
     return value
 
 
+def _model(annotation) -> Optional[type]:
+    """The pydantic model a field's annotation holds, `Optional` or not."""
+    for candidate in (annotation, *get_args(annotation)):
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+            return candidate
+    return None
+
+
+def _undeclared_key(config: dict, cls: type, path: tuple = ()) -> Optional[str]:
+    """The first key of `config`, nested configs included, that `cls` does not declare."""
+    for key, value in config.items():
+        field = cls.model_fields.get(key)
+        if field is None:
+            return ".".join(path + (key,))
+        nested = _model(field.annotation)
+        if nested is not None and isinstance(value, dict):
+            undeclared = _undeclared_key(value, nested, path + (key,))
+            if undeclared:
+                return undeclared
+    return None
+
+
 @contextmanager
 def _environment(variables: dict):
     """Run with only these environment variables set."""
@@ -158,9 +182,13 @@ def _check_toolset_configs(values: dict, environment: dict) -> None:
                 for cls in classes:
                     try:
                         cls.model_validate(config)
-                        break
                     except (ValidationError, ValueError) as e:
                         errors.append(f"{cls.__name__}: {e}")
+                        continue
+                    undeclared = _undeclared_key(config, cls)
+                    if undeclared is None:
+                        break
+                    errors.append(f"{cls.__name__}: `{undeclared}` is not a field it declares")
                 else:
                     raise cf.FenceBodyError(
                         f"`{part}.{name}.config` is not a config the toolset accepts: " + "; ".join(errors)
