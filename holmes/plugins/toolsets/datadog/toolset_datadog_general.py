@@ -242,6 +242,24 @@ class DatadogGeneralToolset(Toolset):
 
         try:
             dd_config = DatadogGeneralConfig(**config)
+
+            if dd_config.scope is not None:
+                # datadog/general reaches ~50 endpoints — dashboards, monitors,
+                # incidents, hosts, containers, org and user data — most of which
+                # have no environment dimension at all, so there is nothing to
+                # scope them by. Refusing to start is the honest outcome: silently
+                # serving unscoped data would make the scope a lie.
+                return (
+                    False,
+                    "datadog/general does not support environment scoping and must be "
+                    f"disabled when a scope is configured (scope: {dd_config.scope.describe()}). "
+                    "Most of its endpoints (dashboards, monitors, incidents, hosts, "
+                    "containers, org and user data) have no environment dimension, so "
+                    "Holmes cannot restrict what they return. Disable datadog/general, "
+                    "or remove the scope. For details: "
+                    "https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/#restricting-holmes-to-a-single-environment",
+                )
+
             self.dd_config = dd_config
 
             # Fetch OpenAPI spec on startup for better error messages and documentation
