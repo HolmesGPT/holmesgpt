@@ -179,6 +179,25 @@ def test_a_field_or_value_written_with_no_value_or_outside_the_list_fails_the_bu
         build_page(tmp_path, fence)
 
 
+DATADOG = "toolsets:\n  datadog/general:\n    enabled: true\n    config:\n      api_key: \"{{ env.DD_API_KEY }}\"\n"
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        f"```yaml-toolset-config {{reuse}}\n{DATADOG}---\nsecret:\n  - --from-literal=DD_API_KEY=x\n```\n",
+        f"```yaml-toolset-config {{reuse}}\n{DATADOG}---\nnamed-secrets:\n  - name: dd-ca\n    keys:\n      - --from-file=ca.crt=./ca.crt\n```\n",
+        f"```yaml-toolset-config {{reuse}}\n{DATADOG}---\ntest: holmes toolset list\n```\n",
+        "```yaml-helm-values {reuse}\nmodelList:\n  gpt:\n    api_key: \"{{ env.OPENAI_API_KEY }}\"\n---\ndeployment-values: [service-account]\n```\n",
+    ],
+    ids=["secret", "named-secrets", "test", "deployment-values"],
+)
+def test_a_reuse_fence_with_a_field_other_than_cli_fails_the_build(tmp_path, monkeypatch, fence):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
+        build_page(tmp_path, fence)
+
+
 @pytest.mark.parametrize("key", ["config", "podLabels", "extraVolumes", "customToolsets"])
 def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, key):
     monkeypatch.chdir(REPO)

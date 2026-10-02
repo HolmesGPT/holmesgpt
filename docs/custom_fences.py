@@ -68,7 +68,7 @@ page that needs a secret with other keys. `<name>` is lowercase letters and digi
 
 `{reuse}` is for a group whose secret an earlier group or step on the page creates: its Helm tabs
 have no secret step, its values still list the secret, and a derived CLI tab still exports the keys.
-The note naming the section that creates the secret is written by hand above the fence:
+Its only field, when it has one, is `cli`. The note naming the section that creates the secret is written by hand above the fence:
 
     In Kubernetes, this reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
 
@@ -545,6 +545,8 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     try:
         fields = (ToolsetConfigFields if toolset_config else HelmValuesFields).model_validate(fields_data)
     except ValidationError:
+        return None
+    if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
         return None
     if not _values_are_supported(values):
         return None
