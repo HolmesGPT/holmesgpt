@@ -3,7 +3,49 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from holmes.core.models import ChatRequest, ChatRequestBaseModel
+from holmes.core.models import ChatRequest, ChatRequestBaseModel, ToolCallResult
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+
+
+class TestToolCallResultUrlInLlmMessage:
+    """Regression coverage for #2289: StructuredToolResult.url must reach the LLM."""
+
+    def test_to_llm_message_includes_result_url(self):
+        url = "https://logs.example.com/select/vmui/#/?query=%2A"
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=[{"_msg": "sample"}],
+            params={"query": "*"},
+            url=url,
+        )
+        call = ToolCallResult(
+            tool_call_id="test",
+            tool_name="victorialogs_query",
+            description="query",
+            result=result,
+        )
+
+        assert call.to_client_dict()["result"]["url"] == url
+        llm_content = call.to_llm_message()["content"]
+        assert isinstance(llm_content, str)
+        assert url in llm_content
+        assert f"Result URL: {url}" in llm_content
+
+    def test_to_llm_message_omits_result_url_when_absent(self):
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=[{"_msg": "sample"}],
+        )
+        call = ToolCallResult(
+            tool_call_id="test",
+            tool_name="some_tool",
+            description="query",
+            result=result,
+        )
+
+        llm_content = call.to_llm_message()["content"]
+        assert isinstance(llm_content, str)
+        assert "Result URL:" not in llm_content
 
 
 class TestCheckFirstItemRole:
