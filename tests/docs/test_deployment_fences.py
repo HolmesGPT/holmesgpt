@@ -342,6 +342,9 @@ def test_a_config_class_holding_a_model_in_a_form_the_check_does_not_read_fails_
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 
 
+CURL = 'curl -s "$GRAFANA_URL/api/search"'
+
+
 @pytest.mark.parametrize(
     "values, error",
     [
@@ -361,8 +364,16 @@ def test_a_config_class_holding_a_model_in_a_form_the_check_does_not_read_fails_
             "mcp_servers:\n  jenkins:\n    enabled: true\n    config:\n      url: http://jenkins:8080/mcp\n",
             r"`mcp_servers\.jenkins` is not in a form pages write for an MCP server: .*enabled",
         ),
+        (
+            f"toolsets:\n  grafana:\n    description: Grafana\n    tools:\n      - nam: search\n        description: Search\n        command: {CURL}\n",
+            r"`toolsets\.grafana` is not in a form pages write for a YAML toolset .*tools\.0\.nam",
+        ),
+        (
+            f"toolsets:\n  grafana:\n    description: Grafana\n    prerequisites:\n      - envs: [GRAFANA_URL]\n    tools:\n      - name: search\n        description: Search\n        command: {CURL}\n",
+            r"`toolsets\.grafana` is not in a form pages write for a YAML toolset .*prerequisites\.0\..*envs",
+        ),
     ],
-    ids=["built-in", "type", "yaml-toolset", "mcp_servers"],
+    ids=["built-in", "type", "yaml-toolset", "mcp_servers", "yaml-toolset-tool", "yaml-toolset-prerequisite"],
 )
 def test_a_toolset_block_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, values, error):
     monkeypatch.chdir(REPO)

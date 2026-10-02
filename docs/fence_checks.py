@@ -9,8 +9,9 @@ hooks (`hooks=[]`).
 
 Blocks. A block holds only the keys pages write for its kind, each with a value of its type: a
 built-in toolset (the name of one), a toolset of a type (`type:` names one of the types pages
-use), a YAML toolset (any other `toolsets` name; it defines its own `tools`), or an MCP server (an
-`mcp_servers` entry).
+use), a YAML toolset (any other `toolsets` name; it defines its own `tools`, each a `name`, a
+`description` and a `command`, and its `prerequisites`, each an `env` list or a `command`), or an
+MCP server (an `mcp_servers` entry).
 
 Toolset configs. A block's `config` must be one that a config class of its toolset accepts: the
 built-in toolset of that name, else the toolset of the type `type:` names, and the MCP toolset for
@@ -41,7 +42,6 @@ PLACEHOLDER_RE = re.compile(r"<[A-Za-z0-9_-]+>")
 
 
 Mapping = Annotated[Dict[str, Any], Field(min_length=1)]
-Entries = Annotated[List[Dict[str, Any]], Field(min_length=1)]
 
 
 class BuiltinToolsetBlock(cf.Form):
@@ -60,12 +60,26 @@ class TypedToolsetBlock(cf.Form):
     config: Optional[Mapping] = None
 
 
+class YamlTool(cf.Form):
+    name: cf.Text
+    description: cf.Text
+    command: cf.Text
+
+
+class EnvPrerequisite(cf.Form):
+    env: Annotated[List[cf.Text], Field(min_length=1)]
+
+
+class CommandPrerequisite(cf.Form):
+    command: cf.Text
+
+
 class YamlToolsetBlock(cf.Form):
     kind: ClassVar[str] = "a YAML toolset (a name that is no built-in toolset, with no `type:`)"
     description: Optional[cf.Text] = None
     installation_instructions: Optional[cf.Text] = None
-    prerequisites: Optional[Entries] = None
-    tools: Entries
+    prerequisites: Optional[Annotated[List[Union[EnvPrerequisite, CommandPrerequisite]], Field(min_length=1)]] = None
+    tools: Annotated[List[YamlTool], Field(min_length=1)]
 
 
 class McpServerBlock(cf.Form):
