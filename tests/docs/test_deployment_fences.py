@@ -181,10 +181,6 @@ def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monke
             r"`toolsets\.orders-db\.config` is not a config the toolset accepts: .*connection_url",
         ),
         (
-            "toolsets:\n  orders-db:\n    type: databse\n    config:\n      connection_url: sqlite:///x.db\n",
-            r"`toolsets\.orders-db\.type` is not a toolset type",
-        ),
-        (
             "toolsets:\n  prometheus/metrics:\n    enabled: true\n    subtype: prom\n    config:\n      prometheus_url: http://prometheus:9090\n",
             r"`toolsets\.prometheus/metrics\.subtype` names no config of the toolset",
         ),
@@ -193,9 +189,37 @@ def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monke
             r"`mcp_servers\.jenkins\.config` is not a config the toolset accepts: .*url",
         ),
     ],
-    ids=["built-in", "custom-named", "type", "subtype", "mcp_servers"],
+    ids=["built-in", "custom-named", "subtype", "mcp_servers"],
 )
 def test_a_toolset_config_its_toolset_refuses_fails_the_build(tmp_path, monkeypatch, values, error):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
+
+
+@pytest.mark.parametrize(
+    "values, error",
+    [
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabeld: true\n",
+            r"`toolsets\.prometheus/metrics` is not in a form pages write for a built-in toolset: .*enabeld",
+        ),
+        (
+            "toolsets:\n  orders-db:\n    type: databse\n    config:\n      connection_url: sqlite:///x.db\n",
+            r"`toolsets\.orders-db` is not in a form pages write for a toolset with a `type:`: .*databse",
+        ),
+        (
+            "toolsets:\n  prometheus/metric:\n    enabled: true\n",
+            r"`toolsets\.prometheus/metric` is not in a form pages write for a YAML toolset .*tools",
+        ),
+        (
+            "mcp_servers:\n  jenkins:\n    enabled: true\n    config:\n      url: http://jenkins:8080/mcp\n",
+            r"`mcp_servers\.jenkins` is not in a form pages write for an MCP server: .*enabled",
+        ),
+    ],
+    ids=["built-in", "type", "yaml-toolset", "mcp_servers"],
+)
+def test_a_toolset_block_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, values, error):
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")

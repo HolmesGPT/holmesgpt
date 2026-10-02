@@ -7,6 +7,11 @@ Holmes's toolsets, on every page, and fails the build with an error naming the p
 fence's line. A tool that expands the fences without Holmes installed loads mkdocs.yml without its
 hooks (`hooks=[]`).
 
+Blocks. A block holds only the keys pages write for its kind, each with a value of its type: a
+built-in toolset (the name of one), a toolset of a type (`type:` names one of the types pages
+use), a YAML toolset (any other `toolsets` name; it defines its own `tools`), or an MCP server (an
+`mcp_servers` entry).
+
 Toolset configs. A block's `config` must be one that a config class of its toolset accepts: the
 built-in toolset of that name, else the toolset of the type `type:` names, and the MCP toolset for
 an `mcp_servers` entry; with `subtype:`, the class of that subtype. It is checked with each
@@ -18,8 +23,9 @@ import functools
 import os
 import re
 from contextlib import contextmanager
+from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional
 
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from docs import custom_fences as cf
 from holmes.config import Config
@@ -29,6 +35,42 @@ from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
 
 # A placeholder the reader replaces, such as `<namespace>`.
 PLACEHOLDER_RE = re.compile(r"<[A-Za-z0-9_-]+>")
+
+
+Mapping = Annotated[Dict[str, Any], Field(min_length=1)]
+Entries = Annotated[List[Dict[str, Any]], Field(min_length=1)]
+
+
+class BuiltinToolsetBlock(cf.Form):
+    kind: ClassVar[str] = "a built-in toolset"
+    enabled: Optional[bool] = None
+    subtype: Optional[cf.Text] = None
+    config: Optional[Mapping] = None
+
+
+class TypedToolsetBlock(cf.Form):
+    kind: ClassVar[str] = "a toolset with a `type:`"
+    type: Literal["database", "mongodb", "http"]
+    enabled: Optional[bool] = None
+    description: Optional[cf.Text] = None
+    llm_instructions: Optional[cf.Text] = None
+    config: Optional[Mapping] = None
+
+
+class YamlToolsetBlock(cf.Form):
+    kind: ClassVar[str] = "a YAML toolset (a name that is no built-in toolset, with no `type:`)"
+    description: Optional[cf.Text] = None
+    installation_instructions: Optional[cf.Text] = None
+    prerequisites: Optional[Entries] = None
+    tools: Entries
+
+
+class McpServerBlock(cf.Form):
+    kind: ClassVar[str] = "an MCP server"
+    description: Optional[cf.Text] = None
+    llm_instructions: Optional[cf.Text] = None
+    icon_url: Optional[cf.Text] = None
+    config: Optional[Mapping] = None
 
 
 @functools.cache
@@ -48,12 +90,28 @@ def _config_classes(part: str, name: str, block: dict) -> list:
     toolset_type = ToolsetType.MCP.value if part == "mcp_servers" else block.get("type")
     if toolset_type is None:
         return []
-    try:
-        ToolsetType(toolset_type)
-    except ValueError as e:
-        raise cf.FenceBodyError(f"`{part}.{name}.type` is not a toolset type: {toolset_type!r}") from e
     (toolset,) = load_toolsets_from_config({name: {"type": toolset_type}})
     return list(type(toolset).config_classes)
+
+
+def _block_form(part: str, name: str, block: dict):
+    """The form of a values block's kind, as Holmes's toolset manager tells the kinds apart."""
+    if part == "mcp_servers":
+        return McpServerBlock
+    if name in _builtin_toolsets():
+        return BuiltinToolsetBlock
+    return TypedToolsetBlock if "type" in block else YamlToolsetBlock
+
+
+def _check_blocks(values: dict) -> None:
+    """Raise if a `toolsets` or `mcp_servers` block is not in the form of its kind."""
+    for part in ("toolsets", "mcp_servers"):
+        for name, block in values.get(part, {}).items():
+            form = _block_form(part, name, block)
+            try:
+                form.model_validate(block)
+            except ValidationError as e:
+                raise cf.FenceBodyError(f"`{part}.{name}` is not in a form pages write for {form.kind}: {e}") from e
 
 
 def _filled(value):
@@ -113,6 +171,7 @@ def check_page(markdown: str, page: str) -> None:
     """Fail the build on a deployment fence of the page whose blocks Holmes refuses."""
     for fence in cf.deployment_fences(markdown, page):
         try:
+            _check_blocks(fence.values)
             _check_toolset_configs(fence.values, fence.environment)
         except cf.FenceBodyError as e:
             raise cf.TabFenceError(f"{page}:{fence.line}: {e}") from e
