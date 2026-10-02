@@ -195,9 +195,10 @@ def _check_toolset_configs(values: dict, environment: dict) -> None:
                     )
 
 
-def check_page(markdown: str, page: str) -> None:
-    """Fail the build on a deployment fence of the page whose blocks Holmes refuses."""
-    for fence in cf.deployment_fences(markdown, page):
+def check_page(markdown: str, page: str, offset: int = 0) -> None:
+    """Fail the build on a deployment fence of the page whose blocks Holmes refuses;
+    the page's markdown starts `offset` lines into its source."""
+    for fence in cf.deployment_fences(markdown, page, offset):
         try:
             _check_blocks(fence.values)
             _check_toolset_configs(fence.values, fence.environment)
@@ -218,5 +219,5 @@ def on_config(config, **kwargs):
 
 def on_page_markdown(markdown, page, config, **kwargs):
     """MkDocs hook: check the page's deployment fences."""
-    check_page(markdown, page.file.src_uri)
+    check_page(markdown, page.file.src_uri, cf.source_line_offset(markdown, page))
     return markdown

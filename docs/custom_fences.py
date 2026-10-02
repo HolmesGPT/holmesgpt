@@ -648,9 +648,10 @@ def _deployment_section(opening, body: str, page: str):
     return "\n\n".join(tabs)
 
 
-def _custom_fences(lines: List[str], page: str) -> Iterator[Tuple[int, int, re.Match, str]]:
+def _custom_fences(lines: List[str], page: str, offset: int) -> Iterator[Tuple[int, int, re.Match, str]]:
     """(index of the opening line, index of the closing line, the opening, the body)
-    of each custom fence in `lines`; a fence in a form no page writes fails the build."""
+    of each custom fence in `lines`, which start `offset` lines into the page's
+    source; a fence in a form no page writes fails the build."""
     i = 0
     while i < len(lines):
         if not FENCE_OPENING_RE.match(lines[i]):
@@ -661,29 +662,37 @@ def _custom_fences(lines: List[str], page: str) -> Iterator[Tuple[int, int, re.M
         opening = SUPPORTED_OPENING_RE.match(lines[i])
         end = next((j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None)
         if not opening or not end:
-            raise _unsupported(page, lines, i)
+            raise _unsupported(page, offset + i + 1, lines[i])
         yield i, end, opening, "\n".join(lines[i + 1 : end]).strip("\n")
         i = end + 1
 
 
-def _unsupported(page: str, lines: List[str], i: int) -> TabFenceError:
+def _unsupported(page: str, line: int, text: str) -> TabFenceError:
     return TabFenceError(
-        f"{page}:{i + 1}: unsupported form of a custom fence: "
-        f"{lines[i].strip()!r}. See the docstring of docs/custom_fences.py "
+        f"{page}:{line}: unsupported form of a custom fence: "
+        f"{text.strip()!r}. See the docstring of docs/custom_fences.py "
         "for the supported forms"
     )
 
 
-def _checked(parse, page: str, lines: List[str], i: int):
-    """What `parse()` returns for the fence opening at `lines[i]`; a FenceBodyError,
-    or None for a body in an unsupported form, fails the build naming the fence."""
+def _checked(parse, page: str, line: int, text: str):
+    """What `parse()` returns for the fence that `text` opens at `line` of the page;
+    a FenceBodyError, or None for a body in an unsupported form, fails the build
+    naming the fence."""
     try:
         result = parse()
     except FenceBodyError as e:
-        raise TabFenceError(f"{page}:{i + 1}: {e}") from e
+        raise TabFenceError(f"{page}:{line}: {e}") from e
     if result is None:
-        raise _unsupported(page, lines, i)
+        raise _unsupported(page, line, text)
     return result
+
+
+def source_line_offset(markdown: str, page) -> int:
+    """The lines of the page's source above `markdown`: the front matter MkDocs takes
+    off before the page hooks and the Markdown pipeline see the page."""
+    source = page.file.content_string
+    return source[: len(source) - len(markdown)].count("\n")
 
 
 @dataclass(frozen=True)
@@ -696,28 +705,30 @@ class DeploymentFence:
     environment: Dict[str, str]
 
 
-def deployment_fences(markdown: str, page: str) -> Iterator[DeploymentFence]:
-    """Every deployment fence of a page's markdown, its line counted in `markdown`;
-    a fence the preprocessor would refuse fails the build here too."""
+def deployment_fences(markdown: str, page: str, offset: int = 0) -> Iterator[DeploymentFence]:
+    """Every deployment fence of a page's markdown, which starts `offset` lines into
+    the page's source; a fence the preprocessor would refuse fails the build here too."""
     lines = markdown.split("\n")
-    for i, _, opening, body in _custom_fences(lines, page):
+    for i, _, opening, body in _custom_fences(lines, page, offset):
         if opening["deployment"]:
-            parsed = _checked(lambda: _deployment_body(opening, body, page), page, lines, i)
-            yield DeploymentFence(i + 1, parsed.values, parsed.environment)
+            line = offset + i + 1
+            parsed = _checked(lambda: _deployment_body(opening, body, page), page, line, lines[i])
+            yield DeploymentFence(line, parsed.values, parsed.environment)
 
 
 class TabFencePreprocessor(Preprocessor):
     """Replace each fence with its markdown.
 
-    Registered after pymdownx.snippets, so it also sees fences inside included
-    snippet files, and before superfences and tabbed, which then render the
-    group as they render hand-written tabs: tab ids come from tabbed's slugs,
-    as every other tab on the page gets them. The snippet includes the group
-    itself carries are expanded by the snippets extension's own parser."""
+    Registered before pymdownx.snippets, so the lines it counts are the page's own,
+    and before superfences and tabbed, which then render the group as they render
+    hand-written tabs: tab ids come from tabbed's slugs, as every other tab on the
+    page gets them. Snippets then expands the includes of the page and of the
+    expansions alike."""
 
-    def __init__(self, md, page: str):
+    def __init__(self, md, page: str, offset: int):
         super().__init__(md)
         self.page = page
+        self.offset = offset
 
     def _section(self, opening, body: str):
         if opening["multi"]:
@@ -727,10 +738,9 @@ class TabFencePreprocessor(Preprocessor):
     def run(self, lines):
         out: list = []
         start = 0
-        for i, end, opening, body in _custom_fences(lines, self.page):
-            group = _checked(lambda: self._section(opening, body), self.page, lines, i)
-            expansion = self.md.preprocessors["snippet"].parse_snippets(group.split("\n"))
-            out.extend([*lines[start:i], "", *expansion, ""])
+        for i, end, opening, body in _custom_fences(lines, self.page, self.offset):
+            group = _checked(lambda: self._section(opening, body), self.page, self.offset + i + 1, lines[i])
+            out.extend([*lines[start:i], "", *group.split("\n"), ""])
             start = end + 1
         return out + lines[start:]
 
@@ -741,18 +751,19 @@ class TabFencesExtension(Extension):
             "page": [
                 "",
                 "Path of the page being converted; its file stem names the page's secrets",
-            ]
+            ],
+            "offset": [0, "Lines of the page's source above the markdown converted (its front matter)"],
         }
         super().__init__(**kwargs)
 
     def extendMarkdown(self, md):
-        # After pymdownx.snippets (32), so a fence in an included file expands
-        # too. Before every other preprocessor that reads fences or the page's
-        # text: pymdownx.critic (31.1), the raw-block stash superfences adds
-        # with preserve_tabs (31.05), whitespace normalization (30) and
-        # superfences (25), which then see the expansion as hand-written tabs.
+        # Before every preprocessor that reads fences or the page's text:
+        # pymdownx.snippets (32), so an error names the line in the page's source,
+        # pymdownx.critic (31.1), the raw-block stash superfences adds with
+        # preserve_tabs (31.05), whitespace normalization (30) and superfences
+        # (25), which then see the expansion as hand-written tabs.
         md.preprocessors.register(
-            TabFencePreprocessor(md, self.getConfig("page")), "tab_fences", 31.5
+            TabFencePreprocessor(md, self.getConfig("page"), self.getConfig("offset")), "tab_fences", 33
         )
 
 
@@ -761,11 +772,14 @@ def makeExtension(**kwargs):
 
 
 def on_page_markdown(markdown, page, config, **kwargs):
-    """MkDocs hook: give the tab fences the path of the page being built.
+    """MkDocs hook: give the tab fences the path of the page being built, and where
+    its markdown starts in its source.
 
     MkDocs builds each page's Markdown instance from `mdx_configs` right after
     this event."""
-    config["mdx_configs"].setdefault(EXTENSION_NAME, {})["page"] = page.file.src_uri
+    extension = config["mdx_configs"].setdefault(EXTENSION_NAME, {})
+    extension["page"] = page.file.src_uri
+    extension["offset"] = source_line_offset(markdown, page)
     return markdown
 
 

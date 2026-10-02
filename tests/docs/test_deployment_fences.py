@@ -156,6 +156,31 @@ def test_the_cli_tab_keys_are_the_chart_values_that_are_holmes_config(tmp_path, 
         build_page(tmp_path, "Text.\n")
 
 
+INCLUDE = '--8<-- "snippets/toolsets_that_provide_logging.md"\n\n'
+FRONT_MATTER = "---\ntitle: Page\n---\n"
+
+
+@pytest.mark.parametrize(
+    "text, line, error",
+    [
+        (f"# Page\n\n{INCLUDE}```yaml-helm-values\npodLabels:\n  app: holmes\n```\n", 5, "`podLabels` is not a value"),
+        (f"# Page\n\n{INCLUDE}```multi-instance\ntoolset: x\n```\n", 5, "unsupported form"),
+        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\npodLabels:\n  app: holmes\n```\n", 6, "`podLabels` is not a value"),
+        (f"{FRONT_MATTER}# Page\n\n```multi-instance\ntoolset: x\n```\n", 6, "unsupported form"),
+    ],
+    ids=["include-hook", "include-preprocessor", "front-matter-hook", "front-matter-preprocessor"],
+)
+def test_a_fence_error_names_the_line_in_the_page_source(tmp_path, monkeypatch, text, line, error):
+    """The hook raises a deployment fence's body errors before the Markdown pipeline
+    runs; the preprocessor raises a multi-instance fence's."""
+    monkeypatch.chdir(REPO)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(text)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: {error}"):
+        build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
+
+
 TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_account_id: \"1\"\n"
 
 
