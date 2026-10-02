@@ -1,0 +1,42 @@
+incident_id: INC-007
+occurred_at: "2026-04-21"
+source_type: prometheus
+title: Worker node evicting pods under disk pressure
+subject: worker-node
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - node
+  - diskpressure
+  - evicted
+  - pod
+  - disk
+  - filesystem
+  - worker
+
+root_cause:
+  label: node_disk_pressure
+  summary: >-
+    Container logs were never rotated on one node. The kubelet crossed its
+    eviction threshold and started evicting pods, which looked like random
+    workload failures.
+
+reference_path:
+  - intent: describe
+    entity: {kind: node, name: "<subject>"}
+    weight: 1.0
+    rationale: The DiskPressure condition is only visible on the node, not on the pods.
+  - intent: events
+    entity: {kind: node, name: "<subject>"}
+    weight: 0.8
+    rationale: Eviction events tie the evicted pods back to the node.
+  - intent: resource_usage
+    entity: {kind: metric, name: node_filesystem_avail_bytes}
+    weight: 0.9
+    rationale: Separates a slow fill from a sudden one, which changes the fix.
+  - intent: list
+    entity: {kind: pod, name: null}
+    weight: 0.5
+    rationale: Shows the blast radius across every workload on the node.

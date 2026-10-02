@@ -1342,6 +1342,38 @@ jobs:
             echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
           fi
 
+      - name: Run investigation path benchmark
+        # Offline path-completeness benchmark for issue #2046. Deterministic, no
+        # LLM call, no cluster, a couple of seconds - it runs here so the
+        # retrieval policy accumulates a tracked history in the same place as
+        # the LLM evals before any user-facing behaviour depends on it.
+        #
+        # continue-on-error plus the exit-code guard below: this reports on a
+        # policy that nothing ships against yet, so it must never be the reason
+        # an eval run goes red or an eval report fails to post.
+        if: always() && steps.check-tests.outputs.should-run == 'true'
+        continue-on-error: true
+        working-directory: code
+        shell: bash
+        env:
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          EXPERIMENT_ID: github-${{ github.run_id }}.${{ github.run_number }}.${{ github.run_attempt }}
+        run: |
+          set +e
+          poetry run python -m holmes.core.investigation_path.offline_eval \
+            --braintrust --markdown path_benchmark.md
+          BENCHMARK_EXIT=$?
+          set -e
+
+          if [[ $BENCHMARK_EXIT -ne 0 ]]; then
+            echo "⚠️ investigation path benchmark exited $BENCHMARK_EXIT; not posting a report"
+            exit 0
+          fi
+
+          # Appended rather than merged into the eval table: these rows are
+          # deterministic and would be misread next to model-scored ones.
+          { echo; echo "---"; echo; cat path_benchmark.md; } >> evals_report.md
+
       - name: Post evaluation results
         if: always() && steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         uses: actions/github-script@v7

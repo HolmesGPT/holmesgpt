@@ -1,0 +1,66 @@
+# Held-out case: should ANSWER. Two corpus incidents share both the symptoms
+# and the root cause, and the observed investigation stopped at the dependency
+# pod without checking whether the Service still routed to it.
+incident_id: HOLD-001
+occurred_at: "2026-06-11"
+source_type: prometheus
+title: Orders service crash looping on refused cache connections
+subject: orders-service
+split: holdout
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - crashloopbackoff
+  - pod
+  - restart
+  - redis
+  - connection
+  - refused
+  - orders
+
+root_cause:
+  label: dependency_unreachable
+  summary: >-
+    A Redis StatefulSet rename left the Service selector pointing at labels no
+    pod carried, so the Service had no endpoints.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: Shows the restart reason and which container is failing.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: The application error names the dependency that is failing.
+  - intent: describe
+    entity: {kind: pod, name: redis}
+    weight: 0.5
+    rationale: Rules out the dependency itself being down.
+  - intent: topology
+    entity: {kind: service, name: redis}
+    weight: 0.9
+    rationale: A healthy dependency pod does not prove the Service still selects it.
+  - intent: topology
+    entity: {kind: endpoints, name: redis}
+    weight: 1.0
+    rationale: Empty endpoints is the direct evidence that traffic cannot reach the dependency.
+  - intent: metrics
+    entity: {kind: metric, name: redis_connected_clients}
+    weight: 0.6
+    rationale: Confirms whether any client is reaching the dependency at all.
+
+observed_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: Ran.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: Ran.
+  - intent: describe
+    entity: {kind: pod, name: redis}
+    weight: 0.5
+    rationale: Ran, and the healthy pod was taken as proof the dependency was fine.

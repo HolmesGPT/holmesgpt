@@ -1,0 +1,51 @@
+incident_id: INC-009
+occurred_at: "2026-05-18"
+source_type: prometheus
+title: Session service failing every cache read
+subject: session-service
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - crashloopbackoff
+  - pod
+  - restart
+  - redis
+  - connection
+  - timeout
+  - sessions
+
+root_cause:
+  label: dependency_unreachable
+  summary: >-
+    The Redis Service was recreated with the wrong port name, so the Service
+    resolved but forwarded to a port nothing was listening on.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: Shows the restart reason and which container is failing.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: The application error names the dependency that is failing.
+  - intent: describe
+    entity: {kind: pod, name: redis}
+    weight: 0.5
+    rationale: Rules out the dependency itself being down.
+  - intent: topology
+    entity: {kind: service, name: redis}
+    weight: 0.9
+    rationale: >-
+      The Service spec is where a wrong port or selector shows up, and it looks
+      healthy from every other angle.
+  - intent: topology
+    entity: {kind: endpoints, name: redis}
+    weight: 1.0
+    rationale: Confirms whether traffic can actually reach the dependency.
+  - intent: metrics
+    entity: {kind: metric, name: redis_connected_clients}
+    weight: 0.6
+    rationale: Confirms whether any client is reaching the dependency at all.

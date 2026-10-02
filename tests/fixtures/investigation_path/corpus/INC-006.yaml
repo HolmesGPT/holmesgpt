@@ -1,0 +1,37 @@
+incident_id: INC-006
+occurred_at: "2026-04-02"
+source_type: prometheus
+title: Notification worker stuck pulling its image
+subject: notification-worker
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - imagepullbackoff
+  - pod
+  - pending
+  - registry
+  - image
+  - notification
+  - pull
+
+root_cause:
+  label: image_pull_failure
+  summary: >-
+    The deployment referenced a tag that was never pushed. The registry
+    answered, so the failure looked like an outage rather than a bad reference.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The waiting reason distinguishes a missing tag from a registry outage.
+  - intent: events
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: The pull error from the kubelet carries the exact rejected reference.
+  - intent: config_history
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 0.8
+    rationale: Shows which change introduced the image reference that cannot be pulled.

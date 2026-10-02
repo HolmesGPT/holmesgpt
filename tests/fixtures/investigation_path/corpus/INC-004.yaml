@@ -1,0 +1,47 @@
+incident_id: INC-004
+occurred_at: "2026-03-08"
+source_type: prometheus
+title: Inventory service killed for exceeding its memory limit
+subject: inventory-service
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - oomkilled
+  - pod
+  - restart
+  - memory
+  - limit
+  - inventory
+  - terminated
+
+root_cause:
+  label: oom_kill
+  summary: >-
+    A batch reconciliation loaded the whole catalogue into memory. The limit
+    had been sized for steady-state traffic only.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.8
+    rationale: Shows the last terminated state and the exit code.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.7
+    rationale: The work in progress before the kill explains what the memory went on.
+  - intent: events
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The OOMKilled event confirms the kernel killed the container.
+  - intent: resource_usage
+    entity: {kind: metric, name: container_memory_working_set_bytes}
+    weight: 1.0
+    rationale: >-
+      Shows how close the container ran to its limit and whether the growth was
+      gradual or a spike. Without it, a restart loop and an OOM look alike.
+  - intent: describe
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 0.9
+    rationale: The memory limit lives on the workload spec, not in pod status.
