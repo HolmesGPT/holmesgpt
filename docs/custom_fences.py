@@ -93,6 +93,9 @@ that is written has a value.
   Holmes CLI tab alone, for a toolset that runs only in the CLI.
 - `test` (a derived CLI tab only): a command the CLI tab ends with, under "To test, run:".
 
+Every custom fence is in a page's own source: a fence in a file under `docs/snippets/` fails the
+build (`on_config`), since fences expand before the includes.
+
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
 this file under `hooks:`. An MkDocs config that sets its own `hooks:`, including one that INHERITs
@@ -769,6 +772,18 @@ class TabFencesExtension(Extension):
 
 def makeExtension(**kwargs):
     return TabFencesExtension(**kwargs)
+
+
+def on_config(config, **kwargs):
+    """MkDocs hook: fail the build on a custom fence in a snippet file. A fence is
+    expanded before the includes, so only a page's own fences render."""
+    docs = Path(config["docs_dir"])
+    for path in sorted((docs / "snippets").rglob("*")):
+        if path.is_file():
+            for i, line in enumerate(path.read_text().split("\n")):
+                if FENCE_OPENING_RE.match(line):
+                    raise _unsupported(path.relative_to(docs).as_posix(), i + 1, line)
+    return config
 
 
 def on_page_markdown(markdown, page, config, **kwargs):

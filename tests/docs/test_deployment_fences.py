@@ -181,6 +181,26 @@ def test_a_fence_error_names_the_line_in_the_page_source(tmp_path, monkeypatch, 
         build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
 
 
+@pytest.mark.parametrize(
+    "fence",
+    [
+        "```yaml-toolset-config\ntoolsets:\n  newrelic:\n    enabled: true\n```\n",
+        "```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n```\n",
+    ],
+    ids=["yaml-toolset-config", "yaml-helm-values"],
+)
+def test_a_fence_in_a_snippet_file_fails_the_build_naming_the_file(tmp_path, monkeypatch, fence):
+    monkeypatch.chdir(REPO)
+    docs = tmp_path / "docs"
+    (docs / "snippets").mkdir(parents=True)
+    (docs / "index.md").write_text("# Page\n")
+    (docs / "snippets" / "setup.md").write_text(f"Configure it:\n\n{fence}")
+    # MkDocs loads the hook file as a module of its own, so the error is that module's TabFenceError.
+    with pytest.raises(Exception, match=r"^snippets/setup\.md:3: unsupported form of a custom fence") as error:
+        build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
+    assert type(error.value).__name__ == "TabFenceError"
+
+
 TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_account_id: \"1\"\n"
 
 
