@@ -94,7 +94,13 @@ that is written has a value.
 - `test` (a derived CLI tab only): a command the CLI tab ends with, under "To test, run:".
 
 Every custom fence is in a page's own source: a fence in a file under `docs/snippets/` fails the
-build (`on_config`), since fences expand before the includes.
+build (`on_config`), since fences expand before the includes. An include, on a page or in a snippet,
+names a file under `docs/snippets/`, on a line of its own, indented by two spaces at most (in a
+`cli` field):
+
+    --8<-- "snippets/<file>.md"
+
+Any other include fails the build, so every file a page includes is one `on_config` reads.
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
 page reaches the extension through this module's `on_page_markdown` MkDocs hook, so mkdocs.yml lists
@@ -237,6 +243,10 @@ SUPPORTED_OPENING_RE = re.compile(
     r"(?: \{(?P<option>reuse|secret-qualifier=(?P<qualifier>[a-z0-9]+(?:-[a-z0-9]+)*))\})?)$"
 )
 CLOSING_LINE = "```"
+# A line pymdownx.snippets reads as an include, in any form ...
+INCLUDE_RE = re.compile(r"^[ \t>]*;*-+8<-+")
+# ... and the form pages write.
+SUPPORTED_INCLUDE_RE = re.compile(r'^(?:  )?--8<-- "snippets/[a-z0-9_]+\.md"$')
 # The line of a deployment fence body that ends the values and starts its fields.
 FIELDS_SEPARATOR = "---"
 # A key of a secret, as one argument of `kubectl create secret generic`.
@@ -677,12 +687,20 @@ def _custom_fences(lines: List[str], page: str, offset: int) -> Iterator[Tuple[i
         i = end + 1
 
 
-def _unsupported(page: str, line: int, text: str) -> TabFenceError:
+def _unsupported(page: str, line: int, text: str, of: str = "a custom fence") -> TabFenceError:
     return TabFenceError(
-        f"{page}:{line}: unsupported form of a custom fence: "
+        f"{page}:{line}: unsupported form of {of}: "
         f"{text.strip()!r}. See the docstring of docs/custom_fences.py "
         "for the supported forms"
     )
+
+
+def _check_includes(lines: List[str], page: str, offset: int) -> None:
+    """Fail the build on an include in `lines`, which start `offset` lines into the page's
+    source, in a form no page writes."""
+    for i, line in enumerate(lines):
+        if INCLUDE_RE.match(line) and not SUPPORTED_INCLUDE_RE.match(line):
+            raise _unsupported(page, offset + i + 1, line, "an include")
 
 
 def _checked(parse, page: str, line: int, text: str):
@@ -746,6 +764,7 @@ class TabFencePreprocessor(Preprocessor):
         return _deployment_section(opening, body, self.page)
 
     def run(self, lines):
+        _check_includes(lines, self.page, self.offset)
         out: list = []
         start = 0
         for i, end, opening, body in _custom_fences(lines, self.page, self.offset):
@@ -782,14 +801,18 @@ def makeExtension(**kwargs):
 
 
 def on_config(config, **kwargs):
-    """MkDocs hook: fail the build on a custom fence in a snippet file. A fence is
-    expanded before the includes, so only a page's own fences render."""
+    """MkDocs hook: fail the build on a custom fence, or an include in a form no page
+    writes, in a snippet file. A fence is expanded before the includes, so only a
+    page's own fences render."""
     docs = Path(config["docs_dir"])
     for path in sorted((docs / "snippets").rglob("*")):
         if path.is_file():
-            for i, line in enumerate(path.read_text().split("\n")):
+            snippet = path.relative_to(docs).as_posix()
+            lines = path.read_text().split("\n")
+            _check_includes(lines, snippet, 0)
+            for i, line in enumerate(lines):
                 if FENCE_OPENING_RE.match(line):
-                    raise _unsupported(path.relative_to(docs).as_posix(), i + 1, line)
+                    raise _unsupported(snippet, i + 1, line)
     return config
 
 

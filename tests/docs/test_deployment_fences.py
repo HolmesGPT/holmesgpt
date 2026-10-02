@@ -231,6 +231,31 @@ def test_a_fence_in_a_snippet_file_fails_the_build_naming_the_file(tmp_path, mon
     assert type(error.value).__name__ == "TabFenceError"
 
 
+@pytest.mark.parametrize(
+    "include",
+    [
+        '--8<-- "data-sources/builtin-toolsets/kafka.md"',
+        "--8<--\nsnippets/toolset_refresh_warning.md\n--8<--",
+    ],
+    ids=["outside-snippets", "block"],
+)
+def test_an_include_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, include):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of an include: '--8<--"):
+        build_page(tmp_path, f"{include}\n")
+
+
+def test_an_include_in_a_snippet_file_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    docs = tmp_path / "docs"
+    (docs / "snippets").mkdir(parents=True)
+    (docs / "index.md").write_text("# Page\n")
+    (docs / "snippets" / "setup.md").write_text('Configure it:\n\n--8<-- "data-sources/builtin-toolsets/kafka.md"\n')
+    with pytest.raises(Exception, match=r"^snippets/setup\.md:3: unsupported form of an include") as error:
+        build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
+    assert type(error.value).__name__ == "TabFenceError"
+
+
 TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_account_id: \"1\"\n"
 
 
