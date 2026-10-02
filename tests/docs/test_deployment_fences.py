@@ -2,14 +2,17 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict
 
 import markdown
 import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
+from pydantic import BaseModel
 
 from docs import custom_fences, fence_checks
 from docs.custom_fences import FENCE_OPENING_RE, TabFenceError
+from holmes.plugins.toolsets.kafka import KafkaToolset
 
 REPO = Path(__file__).resolve().parents[2]
 DOCS = REPO / "docs"
@@ -277,12 +280,45 @@ def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monke
             "mcp_servers:\n  jira:\n    description: Jira\n    config:\n      url: https://mcp.example.com/mcp\n      oauth:\n        client_idd: holmes\n",
             r"`mcp_servers\.jira\.config` is not a config the toolset accepts: .*`oauth\.client_idd` is not a field it declares",
         ),
+        (
+            "toolsets:\n  kafka/admin:\n    enabled: true\n    config:\n      clusters:\n        - name: prod\n          broker: kafka:9092\n          security_protocl: SSL\n",
+            r"`toolsets\.kafka/admin\.config` is not a config the toolset accepts: .*`clusters\[0\]\.security_protocl` is not a field it declares",
+        ),
+        (
+            "toolsets:\n  zabbix:\n    type: http\n    config:\n      endpoints:\n        - hosts: [zabbix.example.com]\n          method: [POST]\n",
+            r"`toolsets\.zabbix\.config` is not a config the toolset accepts: .*`endpoints\[0\]\.method` is not a field it declares",
+        ),
     ],
-    ids=["built-in", "custom-named", "subtype", "mcp_servers", "undeclared-key", "undeclared-nested-key"],
+    ids=[
+        "built-in",
+        "custom-named",
+        "subtype",
+        "mcp_servers",
+        "undeclared-key",
+        "undeclared-nested-key",
+        "undeclared-key-in-a-list-entry",
+        "undeclared-key-in-a-typed-toolset-list-entry",
+    ],
 )
 def test_a_toolset_config_its_toolset_refuses_fails_the_build(tmp_path, monkeypatch, values, error):
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
+
+
+class KafkaCluster(BaseModel):
+    broker: str
+
+
+class KafkaClustersByName(BaseModel):
+    clusters: Dict[str, KafkaCluster]
+
+
+def test_a_config_class_holding_a_model_in_a_form_the_check_does_not_read_fails_the_build(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    monkeypatch.setattr(KafkaToolset, "config_classes", [KafkaClustersByName])
+    values = "toolsets:\n  kafka/admin:\n    enabled: true\n    config:\n      clusters:\n        prod:\n          broker: kafka:9092\n"
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: KafkaClustersByName\.clusters holds a model as typing\.Dict\["):
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 
 

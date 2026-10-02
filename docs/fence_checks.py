@@ -16,16 +16,17 @@ Toolset configs. A block's `config` must be one that a config class of its tools
 built-in toolset of that name, else the toolset of the type `type:` names, and the MCP toolset for
 an `mcp_servers` entry; with `subtype:`, the class of that subtype. It is checked with each
 `<placeholder>` replaced and with only the group's environment set: its secret's keys and its
-`additionalEnvVars`. Every key of the config, and of a nested config the class declares as a
-model, is a field the class declares: config classes accept undeclared keys (`extra="allow"`) to
-keep deprecated names working, and a page shows only current names.
+`additionalEnvVars`. Every key of the config, and of each nested config the class declares as a
+model (`Model`, `Optional[Model]` or `List[Model]`), is a field the class declares: config classes
+accept undeclared keys (`extra="allow"`) to keep deprecated names working, and a page shows only
+current names.
 """
 
 import functools
 import os
 import re
 from contextlib import contextmanager
-from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, get_args
+from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union, get_args, get_origin
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -127,23 +128,53 @@ def _filled(value):
     return value
 
 
-def _model(annotation) -> Optional[type]:
-    """The pydantic model a field's annotation holds, `Optional` or not."""
-    for candidate in (annotation, *get_args(annotation)):
-        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
-            return candidate
-    return None
+def _is_model(annotation) -> bool:
+    return isinstance(annotation, type) and issubclass(annotation, BaseModel)
 
 
-def _undeclared_key(config: dict, cls: type, path: tuple = ()) -> Optional[str]:
-    """The first key of `config`, nested configs included, that `cls` does not declare."""
+def _holds_model(annotation) -> bool:
+    return _is_model(annotation) or any(_holds_model(arg) for arg in get_args(annotation))
+
+
+def _nested_model(cls: type, key: str) -> Tuple[Optional[type], bool]:
+    """(the model a field holds, whether it holds a list of them), through the forms the
+    config classes use: `Model`, `Optional[Model]` and `List[Model]`; (None, False) for
+    a field that holds no model. A model held in any other form fails the build, so the
+    check cannot pass over the keys under it."""
+    annotation = cls.model_fields[key].annotation
+    args = get_args(annotation)
+    if _is_model(annotation):
+        return annotation, False
+    if get_origin(annotation) is Union and len(args) == 2 and type(None) in args:
+        (inner,) = [arg for arg in args if arg is not type(None)]
+        if _is_model(inner):
+            return inner, False
+    if get_origin(annotation) is list and len(args) == 1 and _is_model(args[0]):
+        return args[0], True
+    if _holds_model(annotation):
+        raise cf.FenceBodyError(
+            f"{cls.__name__}.{key} holds a model as {annotation}, which the config check does not "
+            "read: it reads Model, Optional[Model] and List[Model] (docs/fence_checks.py)"
+        )
+    return None, False
+
+
+def _undeclared_key(config: dict, cls: type, path: str = "") -> Optional[str]:
+    """The first key of `config`, nested configs and their list entries included, that
+    `cls` does not declare."""
     for key, value in config.items():
-        field = cls.model_fields.get(key)
-        if field is None:
-            return ".".join(path + (key,))
-        nested = _model(field.annotation)
-        if nested is not None and isinstance(value, dict):
-            undeclared = _undeclared_key(value, nested, path + (key,))
+        if key not in cls.model_fields:
+            return path + key
+        nested, many = _nested_model(cls, key)
+        if nested is None:
+            continue
+        entries = enumerate(value) if many else [(None, value)]
+        for index, entry in entries:
+            # An `Optional[Model]` field written with no value holds no keys.
+            if entry is None:
+                continue
+            where = path + key + ("" if index is None else f"[{index}]") + "."
+            undeclared = _undeclared_key(entry, nested, where)
             if undeclared:
                 return undeclared
     return None
