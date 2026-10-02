@@ -7,6 +7,7 @@ edit_uri: edit/master/docs/
 exclude_docs: |
     _*
     /custom_fences.py
+    /fence_checks.py
     /overrides/
     snippets/
     README.md
@@ -256,6 +257,8 @@ markdown_extensions:
 
 hooks:
     - docs/custom_fences.py
+    # The fence checks that need Holmes; docs/custom_fences.py needs none.
+    - docs/fence_checks.py
 
 extra_css:
     - stylesheets/extra.css

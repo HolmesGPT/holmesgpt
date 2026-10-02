@@ -28,8 +28,9 @@ name, and closed by the first line of three backticks:
 `yaml-helm-values` takes the same forms as `yaml-toolset-config`. A `multi-instance` body has
 `toolset`, `name` and `config`. Any other form of these fences fails the build with a message naming
 the page and the line, and so do a body that is not valid YAML, a value the chart has no key for,
-a toolset config its toolset refuses, and a page whose rendered HTML shows a fence's markdown
-instead of its tabs (`on_post_page`).
+and a page whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`). This
+module reads only files and imports nothing from `holmes`; the checks that need Holmes, of each
+`toolsets` and `mcp_servers` block, are the `docs/fence_checks.py` hook's.
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
@@ -50,13 +51,8 @@ the first column, then optionally a line `---` and the fields below, a second bl
 Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the chart's upgrade command.
 The values are written as the page shows them, comments included. Each top-level key is a key of
 the chart's `helm/holmes/values.yaml` and has a value; the keys that are also Holmes config
-(`holmes.config.Config` fields) are what a derived CLI tab shows.
-
-Toolset configs. `toolsets` and `mcp_servers` map each name to a block. A block's `config` must be
-one that a config class of its toolset accepts: the built-in toolset of that name, else the toolset
-of the type `type:` names, and the MCP toolset for an `mcp_servers` entry; with `subtype:`, the
-class of that subtype. It is checked with each `<placeholder>` replaced and with only the group's
-environment set: its secret's keys and its `additionalEnvVars`.
+(`CLI_CONFIG_KEYS`) are what a derived CLI tab shows. `toolsets` and `mcp_servers` map each name
+to a block, which `docs/fence_checks.py` checks against Holmes.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -102,24 +98,17 @@ mkdocs.yml (the child's list replaces the parent's), must list this file too, or
 the build.
 """
 
-import functools
 import html
-import os
 import posixpath
 import re
-from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Dict, List, Optional, Tuple
+from typing import Annotated, Dict, Iterator, List, NamedTuple, Optional, Tuple
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
 from markdown.preprocessors import Preprocessor
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, field_validator, model_validator
-
-from holmes.config import Config
-from holmes.core.tools import ToolsetType
-from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
-from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -249,13 +238,13 @@ FIELDS_SEPARATOR = "---"
 SECRET_ARGUMENT_RE = re.compile(
     r"--from-(?P<kind>literal|file)=(?P<key>[A-Za-z0-9_.-]+)=(?P<value>\S.*)"
 )
-# The keys a fence's values may set: the Holmes chart's values. Of these, the
-# ones that are also Holmes config are what a derived CLI tab shows.
+# The keys a fence's values may set: the Holmes chart's values.
 CHART_VALUES = Path(__file__).resolve().parents[1] / "helm" / "holmes" / "values.yaml"
 CHART_KEYS = frozenset(yaml.safe_load(CHART_VALUES.read_text()))
-CLI_CONFIG_KEYS = frozenset(Config.model_fields)
-# A placeholder the reader replaces, such as `<namespace>`.
-PLACEHOLDER_RE = re.compile(r"<[A-Za-z0-9_-]+>")
+# The chart values that are also Holmes config, which a derived CLI tab shows. The
+# docs/fence_checks.py hook fails the build when this is not the `holmes.config.Config`
+# fields that are CHART_KEYS.
+CLI_CONFIG_KEYS = frozenset({"toolsets", "mcp_servers"})
 # The chart-specific names a Helm tab can state, and the lines that state them.
 DEPLOYMENT_VALUES = {
     ("service-account",): ". Use it as `<service-account>` on this page.",
@@ -398,23 +387,11 @@ SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)
 Text = Annotated[str, Field(pattern=r"\S")]
 
 
-class NamedSecret(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    name: Text
-    keys: SecretKeys
-
-
-class Fields(BaseModel):
-    """The fields part of a deployment fence body: the fields the docstring lists
-    for the fence, each with a value of its type."""
+class Form(BaseModel):
+    """A part of a fence body that holds only the fields pages write, each with a
+    value of its type."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-
-    secret: Optional[SecretKeys] = None
-    named_secrets: Optional[Annotated[List[NamedSecret], Field(min_length=1)]] = Field(
-        default=None, alias="named-secrets"
-    )
 
     @model_validator(mode="before")
     @classmethod
@@ -423,6 +400,21 @@ class Fields(BaseModel):
         if isinstance(data, dict) and None in data.values():
             raise ValueError("a field with no value")
         return data
+
+
+class NamedSecret(Form):
+    name: Text
+    keys: SecretKeys
+
+
+class Fields(Form):
+    """The fields part of a deployment fence body: the fields the docstring lists
+    for the fence."""
+
+    secret: Optional[SecretKeys] = None
+    named_secrets: Optional[Annotated[List[NamedSecret], Field(min_length=1)]] = Field(
+        default=None, alias="named-secrets"
+    )
 
 
 class ToolsetConfigFields(Fields):
@@ -445,84 +437,6 @@ class HelmValuesFields(Fields):
         if not isinstance(value, list) or tuple(value) not in DEPLOYMENT_VALUES:
             raise ValueError(f"one of {[list(names) for names in DEPLOYMENT_VALUES]}")
         return tuple(value)
-
-
-@functools.cache
-def _builtin_toolsets() -> dict:
-    return {toolset.name: toolset for toolset in load_builtin_toolsets()}
-
-
-def _config_classes(part: str, name: str, block: dict) -> list:
-    """The config classes of the toolset a values block configures: the built-in
-    toolset of that name, else the toolset of the type `type:` names, and the MCP
-    toolset for an `mcp_servers` entry, as Holmes's loader resolves them."""
-    if part == "toolsets" and name in _builtin_toolsets():
-        toolset = _builtin_toolsets()[name]
-        # A multi-instance wrapper validates each instance with its child's classes.
-        owner = toolset._child_cls if isinstance(toolset, MultiInstanceToolset) else type(toolset)
-        return list(owner.config_classes)
-    toolset_type = ToolsetType.MCP.value if part == "mcp_servers" else block.get("type")
-    if toolset_type is None:
-        return []
-    try:
-        ToolsetType(toolset_type)
-    except ValueError as e:
-        raise FenceBodyError(f"`{part}.{name}.type` is not a toolset type: {toolset_type!r}") from e
-    (toolset,) = load_toolsets_from_config({name: {"type": toolset_type}})
-    return list(type(toolset).config_classes)
-
-
-def _filled(value):
-    """`value` with each `<placeholder>` replaced by its name, as a reader replaces it."""
-    if isinstance(value, dict):
-        return {key: _filled(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_filled(item) for item in value]
-    if isinstance(value, str):
-        return PLACEHOLDER_RE.sub(lambda match: match[0][1:-1], value)
-    return value
-
-
-@contextmanager
-def _environment(variables: dict):
-    """Run with only these environment variables set."""
-    saved = dict(os.environ)
-    os.environ.clear()
-    os.environ.update(variables)
-    try:
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(saved)
-
-
-def _check_toolset_configs(values: dict, environment: dict) -> None:
-    """Raise if a `toolsets` or `mcp_servers` block's `config` is one its toolset's
-    config classes refuse (the class `subtype:` names, when given), with Holmes
-    running with `environment`, the variables the group gives it."""
-    for part in ("toolsets", "mcp_servers"):
-        for name, block in values.get(part, {}).items():
-            classes = _config_classes(part, name, block)
-            if not classes:
-                continue
-            subtype = block.get("subtype")
-            if subtype is not None:
-                classes = [cls for cls in classes if getattr(cls, "_subtype", None) == subtype]
-                if not classes:
-                    raise FenceBodyError(f"`{part}.{name}.subtype` names no config of the toolset: {subtype!r}")
-            config = _filled(block.get("config") or {})
-            errors = []
-            with _environment(environment):
-                for cls in classes:
-                    try:
-                        cls.model_validate(config)
-                        break
-                    except (ValidationError, ValueError) as e:
-                        errors.append(f"{cls.__name__}: {e}")
-                else:
-                    raise FenceBodyError(
-                        f"`{part}.{name}.config` is not a config the toolset accepts: " + "; ".join(errors)
-                    )
 
 
 def _secret_command(name: str, keys: dict) -> str:
@@ -575,9 +489,21 @@ def _environment_keys(values_text: str, values: dict, given: dict) -> dict:
     return keys
 
 
-def _deployment_section(opening, body: str, page: str):
-    """The tab group of the deployment tab standard for a deployment fence body,
-    or None if the body is not a supported form."""
+class DeploymentBody(NamedTuple):
+    """A deployment fence body in a supported form."""
+
+    values_text: str
+    values: dict
+    fields: Fields
+    # The group's env secret, "" for none, and its keys as `_environment_keys` gives them.
+    secret: str
+    keys: dict
+    # The variables the group gives Holmes: its secret's keys and its `additionalEnvVars`.
+    environment: Dict[str, str]
+
+
+def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
+    """A deployment fence body parsed and checked, or None if it is not a supported form."""
     lines = body.split("\n")
     split = lines.index(FIELDS_SEPARATOR) if FIELDS_SEPARATOR in lines else len(lines)
     values_text = "\n".join(lines[:split]).strip("\n")
@@ -596,14 +522,12 @@ def _deployment_section(opening, body: str, page: str):
     unknown = [key for key in values if key not in CHART_KEYS]
     if unknown:
         raise FenceBodyError(f"`{unknown[0]}` is not a value of the Holmes chart (helm/holmes/values.yaml)")
-    cli = fields.cli if isinstance(fields, ToolsetConfigFields) else None
-    test = fields.test if isinstance(fields, ToolsetConfigFields) else None
 
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.
-        if cli is None or opening["option"] or fields.model_fields_set != {"cli"}:
+        if not isinstance(fields, ToolsetConfigFields) or opening["option"] or fields.model_fields_set != {"cli"}:
             return None
-        return _tab("Holmes CLI", [cli.strip("\n")])
+        return DeploymentBody(values_text, values, fields, "", {}, {})
 
     keys = _environment_keys(values_text, values, fields.secret or {})
     secret = ""
@@ -621,7 +545,22 @@ def _deployment_section(opening, body: str, page: str):
             if isinstance(entry, dict) and isinstance(entry.get("name"), str)
         }
     )
-    _check_toolset_configs(values, environment)
+    return DeploymentBody(values_text, values, fields, secret, keys, environment)
+
+
+def _deployment_section(opening, body: str, page: str):
+    """The tab group of the deployment tab standard for a deployment fence body,
+    or None if the body is not a supported form."""
+    parsed = _deployment_body(opening, body, page)
+    if parsed is None:
+        return None
+    values_text, _, fields, secret, keys, _ = parsed
+    toolset_config = isinstance(fields, ToolsetConfigFields)
+    cli = fields.cli if isinstance(fields, ToolsetConfigFields) else None
+    test = fields.test if isinstance(fields, ToolsetConfigFields) else None
+    if not values_text:
+        return _tab("Holmes CLI", [cli.strip("\n")])
+
     commands = [_secret_command(secret, keys)] if keys and opening["option"] != "reuse" else []
     commands += [_secret_command(entry.name, entry.keys) for entry in fields.named_secrets or []]
     deployment_values = fields.deployment_values if isinstance(fields, HelmValuesFields) else None
@@ -675,6 +614,64 @@ def _deployment_section(opening, body: str, page: str):
     return "\n\n".join(tabs)
 
 
+def _custom_fences(lines: List[str], page: str) -> Iterator[Tuple[int, int, re.Match, str]]:
+    """(index of the opening line, index of the closing line, the opening, the body)
+    of each custom fence in `lines`; a fence in a form no page writes fails the build."""
+    i = 0
+    while i < len(lines):
+        if not FENCE_OPENING_RE.match(lines[i]):
+            i += 1
+            continue
+        if not page:
+            raise TabFenceError(f"a custom fence needs the page's path, {NO_PAGE}")
+        opening = SUPPORTED_OPENING_RE.match(lines[i])
+        end = next((j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None)
+        if not opening or not end:
+            raise _unsupported(page, lines, i)
+        yield i, end, opening, "\n".join(lines[i + 1 : end]).strip("\n")
+        i = end + 1
+
+
+def _unsupported(page: str, lines: List[str], i: int) -> TabFenceError:
+    return TabFenceError(
+        f"{page}:{i + 1}: unsupported form of a custom fence: "
+        f"{lines[i].strip()!r}. See the docstring of docs/custom_fences.py "
+        "for the supported forms"
+    )
+
+
+def _checked(parse, page: str, lines: List[str], i: int):
+    """What `parse()` returns for the fence opening at `lines[i]`; a FenceBodyError,
+    or None for a body in an unsupported form, fails the build naming the fence."""
+    try:
+        result = parse()
+    except FenceBodyError as e:
+        raise TabFenceError(f"{page}:{i + 1}: {e}") from e
+    if result is None:
+        raise _unsupported(page, lines, i)
+    return result
+
+
+@dataclass(frozen=True)
+class DeploymentFence:
+    """A deployment fence of a page, as the docs/fence_checks.py hook checks it."""
+
+    line: int
+    values: dict
+    # The variables the group gives Holmes: its secret's keys and its `additionalEnvVars`.
+    environment: Dict[str, str]
+
+
+def deployment_fences(markdown: str, page: str) -> Iterator[DeploymentFence]:
+    """Every deployment fence of a page's markdown, its line counted in `markdown`;
+    a fence the preprocessor would refuse fails the build here too."""
+    lines = markdown.split("\n")
+    for i, _, opening, body in _custom_fences(lines, page):
+        if opening["deployment"]:
+            parsed = _checked(lambda: _deployment_body(opening, body, page), page, lines, i)
+            yield DeploymentFence(i + 1, parsed.values, parsed.environment)
+
+
 class TabFencePreprocessor(Preprocessor):
     """Replace each fence with its markdown.
 
@@ -688,42 +685,20 @@ class TabFencePreprocessor(Preprocessor):
         super().__init__(md)
         self.page = page
 
+    def _section(self, opening, body: str):
+        if opening["multi"]:
+            return _multi_instance_section(body, self.page)
+        return _deployment_section(opening, body, self.page)
+
     def run(self, lines):
         out: list = []
-        i = 0
-        while i < len(lines):
-            if not FENCE_OPENING_RE.match(lines[i]):
-                out.append(lines[i])
-                i += 1
-                continue
-            if not self.page:
-                raise TabFenceError(f"a custom fence needs the page's path, {NO_PAGE}")
-            opening = SUPPORTED_OPENING_RE.match(lines[i])
-            end = next(
-                (j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None
-            )
-            group = None
-            if opening and end:
-                body = "\n".join(lines[i + 1 : end]).strip("\n")
-                try:
-                    group = (
-                        _multi_instance_section(body, self.page)
-                        if opening["multi"]
-                        else _deployment_section(opening, body, self.page)
-                    )
-                except FenceBodyError as e:
-                    raise TabFenceError(f"{self.page}:{i + 1}: {e}") from e
-            if group is None:
-                raise TabFenceError(
-                    f"{self.page}:{i + 1}: unsupported form of a custom fence: "
-                    f"{lines[i].strip()!r}. See the docstring of docs/custom_fences.py "
-                    "for the supported forms"
-                )
-            expansion = group.split("\n")
-            expansion = self.md.preprocessors["snippet"].parse_snippets(expansion)
-            out.extend(["", *expansion, ""])
-            i = end + 1
-        return out
+        start = 0
+        for i, end, opening, body in _custom_fences(lines, self.page):
+            group = _checked(lambda: self._section(opening, body), self.page, lines, i)
+            expansion = self.md.preprocessors["snippet"].parse_snippets(group.split("\n"))
+            out.extend([*lines[start:i], "", *expansion, ""])
+            start = end + 1
+        return out + lines[start:]
 
 
 class TabFencesExtension(Extension):

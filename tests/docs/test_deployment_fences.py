@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from pathlib import Path
 
 import markdown
@@ -5,6 +7,7 @@ import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
 
+from docs import custom_fences, fence_checks
 from docs.custom_fences import FENCE_OPENING_RE, TabFenceError
 
 REPO = Path(__file__).resolve().parents[2]
@@ -33,14 +36,39 @@ def test_there_are_pages_with_fences():
     ids=[str(path.relative_to(DOCS)) for path in PAGES_WITH_FENCES],
 )
 def test_every_fence_of_a_page_is_in_a_supported_form(site_config, monkeypatch, path):
-    """The preprocessor raises on a fence in any form it does not support."""
+    """The preprocessor and the fence_checks hook raise on a fence in any form they do not support."""
     monkeypatch.chdir(REPO)  # pymdownx.snippets resolves base_path from the cwd
+    page = path.relative_to(DOCS).as_posix()
     configs = {**site_config["mdx_configs"]}
-    configs["docs.custom_fences"] = {"page": str(path.relative_to(DOCS))}
+    configs["docs.custom_fences"] = {"page": page}
     md = markdown.Markdown(
         extensions=site_config["markdown_extensions"], extension_configs=configs
     )
     assert md.convert(path.read_text())
+    fence_checks.check_page(path.read_text(), page)
+
+
+# The holmes modules a process has imported, and whether it has the fence module.
+LOADED = (
+    "import sys; print(sorted(name for name in sys.modules if name.split('.')[0] == 'holmes'),"
+    " 'docs.custom_fences' in sys.modules)"
+)
+
+
+@pytest.mark.parametrize(
+    "load",
+    [
+        "import docs.custom_fences",
+        # A tool that expands the fences without Holmes loads the config without its hooks.
+        "from mkdocs.config import load_config; load_config('mkdocs.yml', hooks=[])",
+    ],
+    ids=["the fence module", "mkdocs.yml without its hooks"],
+)
+def test_expanding_the_fences_imports_nothing_from_holmes(load):
+    result = subprocess.run(
+        [sys.executable, "-c", f"{load}\n{LOADED}"], cwd=REPO, capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[] True"
 
 
 def test_two_builds_of_the_site_are_byte_identical(tmp_path):
@@ -102,6 +130,13 @@ def build_page(tmp_path, text):
     docs.mkdir()
     (docs / "index.md").write_text(f"# Page\n\n{text}")
     build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
+
+
+def test_the_cli_tab_keys_are_the_chart_values_that_are_holmes_config(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    monkeypatch.setattr(custom_fences, "CLI_CONFIG_KEYS", frozenset({"toolsets"}))
+    with pytest.raises(TabFenceError, match=r"^docs/custom_fences\.py: CLI_CONFIG_KEYS is \['toolsets'\]"):
+        build_page(tmp_path, "Text.\n")
 
 
 TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_account_id: \"1\"\n"
