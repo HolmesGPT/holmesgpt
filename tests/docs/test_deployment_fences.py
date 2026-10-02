@@ -132,3 +132,35 @@ def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monke
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{key}` is not a value of the Holmes chart"):
         build_page(tmp_path, f"```yaml-helm-values\n{key}:\n  app: holmes\n```\n")
+
+
+@pytest.mark.parametrize(
+    "values, error",
+    [
+        (
+            "toolsets:\n  grafana/dashboards:\n    enabled: true\n    config:\n      verify_ssl: true\n",
+            r"`toolsets\.grafana/dashboards\.config` is not a config the toolset accepts: .*api_url",
+        ),
+        (
+            "toolsets:\n  orders-db:\n    type: database\n    config:\n      read_only: true\n",
+            r"`toolsets\.orders-db\.config` is not a config the toolset accepts: .*connection_url",
+        ),
+        (
+            "toolsets:\n  orders-db:\n    type: databse\n    config:\n      connection_url: sqlite:///x.db\n",
+            r"`toolsets\.orders-db\.type` is not a toolset type",
+        ),
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    subtype: prom\n    config:\n      prometheus_url: http://prometheus:9090\n",
+            r"`toolsets\.prometheus/metrics\.subtype` names no config of the toolset",
+        ),
+        (
+            "mcp_servers:\n  jenkins:\n    description: Jenkins\n    config:\n      mode: streamable-http\n",
+            r"`mcp_servers\.jenkins\.config` is not a config the toolset accepts: .*url",
+        ),
+    ],
+    ids=["built-in", "custom-named", "type", "subtype", "mcp_servers"],
+)
+def test_a_toolset_config_its_toolset_refuses_fails_the_build(tmp_path, monkeypatch, values, error):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")

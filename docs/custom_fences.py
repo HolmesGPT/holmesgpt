@@ -27,8 +27,9 @@ name, and closed by the first line of three backticks:
 
 `yaml-helm-values` takes the same forms as `yaml-toolset-config`. A `multi-instance` body has
 `toolset`, `name` and `config`. Any other form of these fences fails the build with a message naming
-the page and the line, and so do a body that is not valid YAML and a value the chart has no key for,
-and a page whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`).
+the page and the line, and so do a body that is not valid YAML, a value the chart has no key for,
+a toolset config its toolset refuses, and a page whose rendered HTML shows a fence's markdown
+instead of its tabs (`on_post_page`).
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
@@ -50,6 +51,12 @@ Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the char
 The values are written as the page shows them, comments included. Each top-level key is a key of
 the chart's `helm/holmes/values.yaml` and has a value; the keys that are also Holmes config
 (`holmes.config.Config` fields) are what a derived CLI tab shows.
+
+Toolset configs. `toolsets` and `mcp_servers` map each name to a block. A block's `config` must be
+one that a config class of its toolset accepts: the built-in toolset of that name, else the toolset
+of the type `type:` names, and the MCP toolset for an `mcp_servers` entry; with `subtype:`, the
+class of that subtype. It is checked with each `<placeholder>` replaced and with only the group's
+environment set: its secret's keys and its `additionalEnvVars`.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -95,9 +102,12 @@ mkdocs.yml (the child's list replaces the parent's), must list this file too, or
 the build.
 """
 
+import functools
 import html
+import os
 import posixpath
 import re
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Dict, List, Optional, Tuple
 
@@ -107,6 +117,9 @@ from markdown.preprocessors import Preprocessor
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from holmes.config import Config
+from holmes.core.tools import ToolsetType
+from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
+from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -241,6 +254,8 @@ SECRET_ARGUMENT_RE = re.compile(
 CHART_VALUES = Path(__file__).resolve().parents[1] / "helm" / "holmes" / "values.yaml"
 CHART_KEYS = frozenset(yaml.safe_load(CHART_VALUES.read_text()))
 CLI_CONFIG_KEYS = frozenset(Config.model_fields)
+# A placeholder the reader replaces, such as `<namespace>`.
+PLACEHOLDER_RE = re.compile(r"<[A-Za-z0-9_-]+>")
 # The chart-specific names a Helm tab can state, and the lines that state them.
 DEPLOYMENT_VALUES = {
     ("service-account",): ". Use it as `<service-account>` on this page.",
@@ -432,6 +447,84 @@ class HelmValuesFields(Fields):
         return tuple(value)
 
 
+@functools.cache
+def _builtin_toolsets() -> dict:
+    return {toolset.name: toolset for toolset in load_builtin_toolsets()}
+
+
+def _config_classes(part: str, name: str, block: dict) -> list:
+    """The config classes of the toolset a values block configures: the built-in
+    toolset of that name, else the toolset of the type `type:` names, and the MCP
+    toolset for an `mcp_servers` entry, as Holmes's loader resolves them."""
+    if part == "toolsets" and name in _builtin_toolsets():
+        toolset = _builtin_toolsets()[name]
+        # A multi-instance wrapper validates each instance with its child's classes.
+        owner = toolset._child_cls if isinstance(toolset, MultiInstanceToolset) else type(toolset)
+        return list(owner.config_classes)
+    toolset_type = ToolsetType.MCP.value if part == "mcp_servers" else block.get("type")
+    if toolset_type is None:
+        return []
+    try:
+        ToolsetType(toolset_type)
+    except ValueError as e:
+        raise FenceBodyError(f"`{part}.{name}.type` is not a toolset type: {toolset_type!r}") from e
+    (toolset,) = load_toolsets_from_config({name: {"type": toolset_type}})
+    return list(type(toolset).config_classes)
+
+
+def _filled(value):
+    """`value` with each `<placeholder>` replaced by its name, as a reader replaces it."""
+    if isinstance(value, dict):
+        return {key: _filled(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_filled(item) for item in value]
+    if isinstance(value, str):
+        return PLACEHOLDER_RE.sub(lambda match: match[0][1:-1], value)
+    return value
+
+
+@contextmanager
+def _environment(variables: dict):
+    """Run with only these environment variables set."""
+    saved = dict(os.environ)
+    os.environ.clear()
+    os.environ.update(variables)
+    try:
+        yield
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
+def _check_toolset_configs(values: dict, environment: dict) -> None:
+    """Raise if a `toolsets` or `mcp_servers` block's `config` is one its toolset's
+    config classes refuse (the class `subtype:` names, when given), with Holmes
+    running with `environment`, the variables the group gives it."""
+    for part in ("toolsets", "mcp_servers"):
+        for name, block in values.get(part, {}).items():
+            classes = _config_classes(part, name, block)
+            if not classes:
+                continue
+            subtype = block.get("subtype")
+            if subtype is not None:
+                classes = [cls for cls in classes if getattr(cls, "_subtype", None) == subtype]
+                if not classes:
+                    raise FenceBodyError(f"`{part}.{name}.subtype` names no config of the toolset: {subtype!r}")
+            config = _filled(block.get("config") or {})
+            errors = []
+            with _environment(environment):
+                for cls in classes:
+                    try:
+                        cls.model_validate(config)
+                        break
+                    except (ValidationError, ValueError) as e:
+                        errors.append(f"{cls.__name__}: {e}")
+                else:
+                    raise FenceBodyError(
+                        f"`{part}.{name}.config` is not a config the toolset accepts: " + "; ".join(errors)
+                    )
+
+
 def _secret_command(name: str, keys: dict) -> str:
     return " \\\n".join(
         [f"kubectl create secret generic {name}"]
@@ -520,6 +613,15 @@ def _deployment_section(opening, body: str, page: str):
             secret += f"-{opening['qualifier']}"
     elif opening["option"]:
         return None
+    environment = {key: "value" for key in keys}
+    environment.update(
+        {
+            entry["name"]: str(entry.get("value", ""))
+            for entry in values.get("additionalEnvVars", [])
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+        }
+    )
+    _check_toolset_configs(values, environment)
     commands = [_secret_command(secret, keys)] if keys and opening["option"] != "reuse" else []
     commands += [_secret_command(entry.name, entry.keys) for entry in fields.named_secrets or []]
     deployment_values = fields.deployment_values if isinstance(fields, HelmValuesFields) else None
