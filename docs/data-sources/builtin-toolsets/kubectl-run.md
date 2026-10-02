@@ -7,76 +7,51 @@ The kubectl-run toolset allows Holmes to run commands in temporary Kubernetes po
 
 ## Configuration
 
-=== "Holmes CLI"
+With the chart, `kubectl run` needs permissions the chart's default RBAC does not grant: it creates the pod, attaches to it and deletes it when the command ends. The Helm values below add those rules. Unless `namespaceScopedRBAC` is `true`, the chart puts them in a ClusterRole, so Holmes can create pods in every namespace, and a pod it creates can run as any service account in its namespace; with `namespaceScopedRBAC: true` they are limited to the release namespace, and `kubectl run` works only there.
 
-    Add the following to **~/.holmes/config.yaml**:
+The `curl .*` pattern below lets the model run `curl` with any arguments, so the temporary pod can request any URL it can reach, internal services and cloud metadata endpoints included. List only the URLs Holmes needs (for example `curl -s https://status\.example\.com/[^ ]*`, which also keeps the model from adding arguments) where that is too broad.
 
-    ```yaml
-    toolsets:
-      kubectl-run:
-        enabled: true
-        config:
-          allowed_images:
-            - image: "busybox:1.36"
-              allowed_commands:
-                - "nslookup .*"
-                - "ping -c 3 .*"
-                - "wget -qO- .*"
-            - image: "curlimages/curl:8.8.0"
-              allowed_commands:
-                - "curl .*"
-    ```
+```yaml-toolset-config
+customClusterRoleRules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/attach"]
+    verbs: ["create", "get"]
 
-=== "Holmes Helm Chart"
+toolsets:
+  kubectl-run:
+    enabled: true
+    config:
+      allowed_images:
+        - image: "busybox:1.36"
+          allowed_commands:
+            - "nslookup .*"
+            - "ping -c 3 .*"
+        - image: "curlimages/curl:8.8.0"
+          allowed_commands:
+            - "curl .*"
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**:
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    toolsets:
-      kubectl-run:
-        enabled: true
-        config:
-          allowed_images:
-            - image: "busybox:1.36"
-              allowed_commands:
-                - "nslookup .*"
-                - "ping -c 3 .*"
-            - image: "curlimages/curl:8.8.0"
-              allowed_commands:
-                - "curl .*"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      toolsets:
-        kubectl-run:
-          enabled: true
-          config:
-            allowed_images:
-              - image: "busybox:1.36"
-                allowed_commands:
-                  - "nslookup .*"
-                  - "ping -c 3 .*"
-              - image: "curlimages/curl:8.8.0"
-                allowed_commands:
-                  - "curl .*"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```yaml
+  toolsets:
+    kubectl-run:
+      enabled: true
+      config:
+        allowed_images:
+          - image: "busybox:1.36"
+            allowed_commands:
+              - "nslookup .*"
+              - "ping -c 3 .*"
+              - "wget -qO- .*"
+          - image: "curlimages/curl:8.8.0"
+            allowed_commands:
+              - "curl .*"
+  ```
+```
 
 ## Security
 

@@ -37,168 +37,63 @@ mssql+pytds://[username]:[password]@[host]:[port]/[database]
 
 Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewritten to use the `pytds` driver.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  sqlserver-prod:
+    type: database
+    config:
+      connection_url: "{{ env.SQLSERVER_URL }}"
+    llm_instructions: "Production SQL Server database with application data"
+---
+secret:
+  - --from-literal=SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    sqlserver-prod:
+      type: database
+      config:
+        connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
+      llm_instructions: "Production SQL Server database with application data"
 
-    ```yaml
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
-        llm_instructions: "Production SQL Server database with application data"
+    sqlserver-analytics:
+      type: database
+      config:
+        connection_url: "mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics"
+      llm_instructions: "Analytics SQL Server for reporting and BI"
+  ```
 
-      sqlserver-analytics:
-        type: database
-        config:
-          connection_url: "mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics"
-        llm_instructions: "Analytics SQL Server for reporting and BI"
-    ```
+  **Using environment variables:**
 
-    **Using environment variables:**
-
-    ```yaml
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "{{ env.SQLSERVER_URL }}"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-sqlserver \
-      --from-literal=SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-sqlserver
-
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "{{ env.SQLSERVER_URL }}"
-        llm_instructions: "Production SQL Server database with application data"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-sqlserver \
-      --from-literal=SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-sqlserver
-
-      toolsets:
-        sqlserver-prod:
-          type: database
-          config:
-            connection_url: "{{ env.SQLSERVER_URL }}"
-          llm_instructions: "Production SQL Server database with application data"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```yaml
+  toolsets:
+    sqlserver-prod:
+      type: database
+      config:
+        connection_url: "{{ env.SQLSERVER_URL }}"
+  ```
+```
 
 ### Multiple instances
 
-=== "Holmes Helm Chart"
+```yaml-helm-values {secret-qualifier=instances}
+toolsets:
+  sqlserver-prod:
+    type: database
+    config:
+      connection_url: "{{ env.PROD_SQLSERVER_URL }}"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-sqlserver-instances \
-      --from-literal=PROD_SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      --from-literal=ANALYTICS_SQLSERVER_URL='mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-sqlserver-instances
-
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "{{ env.PROD_SQLSERVER_URL }}"
-
-      sqlserver-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-sqlserver-instances \
-      --from-literal=PROD_SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      --from-literal=ANALYTICS_SQLSERVER_URL='mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-sqlserver-instances
-
-      toolsets:
-        sqlserver-prod:
-          type: database
-          config:
-            connection_url: "{{ env.PROD_SQLSERVER_URL }}"
-
-        sqlserver-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  sqlserver-analytics:
+    type: database
+    config:
+      connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
+---
+secret:
+  - --from-literal=PROD_SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb'
+  - --from-literal=ANALYTICS_SQLSERVER_URL='mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics'
+```
 
 ## TLS encryption
 
@@ -214,42 +109,16 @@ Encode the CA certificate:
 base64 -w0 internal-ca.pem
 ```
 
-=== "Holmes CLI"
+```yaml-toolset-config
+certificate: "<base64-encoded CA certificate>"
+---
+cli: |
+  Set the environment variable:
 
-    Set the environment variable:
-
-    ```bash
-    export CERTIFICATE="<base64-encoded CA certificate>"
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    certificate: "<base64-encoded CA certificate>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      certificate: "<base64-encoded CA certificate>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```bash
+  export CERTIFICATE="<base64-encoded CA certificate>"
+  ```
+```
 
 ## Azure SQL Database
 
@@ -266,7 +135,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
 Then configure the connection:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   azure-sql-prod:
     type: database
