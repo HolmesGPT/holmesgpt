@@ -75,8 +75,9 @@ def test_a_fence_body_that_is_not_valid_yaml_fails_the_build(tmp_path, monkeypat
         "```multi-instance\n# a comment\n```\n",
         "```yaml-toolset-config\n# a comment\n```\n",
         "```yaml-toolset-config\ntoolsets:\n  newrelic:\n    enabled: true\n---\n# a comment\n```\n",
+        "```yaml-toolset-config\ntoolsets:\n  newrelic:\n    enabled: true\n---\n```\n",
     ],
-    ids=["empty", "comment-only", "comment-only-values", "comment-only-fields"],
+    ids=["empty", "comment-only", "comment-only-values", "comment-only-fields", "empty-fields"],
 )
 def test_an_empty_fence_body_fails_the_build_naming_the_fence(tmp_path, monkeypatch, fence):
     monkeypatch.chdir(REPO)

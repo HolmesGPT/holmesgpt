@@ -414,7 +414,7 @@ def _deployment_section(opening, body: str, page: str):
     values_text = "\n".join(lines[:split]).strip("\n")
     fields_text = "\n".join(lines[split + 1 :]).strip("\n")
     values = _block_mapping(values_text) if values_text else {}
-    fields = _block_mapping(fields_text) if fields_text else {}
+    fields = _block_mapping(fields_text) if split < len(lines) else {}
     if values is None or fields is None or not set(fields) <= {
         "secret", "named-secrets", "cli", "test", "deployment-values"
     }:
