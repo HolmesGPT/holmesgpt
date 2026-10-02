@@ -217,6 +217,7 @@ class RealtimeWorker:
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
         on_new_pending: Optional[Callable[[], None]] = None,
         on_new_tool_calls: Optional[Callable[[], None]] = None,
+        on_followup: Optional[Callable[[Optional[str]], None]] = None,
     ) -> None:
         self.dal = dal
         self.holmes_id = holmes_id
@@ -232,6 +233,10 @@ class RealtimeWorker:
         if on_new_tool_calls is None and tool_call_worker is not None:
             on_new_tool_calls = tool_call_worker.claim_pending_tool_calls
         self.on_new_tool_calls = on_new_tool_calls
+        # 'conversation_followup' -> conversation_worker.notify_followup(conversation_id)
+        if on_followup is None and conversation_worker is not None:
+            on_followup = getattr(conversation_worker, "notify_followup", None)
+        self.on_followup = on_followup
         self._use_broadcast = use_broadcast
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -666,6 +671,24 @@ class RealtimeWorker:
 
         logging.info("RealtimeWorker connected: mode=pgchanges topic=%s", topic)
 
+    def _on_followup_broadcast(self, payload: Dict[str, Any]) -> None:
+        """A user message landed on a conversation that is mid-turn. The
+        payload names the conversation; only the Holmes running that turn has
+        a signal registered for it, every other replica ignores the wake."""
+        try:
+            body = payload.get("payload")
+            if not isinstance(body, dict):
+                body = payload
+            conversation_id = body.get("conversation_id")
+            logging.info(
+                "RealtimeWorker: conversation_followup notification for %s",
+                conversation_id,
+            )
+            if self.on_followup is not None:
+                self.on_followup(conversation_id)
+        except Exception:
+            logging.exception("Error in conversation_followup callback", exc_info=True)
+
     async def _subscribe_via_broadcast(self) -> None:
         """Option 2: Broadcast channel per account + cluster.
 
@@ -715,6 +738,12 @@ class RealtimeWorker:
             self._channel.on_broadcast(
                 event="pending_tool_calls",
                 callback=_on_tool_calls_broadcast,
+            )
+
+        if self.on_followup is not None:
+            self._channel.on_broadcast(
+                event="conversation_followup",
+                callback=self._on_followup_broadcast,
             )
 
         subscribed = asyncio.Event()
