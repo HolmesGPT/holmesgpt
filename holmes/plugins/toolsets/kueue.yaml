@@ -1,0 +1,90 @@
+toolsets:
+  kueue/core:
+    description: "Diagnose why a Kueue-managed Kubernetes workload is stuck pending or failing to admit"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kueue/"
+    icon_url: "https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/images/logo.svg"
+    tags:
+      - core
+    prerequisites:
+      - command: "kubectl version --client"
+      - command: "kubectl get crd workloads.kueue.x-k8s.io"
+      - command: "jq --version"
+    llm_instructions: |
+      You have access to a set of tools for diagnosing why a Kueue-managed Job is stuck
+      in Pending. Kueue (https://kueue.sigs.k8s.io) jobs get stuck for many distinct
+      reasons: insufficient quota, admission checks stuck pending, a misconfigured
+      LocalQueue/ClusterQueue reference, the Job never being picked up by Kueue at all, a
+      gang-scheduled pod-group with fewer running pods than expected, or the workload
+      being preempted/evicted.
+      Investigate step by step and let each result guide the next tool call, rather than
+      calling every tool up front:
+        1. Start with kueue_get_workload_for_job to find the Workload Kueue created for the
+           Job. If none exists, the Job is not being managed by Kueue at all (check
+           kueue_check_pod_labels next) rather than being stuck inside Kueue's own queueing.
+        2. If a Workload exists, call kueue_describe_workload_status and read its
+           status.conditions (QuotaReserved, Admitted, Evicted, PodsReady) and
+           status.admissionChecks — this is the primary signal for almost every root cause.
+        3. Only call kueue_check_queue_config, kueue_check_podgroup_status, or
+           kueue_get_workload_events if the Workload status alone doesn't explain the
+           stall (e.g. QuotaReserved is False with an "Inadmissible"/queue-related message,
+           or PodsReady is False for a gang-scheduled workload, or the workload was Evicted).
+      {% if tool_names|list|length > 0 %}
+      The following commands are available: {{ ", ".join(tool_names) }}
+      {% endif %}
+      State the specific root cause and cite the exact evidence (status condition, message,
+      or mismatched name) that led you there — do not just restate the symptom ("it's
+      Pending") as the diagnosis.
+    tools:
+      - name: "kueue_get_workload_for_job"
+        description: >
+          Find the Kueue Workload object created for a given Job. Returns null if no
+          Workload exists, which means Kueue never intercepted this Job.
+        command: |
+          kubectl get workload -n {{ namespace }} -o json | jq --arg job "{{ job_name }}" \
+            '[.items[] | select(.metadata.ownerReferences[]?.name == $job)] |
+             if length > 0 then {workload_name: .[0].metadata.name} else
+             {workload_name: null, note: ("no Workload object found with an ownerReference to Job " + $job)} end'
+
+      - name: "kueue_describe_workload_status"
+        description: >
+          Full status of a Kueue Workload: QuotaReserved/Admitted/Evicted/PodsReady
+          conditions and admissionChecks. This is the primary diagnostic signal.
+        command: "kubectl get workload -n {{ namespace }} {{ workload_name }} -o yaml"
+
+      - name: "kueue_check_queue_config"
+        description: >
+          Get the LocalQueue and all ClusterQueue objects. Verifies the LocalQueue the Job
+          references exists, is Active, and its spec.clusterQueue actually matches an
+          existing ClusterQueue name (misconfigurations are often a typo/stale reference).
+        command: |
+          echo "--- LocalQueues in namespace {{ namespace }} ---"
+          kubectl get localqueue -n {{ namespace }} -o json | jq \
+            'if (.items|length)==0 then "No LocalQueue objects found in namespace {{ namespace }}" else .items end'
+          echo "--- ClusterQueues (cluster-scoped) ---"
+          kubectl get clusterqueue -o json | jq \
+            'if (.items|length)==0 then "No ClusterQueue objects found in the cluster" else .items end'
+
+      - name: "kueue_check_pod_labels"
+        description: >
+          Get the Job spec and its pods. Checks whether the Job carries Kueue's
+          queue-name label at all — if not, Kueue's webhook never intercepted it and it's
+          being scheduled by the default scheduler instead.
+        command: |
+          kubectl get job -n {{ namespace }} {{ job_name }} -o yaml
+          echo "--- Pods matching label job-name={{ job_name }} in namespace {{ namespace }} ---"
+          kubectl get pods -n {{ namespace }} -l job-name={{ job_name }} -o json | jq \
+            'if (.items|length)==0 then "No pods found in namespace {{ namespace }} with label job-name={{ job_name }}" else .items end'
+
+      - name: "kueue_check_podgroup_status"
+        description: >
+          List pods for a gang-scheduled pod-group and their phase/scheduling conditions.
+          Compares expected vs actually-running pod count.
+        command: |
+          kubectl get pods -n {{ namespace }} -l kueue.x-k8s.io/pod-group-name={{ group_name }} -o json | jq \
+            'if (.items|length)==0 then "No pods found in namespace {{ namespace }} with label kueue.x-k8s.io/pod-group-name={{ group_name }}" else .items end'
+
+      - name: "kueue_get_workload_events"
+        description: >
+          Recent Kubernetes events in the namespace (preemption, scheduling failures,
+          provisioning), sorted by time.
+        command: "kubectl get events -n {{ namespace }} --sort-by='.lastTimestamp'"

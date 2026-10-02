@@ -1,0 +1,5 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kueue/core:
+    enabled: true
