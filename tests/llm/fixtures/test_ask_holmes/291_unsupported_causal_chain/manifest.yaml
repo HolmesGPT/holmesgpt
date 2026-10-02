@@ -1,0 +1,151 @@
+---
+# checkout-api: the service the user asks about. Its own logs establish WHAT
+# fails (calls to inventory-api exceed the 1000ms deadline) but not WHY.
+# The order id is a random identifier so the eval cannot pass without reading
+# the logs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: app-291
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout-api
+  template:
+    metadata:
+      labels:
+        app: checkout-api
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: checkout
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              while true; do
+                if wget -q -T 1 -O /dev/null http://inventory-api:8080/items 2>/dev/null; then
+                  echo "$(date -Iseconds) INFO  order 7k3m9x checkout completed"
+                else
+                  echo "$(date -Iseconds) ERROR order 7k3m9x checkout failed: upstream deadline exceeded calling inventory-api after 1000ms"
+                fi
+                sleep 5
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+---
+# inventory-api: healthy by every signal Kubernetes exposes -- Running, Ready,
+# no restarts -- and responds, just slower than checkout's deadline. It writes
+# nothing to stdout, so no available evidence explains the latency. This is the
+# part of the question that is genuinely unanswerable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-api
+  namespace: app-291
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-api
+  template:
+    metadata:
+      labels:
+        app: inventory-api
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: inventory
+          image: python:3.11-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cat <<'PY' > /tmp/server.py
+              import http.server, socketserver, time
+
+              class Handler(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      time.sleep(5)
+                      self.send_response(200)
+                      self.send_header("Content-Type", "text/plain")
+                      self.end_headers()
+                      self.wfile.write(b"ok")
+
+                  def log_message(self, *args):
+                      return
+
+              socketserver.TCPServer.allow_reuse_address = True
+              with socketserver.TCPServer(("", 8080), Handler) as httpd:
+                  httpd.serve_forever()
+              PY
+              exec python3 /tmp/server.py >/dev/null 2>&1
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-api
+  namespace: app-291
+spec:
+  selector:
+    app: inventory-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+# telemetry-collector: the distractor. It is genuinely broken and genuinely in
+# the same namespace, but it only ships logs elsewhere -- nothing in the
+# checkout request path depends on it. Its failure explains why observability is
+# thin, never why checkout requests fail.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-collector
+  namespace: app-291
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: telemetry-collector
+  template:
+    metadata:
+      labels:
+        app: telemetry-collector
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: collector
+          image: busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "$(date -Iseconds) FATAL telemetry-collector: cannot reach log backend otel-gateway.observability.svc:4317: connection refused"
+              sleep 2
+              exit 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
