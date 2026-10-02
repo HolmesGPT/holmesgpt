@@ -72,7 +72,8 @@ page that needs a secret with other keys. `<name>` is lowercase letters and digi
 
 `{reuse}` is for a group whose secret an earlier group or step on the page creates: its Helm tabs
 have no secret step, its values still list the secret, and a derived CLI tab still exports the keys.
-Its only field, when it has one, is `cli`. The note naming the section that creates the secret is written by hand above the fence:
+Its only field, when it has one, is `cli`. The note naming the section that creates the secret is
+written by hand above the fence:
 
     In Kubernetes, this reuses the `<secret>` secret created in the [<section>](#<anchor>) section above.
 
