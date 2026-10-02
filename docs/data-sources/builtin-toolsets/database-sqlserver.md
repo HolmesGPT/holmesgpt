@@ -78,7 +78,7 @@ cli: |
 
 ### Multiple instances
 
-```yaml-helm-values {secret-qualifier=instances}
+```yaml-toolset-config {secret-qualifier=instances}
 toolsets:
   sqlserver-prod:
     type: database

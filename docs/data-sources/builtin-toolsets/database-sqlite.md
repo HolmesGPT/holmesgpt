@@ -81,7 +81,7 @@ cli: |
 
 ### Multiple instances
 
-```yaml-helm-values
+```yaml-toolset-config
 additionalVolumes:
   - name: app-db
     hostPath:
