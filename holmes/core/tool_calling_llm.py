@@ -1154,10 +1154,18 @@ class ToolCallingLLM:
         cancel_event: Optional[threading.Event] = None,
         tool_number_offset: int = 0,
         iteration_offset: int = 0,
+        pending_user_messages: Optional[Callable[[], List[dict]]] = None,
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
         This function streams holmes one iteration at a time instead of waiting for all iterations to complete.
+
+        pending_user_messages: polled at every step boundary (before each LLM
+        call, and again when the model is about to give its final answer). Any
+        messages it returns are appended as user turns so the model folds them
+        into the running turn instead of them waiting for the next one. They
+        are appended only after a step's tool results, so a tool_use is never
+        separated from its tool_result.
 
         Frontend tools: Frontend tools are registered as FrontendPauseTool instances
         in the ToolExecutor (via clone_with_extra_tools). When the LLM calls one,
@@ -1215,6 +1223,14 @@ class ToolCallingLLM:
         while i < max_steps:
             if cancel_event and cancel_event.is_set():
                 raise LLMInterruptedError()
+
+            if pending_user_messages is not None:
+                extra = pending_user_messages()
+                if extra:
+                    logging.info(
+                        f"Folding {len(extra)} mid-turn user message(s) into the turn before iteration {i + 1}"
+                    )
+                    messages.extend(extra)
 
             i += 1
             logging.debug(f"running iteration {i}")
@@ -1396,6 +1412,31 @@ class ToolCallingLLM:
             )
 
             tools_to_call = getattr(response_message, "tool_calls", None)
+            if not tools_to_call and pending_user_messages is not None and i < max_steps:
+                # The model is done, but the user said something meanwhile.
+                # What it just wrote becomes an intermediate message and the
+                # loop runs again with the new input, so the turn ends on an
+                # answer that has seen everything the user sent.
+                extra = pending_user_messages()
+                if extra:
+                    logging.info(
+                        f"Model finished at iteration {i} but {len(extra)} mid-turn user message(s) are pending - continuing"
+                    )
+                    if response_message.content or getattr(
+                        response_message, "reasoning_content", None
+                    ):
+                        yield StreamMessage(
+                            event=StreamEvents.AI_MESSAGE,
+                            data={
+                                "content": response_message.content,
+                                "reasoning": getattr(
+                                    response_message, "reasoning_content", None
+                                ),
+                                "metadata": metadata,
+                            },
+                        )
+                    messages.extend(extra)
+                    continue
             if not tools_to_call:
                 # Capture the final iteration's finish_reason for usage tracking
                 # (HolmesUsageEvents.finish_reason). Earlier iterations always end

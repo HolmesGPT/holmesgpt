@@ -282,6 +282,18 @@ CONVERSATION_WORKER_REALTIME_HEALTH_TICK_SECONDS = float(
 CONVERSATION_WORKER_USE_REALTIME_BROADCAST = load_bool(
     "CONVERSATION_WORKER_USE_REALTIME_BROADCAST", True
 )
+# Fold user messages that arrive while a turn is running into that turn
+# (ROB-1499). Needs the supports_mid_turn_followup RPC on the database; the
+# worker probes for it and advertises the capability in HolmesStatus only when
+# both this flag and the RPC are present.
+CONVERSATION_WORKER_MID_TURN_FOLLOWUP = load_bool(
+    "CONVERSATION_WORKER_MID_TURN_FOLLOWUP", True
+)
+# How often (seconds) a running turn re-reads ConversationEvents for mid-turn
+# follow-ups at a step boundary, on top of the realtime wake. 0 disables.
+CONVERSATION_WORKER_FOLLOWUP_POLL_SECONDS = float(
+    os.environ.get("CONVERSATION_WORKER_FOLLOWUP_POLL_SECONDS", 10.0)
+)
 # Initial backoff (seconds) when checking is_realtime_enabled() RPC fails
 # due to connectivity issues. The verifier doubles this on each retry up
 # to CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS.
