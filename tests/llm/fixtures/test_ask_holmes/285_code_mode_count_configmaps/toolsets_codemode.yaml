@@ -1,0 +1,9 @@
+# Code-mode variant ([codemode]): same read-only kubernetes toolset PLUS the
+# code_execution toolset. The model can write a single Python script that lists
+# and counts ConfigMaps across namespaces, so intermediate results are filtered
+# in code and never re-enter the model's context on each step.
+toolsets:
+  kubernetes/core:
+    enabled: true
+  code_execution:
+    enabled: true

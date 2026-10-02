@@ -1,0 +1,11 @@
+# Enable the read-only kubernetes toolset + code_execution, and DISABLE bash so
+# the model cannot compose the whole thing in a shell one-liner and bypass code
+# mode. (The eval framework merges default_toolsets.yaml; entries here override
+# it, so `bash: enabled: false` genuinely turns bash off for this test.)
+toolsets:
+  kubernetes/core:
+    enabled: true
+  code_execution:
+    enabled: true
+  bash:
+    enabled: false
