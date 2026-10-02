@@ -73,117 +73,25 @@ You should receive a JSON response. If you get an authentication error, check yo
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  servicenow/tables:
+    enabled: true
+    config:
+      api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
+      api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
+      # Alternative: use basic auth instead of api_key
+      # username: "your-username"
+      # password: "your-password"
 
-    Set the environment variable:
-
-    ```bash
-    export SERVICENOW_API_KEY=your-servicenow-api-key
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      servicenow/tables:
-        enabled: true
-        config:
-          api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-          api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
-          # Alternative: use basic auth instead of api_key
-          # username: "your-username"
-          # password: "your-password"
-
-          # Optional
-          api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
-          health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
-          api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-    To test, run:
-
-    ```bash
-    holmes ask "Show me all change requests from the last 24 hours"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-servicenow \
-      --from-literal=SERVICENOW_API_KEY=your-servicenow-api-key \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-servicenow
-
-    toolsets:
-      servicenow/tables:
-        enabled: true
-        config:
-          api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-          api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
-          # Alternative: use basic auth instead of api_key
-          # username: "your-username"
-          # password: "your-password"
-
-          # Optional
-          api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
-          health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
-          api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-servicenow \
-      --from-literal=SERVICENOW_API_KEY=your-servicenow-api-key \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-servicenow
-
-      toolsets:
-        servicenow/tables:
-          enabled: true
-          config:
-            api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-            api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
-            # Alternative: use basic auth instead of api_key
-            # username: "your-username"
-            # password: "your-password"
-
-            # Optional
-            api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
-            health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
-            api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+      # Optional
+      api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
+      health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
+      api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
+---
+test: |
+  holmes ask "Show me all change requests from the last 24 hours"
+```
 
 ### Optional Fields
 

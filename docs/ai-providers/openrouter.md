@@ -8,99 +8,35 @@ Configure HolmesGPT to use [OpenRouter](https://openrouter.ai/) for access to mu
 
 The simplest approach uses LiteLLM's native OpenRouter support. Only `OPENROUTER_API_KEY` is required. This method is preferred because HolmesGPT can automatically determine token limits and context window sizes for each model.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
-    ```bash
-    export OPENROUTER_API_KEY="sk-or-..."  # your OpenRouter key
-    holmes ask "hello" --model="openrouter/anthropic/claude-sonnet-4.5" --no-interactive
-    ```
+# Configure at least one model using modelList
+modelList:
+  claude-sonnet-4:
+    api_key: "{{ env.OPENROUTER_API_KEY }}"
+    model: openrouter/anthropic/claude-sonnet-4.5-20250929
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
 
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-openrouter \
-      --from-literal=OPENROUTER_API_KEY="sk-or-..." \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-openrouter
-
-    additionalEnvVars:
-      # Optional: Set default model (use modelList key name)
-      - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList below
-
-    # Configure at least one model using modelList
-    modelList:
-      claude-sonnet-4:
-        api_key: "{{ env.OPENROUTER_API_KEY }}"
-        model: openrouter/anthropic/claude-sonnet-4.5-20250929
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-
-      claude-opus-4:
-        api_key: "{{ env.OPENROUTER_API_KEY }}"
-        model: openrouter/anthropic/claude-opus-4.5-20251101
-        temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-openrouter \
-      --from-literal=OPENROUTER_API_KEY="sk-or-..." \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-openrouter
-
-      additionalEnvVars:
-        # Optional: Set default model (use modelList key name)
-        - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList below
-
-      # Configure at least one model using modelList
-      modelList:
-        claude-sonnet-4:
-          api_key: "{{ env.OPENROUTER_API_KEY }}"
-          model: openrouter/anthropic/claude-sonnet-4.5-20250929
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        claude-opus-4:
-          api_key: "{{ env.OPENROUTER_API_KEY }}"
-          model: openrouter/anthropic/claude-opus-4.5-20251101
-          temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  claude-opus-4:
+    api_key: "{{ env.OPENROUTER_API_KEY }}"
+    model: openrouter/anthropic/claude-opus-4.5-20251101
+    temperature: 1
+---
+secret:
+  - --from-literal=OPENROUTER_API_KEY="sk-or-..."
+cli: |
+  ```bash
+  export OPENROUTER_API_KEY="sk-or-..."  # your OpenRouter key
+  holmes ask "hello" --model="openrouter/anthropic/claude-sonnet-4.5" --no-interactive
+  ```
+```
 
 **Optional environment variables:**
 
@@ -115,108 +51,40 @@ Alternatively, you can use OpenRouter's OpenAI-compatible endpoint by setting th
 !!! warning "Token Limits"
     With this method, HolmesGPT cannot automatically determine token limits for the model. You may need to set `OVERRIDE_MAX_CONTENT_SIZE` and `OVERRIDE_MAX_OUTPUT_TOKEN` environment variables manually.
 
-=== "Holmes CLI"
+```yaml-toolset-config {secret-qualifier=openai}
+additionalEnvVars:
+  - name: OPENAI_API_BASE
+    value: "https://openrouter.ai/api/v1"
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
-    ```bash
-    export OPENAI_API_BASE="https://openrouter.ai/api/v1"
-    export OPENAI_API_KEY="sk-or-..."  # your OpenRouter key
-    holmes ask "hello" --model="openai/anthropic/claude-sonnet-4.5" --no-interactive
-    ```
+# Configure at least one model using modelList
+modelList:
+  claude-sonnet-4:
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    api_base: "https://openrouter.ai/api/v1"
+    model: openai/anthropic/claude-sonnet-4.5-20250929
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
 
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-openrouter-openai \
-      --from-literal=OPENAI_API_KEY="sk-or-..." \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-openrouter-openai
-
-    additionalEnvVars:
-      - name: OPENAI_API_BASE
-        value: "https://openrouter.ai/api/v1"
-      # Optional: Set default model (use modelList key name)
-      - name: MODEL
-        value: "claude-sonnet-4"  # This refers to the key name in modelList below
-
-    # Configure at least one model using modelList
-    modelList:
-      claude-sonnet-4:
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        api_base: "https://openrouter.ai/api/v1"
-        model: openai/anthropic/claude-sonnet-4.5-20250929
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-
-      claude-opus-4:
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        api_base: "https://openrouter.ai/api/v1"
-        model: openai/anthropic/claude-opus-4.5-20251101
-        temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-openrouter-openai \
-      --from-literal=OPENAI_API_KEY="sk-or-..." \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-openrouter-openai
-
-      additionalEnvVars:
-        - name: OPENAI_API_BASE
-          value: "https://openrouter.ai/api/v1"
-        # Optional: Set default model (use modelList key name)
-        - name: MODEL
-          value: "claude-sonnet-4"  # This refers to the key name in modelList below
-
-      # Configure at least one model using modelList
-      modelList:
-        claude-sonnet-4:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          api_base: "https://openrouter.ai/api/v1"
-          model: openai/anthropic/claude-sonnet-4.5-20250929
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        claude-opus-4:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          api_base: "https://openrouter.ai/api/v1"
-          model: openai/anthropic/claude-opus-4.5-20251101
-          temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  claude-opus-4:
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    api_base: "https://openrouter.ai/api/v1"
+    model: openai/anthropic/claude-opus-4.5-20251101
+    temperature: 1
+---
+secret:
+  - --from-literal=OPENAI_API_KEY="sk-or-..."
+cli: |
+  ```bash
+  export OPENAI_API_BASE="https://openrouter.ai/api/v1"
+  export OPENAI_API_KEY="sk-or-..."  # your OpenRouter key
+  holmes ask "hello" --model="openai/anthropic/claude-sonnet-4.5" --no-interactive
+  ```
+```
 
 ## Available Models
 

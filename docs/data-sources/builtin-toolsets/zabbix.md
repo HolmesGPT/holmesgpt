@@ -24,126 +24,30 @@ Connect HolmesGPT to Zabbix for monitoring and alerting via the Zabbix JSON-RPC 
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  zabbix:
+    type: http
+    enabled: true
+    description: "Zabbix monitoring system"
+    config:
+      endpoints:
+        - hosts: ["your-zabbix-instance.com"]
+          paths: ["/zabbix/api_jsonrpc.php"]
+          methods: ["POST"]
+          auth:
+            type: bearer
+            token: "{{ env.ZABBIX_TOKEN }}"
+    llm_instructions: |
+      Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
+      All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
+        {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
 
-    Set the environment variable:
-
-    ```bash
-    export ZABBIX_TOKEN="your-zabbix-api-token"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      zabbix:
-        type: http
-        enabled: true
-        description: "Zabbix monitoring system"
-        config:
-          endpoints:
-            - hosts: ["your-zabbix-instance.com"]
-              paths: ["/zabbix/api_jsonrpc.php"]
-              methods: ["POST"]
-              auth:
-                type: bearer
-                token: "{{ env.ZABBIX_TOKEN }}"
-        llm_instructions: |
-          Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-          All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
-            {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-          Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-zabbix \
-      --from-literal=ZABBIX_TOKEN="your-zabbix-api-token" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-zabbix
-
-    toolsets:
-      zabbix:
-        type: http
-        enabled: true
-        description: "Zabbix monitoring system"
-        config:
-          endpoints:
-            - hosts: ["your-zabbix-instance.com"]
-              paths: ["/zabbix/api_jsonrpc.php"]
-              methods: ["POST"]
-              auth:
-                type: bearer
-                token: "{{ env.ZABBIX_TOKEN }}"
-        llm_instructions: |
-          Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-          All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
-            {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-          Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-zabbix \
-      --from-literal=ZABBIX_TOKEN="your-zabbix-api-token" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-zabbix
-
-      toolsets:
-        zabbix:
-          type: http
-          enabled: true
-          description: "Zabbix monitoring system"
-          config:
-            endpoints:
-              - hosts: ["your-zabbix-instance.com"]
-                paths: ["/zabbix/api_jsonrpc.php"]
-                methods: ["POST"]
-                auth:
-                  type: bearer
-                  token: "{{ env.ZABBIX_TOKEN }}"
-          llm_instructions: |
-            Use the zabbix_request tool to query Zabbix via its JSON-RPC 2.0 API.
-            All requests go to POST https://<your-zabbix>/zabbix/api_jsonrpc.php with this structure:
-              {"jsonrpc": "2.0", "method": "<method>", "params": {...}, "id": 1}
-
-            Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+      Always set "limit" to avoid token overflow. Use Unix timestamps for time fields.
+---
+secret:
+  - --from-literal=ZABBIX_TOKEN="your-zabbix-api-token"
+```
 
 ## Testing the Connection
 

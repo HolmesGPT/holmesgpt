@@ -8,213 +8,96 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
 
 ### SASL authentication
 
-=== "Holmes CLI"
-
-    ```yaml
-    toolsets:
-        kafka/admin:
-            enabled: true
-            config:
-                clusters:
-                    - name: aks-prod-kafka
-                      broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
-                      username: kafka-plaintext-user
-                      password: "<your-password>"
-                      sasl_mechanism: SCRAM-SHA-512
-                      security_protocol: SASL_PLAINTEXT
-                    - name: gke-stg-kafka
-                      broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
-                      username: kafka-plaintext-user
-                      password: "<your-password>"
-                      sasl_mechanism: SCRAM-SHA-512
-                      security_protocol: SASL_PLAINTEXT
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kafka \
-      --from-literal=KAFKA_USERNAME=kafka-plaintext-user \
-      --from-literal=KAFKA_PASSWORD=<your-password> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-kafka
-
-    toolsets:
+```yaml-toolset-config
+toolsets:
+  kafka/admin:
+    enabled: true
+    config:
+      clusters:
+        - name: prod-kafka
+          broker: kafka.prod.example.com:9095
+          username: "{{ env.KAFKA_USERNAME }}"
+          password: "{{ env.KAFKA_PASSWORD }}"
+          sasl_mechanism: SCRAM-SHA-512
+          security_protocol: SASL_PLAINTEXT
+---
+secret:
+  - --from-literal=KAFKA_USERNAME=kafka-plaintext-user
+  - --from-literal=KAFKA_PASSWORD=<your-password>
+cli: |
+  ```yaml
+  toolsets:
       kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9095
-              username: "{{ env.KAFKA_USERNAME }}"
-              password: "{{ env.KAFKA_PASSWORD }}"
-              sasl_mechanism: SCRAM-SHA-512
-              security_protocol: SASL_PLAINTEXT
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kafka \
-      --from-literal=KAFKA_USERNAME=kafka-plaintext-user \
-      --from-literal=KAFKA_PASSWORD=<your-password> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-kafka
-
-      toolsets:
-        kafka/admin:
           enabled: true
           config:
-            clusters:
-              - name: prod-kafka
-                broker: kafka.prod.example.com:9095
-                username: "{{ env.KAFKA_USERNAME }}"
-                password: "{{ env.KAFKA_PASSWORD }}"
-                sasl_mechanism: SCRAM-SHA-512
-                security_protocol: SASL_PLAINTEXT
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+              clusters:
+                  - name: aks-prod-kafka
+                    broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
+                    username: kafka-plaintext-user
+                    password: "<your-password>"
+                    sasl_mechanism: SCRAM-SHA-512
+                    security_protocol: SASL_PLAINTEXT
+                  - name: gke-stg-kafka
+                    broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
+                    username: kafka-plaintext-user
+                    password: "<your-password>"
+                    sasl_mechanism: SCRAM-SHA-512
+                    security_protocol: SASL_PLAINTEXT
+  ```
+```
 
 ### mTLS — certificate files (Kubernetes mounted secrets)
 
-Use this approach when certificates are mounted into the Holmes pod as Kubernetes secrets.
+Use this approach when the certificates are files: on your machine with the CLI, or in Kubernetes, mounted into the Holmes pod from a secret. Replace each `/path/to/` path with where the file is on your machine.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalVolumes:
+  - name: kafka-tls
+    secret:
+      secretName: holmes-kafka-tls
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+additionalVolumeMounts:
+  - name: kafka-tls
+    mountPath: /etc/kafka-tls
+    readOnly: true
 
-    ```yaml
-    toolsets:
-      kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9093
-              security_protocol: SSL
-              ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-              ssl_client_cert_path: /etc/kafka-tls/client.pem
-              ssl_client_key_path: /etc/kafka-tls/client.key
-    ```
+toolsets:
+  kafka/admin:
+    enabled: true
+    config:
+      clusters:
+        - name: prod-kafka
+          broker: kafka.prod.example.com:9093
+          security_protocol: SSL
+          ssl_ca_cert_path: /etc/kafka-tls/ca.crt
+          ssl_client_cert_path: /etc/kafka-tls/client.pem
+          ssl_client_key_path: /etc/kafka-tls/client.key
+---
+named-secrets:
+  - name: holmes-kafka-tls
+    keys:
+      - --from-file=ca.crt=/path/to/ca.crt
+      - --from-file=client.pem=/path/to/client.pem
+      - --from-file=client.key=/path/to/client.key
+cli: |
+  Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+  ```yaml
+  toolsets:
+    kafka/admin:
+      enabled: true
+      config:
+        clusters:
+          - name: prod-kafka
+            broker: kafka.prod.example.com:9093
+            security_protocol: SSL
+            ssl_ca_cert_path: /path/to/ca.crt
+            ssl_client_cert_path: /path/to/client.pem
+            ssl_client_key_path: /path/to/client.key
+  ```
 
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kafka-tls \
-      --from-file=ca.crt=/path/to/ca.crt \
-      --from-file=client.pem=/path/to/client.pem \
-      --from-file=client.key=/path/to/client.key \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalVolumes:
-      - name: kafka-tls
-        secret:
-          secretName: holmes-kafka-tls
-
-    additionalVolumeMounts:
-      - name: kafka-tls
-        mountPath: /etc/kafka-tls
-        readOnly: true
-
-    toolsets:
-      kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9093
-              security_protocol: SSL
-              ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-              ssl_client_cert_path: /etc/kafka-tls/client.pem
-              ssl_client_key_path: /etc/kafka-tls/client.key
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kafka-tls \
-      --from-file=ca.crt=/path/to/ca.crt \
-      --from-file=client.pem=/path/to/client.pem \
-      --from-file=client.key=/path/to/client.key \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalVolumes:
-        - name: kafka-tls
-          secret:
-            secretName: holmes-kafka-tls
-
-      additionalVolumeMounts:
-        - name: kafka-tls
-          mountPath: /etc/kafka-tls
-          readOnly: true
-
-      toolsets:
-        kafka/admin:
-          enabled: true
-          config:
-            clusters:
-              - name: prod-kafka
-                broker: kafka.prod.example.com:9093
-                security_protocol: SSL
-                ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-                ssl_client_cert_path: /etc/kafka-tls/client.pem
-                ssl_client_key_path: /etc/kafka-tls/client.key
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 #### SASL+TLS (`SASL_SSL`)
 
@@ -224,223 +107,84 @@ In Kubernetes, this reuses the `holmes-kafka` secret created in the [SASL authen
 
 In Kubernetes, this also reuses the `holmes-kafka-tls` secret created in the [mTLS — certificate files (Kubernetes mounted secrets)](#mtls-certificate-files-kubernetes-mounted-secrets) section above.
 
-=== "Holmes CLI"
+```yaml-toolset-config {reuse}
+additionalVolumes:
+  - name: kafka-tls
+    secret:
+      secretName: holmes-kafka-tls
 
-    Set the environment variables:
+additionalVolumeMounts:
+  - name: kafka-tls
+    mountPath: /etc/kafka-tls
+    readOnly: true
 
-    ```bash
-    export KAFKA_USERNAME=kafka-plaintext-user
-    export KAFKA_PASSWORD=<your-password>
-    ```
+toolsets:
+  kafka/admin:
+    enabled: true
+    config:
+      clusters:
+        - name: prod-kafka
+          broker: kafka.prod.example.com:9093
+          security_protocol: SASL_SSL
+          sasl_mechanism: SCRAM-SHA-512
+          username: "{{ env.KAFKA_USERNAME }}"
+          password: "{{ env.KAFKA_PASSWORD }}"
+          ssl_ca_cert_path: /etc/kafka-tls/ca.crt
+          ssl_client_cert_path: /etc/kafka-tls/client.pem
+          ssl_client_key_path: /etc/kafka-tls/client.key
+---
+cli: |
+  Set the environment variables:
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```bash
+  export KAFKA_USERNAME=kafka-plaintext-user
+  export KAFKA_PASSWORD=<your-password>
+  ```
 
-    ```yaml
-    toolsets:
-      kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9093
-              security_protocol: SASL_SSL
-              sasl_mechanism: SCRAM-SHA-512
-              username: "{{ env.KAFKA_USERNAME }}"
-              password: "{{ env.KAFKA_PASSWORD }}"
-              ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-              ssl_client_cert_path: /etc/kafka-tls/client.pem
-              ssl_client_key_path: /etc/kafka-tls/client.key
-    ```
+  Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+  ```yaml
+  toolsets:
+    kafka/admin:
+      enabled: true
+      config:
+        clusters:
+          - name: prod-kafka
+            broker: kafka.prod.example.com:9093
+            security_protocol: SASL_SSL
+            sasl_mechanism: SCRAM-SHA-512
+            username: "{{ env.KAFKA_USERNAME }}"
+            password: "{{ env.KAFKA_PASSWORD }}"
+            ssl_ca_cert_path: /path/to/ca.crt
+            ssl_client_cert_path: /path/to/client.pem
+            ssl_client_key_path: /path/to/client.key
+  ```
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-kafka
-
-    additionalVolumes:
-      - name: kafka-tls
-        secret:
-          secretName: holmes-kafka-tls
-
-    additionalVolumeMounts:
-      - name: kafka-tls
-        mountPath: /etc/kafka-tls
-        readOnly: true
-
-    toolsets:
-      kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9093
-              security_protocol: SASL_SSL
-              sasl_mechanism: SCRAM-SHA-512
-              username: "{{ env.KAFKA_USERNAME }}"
-              password: "{{ env.KAFKA_PASSWORD }}"
-              ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-              ssl_client_cert_path: /etc/kafka-tls/client.pem
-              ssl_client_key_path: /etc/kafka-tls/client.key
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-kafka
-
-      additionalVolumes:
-        - name: kafka-tls
-          secret:
-            secretName: holmes-kafka-tls
-
-      additionalVolumeMounts:
-        - name: kafka-tls
-          mountPath: /etc/kafka-tls
-          readOnly: true
-
-      toolsets:
-        kafka/admin:
-          enabled: true
-          config:
-            clusters:
-              - name: prod-kafka
-                broker: kafka.prod.example.com:9093
-                security_protocol: SASL_SSL
-                sasl_mechanism: SCRAM-SHA-512
-                username: "{{ env.KAFKA_USERNAME }}"
-                password: "{{ env.KAFKA_PASSWORD }}"
-                ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-                ssl_client_cert_path: /etc/kafka-tls/client.pem
-                ssl_client_key_path: /etc/kafka-tls/client.key
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ### mTLS — base64-encoded inline certificates
 
 Use this approach when certificates are passed as environment variables (e.g., from a secret manager or Kubernetes secret).
 
-=== "Holmes CLI"
-
-    Set the environment variables:
-
-    ```bash
-    export KAFKA_CA_CERT_BASE64="$(base64 < /path/to/ca.crt | tr -d '\n')"
-    export KAFKA_CLIENT_CERT_BASE64="$(base64 < /path/to/client.pem | tr -d '\n')"
-    export KAFKA_CLIENT_KEY_BASE64="$(base64 < /path/to/client.key | tr -d '\n')"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9093
-              security_protocol: SSL
-              ssl_ca_cert: "{{ env.KAFKA_CA_CERT_BASE64 }}"
-              ssl_client_cert: "{{ env.KAFKA_CLIENT_CERT_BASE64 }}"
-              ssl_client_key: "{{ env.KAFKA_CLIENT_KEY_BASE64 }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kafka-tls-base64 \
-      --from-literal=KAFKA_CA_CERT_BASE64="$(base64 < /path/to/ca.crt | tr -d '\n')" \
-      --from-literal=KAFKA_CLIENT_CERT_BASE64="$(base64 < /path/to/client.pem | tr -d '\n')" \
-      --from-literal=KAFKA_CLIENT_KEY_BASE64="$(base64 < /path/to/client.key | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-kafka-tls-base64
-
-    toolsets:
-      kafka/admin:
-        enabled: true
-        config:
-          clusters:
-            - name: prod-kafka
-              broker: kafka.prod.example.com:9093
-              security_protocol: SSL
-              ssl_ca_cert: "{{ env.KAFKA_CA_CERT_BASE64 }}"
-              ssl_client_cert: "{{ env.KAFKA_CLIENT_CERT_BASE64 }}"
-              ssl_client_key: "{{ env.KAFKA_CLIENT_KEY_BASE64 }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-kafka-tls-base64 \
-      --from-literal=KAFKA_CA_CERT_BASE64="$(base64 < /path/to/ca.crt | tr -d '\n')" \
-      --from-literal=KAFKA_CLIENT_CERT_BASE64="$(base64 < /path/to/client.pem | tr -d '\n')" \
-      --from-literal=KAFKA_CLIENT_KEY_BASE64="$(base64 < /path/to/client.key | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-kafka-tls-base64
-
-      toolsets:
-        kafka/admin:
-          enabled: true
-          config:
-            clusters:
-              - name: prod-kafka
-                broker: kafka.prod.example.com:9093
-                security_protocol: SSL
-                ssl_ca_cert: "{{ env.KAFKA_CA_CERT_BASE64 }}"
-                ssl_client_cert: "{{ env.KAFKA_CLIENT_CERT_BASE64 }}"
-                ssl_client_key: "{{ env.KAFKA_CLIENT_KEY_BASE64 }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config {secret-qualifier=tls-base64}
+toolsets:
+  kafka/admin:
+    enabled: true
+    config:
+      clusters:
+        - name: prod-kafka
+          broker: kafka.prod.example.com:9093
+          security_protocol: SSL
+          ssl_ca_cert: "{{ env.KAFKA_CA_CERT_BASE64 }}"
+          ssl_client_cert: "{{ env.KAFKA_CLIENT_CERT_BASE64 }}"
+          ssl_client_key: "{{ env.KAFKA_CLIENT_KEY_BASE64 }}"
+---
+secret:
+  - --from-literal=KAFKA_CA_CERT_BASE64="$(base64 < /path/to/ca.crt | tr -d '\n')"
+  - --from-literal=KAFKA_CLIENT_CERT_BASE64="$(base64 < /path/to/client.pem | tr -d '\n')"
+  - --from-literal=KAFKA_CLIENT_KEY_BASE64="$(base64 < /path/to/client.key | tr -d '\n')"
+```
 
 ## Configuration fields
 

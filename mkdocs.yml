@@ -251,7 +251,7 @@ markdown_extensions:
     - pymdownx.tasklist:
           custom_checkbox: true
     - pymdownx.tilde
-    # The fences that expand to markdown (yaml-toolset-config, multi-instance); the hook below tells them which page they are on.
+    # The fences that expand to markdown (yaml-toolset-config, yaml-helm-values, multi-instance); the hook below tells them which page they are on.
     - docs.custom_fences
 
 hooks:
