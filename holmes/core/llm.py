@@ -39,6 +39,10 @@ from holmes.common.env_vars import (
 )
 from holmes.core.azure_token import get_azure_ad_token
 from holmes.core.llm_usage import extract_usage_from_response
+from holmes.core.loop_detection import (
+    LOOP_BREAKER_FIELD,
+    LOOP_BREAKER_TOKEN_FIELD,
+)
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
 from holmes.utils.file_utils import load_yaml_file
@@ -733,7 +737,11 @@ class DefaultLLM(LLM):
         # avoid mutating the caller's dicts (which would invalidate the cache).
         # Extra fields can be added via LLM_EXTRA_STRIP_MESSAGE_FIELDS env var
         # (e.g. "provider_specific_fields") when a provider rejects them.
-        _INTERNAL_FIELDS = {"token_count"} | LLM_EXTRA_STRIP_MESSAGE_FIELDS
+        _INTERNAL_FIELDS = {
+            "token_count",
+            LOOP_BREAKER_FIELD,
+            LOOP_BREAKER_TOKEN_FIELD,
+        } | LLM_EXTRA_STRIP_MESSAGE_FIELDS
         sanitized_messages: List[Dict[str, Any]] = [
             {k: v for k, v in m.items() if k not in _INTERNAL_FIELDS}
             if m.keys() & _INTERNAL_FIELDS
