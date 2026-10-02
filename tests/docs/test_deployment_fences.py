@@ -43,9 +43,14 @@ def test_every_fence_of_a_page_is_in_a_supported_form(site_config, monkeypatch, 
     assert md.convert(path.read_text())
 
 
-def test_no_page_of_the_site_shows_a_fence_as_markdown(tmp_path):
-    """The build runs the on_post_page check over every page."""
-    build(load_config(str(REPO / "mkdocs.yml"), site_dir=str(tmp_path / "site")))
+def test_two_builds_of_the_site_are_byte_identical(tmp_path):
+    """Each build also runs the on_post_page check over every page."""
+    sites = [tmp_path / "first", tmp_path / "second"]
+    for site in sites:
+        build(load_config(str(REPO / "mkdocs.yml"), site_dir=str(site)))
+    files = [sorted(path.relative_to(site) for path in site.rglob("*") if path.is_file()) for site in sites]
+    assert files[0] == files[1]
+    assert [path for path in files[0] if (sites[0] / path).read_bytes() != (sites[1] / path).read_bytes()] == []
 
 
 @pytest.mark.parametrize(

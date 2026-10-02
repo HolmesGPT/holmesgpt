@@ -95,7 +95,6 @@ the build.
 import html
 import posixpath
 import re
-import uuid
 from pathlib import PurePosixPath
 
 import yaml  # type: ignore
@@ -154,8 +153,10 @@ def robusta_region_fence_format(source, language, css_class, options, md, **kwar
 
     link_match = MARKDOWN_LINK_RE.match(inner)
 
-    tab_group_id = str(uuid.uuid4()).replace("-", "_")
-    group_name = f"__tabbed_{tab_group_id}"
+    # Markdown is built once per page, so the count numbers the page's groups and
+    # two builds give the same ids; the prefix keeps them apart from tabbed's own.
+    md.robusta_region_groups = getattr(md, "robusta_region_groups", 0) + 1
+    group_name = f"__tabbed_robusta_region_{md.robusta_region_groups}"
 
     inputs_html = ""
     labels_html = ""
