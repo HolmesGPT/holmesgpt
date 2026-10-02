@@ -139,16 +139,43 @@ def build_page(tmp_path, text):
 @pytest.mark.parametrize(
     "values, path",
     [
+        *[(f"{key}:\n  app: holmes\n", key) for key in ("config", "podLabels", "extraVolumes", "customToolsets")],
+        ("serviceAccount:\n  annotaions:\n    eks.amazonaws.com/role-arn: arn\n", "serviceAccount.annotaions"),
+        ("crdPermissions:\n  argoo: true\n", "crdPermissions.argoo"),
         ("mcpAddons:\n  aws:\n    enabeld: true\n", "mcpAddons.aws.enabeld"),
         ("mcpAddons:\n  aws:\n    enabled: true\n    config:\n      regoin: us-east-1\n", "mcpAddons.aws.config.regoin"),
-        ("mcpAddons:\n  aws:\n    image:\n      tag: x\n", "mcpAddons.aws.image.tag"),
         ("mcpAddons:\n  aws:\n    nodeSelector:\n      kubernetes.io/os: linux\n", "mcpAddons.aws.nodeSelector.kubernetes.io/os"),
     ],
-    ids=["addon-key", "nested-key", "under-a-scalar", "free-form-map-no-page-fills"],
+    ids=[
+        "config",
+        "podLabels",
+        "extraVolumes",
+        "customToolsets",
+        "nested-key",
+        "crd-permission",
+        "addon-key",
+        "addon-nested-key",
+        "free-form-map-no-page-fills",
+    ],
 )
-def test_an_mcp_addon_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, values, path):
+def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, values, path):
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` is not a value of the Holmes chart"):
+        build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
+
+
+@pytest.mark.parametrize(
+    "values, path, written, default",
+    [
+        ('namespaceScopedRBAC: "false"\n', "namespaceScopedRBAC", "str", "bool"),
+        ("additionalEnvVars:\n  LOG_LEVEL: DEBUG\n", "additionalEnvVars", "dict", "list"),
+        ("mcpAddons:\n  aws:\n    image:\n      tag: x\n", "mcpAddons.aws.image", "dict", "str"),
+    ],
+    ids=["str-for-bool", "mapping-for-list", "mapping-for-str"],
+)
+def test_a_value_of_another_type_than_its_chart_default_fails_the_build(tmp_path, monkeypatch, values, path, written, default):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` is a {written}, and the Holmes chart's default for it \(helm/holmes/values\.yaml\) is a {default}"):
         build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
 
 
@@ -244,13 +271,6 @@ def test_a_reuse_fence_with_a_field_other_than_cli_fails_the_build(tmp_path, mon
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
         build_page(tmp_path, fence)
-
-
-@pytest.mark.parametrize("key", ["config", "podLabels", "extraVolumes", "customToolsets"])
-def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, key):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{key}` is not a value of the Holmes chart"):
-        build_page(tmp_path, f"```yaml-helm-values\n{key}:\n  app: holmes\n```\n")
 
 
 @pytest.mark.parametrize(

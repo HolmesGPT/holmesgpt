@@ -27,7 +27,7 @@ name, and closed by the first line of three backticks:
 
 `yaml-helm-values` takes the same forms as `yaml-toolset-config`. A `multi-instance` body has
 `toolset`, `name` and `config`. Any other form of these fences fails the build with a message naming
-the page and the line, and so do a body that is not valid YAML, a value the chart has no key for,
+the page and the line, and so do a body that is not valid YAML, a value that is not the chart's,
 and a page whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`). This
 module reads only files and imports nothing from `holmes`; the checks that need Holmes, of each
 `toolsets` and `mcp_servers` block, are the `docs/fence_checks.py` hook's.
@@ -49,12 +49,12 @@ the first column, then optionally a line `---` and the fields below, a second bl
       ```
 
 Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the chart's upgrade command.
-The values are written as the page shows them, comments included. Each top-level key is a key of
-the chart's `helm/holmes/values.yaml` and has a value; the keys that are also Holmes config
-(`CLI_CONFIG_KEYS`) are what a derived CLI tab shows. Every key path under `mcpAddons` is one the
-chart's `mcpAddons` defaults have, except inside the maps of `FREE_FORM_MCP_ADDON_MAPS`, whose keys
-are the reader's. `toolsets` and `mcp_servers` map each name to a block, which
-`docs/fence_checks.py` checks against Holmes.
+The values are written as the page shows them, comments included. Every key path of the values is
+one of the chart's defaults in `helm/holmes/values.yaml`, and its value has the default's type,
+except inside the maps of `FREE_FORM_VALUES`, whose keys are the reader's, and inside the blocks
+`toolsets` and `mcp_servers` map each name to, which `docs/fence_checks.py` checks against Holmes.
+Each top-level value, and each block, has a value. The top-level keys that are also Holmes config
+(`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -251,10 +251,12 @@ CHART_KEYS = frozenset(CHART_DEFAULTS)
 # docs/fence_checks.py hook fails the build when this is not the `holmes.config.Config`
 # fields that are CHART_KEYS.
 CLI_CONFIG_KEYS = frozenset({"toolsets", "mcp_servers"})
-# The `mcpAddons` values whose chart default is an empty map, which pages fill with
-# keys of their own.
-FREE_FORM_MCP_ADDON_MAPS = frozenset(
+# The chart values whose default is an empty map, which pages fill with keys of their own.
+FREE_FORM_VALUES = frozenset(
     {
+        ("modelList",),
+        ("commonLabels",),
+        ("serviceAccount", "annotations"),
         ("mcpAddons", "aws", "multiAccount", "profiles"),
         ("mcpAddons", "aws", "serviceAccount", "annotations"),
         ("mcpAddons", "azure", "serviceAccount", "annotations"),
@@ -335,30 +337,38 @@ def _block_mapping(body: str):
     return data if isinstance(data, dict) and re.match(r"[A-Za-z_]", first) else None
 
 
-def _values_are_supported(values: dict) -> bool:
-    """Whether every top-level value is set, and `toolsets` and `mcp_servers` map
+def _values_are_set(values: dict) -> bool:
+    """Whether every top-level value has a value, and `toolsets` and `mcp_servers` map
     each name to a block of fields."""
-    if any(value is None or value in ({}, [], "") for value in values.values()):
-        return False
-    return all(
-        isinstance(values.get(part, {}), dict)
-        and all(isinstance(block, dict) and block for block in values.get(part, {}).values())
-        for part in ("toolsets", "mcp_servers")
+    blocks = [
+        block for part in CLI_CONFIG_KEYS if isinstance(values.get(part), dict) for block in values[part].values()
+    ]
+    return not any(value is None or value in ({}, [], "") for value in values.values()) and all(
+        isinstance(block, dict) and block for block in blocks
     )
 
 
-def _unknown_chart_value(value, default, path: tuple) -> Optional[tuple]:
-    """The first key path under `path` in `value` that the chart's `default` lacks;
-    a list or scalar has none."""
-    if not isinstance(value, dict) or path in FREE_FORM_MCP_ADDON_MAPS:
-        return None
-    known = default if isinstance(default, dict) else {}
-    for key, item in value.items():
-        if key not in known:
-            return path + (key,)
-        unknown = _unknown_chart_value(item, known[key], path + (key,))
-        if unknown:
-            return unknown
+def _chart_value_error(values: dict, defaults: dict, path: tuple = ()) -> Optional[str]:
+    """Why `values`, the values at `path`, are not the chart's: the first key path the
+    chart's `defaults` lack, or whose value has a type other than the default's. A list
+    has no key paths, and the maps of FREE_FORM_VALUES and the toolset blocks are not
+    the chart's."""
+    for key, value in values.items():
+        here = path + (key,)
+        name = ".".join(map(str, here))
+        if key not in defaults:
+            return f"`{name}` is not a value of the Holmes chart (helm/holmes/values.yaml)"
+        default = defaults[key]
+        if type(value) is not type(default):
+            return (
+                f"`{name}` is a {type(value).__name__}, and the Holmes chart's default for it "
+                f"(helm/holmes/values.yaml) is a {type(default).__name__}"
+            )
+        toolset_blocks = len(here) == 1 and key in CLI_CONFIG_KEYS
+        if isinstance(value, dict) and here not in FREE_FORM_VALUES and not toolset_blocks:
+            error = _chart_value_error(value, default, here)
+            if error:
+                return error
     return None
 
 
@@ -551,14 +561,11 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
         return None
     if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
         return None
-    if not _values_are_supported(values):
+    if not _values_are_set(values):
         return None
-    unknown = [key for key in values if key not in CHART_KEYS]
-    if not unknown and "mcpAddons" in values:
-        path = _unknown_chart_value(values["mcpAddons"], CHART_DEFAULTS["mcpAddons"], ("mcpAddons",))
-        unknown = [".".join(path)] if path else []
-    if unknown:
-        raise FenceBodyError(f"`{unknown[0]}` is not a value of the Holmes chart (helm/holmes/values.yaml)")
+    error = _chart_value_error(values, CHART_DEFAULTS)
+    if error:
+        raise FenceBodyError(error)
 
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.
