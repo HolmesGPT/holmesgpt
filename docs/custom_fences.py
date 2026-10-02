@@ -27,8 +27,8 @@ name, and closed by the first line of three backticks:
 
 `yaml-helm-values` takes the same forms as `yaml-toolset-config`. A `multi-instance` body has
 `toolset`, `name` and `config`. Any other form of these fences fails the build with a message naming
-the page and the line, and so does a body that is not valid YAML, and a page whose rendered HTML
-shows a fence's markdown instead of its tabs (`on_post_page`).
+the page and the line, and so do a body that is not valid YAML and a value the chart has no key for,
+and a page whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`).
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
@@ -47,7 +47,9 @@ the first column, then optionally a line `---` and the fields below, a second bl
       ```
 
 Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the chart's upgrade command.
-The values are written as the page shows them, comments included.
+The values are written as the page shows them, comments included. Each top-level key is a key of
+the chart's `helm/holmes/values.yaml` and has a value; the keys that are also Holmes config
+(`holmes.config.Config` fields) are what a derived CLI tab shows.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -67,7 +69,8 @@ The note naming the section that creates the secret is written by hand above the
 
 Above a yaml-helm-values fence, which has no CLI tab, it reads "Reuses the ...".
 
-Fields. Each is optional.
+Fields, declared in `ToolsetConfigFields` and `HelmValuesFields`. Each is optional, and a field
+that is written has a value.
 
 - `secret`: `--from-literal=X=<value>` and `--from-file=X=<path>` arguments of the group's secret.
   One for a derived key sets the value the page shows; one for a key the values never reference as
@@ -76,13 +79,13 @@ Fields. Each is optional.
   `extraEnvVarsSecrets`: a file mounted through `additionalVolumes`, or a secret an addon reads by
   `secretName`. A list of `name` and `keys`, `keys` being arguments as in `secret`. Their commands
   follow the group's secret in the same secret step.
-- `deployment-values`: `[service-account]`, or `[service-account, holmes-deployment]`. Each Helm
-  tab opens with the line that states the chart's names for them, for the placeholders the page's
-  steps use.
+- `deployment-values` (yaml-helm-values only): `[service-account]`, or
+  `[service-account, holmes-deployment]`. Each Helm tab opens with the line that states the
+  chart's names for them, for the placeholders the page's steps use.
 - `cli` (yaml-toolset-config only): the Holmes CLI tab's markdown, for a CLI setup that is a
-  different procedure. Without it the CLI tab is derived: the exports, the values' `toolsets` and
-  `mcp_servers` keys for ~/.holmes/config.yaml, and the refresh warning. A fence with `cli` and no
-  values has the Holmes CLI tab alone, for a toolset that runs only in the CLI.
+  different procedure. Without it the CLI tab is derived: the exports, the values' Holmes config
+  keys for ~/.holmes/config.yaml, and the refresh warning. A fence with `cli` and no values has the
+  Holmes CLI tab alone, for a toolset that runs only in the CLI.
 - `test` (a derived CLI tab only): a command the CLI tab ends with, under "To test, run:".
 
 The page hook. Secrets are named after the page, and the multi-instance link is relative to it; the
@@ -95,11 +98,15 @@ the build.
 import html
 import posixpath
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from typing import Annotated, Dict, List, Optional, Tuple
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
 from markdown.preprocessors import Preprocessor
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from holmes.config import Config
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -229,8 +236,11 @@ FIELDS_SEPARATOR = "---"
 SECRET_ARGUMENT_RE = re.compile(
     r"--from-(?P<kind>literal|file)=(?P<key>[A-Za-z0-9_.-]+)=(?P<value>\S.*)"
 )
-# The top-level keys of the values that are Holmes config, which a derived CLI tab shows.
-CLI_CONFIG_KEYS = ("toolsets", "mcp_servers")
+# The keys a fence's values may set: the Holmes chart's values. Of these, the
+# ones that are also Holmes config are what a derived CLI tab shows.
+CHART_VALUES = Path(__file__).resolve().parents[1] / "helm" / "holmes" / "values.yaml"
+CHART_KEYS = frozenset(yaml.safe_load(CHART_VALUES.read_text()))
+CLI_CONFIG_KEYS = frozenset(Config.model_fields)
 # The chart-specific names a Helm tab can state, and the lines that state them.
 DEPLOYMENT_VALUES = {
     ("service-account",): ". Use it as `<service-account>` on this page.",
@@ -304,6 +314,18 @@ def _block_mapping(body: str):
     return data if isinstance(data, dict) and re.match(r"[A-Za-z_]", first) else None
 
 
+def _values_are_supported(values: dict) -> bool:
+    """Whether every top-level value is set, and `toolsets` and `mcp_servers` map
+    each name to a block of fields."""
+    if any(value is None or value in ({}, [], "") for value in values.values()):
+        return False
+    return all(
+        isinstance(values.get(part, {}), dict)
+        and all(isinstance(block, dict) and block for block in values.get(part, {}).values())
+        for part in ("toolsets", "mcp_servers")
+    )
+
+
 def _multi_instance_section(body: str, page: str):
     """The standard "Multiple Instances" section for the toolset `body` names, or
     None if the body is not a supported form: its config example nested under
@@ -343,18 +365,71 @@ def _multi_instance_section(body: str, page: str):
     )
 
 
-def _secret_arguments(arguments) -> dict:
+def _secret_keys(arguments) -> Dict[str, Tuple[str, str]]:
     """{key: (kind, value)} for a list of `--from-literal=K=V` / `--from-file=K=PATH`
     arguments, in their order."""
     if not isinstance(arguments, list) or not arguments:
-        raise FenceBodyError("a secret's keys are a list of --from-literal / --from-file arguments")
-    keys: dict = {}
+        raise ValueError("a secret's keys are a list of --from-literal / --from-file arguments")
+    keys: Dict[str, Tuple[str, str]] = {}
     for argument in arguments:
         match = SECRET_ARGUMENT_RE.fullmatch(argument) if isinstance(argument, str) else None
         if match is None or match["key"] in keys:
-            raise FenceBodyError(f"not a --from-literal=KEY=VALUE or --from-file=KEY=PATH argument of a new key: {argument!r}")
+            raise ValueError(f"not a --from-literal=KEY=VALUE or --from-file=KEY=PATH argument of a new key: {argument!r}")
         keys[match["key"]] = (match["kind"], match["value"])
     return keys
+
+
+SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)]
+Text = Annotated[str, Field(pattern=r"\S")]
+
+
+class NamedSecret(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: Text
+    keys: SecretKeys
+
+
+class Fields(BaseModel):
+    """The fields part of a deployment fence body: the fields the docstring lists
+    for the fence, each with a value of its type."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    secret: Optional[SecretKeys] = None
+    named_secrets: Optional[Annotated[List[NamedSecret], Field(min_length=1)]] = Field(
+        default=None, alias="named-secrets"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def every_field_has_a_value(cls, data):
+        # `None` stands for an absent field, so a field written with no value is refused here.
+        if isinstance(data, dict) and None in data.values():
+            raise ValueError("a field with no value")
+        return data
+
+
+class ToolsetConfigFields(Fields):
+    cli: Optional[Text] = None
+    test: Optional[Text] = None
+
+    @model_validator(mode="after")
+    def test_ends_a_derived_cli_tab(self):
+        if self.cli is not None and self.test is not None:
+            raise ValueError("`test` ends a derived CLI tab, and `cli` writes the tab")
+        return self
+
+
+class HelmValuesFields(Fields):
+    deployment_values: Optional[Tuple[str, ...]] = Field(default=None, alias="deployment-values")
+
+    @field_validator("deployment_values", mode="before")
+    @classmethod
+    def deployment_values_are_known(cls, value):
+        if not isinstance(value, list) or tuple(value) not in DEPLOYMENT_VALUES:
+            raise ValueError(f"one of {[list(names) for names in DEPLOYMENT_VALUES]}")
+        return tuple(value)
 
 
 def _secret_command(name: str, keys: dict) -> str:
@@ -415,27 +490,29 @@ def _deployment_section(opening, body: str, page: str):
     values_text = "\n".join(lines[:split]).strip("\n")
     fields_text = "\n".join(lines[split + 1 :]).strip("\n")
     values = _block_mapping(values_text) if values_text else {}
-    fields = _block_mapping(fields_text) if split < len(lines) else {}
-    if values is None or fields is None or not set(fields) <= {
-        "secret", "named-secrets", "cli", "test", "deployment-values"
-    }:
+    fields_data = _block_mapping(fields_text) if split < len(lines) else {}
+    if values is None or fields_data is None:
         return None
     toolset_config = opening["deployment"] == TOOLSET_CONFIG_FENCE
-    cli = fields.get("cli")
-    test = fields.get("test")
-    if cli is not None and not (toolset_config and isinstance(cli, str) and cli.strip() and test is None):
+    try:
+        fields = (ToolsetConfigFields if toolset_config else HelmValuesFields).model_validate(fields_data)
+    except ValidationError:
         return None
-    if test is not None and not (toolset_config and isinstance(test, str) and test.strip()):
+    if not _values_are_supported(values):
         return None
+    unknown = [key for key in values if key not in CHART_KEYS]
+    if unknown:
+        raise FenceBodyError(f"`{unknown[0]}` is not a value of the Holmes chart (helm/holmes/values.yaml)")
+    cli = fields.cli if isinstance(fields, ToolsetConfigFields) else None
+    test = fields.test if isinstance(fields, ToolsetConfigFields) else None
 
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.
-        if cli is None or opening["option"] or set(fields) != {"cli"}:
+        if cli is None or opening["option"] or fields.model_fields_set != {"cli"}:
             return None
         return _tab("Holmes CLI", [cli.strip("\n")])
 
-    given = _secret_arguments(fields["secret"]) if "secret" in fields else {}
-    keys = _environment_keys(values_text, values, given)
+    keys = _environment_keys(values_text, values, fields.secret or {})
     secret = ""
     if keys:
         secret = f"holmes-{PurePosixPath(page).stem}"
@@ -444,19 +521,8 @@ def _deployment_section(opening, body: str, page: str):
     elif opening["option"]:
         return None
     commands = [_secret_command(secret, keys)] if keys and opening["option"] != "reuse" else []
-    named = fields.get("named-secrets", [])
-    if not isinstance(named, list) or not all(
-        isinstance(entry, dict) and set(entry) == {"name", "keys"} and isinstance(entry["name"], str)
-        for entry in named
-    ):
-        return None
-    commands += [_secret_command(entry["name"], _secret_arguments(entry["keys"])) for entry in named]
-
-    deployment_values = fields.get("deployment-values")
-    if deployment_values is not None and (
-        not isinstance(deployment_values, list) or tuple(deployment_values) not in DEPLOYMENT_VALUES
-    ):
-        return None
+    commands += [_secret_command(entry.name, entry.keys) for entry in fields.named_secrets or []]
+    deployment_values = fields.deployment_values if isinstance(fields, HelmValuesFields) else None
 
     values_text = f"extraEnvVarsSecrets:\n  - {secret}\n\n{values_text}" if secret else values_text
     tabs = []
@@ -490,7 +556,7 @@ def _deployment_section(opening, body: str, page: str):
     ):
         elements = []
         if deployment_values is not None:
-            line = SERVICE_ACCOUNT_LINE + DEPLOYMENT_VALUES[tuple(deployment_values)]
+            line = SERVICE_ACCOUNT_LINE + DEPLOYMENT_VALUES[deployment_values]
             elements.append(line.format(release=release))
         if commands:
             elements += [

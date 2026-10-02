@@ -94,3 +94,41 @@ def test_an_empty_fence_body_fails_the_build_naming_the_fence(tmp_path, monkeypa
     )
     with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
         build(config)
+
+
+def build_page(tmp_path, text):
+    """Build a site of one page, docs/index.md, with mkdocs.yml's pipeline."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(f"# Page\n\n{text}")
+    build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
+
+
+TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_account_id: \"1\"\n"
+
+
+@pytest.mark.parametrize(
+    "fence",
+    [
+        f"```yaml-toolset-config\n{TOOLSET}---\ncli:\n```\n",
+        f"```yaml-toolset-config\n{TOOLSET}---\ntest:\n```\n",
+        f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n",
+        "```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n",
+        f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n",
+        "```yaml-toolset-config\ntoolsets:\n```\n",
+        "```yaml-toolset-config\ntoolsets: {}\n```\n",
+        "```yaml-helm-values\nmodelList:\n```\n",
+    ],
+    ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field", "toolsets", "toolsets-{}", "modelList"],
+)
+def test_a_field_or_value_written_with_no_value_or_outside_the_list_fails_the_build(tmp_path, monkeypatch, fence):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
+        build_page(tmp_path, fence)
+
+
+@pytest.mark.parametrize("key", ["config", "podLabels", "extraVolumes", "customToolsets"])
+def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, key):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{key}` is not a value of the Holmes chart"):
+        build_page(tmp_path, f"```yaml-helm-values\n{key}:\n  app: holmes\n```\n")
