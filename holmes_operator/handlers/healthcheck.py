@@ -25,6 +25,21 @@ from holmes_operator.utils import (
 logger = logging.getLogger(__name__)
 
 
+# Kubernetes rejects Event.message over 1024 bytes with a 422. Its error text says
+# "characters", but apiserver measures len() on the UTF-8 bytes. HealthCheck
+# result.message can hold the full investigation body, so cap it before emitting.
+_MAX_EVENT_MESSAGE_BYTES = 1024
+_EVENT_TRUNCATION_MARKER = "…(truncated)"
+
+
+def _truncate_event_message(message: str) -> str:
+    encoded = message.encode("utf-8")
+    if len(encoded) <= _MAX_EVENT_MESSAGE_BYTES:
+        return message
+    budget = _MAX_EVENT_MESSAGE_BYTES - len(_EVENT_TRUNCATION_MARKER.encode("utf-8"))
+    return encoded[:budget].decode("utf-8", errors="ignore") + _EVENT_TRUNCATION_MARKER
+
+
 @kopf.on.create("holmesgpt.dev", "v1alpha1", "healthchecks")
 async def on_healthcheck_create(
     spec: Dict[str, Any],
@@ -158,7 +173,9 @@ async def on_healthcheck_create(
             objs=kwargs.get("body"),
             type="Normal" if result.status == CheckStatus.PASS else "Warning",
             reason=f"Check{result.status.capitalize()}",
-            message=f"Health check {result.status}: {result.message}",
+            message=_truncate_event_message(
+                f"Health check {result.status}: {result.message}"
+            ),
         )
 
     except Exception as e:
@@ -196,7 +213,9 @@ async def on_healthcheck_create(
             objs=kwargs.get("body"),
             type="Warning",
             reason="OperatorError",
-            message=f"Failed to execute health check: {str(e)}",
+            message=_truncate_event_message(
+                f"Failed to execute health check: {str(e)}"
+            ),
         )
 
         # Re-raise to let kopf handle retry if needed
