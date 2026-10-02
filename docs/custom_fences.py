@@ -51,8 +51,10 @@ the first column, then optionally a line `---` and the fields below, a second bl
 Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the chart's upgrade command.
 The values are written as the page shows them, comments included. Each top-level key is a key of
 the chart's `helm/holmes/values.yaml` and has a value; the keys that are also Holmes config
-(`CLI_CONFIG_KEYS`) are what a derived CLI tab shows. `toolsets` and `mcp_servers` map each name
-to a block, which `docs/fence_checks.py` checks against Holmes.
+(`CLI_CONFIG_KEYS`) are what a derived CLI tab shows. Every key path under `mcpAddons` is one the
+chart's `mcpAddons` defaults have, except inside the maps of `FREE_FORM_MCP_ADDON_MAPS`, whose keys
+are the reader's. `toolsets` and `mcp_servers` map each name to a block, which
+`docs/fence_checks.py` checks against Holmes.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -240,11 +242,23 @@ SECRET_ARGUMENT_RE = re.compile(
 )
 # The keys a fence's values may set: the Holmes chart's values.
 CHART_VALUES = Path(__file__).resolve().parents[1] / "helm" / "holmes" / "values.yaml"
-CHART_KEYS = frozenset(yaml.safe_load(CHART_VALUES.read_text()))
+CHART_DEFAULTS = yaml.safe_load(CHART_VALUES.read_text())
+CHART_KEYS = frozenset(CHART_DEFAULTS)
 # The chart values that are also Holmes config, which a derived CLI tab shows. The
 # docs/fence_checks.py hook fails the build when this is not the `holmes.config.Config`
 # fields that are CHART_KEYS.
 CLI_CONFIG_KEYS = frozenset({"toolsets", "mcp_servers"})
+# The `mcpAddons` values whose chart default is an empty map, which pages fill with
+# keys of their own.
+FREE_FORM_MCP_ADDON_MAPS = frozenset(
+    {
+        ("mcpAddons", "aws", "multiAccount", "profiles"),
+        ("mcpAddons", "aws", "serviceAccount", "annotations"),
+        ("mcpAddons", "azure", "serviceAccount", "annotations"),
+        ("mcpAddons", "gcp", "serviceAccount", "annotations"),
+        ("mcpAddons", "kubernetes", "config", "oauth"),
+    }
+)
 # The chart-specific names a Helm tab can state, and the lines that state them.
 DEPLOYMENT_VALUES = {
     ("service-account",): ". Use it as `<service-account>` on this page.",
@@ -328,6 +342,21 @@ def _values_are_supported(values: dict) -> bool:
         and all(isinstance(block, dict) and block for block in values.get(part, {}).values())
         for part in ("toolsets", "mcp_servers")
     )
+
+
+def _unknown_chart_value(value, default, path: tuple) -> Optional[tuple]:
+    """The first key path under `path` in `value` that the chart's `default` lacks;
+    a list or scalar has none."""
+    if not isinstance(value, dict) or path in FREE_FORM_MCP_ADDON_MAPS:
+        return None
+    known = default if isinstance(default, dict) else {}
+    for key, item in value.items():
+        if key not in known:
+            return path + (key,)
+        unknown = _unknown_chart_value(item, known[key], path + (key,))
+        if unknown:
+            return unknown
+    return None
 
 
 def _multi_instance_section(body: str, page: str):
@@ -520,6 +549,9 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     if not _values_are_supported(values):
         return None
     unknown = [key for key in values if key not in CHART_KEYS]
+    if not unknown and "mcpAddons" in values:
+        path = _unknown_chart_value(values["mcpAddons"], CHART_DEFAULTS["mcpAddons"], ("mcpAddons",))
+        unknown = [".".join(path)] if path else []
     if unknown:
         raise FenceBodyError(f"`{unknown[0]}` is not a value of the Holmes chart (helm/holmes/values.yaml)")
 

@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -130,6 +131,22 @@ def build_page(tmp_path, text):
     docs.mkdir()
     (docs / "index.md").write_text(f"# Page\n\n{text}")
     build(load_config(str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")))
+
+
+@pytest.mark.parametrize(
+    "values, path",
+    [
+        ("mcpAddons:\n  aws:\n    enabeld: true\n", "mcpAddons.aws.enabeld"),
+        ("mcpAddons:\n  aws:\n    enabled: true\n    config:\n      regoin: us-east-1\n", "mcpAddons.aws.config.regoin"),
+        ("mcpAddons:\n  aws:\n    image:\n      tag: x\n", "mcpAddons.aws.image.tag"),
+        ("mcpAddons:\n  aws:\n    nodeSelector:\n      kubernetes.io/os: linux\n", "mcpAddons.aws.nodeSelector.kubernetes.io/os"),
+    ],
+    ids=["addon-key", "nested-key", "under-a-scalar", "free-form-map-no-page-fills"],
+)
+def test_an_mcp_addon_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, values, path):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` is not a value of the Holmes chart"):
+        build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
 
 
 def test_the_cli_tab_keys_are_the_chart_values_that_are_holmes_config(tmp_path, monkeypatch):
