@@ -238,6 +238,15 @@ def patch_supabase(monkeypatch):
 
 @pytest.fixture(autouse=True, scope="session")
 def storage_dal_mock():
+    """Session-scoped fixture that mocks SupabaseDal to avoid real database calls during tests.
+
+    Patches ``holmes.config.SupabaseDal`` with a :class:`unittest.mock.MagicMock` and
+    pre-configures common return values (``sign_in``, ``get_ai_credentials``) so that any
+    code path relying on the storage DAL works without a live Supabase instance.
+
+    Yields:
+        MagicMock: The configured mock instance of ``SupabaseDal``.
+    """
     with patch("holmes.config.SupabaseDal") as MockSupabaseDal:
         mock_supabase_dal_instance = MagicMock()
         MockSupabaseDal.return_value = mock_supabase_dal_instance
