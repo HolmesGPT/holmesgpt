@@ -110,6 +110,24 @@ toolsets:
     type: database
     config:
       connection_url: "sqlite:////data/cache.db"
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**, with the paths of the database files on your machine. Create the file if it doesn't exist:
+
+  ```yaml
+  toolsets:
+    app-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/app.db"
+
+    cache-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/cache.db"
+  ```
+
+  --8<-- "snippets/toolset_refresh_warning.md"
 ```
 
 ## Configuration Options
