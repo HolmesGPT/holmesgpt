@@ -1,0 +1,135 @@
+# Test: Elasticsearch Post-Deploy Regression (Organization Permission Scope)
+#
+# Simulates a subtle post-deploy regression where a new authorization middleware version
+# breaks billing API access for organization-linked accounts only. Solo accounts (no org_id)
+# are unaffected, and org accounts can still access other endpoints — making this hard to
+# detect with broad monitoring.
+#
+# Pattern:
+#   Pre-deploy (v2.13.2):  All users, all endpoints → 200
+#   Post-deploy (v2.14.0-rc3):
+#     - Solo users, any endpoint → 200
+#     - Org users, non-billing endpoints → 200
+#     - Org users, /api/v3/billing/invoices → 403 (AUTHZ-4821)
+#
+# Anti-hallucination:
+#   - Error code AUTHZ-4821 cannot be guessed
+#   - Deploy version v2.14.0-rc3 cannot be guessed
+#   - The correlation (org_id + billing endpoint + post-deploy = 403) requires querying
+#
+# Requirements:
+# - ELASTICSEARCH_URL: URL to Elasticsearch cluster
+# - ELASTICSEARCH_API_KEY: API key for authentication
+
+user_prompt: "Several customers are reporting they get authorization errors when trying to view billing invoices since our last platform deploy, but most customers aren't affected. Can you investigate the app-217-api-logs index to figure out what's different about the failing requests and what caused this regression?"
+
+expected_output:
+  - "Must identify error code AUTHZ-4821 as the authorization failure code"
+  - "Must identify that the failures only affect requests that have an org_id field (organization-linked accounts), while requests without org_id (solo accounts) succeed"
+  - "Must identify /api/v3/billing/invoices as the only affected endpoint (other endpoints work fine even for org accounts)"
+  - "Must connect the regression to the deployment of version v2.14.0-rc3 (failures only appear after this deploy)"
+
+tags:
+  - elasticsearch
+  - logs
+  - hard
+  - regression
+
+allow_toolset_failures: true
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  INDEX="app-217-api-logs"
+  BULK_FILE="/tmp/es_bulk_217_$$.ndjson"
+
+  # Clean up any existing test index
+  echo "Cleaning up any existing test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${INDEX}" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  # Create the index with mapping
+  echo "Creating test index with API gateway log mapping..."
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${INDEX}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "method": {"type": "keyword"},
+          "endpoint": {"type": "keyword"},
+          "status_code": {"type": "integer"},
+          "user_id": {"type": "keyword"},
+          "org_id": {"type": "keyword"},
+          "deploy_version": {"type": "keyword"},
+          "response_time_ms": {"type": "integer"},
+          "error_code": {"type": "keyword"},
+          "error_message": {"type": "text"},
+          "request_id": {"type": "keyword"},
+          "event_type": {"type": "keyword"},
+          "message": {"type": "text"}
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  sleep 2
+
+  # Generate test data using Python script
+  echo "Generating API gateway log data..."
+  python3 generate_data.py > "$BULK_FILE"
+
+  DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
+  echo "Generated $DOC_COUNT log entries"
+
+  # Bulk insert
+  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${INDEX}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
+    echo "Bulk insert had errors: $BULK_RESPONSE"
+    rm -f "$BULK_FILE"
+    exit 1
+  fi
+
+  # Refresh the index
+  curl -sf -X POST "${ELASTICSEARCH_URL}/${INDEX}/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  rm -f "$BULK_FILE"
+
+  # Verify the needle: count 403 errors with AUTHZ-4821
+  ERROR_COUNT=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${INDEX}/_count" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"term":{"error_code":"AUTHZ-4821"}}}' | grep -o '"count":[0-9]*' | cut -d':' -f2)
+
+  if [ "$ERROR_COUNT" = "15" ]; then
+    echo "Verified: $ERROR_COUNT requests with error code AUTHZ-4821"
+  else
+    echo "Expected 15 AUTHZ-4821 errors but found: $ERROR_COUNT"
+    exit 1
+  fi
+
+  echo "Setup complete!"
+
+after_test: |
+  echo "Cleaning up test index: app-217-api-logs"
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-217-api-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  rm -f /tmp/es_bulk_217_*.ndjson
+  echo "Cleanup complete"
