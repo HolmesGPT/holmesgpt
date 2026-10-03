@@ -7,3 +7,4 @@
     - **[Elasticsearch / OpenSearch](elasticsearch.md)** - Logs from Elasticsearch/OpenSearch
     - **[Coralogix](coralogix-logs.md)** - Logs via Coralogix platform
     - **[DataDog](datadog.md)** - Logs from DataDog
+    - **[Quickwit](quickwit.md)** - Logs from a Quickwit index

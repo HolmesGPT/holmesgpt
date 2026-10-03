@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 from math import ceil
-from typing import TYPE_CHECKING, Optional
+from typing import Optional, Protocol
 
 from pydantic import BaseModel, field_validator
 
@@ -15,8 +15,13 @@ from holmes.core.tools import (
 from holmes.core.tools_utils.token_counting import count_tool_response_tokens
 from holmes.plugins.toolsets.utils import get_param_or_raise
 
-if TYPE_CHECKING:
-    from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
+class PodLoggingToolset(Protocol):
+    """Structural interface for toolsets that back the unified fetch_pod_logs tool."""
+
+    name: str
+
+    def fetch_pod_logs(self, params: "FetchPodLogsParams") -> StructuredToolResult: ...
+
 
 # Default values for log fetching
 DEFAULT_LOG_LIMIT = 100
@@ -124,7 +129,7 @@ def truncate_logs(
 class PodLoggingTool(Tool):
     """Tool for fetching Kubernetes pod logs"""
 
-    def __init__(self, toolset: "KubernetesLogsToolset"):
+    def __init__(self, toolset: "PodLoggingToolset"):
         toolset_name = toolset.name if toolset.name else "logging backend"
         description = (
             f"Fetch logs for a Kubernetes pod from {toolset_name}"
