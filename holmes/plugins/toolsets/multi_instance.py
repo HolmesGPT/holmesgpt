@@ -92,14 +92,21 @@ def _merge_instance_config(globals_: Dict[str, Any], entry: Dict[str, Any]) -> D
 def _parse_instances(config: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
     """Decompose a wrapper config into ordered (instance_name, flat_child_config) pairs.
 
-    Flat config (no `instances:`) → one instance named `default`.
+    Flat config (no `instances:` key) → one instance named `default`.
+    An explicit empty `instances: []` → zero instances.
     """
     raw = config.get("instances")
-    if not raw:
+    if raw is None:
         flat = {k: v for k, v in config.items() if k != "instances"}
         return [("default", flat)]
     if not isinstance(raw, list):
         raise ValueError("`instances` must be a list")
+    # An explicit empty list means "zero instances configured", not "flat single
+    # instance". Collapsing `instances: []` into a synthetic `default` from the
+    # top-level globals would silently leave a routable endpoint enabled; instead
+    # let it flow to `_aggregate`'s "No instances configured" path.
+    if not raw:
+        return []
     globals_ = {k: v for k, v in config.items() if k != "instances"}
     seen: set = set()
     out: List[Tuple[str, Dict[str, Any]]] = []
