@@ -62,14 +62,13 @@ before_test: |
   T_5H=$(ts "hours=5")
   T_6H=$(ts "hours=6")
 
-  # Clean up existing test index
-  echo "Cleaning up existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create logs index
-  echo "Creating prod logs index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
+  # Reentrancy: index uses a static test-ID-scoped name and is shared with
+  # parallel CI runs of this eval. Do NOT delete the index - that would
+  # wipe a parallel run's data. Create-or-reuse, and below we use stable
+  # _ids on the bulk insert so concurrent runs converge on the same 12
+  # documents (the count check expects exactly 12).
+  echo "Creating (or reusing) prod logs index..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -84,39 +83,50 @@ before_test: |
         "host": {"type": "keyword"}
       }}
     }')
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "Failed to create logs index: $CREATE_RESPONSE"
     exit 1
   fi
   sleep 2
 
+  # One-shot stale-doc cleanup. Deletes any doc whose _id is NOT in our
+  # known stable-_id set (log-1..log-12). Safe under concurrency: a parallel
+  # run's docs all match the keep-list and are preserved. Removes leftovers
+  # from older revisions of this fixture (which used auto-generated _ids).
+  curl -s -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"must_not":[{"ids":{"values":["log-1","log-2","log-3","log-4","log-5","log-6","log-7","log-8","log-9","log-10","log-11","log-12"]}}]}}}' > /dev/null
+
   # Insert log data for Company.Ops (main platform service) and Company.Ops.Radar.WebJob
   # Both have job processing failures but NEITHER is companyopswebjob
+  # Stable _ids ("log-1".."log-12") make this idempotent under concurrent
+  # runs (overwrite, not duplicate), so the count check stays at exactly 12.
   BULK_FILE=$(es_temp_file "logs" "254")
   cat > "$BULK_FILE" << BULK_EOF
-  {"index":{}}
+  {"index":{"_id":"log-1"}}
   {"timestamp":"${T_6H}","service":"Company.Ops","level":"INFO","message":"DR test initiated - switching to failover database","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-2"}}
   {"timestamp":"${T_5H}","service":"Company.Ops","level":"ERROR","message":"Job scheduler failed to process batch: connection timeout to failover DB after 30s","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-3"}}
   {"timestamp":"${T_5H}","service":"Company.Ops","level":"ERROR","message":"Scheduled job execution failed with status 500: unable to acquire database lock during failover","environment":"production","correlation_id":"job-8827","host":"ops-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-4"}}
   {"timestamp":"${T_4H}","service":"Company.Ops","level":"WARN","message":"Job creation endpoint returning 503 - database failover in progress","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-02"}
-  {"index":{}}
+  {"index":{"_id":"log-5"}}
   {"timestamp":"${T_3H}","service":"Company.Ops","level":"ERROR","message":"Failed to create new scheduled job: HTTP 500 - transaction deadlock detected on jobs table","environment":"production","correlation_id":"job-8831","host":"ops-prod-02"}
-  {"index":{}}
+  {"index":{"_id":"log-6"}}
   {"timestamp":"${T_2H}","service":"Company.Ops","level":"INFO","message":"DR test failover completed - primary database restored","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-7"}}
   {"timestamp":"${T_1H}","service":"Company.Ops","level":"INFO","message":"Job scheduler resumed normal operation","environment":"production","correlation_id":"dr-test-001","host":"ops-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-8"}}
   {"timestamp":"${T_6H}","service":"Company.Ops.Radar.WebJob","level":"INFO","message":"Radar data collection job starting cycle","environment":"production","correlation_id":"radar-cycle-445","host":"radar-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-9"}}
   {"timestamp":"${T_5H}","service":"Company.Ops.Radar.WebJob","level":"ERROR","message":"Radar batch processing failed: upstream dependency Company.Ops unavailable during failover","environment":"production","correlation_id":"radar-cycle-445","host":"radar-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-10"}}
   {"timestamp":"${T_4H}","service":"Company.Ops.Radar.WebJob","level":"ERROR","message":"Job execution error: HTTP 500 from internal API - database connection pool exhausted","environment":"production","correlation_id":"radar-cycle-446","host":"radar-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-11"}}
   {"timestamp":"${T_3H}","service":"Company.Ops.Radar.WebJob","level":"WARN","message":"Retrying failed radar collection job after backoff","environment":"production","correlation_id":"radar-cycle-446","host":"radar-prod-01"}
-  {"index":{}}
+  {"index":{"_id":"log-12"}}
   {"timestamp":"${T_2H}","service":"Company.Ops.Radar.WebJob","level":"INFO","message":"Radar data collection resumed successfully after failover recovery","environment":"production","correlation_id":"radar-cycle-447","host":"radar-prod-01"}
   BULK_EOF
   sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
@@ -163,5 +173,6 @@ before_test: |
 after_test: |
   # Indices use static test-ID-prefixed names (app-254-*). Parallel CI runs
   # share the same ES cluster, so we skip deletion to avoid removing indices
-  # that another run's before_test just created (reentrancy-safe).
+  # that another in-flight run still depends on. before_test is idempotent
+  # (PUT tolerates already-exists, bulk inserts use stable _ids).
   echo "Skipping index cleanup (reentrant - before_test handles idempotent setup)"

@@ -36,12 +36,12 @@ before_test: |
 
   echo "Creating test indexes for disk space investigation..."
 
-  # Clean up any existing test data first
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-logs-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: indices use static test-ID-scoped names (app-187-logs-*,
+  # app-187-metrics-analytics) and the same names are shared with parallel
+  # CI runs. Do NOT delete - that would wipe a parallel run's data. PUT-with-
+  # already-exists tolerated, and bulk inserts use stable _ids so concurrent
+  # runs converge on the same docs (the test compares relative size between
+  # logs-* and metrics-analytics, which holds as long as both grow together).
 
   # Create 20 small indexes via bulk insert
   BULK_FILE="/tmp/es_disk_187_small_$$.ndjson"
@@ -50,7 +50,7 @@ before_test: |
   for i in $(seq -w 1 20); do
     INDEX_NAME="app-187-logs-${i}"
     for j in $(seq 1 10); do
-      printf '{"index": {"_index": "%s"}}\n' "$INDEX_NAME" >> "$BULK_FILE"
+      printf '{"index": {"_index": "%s", "_id": "small-%s"}}\n' "$INDEX_NAME" "$j" >> "$BULK_FILE"
       printf '{"@timestamp": "2024-01-15T12:00:00Z", "level": "INFO", "message": "Application started successfully", "service": "app-%s"}\n' "$i" >> "$BULK_FILE"
     done
   done
@@ -69,19 +69,21 @@ before_test: |
 
   rm -f "$BULK_FILE"
 
-  # Create the large analytics index
-  echo "Creating large analytics index (app-187-metrics-analytics)..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
+  # Create (or reuse) the large analytics index.
+  echo "Creating (or reusing) large analytics index (app-187-metrics-analytics)..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings": {"number_of_shards": 1, "number_of_replicas": 0}}')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create analytics index: $CREATE_RESPONSE"
     exit 1
   fi
 
-  # Generate bulk file with 5000 documents using bash
+  # Generate bulk file with 5000 documents using bash, with stable _ids so
+  # concurrent runs overwrite the same docs (preserves the index's relative
+  # size advantage over the small logs-* indices).
   LARGE_BULK="/tmp/es_disk_187_large_$$.ndjson"
   > "$LARGE_BULK"
 
@@ -91,7 +93,7 @@ before_test: |
   for i in $(seq 1 5000); do
     HOST_NUM=$(printf '%04d' $i)
     VAL=$((i % 100))
-    printf '{"index": {"_index": "app-187-metrics-analytics"}}\n' >> "$LARGE_BULK"
+    printf '{"index": {"_index": "app-187-metrics-analytics", "_id": "large-%s"}}\n' "$i" >> "$LARGE_BULK"
     printf '{"@timestamp": "2024-01-15T12:00:00Z", "metric_type": "cpu_usage", "host": "server-%s", "value": %d, "data": "%s"}\n' "$HOST_NUM" "$VAL" "$PAYLOAD" >> "$LARGE_BULK"
   done
 
@@ -128,13 +130,10 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test indexes..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-logs-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-187-metrics-analytics" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Indices use static test-ID-scoped names (app-187-logs-*, app-187-metrics-
+  # analytics). Parallel CI runs share the same Elasticsearch cluster, so
+  # we skip deletion to avoid wiping resources another in-flight run still
+  # depends on. before_test is idempotent (PUT tolerates already-exists,
+  # bulk inserts use stable _ids).
   rm -f /tmp/es_disk_187_*.ndjson /tmp/es_disk_187_batch_*
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

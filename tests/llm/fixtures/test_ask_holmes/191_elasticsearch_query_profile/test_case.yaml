@@ -31,39 +31,45 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="app-191-profile"
 
-  # Delete the index if it exists (clean slate)
-  echo "⏳ Cleaning up any existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create the test index with mapping
-  echo "⏳ Creating test index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse, and use stable doc _ids so concurrent runs converge on
+  # the same 6 documents (count check expects exactly 6).
+  echo "⏳ Creating (or reusing) test index..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"message":{"type":"text"},"status":{"type":"keyword"}}}}')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
 
+  # One-shot stale-doc cleanup: drop any doc whose _id isn't in our known
+  # set. Safe under concurrency (parallel run's docs match the keep-list).
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"must_not":[{"ids":{"values":["log-1","log-2","log-3","log-4","log-5","log-6"]}}]}}}' > /dev/null
+
   # Create unique temp file
   BULK_FILE="/tmp/es_bulk_191_$$.ndjson"
 
-  # Create bulk data file with logs including timeout messages
+  # Stable _ids make this idempotent under concurrent runs (overwrite, not
+  # duplicate) so the 6-doc count stays exact.
   cat > "$BULK_FILE" << 'BULK_EOF'
-  {"index":{}}
+  {"index":{"_id":"log-1"}}
   {"timestamp":"2025-01-01T10:00:00Z","message":"Connection established successfully","status":"success"}
-  {"index":{}}
+  {"index":{"_id":"log-2"}}
   {"timestamp":"2025-01-01T10:01:00Z","message":"Request timeout after 30 seconds","status":"error"}
-  {"index":{}}
+  {"index":{"_id":"log-3"}}
   {"timestamp":"2025-01-01T10:02:00Z","message":"Processing completed","status":"success"}
-  {"index":{}}
+  {"index":{"_id":"log-4"}}
   {"timestamp":"2025-01-01T10:03:00Z","message":"Database query timeout exceeded limit","status":"error"}
-  {"index":{}}
+  {"index":{"_id":"log-5"}}
   {"timestamp":"2025-01-01T10:04:00Z","message":"API response received","status":"success"}
-  {"index":{}}
+  {"index":{"_id":"log-6"}}
   {"timestamp":"2025-01-01T10:05:00Z","message":"Socket timeout during file upload","status":"error"}
   BULK_EOF
 
@@ -100,8 +106,8 @@ before_test: |
   fi
 
 after_test: |
-
-  echo "⏳ Cleaning up test index: app-191-profile"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-191-profile" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Index uses a static test-ID-scoped name (app-191-profile). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # wiping data another in-flight run depends on. before_test is idempotent
+  # (PUT tolerates already-exists, bulk inserts use stable _ids).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

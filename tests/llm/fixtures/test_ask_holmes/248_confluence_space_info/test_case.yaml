@@ -58,17 +58,9 @@ before_test: |
   echo "Setup complete"
 
 after_test: |
-  set -e
-
-  SPACE_KEY="HOLMES213"
-
-  echo "Deleting space ${SPACE_KEY}..."
-  HTTP_CODE=$(curl -L -s -w "%{http_code}" -o /dev/null -X DELETE \
-    "${CONFLUENCE_SA_BASE_URL}/wiki/rest/api/space/${SPACE_KEY}" \
-    -H "Authorization: Bearer ${CONFLUENCE_SA_API_KEY}")
-
-  if [ "$HTTP_CODE" -eq 204 ] || [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 404 ]; then
-    echo "Cleanup complete"
-  else
-    echo "Warning: Cleanup returned HTTP ${HTTP_CODE}"
-  fi
+  # Confluence space HOLMES213 has a static, test-ID-scoped key that another
+  # parallel CI run may currently be using. Deleting it would wipe the space
+  # and break the in-flight run. before_test is idempotent (creates-or-reuses),
+  # so we skip cleanup. The space accumulates across runs, which is the
+  # intended reentrant behaviour.
+  echo "Skipping space cleanup (reentrant - before_test handles idempotent setup)"

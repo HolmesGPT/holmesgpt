@@ -34,22 +34,27 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="app-183d-events"
 
-  # Delete the index if it exists
-  echo "⏳ Cleaning up any existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create the test index
-  echo "⏳ Creating test index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse instead, and use stable doc _ids so concurrent runs
+  # converge on the same 10 documents (count check expects exactly 10).
+  echo "⏳ Creating (or reusing) test index..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"properties":{"timestamp":{"type":"date"},"service":{"type":"keyword"},"event_type":{"type":"keyword"},"duration_ms":{"type":"integer"}}}}')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
+
+  # One-shot stale-doc cleanup: drop any doc whose _id isn't in our known
+  # set. Safe under concurrency (parallel run's docs match the keep-list).
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"must_not":[{"ids":{"values":["evt-1","evt-2","evt-3","evt-4","evt-5","evt-6","evt-7","evt-8","evt-9","evt-10"]}}]}}}' > /dev/null
 
   # Small delay to ensure index is fully ready for queries and bulk operations
   # (wait_for_active_shards only ensures shard allocation)
@@ -60,26 +65,28 @@ before_test: |
 
   # Create bulk data file with specific distribution:
   # payment-api: 5 events, order-service: 3 events, inventory-api: 2 events
+  # Stable _ids make this idempotent under concurrent runs (overwrite, not
+  # duplicate) so the 10-document count check stays exact.
   cat > "$BULK_FILE" << 'BULK_EOF'
-  {"index":{}}
+  {"index":{"_id":"evt-1"}}
   {"timestamp":"2025-01-01T10:01:00Z","service":"payment-api","event_type":"request","duration_ms":110}
-  {"index":{}}
+  {"index":{"_id":"evt-2"}}
   {"timestamp":"2025-01-01T10:02:00Z","service":"payment-api","event_type":"request","duration_ms":120}
-  {"index":{}}
+  {"index":{"_id":"evt-3"}}
   {"timestamp":"2025-01-01T10:03:00Z","service":"payment-api","event_type":"request","duration_ms":130}
-  {"index":{}}
+  {"index":{"_id":"evt-4"}}
   {"timestamp":"2025-01-01T10:04:00Z","service":"payment-api","event_type":"request","duration_ms":140}
-  {"index":{}}
+  {"index":{"_id":"evt-5"}}
   {"timestamp":"2025-01-01T10:05:00Z","service":"payment-api","event_type":"request","duration_ms":150}
-  {"index":{}}
+  {"index":{"_id":"evt-6"}}
   {"timestamp":"2025-01-01T11:01:00Z","service":"order-service","event_type":"request","duration_ms":210}
-  {"index":{}}
+  {"index":{"_id":"evt-7"}}
   {"timestamp":"2025-01-01T11:02:00Z","service":"order-service","event_type":"request","duration_ms":220}
-  {"index":{}}
+  {"index":{"_id":"evt-8"}}
   {"timestamp":"2025-01-01T11:03:00Z","service":"order-service","event_type":"request","duration_ms":230}
-  {"index":{}}
+  {"index":{"_id":"evt-9"}}
   {"timestamp":"2025-01-01T12:01:00Z","service":"inventory-api","event_type":"request","duration_ms":310}
-  {"index":{}}
+  {"index":{"_id":"evt-10"}}
   {"timestamp":"2025-01-01T12:02:00Z","service":"inventory-api","event_type":"request","duration_ms":320}
   BULK_EOF
 
@@ -117,8 +124,8 @@ before_test: |
   fi
 
 after_test: |
-
-  echo "⏳ Cleaning up test index: app-183d-events"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183d-events" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Index uses a static test-ID-scoped name (app-183d-events). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # removing the index while another run still depends on it.
+  # before_test is idempotent (create-or-reuse + stable doc _ids).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

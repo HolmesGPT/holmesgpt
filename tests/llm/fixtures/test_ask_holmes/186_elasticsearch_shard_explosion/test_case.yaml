@@ -38,15 +38,12 @@ before_test: |
 
   echo "Creating indexes with ~507 total shards..."
 
-  # Clean up any existing test data first
-  echo "Cleaning up any existing test data..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-186-shard-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-186-shard-template" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" 2>/dev/null || true
+  # Reentrancy: pattern (app-186-shard-*) and template are static and shared
+  # with parallel CI runs of this eval. Do NOT delete - that would wipe a
+  # parallel run's data. PUT the template (idempotent overwrite) and rely on
+  # stable doc _ids in the bulk inserts.
 
-  # Create an index template for the data indexes with 5 shards
-  echo "Creating index template with 5 shards..."
+  echo "Creating (or updating) index template with 5 shards..."
   TEMPLATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/_index_template/app-186-shard-template" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
@@ -61,7 +58,7 @@ before_test: |
     }')
 
   if echo "$TEMPLATE_RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "✅ Index template created successfully"
+    echo "✅ Index template ready"
   else
     echo "❌ Failed to create template: $TEMPLATE_RESPONSE"
     exit 1
@@ -73,7 +70,8 @@ before_test: |
 
   for i in $(seq -w 1 100); do
     INDEX_NAME="app-186-shard-data-${i}"
-    echo "{\"index\": {\"_index\": \"${INDEX_NAME}\"}}" >> "$BULK_FILE"
+    # Stable _id keeps the bulk inserts idempotent under concurrent runs.
+    echo "{\"index\": {\"_index\": \"${INDEX_NAME}\", \"_id\": \"seed-1\"}}" >> "$BULK_FILE"
     echo "{\"@timestamp\": \"2024-01-15T12:00:00Z\", \"value\": ${i}}" >> "$BULK_FILE"
   done
 
@@ -91,13 +89,12 @@ before_test: |
     echo "⚠️ Some errors during bulk insert (may be expected if re-running)"
   fi
 
-  # Create the special analytics index with 7 shards and 0 replicas
-  echo "Creating special analytics index with 7 shards..."
+  # Create (or reuse) the special analytics index with 7 shards. Shard count
+  # is fixed at index creation, so reusing an existing index keeps the test
+  # invariant intact. Do NOT delete - parallel runs would lose their data.
+  echo "Creating (or reusing) special analytics index with 7 shards..."
 
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-186-shard-analytics" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null 2>&1 || true
-
-  ANALYTICS_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-186-shard-analytics?wait_for_active_shards=1" \
+  ANALYTICS_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/app-186-shard-analytics?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -114,15 +111,15 @@ before_test: |
       }
     }')
 
-  if echo "$ANALYTICS_RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "✅ Analytics index created with 7 shards"
+  if echo "$ANALYTICS_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
+    echo "✅ Analytics index ready with 7 shards"
   else
     echo "❌ Failed to create analytics index: $ANALYTICS_RESPONSE"
     exit 1
   fi
 
-  # Insert some data
-  curl -sf -X POST "${ELASTICSEARCH_URL}/app-186-shard-analytics/_doc" \
+  # Insert some data with a stable _id so concurrent runs converge cleanly.
+  curl -sf -X PUT "${ELASTICSEARCH_URL}/app-186-shard-analytics/_doc/seed-1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{"@timestamp": "2024-01-15T12:00:00Z", "metric": "page_views", "value": 12345}' > /dev/null
@@ -161,15 +158,10 @@ before_test: |
   echo "✅ Setup complete!"
 
 after_test: |
-
-  echo "Cleaning up test indexes (app-186-shard-*)..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-186-shard-*" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  echo "Cleaning up index template..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/_index_template/app-186-shard-template" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
+  # Indices and template use static test-ID-scoped names (app-186-shard-*,
+  # app-186-shard-template). Parallel CI runs share the same Elasticsearch
+  # cluster, so we skip deletion to avoid wiping resources another in-flight
+  # run depends on. before_test is idempotent (template PUT overwrites,
+  # index PUT tolerates already-exists, bulk inserts use stable _ids).
   rm -f /tmp/es_shard_bulk_186_*.ndjson
-
-  echo "✅ Cleanup complete"
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

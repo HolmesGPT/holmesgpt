@@ -85,19 +85,18 @@ before_test: |
   T_7D=$(ts "days=7")
   T_45D=$(ts "days=45")
 
-  # Clean up any existing test indices
-  echo "⏳ Cleaning up existing test indices..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${CHANGES_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  # Reentrancy: indices use static test-ID-scoped names (app-235-*) shared
+  # with parallel CI runs. Do NOT delete - that would wipe a parallel run's
+  # data. Create-or-reuse, and below we use stable _ids on the bulk inserts
+  # so concurrent runs converge on the same documents (counts must stay at
+  # 6 inventory + 4 changes).
 
   # --- Index 1: Cluster Inventory ---
   # Only contains what's visible from the ci-cd cluster.
   # The alert's app (lambda-dashboard-monitoring) is NOT here.
   # An empty "us-prod-eks" namespace exists as a red herring.
-  echo "⏳ Creating cluster inventory index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}?wait_for_active_shards=1" \
+  echo "⏳ Creating (or reusing) cluster inventory index..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -113,25 +112,37 @@ before_test: |
         "last_updated": {"type": "date"}
       }}
     }')
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create inventory index: $CREATE_RESPONSE"
     exit 1
   fi
   sleep 2
 
+  # One-shot stale-doc cleanup. Deletes any doc whose _id is NOT in our
+  # known stable-_id set (inv-1..inv-6). Safe under concurrency: a parallel
+  # run's docs all match the keep-list and are preserved. Removes leftovers
+  # from older revisions of this fixture (which used auto-generated _ids)
+  # and any future ad-hoc inserts.
+  curl -s -X POST "${ELASTICSEARCH_URL}/${INVENTORY_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"must_not":[{"ids":{"values":["inv-1","inv-2","inv-3","inv-4","inv-5","inv-6"]}}]}}}' > /dev/null
+
+  # Stable _ids ("inv-1".."inv-6") keep this idempotent under concurrent
+  # runs (overwrite, not duplicate), so the count check stays at exactly 6.
   BULK_FILE=$(es_temp_file "inventory" "235")
   cat > "$BULK_FILE" << BULK_EOF
-  {"index":{}}
+  {"index":{"_id":"inv-1"}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","kind":"Deployment","status":"Running","replicas":1,"image":"jenkins/jenkins:2.426.3-lts","last_updated":"${T_6H}"}
-  {"index":{}}
+  {"index":{"_id":"inv-2"}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","kind":"Deployment","status":"Running","replicas":2,"image":"quay.io/argoproj/argocd:v2.9.3","last_updated":"${T_6H}"}
-  {"index":{}}
+  {"index":{"_id":"inv-3"}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","kind":"Deployment","status":"Running","replicas":3,"image":"gitlab/gitlab-runner:v16.7.0","last_updated":"${T_2H}"}
-  {"index":{}}
+  {"index":{"_id":"inv-4"}}
   {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","kind":"Deployment","status":"Running","replicas":1,"image":"fluxcd/flux:v2.2.1","last_updated":"${T_7D}"}
-  {"index":{}}
+  {"index":{"_id":"inv-5"}}
   {"cluster":"ci-cd","namespace":"cd","app_name":"tekton-pipelines","kind":"Deployment","status":"Running","replicas":1,"image":"gcr.io/tekton-releases/pipeline:v0.54.0","last_updated":"${T_5D}"}
-  {"index":{}}
+  {"index":{"_id":"inv-6"}}
   {"cluster":"ci-cd","namespace":"us-prod-eks","app_name":"","kind":"Namespace","status":"Active","replicas":0,"image":"","last_updated":"${T_45D}"}
   BULK_EOF
   sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
@@ -151,8 +162,8 @@ before_test: |
   # Only CI/CD tool changes. Nothing related to lambda-dashboard-monitoring,
   # clientorg-alpha, or the us-prod-eks namespace. Mirrors the real scenario
   # where Robusta's fetch_configuration_changes_metadata returned 0 changes.
-  echo "⏳ Creating change history index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${CHANGES_INDEX}?wait_for_active_shards=1" \
+  echo "⏳ Creating (or reusing) change history index..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${CHANGES_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -170,21 +181,29 @@ before_test: |
         "description": {"type": "text"}
       }}
     }')
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create change history index: $CREATE_RESPONSE"
     exit 1
   fi
   sleep 2
 
+  # Stale-doc cleanup (see comment on inventory above).
+  curl -s -X POST "${ELASTICSEARCH_URL}/${CHANGES_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"bool":{"must_not":[{"ids":{"values":["chg-1","chg-2","chg-3","chg-4"]}}]}}}' > /dev/null
+
+  # Stable _ids ("chg-1".."chg-4") keep this idempotent under concurrent
+  # runs (overwrite, not duplicate), so the count check stays at exactly 4.
   BULK_FILE=$(es_temp_file "changes" "235")
   cat > "$BULK_FILE" << BULK_EOF
-  {"index":{}}
+  {"index":{"_id":"chg-1"}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"jenkins","change_type":"deployment","change_id":"BUILD-7X4Q9M","version":"2.426.3-lts","previous_version":"2.426.2-lts","changed_by":"infra-team","timestamp":"${T_6H}","description":"Jenkins LTS version bump to 2.426.3"}
-  {"index":{}}
+  {"index":{"_id":"chg-2"}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"argocd-server","change_type":"deployment","change_id":"BUILD-3NR8Y1","version":"v2.9.3","previous_version":"v2.9.2","changed_by":"infra-team","timestamp":"${T_5H}","description":"ArgoCD security patch update"}
-  {"index":{}}
+  {"index":{"_id":"chg-3"}}
   {"cluster":"ci-cd","namespace":"ci","app_name":"gitlab-runner","change_type":"scale","change_id":"BUILD-5PW2K6","version":"v16.7.0","previous_version":"v16.7.0","changed_by":"infra-team","timestamp":"${T_2H}","description":"Scaled gitlab-runner from 2 to 3 replicas for faster pipeline throughput"}
-  {"index":{}}
+  {"index":{"_id":"chg-4"}}
   {"cluster":"ci-cd","namespace":"cd","app_name":"flux-controller","change_type":"config-update","change_id":"BUILD-9TL6V3","version":"v2.2.1","previous_version":"v2.2.1","changed_by":"platform-team","timestamp":"${T_7D}","description":"Updated flux sync interval from 5m to 3m"}
   BULK_EOF
   sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
@@ -240,7 +259,6 @@ before_test: |
 after_test: |
   # Indices use static test-ID-prefixed names (app-235-*). Parallel CI runs
   # share the same ES cluster, so we skip deletion to avoid removing indices
-  # that another run's before_test just created (reentrancy-safe).
-  # before_test is idempotent (delete-then-create), so stale indices are
-  # cleaned up on the next run automatically.
-  echo "✅ Skipping index cleanup (reentrant — before_test handles idempotent setup)"
+  # that another in-flight run still depends on. before_test is idempotent
+  # (PUT tolerates already-exists, bulk inserts use stable _ids).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"

@@ -30,14 +30,12 @@ before_test: |
 
   export HOLMES_ES_TEST_INDEX="app-183g-stats"
 
-  # Delete the index if it exists
-  echo "⏳ Cleaning up any existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
-  # Create the test index
-  echo "⏳ Creating test index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
+  # Reentrancy: index name is static and shared with parallel CI runs of
+  # this eval. Do NOT delete - that would wipe a parallel run's data.
+  # Create-or-reuse instead, and use stable doc _ids so concurrent runs
+  # converge on the same 50 documents (count check expects exactly 50).
+  echo "⏳ Creating (or reusing) test index..."
+  CREATE_RESPONSE=$(curl -s -X PUT "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}?wait_for_active_shards=1" \
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d '{
@@ -47,20 +45,29 @@ before_test: |
       }
     }')
 
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+  if ! echo "$CREATE_RESPONSE" | grep -qE '"acknowledged":true|resource_already_exists_exception'; then
     echo "❌ Failed to create index: $CREATE_RESPONSE"
     exit 1
   fi
 
   sleep 2
 
-  # Create exactly 50 documents using bulk API
+  # One-shot stale-doc cleanup: drop any doc whose _id isn't in our known
+  # set (doc-1..doc-50). Safe under concurrency.
+  KEEP_IDS=$(python3 -c "import json; print(json.dumps([f'doc-{i}' for i in range(1,51)]))")
+  curl -s -X POST "${ELASTICSEARCH_URL}/${HOLMES_ES_TEST_INDEX}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d "{\"query\":{\"bool\":{\"must_not\":[{\"ids\":{\"values\":${KEEP_IDS}}}]}}}" > /dev/null
+
+  # Create exactly 50 documents using bulk API. Stable _ids make this
+  # idempotent under concurrent runs (overwrite, not duplicate).
   echo "⏳ Indexing 50 documents..."
   BULK_FILE="/tmp/es_bulk_183g_$$.ndjson"
   > "$BULK_FILE"
 
   for i in $(seq 1 50); do
-    echo '{"index":{}}' >> "$BULK_FILE"
+    echo "{\"index\":{\"_id\":\"doc-$i\"}}" >> "$BULK_FILE"
     echo "{\"id\":$i,\"message\":\"Test document number $i\",\"value\":$((i * 10))}" >> "$BULK_FILE"
   done
 
@@ -93,8 +100,8 @@ before_test: |
   fi
 
 after_test: |
-
-  echo "⏳ Cleaning up test index: app-183g-stats"
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-183g-stats" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-  echo "✅ Cleanup complete"
+  # Index uses a static test-ID-scoped name (app-183g-stats). Parallel CI
+  # runs share the same Elasticsearch cluster, so we skip deletion to avoid
+  # removing the index while another run still depends on it.
+  # before_test is idempotent (create-or-reuse + stable doc _ids).
+  echo "✅ Skipping index cleanup (reentrant - before_test handles idempotent setup)"
