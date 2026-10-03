@@ -7,6 +7,74 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
 
+# Minimum prompt size (in tokens) before prompt caching is expected to kick in.
+# Anthropic requires >=1024 tokens to cache (2048 for some smaller models) and
+# OpenAI only auto-caches prompts longer than 1024 tokens. Below this, zero
+# cache reads is normal and must not be treated as a misconfiguration.
+PROMPT_CACHING_MIN_PROMPT_TOKENS = 1024
+
+
+class PromptCachingValidator:
+    """Detects when prompt caching looks misconfigured during an agentic loop.
+
+    Holmes runs an agentic loop that makes many sequential LLM calls sharing a
+    large, growing prefix (system prompt + tool schemas + prior turns). With
+    prompt caching working, the first call *creates* the cache and every call
+    after it should report cache *read* tokens. When a caching-enabled model
+    repeatedly reports zero cache reads on a large prompt, caching is almost
+    certainly not working - a common symptom of a model/deployment that hasn't
+    been set up for prompt caching. That silently inflates cost and latency.
+
+    This logs a single warning per investigation when that pattern is seen,
+    while avoiding false positives:
+
+    - models where Holmes doesn't enable caching (e.g. Gemini) are skipped
+    - the first call is skipped (it creates the cache; reads start on call 2)
+    - prompts below the provider minimum (~1024 tokens) are skipped
+    - once a non-zero cache read is observed, caching is confirmed working and
+      no further checks are made
+    """
+
+    def __init__(self, model: str, caching_enabled: bool):
+        self.model = model
+        self.caching_enabled = caching_enabled
+        self._calls_seen = 0
+        self._done = False
+
+    def record(self, prompt_tokens: int, cached_tokens: Optional[int]) -> None:
+        """Inspect one LLM call's usage and warn once if caching looks broken."""
+        if self._done or not self.caching_enabled:
+            return
+
+        self._calls_seen += 1
+        # The first call of a conversation creates the cache; cache *reads*
+        # only appear from the second call onward, so don't judge the first.
+        if self._calls_seen < 2:
+            return
+
+        if cached_tokens:  # non-zero -> caching is confirmed working
+            self._done = True
+            return
+
+        # Prompts below the provider minimum are never cached, so zero reads
+        # here is expected rather than a sign of misconfiguration.
+        if prompt_tokens < PROMPT_CACHING_MIN_PROMPT_TOKENS:
+            return
+
+        # Caching enabled, past the first call, large prompt, yet 0 cache reads.
+        self._done = True
+        logging.warning(
+            "Prompt caching does not appear to be working for model '%s': "
+            "%d prompt tokens were sent on a repeated request but the provider "
+            "reported 0 cached tokens. This usually means prompt caching is not "
+            "enabled for your model or deployment, which significantly increases "
+            "cost and latency. Verify that your provider/model supports prompt "
+            "caching and that it is enabled for your account.",
+            self.model,
+            prompt_tokens,
+        )
+
+
 def _extract_detail_field(details: object, field: str) -> Optional[int]:
     """Extract an optional int field from a token-details object or dict.
 
