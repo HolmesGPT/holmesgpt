@@ -518,6 +518,37 @@ def get_endpoint_requirements(
     return requirements
 
 
+# Datadog v1 endpoints require UNIX integer timestamps for start/end params.
+# v2 endpoints accept RFC3339 strings.
+_V1_UNIX_TIMESTAMP_ENDPOINTS = frozenset(["api/v1/events", "api/v1/metrics", "api/v1/query"])
+
+
+def _resolve_to_unix_timestamp(value: Union[str, int, float]) -> Optional[int]:
+    """Return an absolute UNIX timestamp for a relative time value, or None if already absolute."""
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+
+    if isinstance(value, (int, float)):
+        if value < 0:
+            # Relative offset in seconds, e.g. -86400
+            return now_ts + int(value)
+        if 1_000_000_000 <= value < 2_000_000_000:
+            return None  # already a valid absolute UNIX timestamp
+    elif isinstance(value, str):
+        if value.lower() == "now":
+            return now_ts
+        try:
+            return _resolve_to_unix_timestamp(float(value))
+        except ValueError:
+            pass
+        # Unit-based relative strings like "-24h", "-7d", or explicit RFC3339 strings
+        converted, format_type = convert_relative_time(value)
+        if format_type in ("relative", "rfc3339"):
+            dt = datetime.fromisoformat(converted.replace("Z", "+00:00"))
+            return int(dt.timestamp())
+
+    return None
+
+
 def convert_relative_time(time_str: str) -> Tuple[str, str]:
     """Convert relative time strings to RFC3339 format.
 
@@ -639,10 +670,19 @@ def preprocess_time_fields(payload: Dict[str, Any], endpoint: str) -> Dict[str, 
         d[path[-1]] = value
 
     conversions = []
+    use_unix_timestamps = endpoint.lstrip("/") in _V1_UNIX_TIMESTAMP_ENDPOINTS
 
     for field_path in time_fields:
         value = get_nested(processed, field_path)
-        if value and isinstance(value, str):
+        if value is None:
+            continue
+
+        if use_unix_timestamps and isinstance(value, (str, int, float)):
+            unix_ts = _resolve_to_unix_timestamp(value)
+            if unix_ts is not None:
+                set_nested(processed, field_path, unix_ts)
+                conversions.append(f"{'.'.join(field_path)}: '{value}' -> {unix_ts}")
+        elif isinstance(value, str):
             converted, format_type = convert_relative_time(value)
             if format_type == "relative":
                 set_nested(processed, field_path, converted)
