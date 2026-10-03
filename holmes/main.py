@@ -51,6 +51,14 @@ from holmes.plugins.destinations import DestinationType
 from holmes.plugins.interfaces import Issue
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
+from holmes.plugins.toolsets.bash.common.cli_prefixes import (
+    dump_approved_prefixes,
+    get_default_bash_approved_prefixes_file,
+    get_default_claude_code_settings_file,
+    load_approved_prefixes_file,
+    load_claude_code_bash_prefixes,
+    save_approved_prefixes_file,
+)
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
@@ -88,6 +96,13 @@ toolset_app = typer.Typer(
     help="Toolset management commands",
 )
 app.add_typer(toolset_app, name="toolset")
+bash_toolset_app = typer.Typer(
+    add_completion=False,
+    name="bash",
+    no_args_is_help=True,
+    help="Bash toolset helper commands",
+)
+toolset_app.add_typer(bash_toolset_app, name="bash")
 
 app.add_typer(checks_app, name="checks")
 
@@ -1074,6 +1089,69 @@ def config_toolset(
     console = init_logging(verbose)
     config = Config.load_from_file(config_file)
     run_toolset_config_tui(config, config_file, console)
+
+
+@bash_toolset_app.command("import-from-claude-code")
+def import_bash_prefixes_from_claude_code(
+    input_path: Optional[Path] = typer.Option(
+        None,
+        "--input",
+        "-i",
+        help="Path to Claude Code settings.json. Defaults to ~/.claude/settings.json.",
+    ),
+    output_path: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Path to Holmes bash approved prefixes YAML. Defaults to ~/.holmes/bash_approved_prefixes.yaml.",
+    ),
+    replace: bool = typer.Option(
+        False,
+        "--replace/--merge",
+        help="Replace existing Holmes prefixes instead of merging with them.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the resulting YAML without writing it.",
+    ),
+):
+    """
+    Import approved Bash prefixes from Claude Code permissions.
+    """
+    input_file = (input_path or get_default_claude_code_settings_file()).expanduser()
+    output_file = (
+        output_path or get_default_bash_approved_prefixes_file()
+    ).expanduser()
+
+    try:
+        imported_prefixes, ignored_entries = load_claude_code_bash_prefixes(input_file)
+        existing_prefixes = [] if replace else load_approved_prefixes_file(output_file)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    merged_prefixes = imported_prefixes + existing_prefixes
+
+    for entry in ignored_entries:
+        typer.echo(
+            f"Warning: ignored unsupported Claude Code permission: {entry}", err=True
+        )
+
+    if dry_run:
+        typer.echo(dump_approved_prefixes(merged_prefixes).rstrip())
+        return
+
+    try:
+        save_approved_prefixes_file(output_file, merged_prefixes)
+    except Exception as e:
+        typer.echo(f"Error: failed to write {output_file}: {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    typer.echo(
+        f"Wrote {len(set(merged_prefixes))} approved bash prefixes to {output_file}"
+    )
+    typer.echo(f"Imported {len(imported_prefixes)} prefixes from {input_file}")
 
 
 @app.command()
