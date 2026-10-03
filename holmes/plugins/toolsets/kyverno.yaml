@@ -1,0 +1,98 @@
+toolsets:
+  kyverno/core:
+    description: "Tools for troubleshooting Kyverno policy engine, policy violations, admission webhooks, and policy reports"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kyverno/"
+    icon_url: "https://raw.githubusercontent.com/kyverno/kyverno/main/img/logo.png"
+    llm_instructions: |
+      You have tools to debug Kyverno policy engine issues in Kubernetes clusters.
+      Kyverno enforces security and operational policies through admission webhooks (validate, mutate, generate) and background scans.
+      Policy results are recorded in PolicyReport (namespaced) and ClusterPolicyReport (cluster-scoped) resources.
+
+      ALWAYS follow this investigation order:
+        1. List ClusterPolicies and namespaced Policies to understand what rules are active and their failure action (Enforce vs Audit)
+        2. Check policy report summaries to identify namespaces or resources with violations:
+           - kyverno_list_policy_report_summaries shows fail/pass/warn counts per namespace
+           - kyverno_list_cluster_policy_report_summaries shows cluster-scoped violations
+        3. Dig into specific policy reports to get detailed violation messages and affected resource names
+        4. For generate/mutate-existing issues, check UpdateRequests for pending or failed operations
+        5. If controllers appear to be failing, check Kyverno controller logs for webhook timeouts or evaluation errors
+
+      Key concepts:
+        - Enforce mode: blocks non-compliant resources at admission (immediately visible to users as rejected requests)
+        - Audit mode: allows resources but records violations in PolicyReports (silent, for visibility only)
+        - Background scanning: periodically checks existing resources; results go into PolicyReports without blocking
+        - UpdateRequests: intermediary queue resources for generate and mutate-existing rules; Failed or Pending state indicates processing issues
+
+      {% if tool_names|list|length > 0 %}
+      The following Kyverno tools are available: {{ ", ".join(tool_names) }}
+      {% endif %}
+
+      DO NOT tell the user to check resources manually. Investigate on their behalf using the available tools and report findings with specific policy names, rule names, violation messages, and affected resource names.
+    tags:
+      - core
+    prerequisites:
+      - command: "kubectl api-resources --api-group=kyverno.io --no-headers 2>/dev/null | grep -q clusterpolicies"
+
+    tools:
+      - name: "kyverno_list_cluster_policies"
+        description: "List all ClusterPolicy resources with their rule counts, background scan status, and validation failure action (Enforce/Audit)"
+        command: "kubectl get clusterpolicies -o wide 2>&1"
+
+      - name: "kyverno_get_cluster_policy"
+        description: "Get the full specification of a ClusterPolicy including all rules, match conditions, exclude conditions, and failure action (Enforce/Audit)"
+        command: "kubectl get clusterpolicy {{ policy_name }} -o yaml 2>&1"
+
+      - name: "kyverno_list_policies"
+        description: "List namespaced Policy resources across all namespaces or in a specific namespace"
+        command: "kubectl get policies{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} -o wide 2>&1"
+
+      - name: "kyverno_get_policy"
+        description: "Get the full specification of a namespaced Policy including all rules and failure action"
+        command: "kubectl get policy {{ policy_name }} -n {{ namespace }} -o yaml 2>&1"
+
+      - name: "kyverno_list_policy_report_summaries"
+        description: "List PolicyReport summaries showing pass/fail/warn/error counts per namespace to identify namespaces with policy violations"
+        command: "kubectl get policyreports{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} 2>&1"
+
+      - name: "kyverno_get_policy_report"
+        description: "Get the full PolicyReport for a namespace including all individual rule results with violation messages and affected resource names"
+        command: "kubectl get policyreport -n {{ namespace }} -o yaml 2>&1"
+
+      - name: "kyverno_list_cluster_policy_report_summaries"
+        description: "List ClusterPolicyReport summaries showing pass/fail/warn/error counts for cluster-scoped resource violations"
+        command: "kubectl get clusterpolicyreports 2>&1"
+
+      - name: "kyverno_get_cluster_policy_report"
+        description: "Get the full ClusterPolicyReport including all individual rule results with violation messages and affected cluster-scoped resource names"
+        command: "kubectl get clusterpolicyreport {{ report_name }} -o yaml 2>&1"
+
+      - name: "kyverno_list_update_requests"
+        description: "List UpdateRequests which queue work for Kyverno generate and mutate-existing rules; Failed or Pending state indicates processing issues with resource generation or mutation"
+        command: "kubectl get updaterequests{% if namespace %} -n {{ namespace }}{% else %} -A{% endif %} 2>&1"
+
+      - name: "kyverno_get_update_request"
+        description: "Get details of a specific UpdateRequest including its current state, retry count, and error message for diagnosing generate or mutate-existing rule failures"
+        command: "kubectl get updaterequest {{ request_name }} -n {{ namespace }} -o yaml 2>&1"
+
+      - name: "kyverno_controller_logs"
+        description: "Get logs from Kyverno admission, background, and reports controllers to diagnose webhook failures, policy evaluation errors, and background scan issues. The namespace parameter defaults to 'kyverno'."
+        script: |
+          #!/bin/bash
+          NS="{{ namespace | default('kyverno') }}"
+          TAIL="{{ tail | default(100) }}"
+          echo "=== Kyverno Admission Controller ==="
+          kubectl logs -n "$NS" -l app.kubernetes.io/component=admission-controller --tail="$TAIL" 2>/dev/null \
+            || kubectl logs -n "$NS" -l app=kyverno --tail="$TAIL" 2>&1
+          echo ""
+          echo "=== Kyverno Background Controller ==="
+          kubectl logs -n "$NS" -l app.kubernetes.io/component=background-controller --tail="$TAIL" 2>/dev/null \
+            || echo "(background-controller not found; cluster may use a legacy single-controller deployment)"
+          echo ""
+          echo "=== Kyverno Reports Controller ==="
+          kubectl logs -n "$NS" -l app.kubernetes.io/component=reports-controller --tail="$TAIL" 2>/dev/null \
+            || echo "(reports-controller not found; cluster may use a legacy single-controller deployment)"
+        transformers:
+          - name: llm_summarize
+            config:
+              input_threshold: 5000
+              prompt: "Summarize the Kyverno controller logs focusing on policy violations, admission webhook failures, background scan errors, policy evaluation issues, and any panic or crash messages. Highlight the most critical errors."
