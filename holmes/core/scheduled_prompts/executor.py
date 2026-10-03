@@ -22,7 +22,23 @@ from holmes.core.scheduled_prompts.heartbeat_tracer import (
     ScheduledPromptsHeartbeatSpan,
 )
 from holmes.core.scheduled_prompts.models import ScheduledPrompt
+from holmes.core.scheduled_prompts.sink_conditions import (
+    evaluate_sink_decisions,
+    format_delivery_note,
+)
 from holmes.core.supabase_dal import RunStatus
+from holmes.core.usage_recorder import (
+    RequestStatus,
+    UsageRecorderState,
+    record_single_llm_call,
+    resolve_provider,
+)
+
+# request_source for the sink-delivery decision's LLM call. The "internal_"
+# prefix marks it (alongside is_internal=True) as a server-internal side-call so
+# it's filtered out of user-facing activity/cost dashboards, separate from the
+# user-facing investigation run (request_source="scheduler").
+SINK_DECISION_REQUEST_SOURCE = "internal_scheduled_prompt_notification"
 
 # to prevent circular imports due to type hints
 if TYPE_CHECKING:
@@ -177,7 +193,8 @@ class ScheduledPromptsExecutor:
             "Found pending run %s, executing with model %s", run_id, sp.model_name
         )
         self._execute_prompt(sp)
-        logging.info("Successfully completed run %s", run_id)
+        # Completion is logged by _finish_run based on whether the store write
+        # actually persisted — a failed finish must NOT be reported as success.
 
     def _execute_prompt(
         self,
@@ -214,9 +231,11 @@ class ScheduledPromptsExecutor:
         response = self.chat_function(chat_request, empty_request)
         duration_seconds = time.perf_counter() - start
 
+        sink_usage = None
         if isinstance(response, ChatResponse):
             response.metadata = dict(response.metadata or {})
             response.metadata["duration_seconds"] = duration_seconds
+            sink_usage = self._populate_sink_decisions(sp, response)
 
         result_data = (
             response.model_dump() if isinstance(response, ChatResponse) else {}
@@ -224,7 +243,115 @@ class ScheduledPromptsExecutor:
 
         self._finish_run(status=RunStatus.COMPLETED, result=result_data, sp=sp)
 
+        # Record the sink-decision LLM usage AFTER the run is finished. The
+        # recorder fires its Supabase write on a background thread; doing it
+        # before _finish_run let that write race the (critical) finish write on
+        # the single shared Supabase HTTP/2 client, terminating the connection
+        # and failing the finish — which stranded the run in RUNNING and caused
+        # it to be reclaimed and re-executed. Deferring keeps finish uncontended.
+        if sink_usage is not None:
+            self._record_sink_decision_usage(sp, *sink_usage)
+
         return response
+
+    def _populate_sink_decisions(
+        self, sp: ScheduledPrompt, response: ChatResponse
+    ) -> Optional[tuple]:
+        """Evaluate per-channel delivery conditions written in the user's prompt.
+
+        The conditions come from the prompt's dedicated ``notification_prompt``
+        field (kept separate from the main ``raw_prompt`` so older Holmes builds
+        ignore it). When it is absent, no evaluation happens and delivery falls
+        back to every configured channel.
+
+        Sets ``response.sink_decisions`` to a {sink_type: bool} map (e.g.
+        ``{"slack": True, "email": False}``) that the reporter uses to decide
+        which channels to deliver to. When a channel is suppressed, a short
+        delivery note is appended to ``response.analysis`` so the suppression is
+        visible in the chat result. Any failure leaves ``sink_decisions`` as
+        None, which the reporter treats as "deliver to all configured channels".
+        """
+        notification_prompt = self._extract_notification_prompt(sp.prompt)
+        if not notification_prompt:
+            return None
+
+        try:
+            llm = self.config._get_llm(model_key=sp.model_name)
+            result = evaluate_sink_decisions(
+                llm, notification_prompt, response.analysis
+            )
+            if result.decisions:
+                response.sink_decisions = result.decisions
+                note = format_delivery_note(result.suppressed(), result.rationale)
+                if note:
+                    response.analysis = (response.analysis or "") + note
+            # Return the call's llm + result so the caller can record usage AFTER
+            # the run is finished (see _execute_prompt). Recording it here, before
+            # _finish_run, races the finish write on the shared Supabase client.
+            return (llm, result)
+        except Exception:
+            logging.exception(
+                "Failed to evaluate sink delivery conditions for run %s "
+                "(model=%s); defaulting to deliver to all configured channels",
+                sp.id,
+                sp.model_name,
+            )
+            return None
+
+    def _record_sink_decision_usage(
+        self, sp: ScheduledPrompt, llm, result
+    ) -> None:
+        """Record AI usage for the sink-delivery decision's LLM call.
+
+        This is a separate, non-streaming ``llm.completion`` call that bypasses
+        the ChatRequest/usage-recorder path the investigation uses, so its tokens
+        would otherwise go untracked. Tag it as a server-internal side-call
+        (``is_internal=True`` + an ``internal_``-prefixed request_source) so it's
+        excluded from user-facing dashboards but still counted for cost.
+
+        Best-effort: telemetry must never break the run, so any failure here is
+        swallowed.
+        """
+        try:
+            model = getattr(llm, "model", None) or sp.model_name
+            state = UsageRecorderState(
+                dal=self.dal,
+                request_type="scheduled_prompt",
+                request_source=SINK_DECISION_REQUEST_SOURCE,
+                source_ref=sp.id,
+                is_internal=True,
+                is_streaming=False,
+                model=model,
+                provider=resolve_provider(model),
+                is_robusta_model=getattr(llm, "is_robusta_model", False),
+            )
+            # result.stats is None only when the completion itself raised.
+            status = (
+                RequestStatus.SUCCESS
+                if result.stats is not None
+                else RequestStatus.ERROR
+            )
+            record_single_llm_call(state, result.stats, status=status)
+        except Exception:
+            logging.debug(
+                "Failed to record sink-decision usage for run %s",
+                sp.id,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _extract_notification_prompt(prompt: Union[str, dict]) -> Optional[str]:
+        """Read the optional ``notification_prompt`` delivery-conditions field.
+
+        Returns the trimmed instructions, or None when the prompt is not a dict
+        or the field is absent/blank (the common case for prompts created by
+        clients that don't set delivery conditions).
+        """
+        if isinstance(prompt, dict):
+            value = prompt.get("notification_prompt")
+            if isinstance(value, str) and value.strip():
+                return value
+        return None
 
     def _fetch_additional_system_prompt(
         self, fallback: Optional[str] = None
@@ -254,8 +381,8 @@ class ScheduledPromptsExecutor:
         status: RunStatus,
         result: dict,
         sp: ScheduledPrompt,
-    ) -> None:
-        self.dal.finish_scheduled_prompt_run(
+    ) -> bool:
+        persisted = self.dal.finish_scheduled_prompt_run(
             status=status,
             result=result,
             run_id=sp.id,
@@ -263,6 +390,19 @@ class ScheduledPromptsExecutor:
             version=get_version(),
             metadata=sp.metadata,
         )
+        if persisted:
+            logging.info("Run %s finished and persisted as %s", sp.id, status.value)
+        else:
+            # Do NOT report this as success: the store write failed, so the run
+            # is still RUNNING and will likely be reclaimed and re-executed
+            # (usually a transient Supabase connection error).
+            logging.error(
+                "Run %s finished locally but the store write FAILED; it was NOT "
+                "marked %s and may be reclaimed and re-executed",
+                sp.id,
+                status.value,
+            )
+        return persisted
 
     def _extract_prompt_text(self, prompt: Union[str, dict]) -> str:
         """
