@@ -1,0 +1,20 @@
+# Bash toolset for container disk audit
+# Enable bash with kubectl exec in allow list
+toolsets:
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "kubectl exec"
+        - "kubectl get"
+      deny: []
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false

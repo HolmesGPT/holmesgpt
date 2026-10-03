@@ -1,0 +1,21 @@
+# Bash toolset for process memory audit
+# Enable bash with kubectl exec in allow list
+# Disable kubernetes toolsets to force use of bash for in-container inspection
+toolsets:
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "kubectl exec"
+        - "kubectl get"
+      deny: []
+  kubernetes/core:
+    enabled: true  # Keep basic k8s tools for context
+  kubernetes/logs:
+    enabled: false
+  kubernetes/live-metrics:
+    enabled: false
+  kubernetes/kube-prometheus-stack:
+    enabled: false
+  kubernetes/krew-extras:
+    enabled: false
