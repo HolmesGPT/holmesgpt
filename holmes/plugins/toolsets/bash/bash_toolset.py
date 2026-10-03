@@ -257,10 +257,19 @@ class RunBashCommand(Tool):
                     invocation=command_str,
                 )
 
-        # Execute command (user_approved or validation passed)
+        # Execute command (user_approved or validation passed). When sandboxing is
+        # active, bind the per-session tool-result spill dir into the jail so the
+        # LLM can cat/grep results the framework wrote to disk at that path.
         display_logger.info(f"Executing bash command: {command_str}")
+        sandbox_bind_paths = (
+            [str(context.tool_results_dir)] if context.tool_results_dir else None
+        )
         try:
-            result = execute_bash_command(cmd=command_str, timeout=timeout)
+            result = execute_bash_command(
+                cmd=command_str,
+                timeout=timeout,
+                sandbox_bind_paths=sandbox_bind_paths,
+            )
         except FileNotFoundError:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
