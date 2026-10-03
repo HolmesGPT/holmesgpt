@@ -10,13 +10,14 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # DO NOT ADD ANY IMPORTS OR CODE ABOVE THIS LINE
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import sys
+from enum import Enum
 from holmes.utils.colors import USER_COLOR
 import json
 import logging
 import socket
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import typer
 from rich.markdown import Markdown
@@ -1074,6 +1075,185 @@ def config_toolset(
     console = init_logging(verbose)
     config = Config.load_from_file(config_file)
     run_toolset_config_tui(config, config_file, console)
+
+
+class _ConfigFormat(str, Enum):
+    HOLMES_HELM = "holmes-helm"
+    ROBUSTA_HELM = "robusta-helm"
+
+
+@toolset_app.command("generate-config")
+def generate_config(
+    config_format: _ConfigFormat = typer.Argument(
+        ...,
+        help="Target format: 'holmes-helm' for standalone HolmesGPT Helm chart, "
+        "'robusta-helm' for Robusta Helm chart.",
+    ),
+    verbose: Optional[List[bool]] = opt_verbose,
+    config_file: Optional[Path] = opt_config_file,  # type: ignore
+    output_file: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write the generated config to a file instead of stdout",
+    ),
+    include_disabled: bool = typer.Option(
+        False,
+        "--include-disabled",
+        help="Include disabled toolsets (commented out) in the generated config",
+    ),
+):
+    """
+    Generate a Helm values file from the current CLI toolset and model state.
+
+    The CLI auto-enables toolsets by default, but Helm deployments require
+    explicit enablement. This command inspects your current CLI environment
+    (enabled toolsets + configured LLM model) and generates a Helm values
+    snippet for the target chart.
+
+    You must specify the target format:
+
+      holmes-helm   - Standalone HolmesGPT Helm chart
+
+      robusta-helm  - Robusta Helm chart (toolsets nested under 'holmes:')
+    """
+    import os
+
+    import yaml  # type: ignore
+
+    from holmes.core.tools import ToolsetStatusEnum, ToolsetType
+
+    init_logging(verbose)
+    config = Config.load_from_file(config_file)
+    cli_toolsets = config.toolset_manager.list_console_toolsets(refresh_status=True)
+
+    # --- Build toolsets section ---
+    toolsets_section: dict[str, Any] = {}
+    disabled_toolsets: dict[str, str] = {}
+
+    for toolset in cli_toolsets:
+        if toolset.type == ToolsetType.MCP:
+            continue
+
+        entry: dict[str, Any] = {"enabled": True}
+        if toolset.config is not None:
+            config_data = toolset.config.model_dump() if hasattr(toolset.config, "model_dump") else {}
+            if config_data:
+                entry["config"] = config_data
+
+        if toolset.enabled and toolset.status == ToolsetStatusEnum.ENABLED:
+            toolsets_section[toolset.name] = entry
+        elif include_disabled:
+            disabled_toolsets[toolset.name] = toolset.status.value
+
+    # --- Detect AI provider from current model ---
+    model_name = config.model
+    env_var_name, env_var_hint = _detect_ai_provider_env(model_name)
+
+    additional_env_vars: list[dict[str, str]] = []
+    model_list: dict[str, Any] = {}
+    if model_name:
+        model_entry: dict[str, Any] = {"model": model_name, "temperature": 0}
+        if env_var_name:
+            model_entry["api_key"] = f"{{{{ env.{env_var_name} }}}}"
+            additional_env_vars.append(
+                {"name": env_var_name, "value": env_var_hint}
+            )
+        if config.api_base:
+            model_entry["api_base"] = config.api_base
+            if env_var_name == "AZURE_API_KEY":
+                additional_env_vars.append(
+                    {"name": "AZURE_API_BASE", "value": config.api_base}
+                )
+        if config.api_version:
+            model_entry["api_version"] = config.api_version
+
+        # Use model name without provider prefix as the key
+        display_name = model_name.split("/")[-1] if "/" in model_name else model_name
+        model_list[display_name] = model_entry
+
+    # --- Assemble output dict based on format ---
+    output_dict: dict[str, Any] = {}
+    if config_format == _ConfigFormat.HOLMES_HELM:
+        if additional_env_vars:
+            output_dict["additionalEnvVars"] = additional_env_vars
+        if model_list:
+            output_dict["modelList"] = model_list
+        if toolsets_section:
+            output_dict["toolsets"] = toolsets_section
+    else:
+        holmes_section: dict[str, Any] = {}
+        if additional_env_vars:
+            holmes_section["additionalEnvVars"] = additional_env_vars
+        if model_list:
+            holmes_section["modelList"] = model_list
+        if toolsets_section:
+            holmes_section["toolsets"] = toolsets_section
+        if holmes_section:
+            output_dict["holmes"] = holmes_section
+
+    # --- Render YAML output ---
+    lines: list[str] = []
+    if config_format == _ConfigFormat.HOLMES_HELM:
+        lines.append("# Generated by: holmes toolset generate-config holmes-helm")
+        lines.append("# Helm values for the standalone HolmesGPT chart.")
+    else:
+        lines.append("# Generated by: holmes toolset generate-config robusta-helm")
+        lines.append("# Helm values for the Robusta chart (HolmesGPT section).")
+    lines.append("# The CLI auto-enables toolsets, but Helm deployments require explicit config.")
+    lines.append("# See: https://holmesgpt.dev/data-sources/cli-vs-server-toolsets/")
+    if env_var_name:
+        lines.append(f"#")
+        lines.append(f"# IMPORTANT: Replace the {env_var_name} placeholder value with your actual key,")
+        lines.append(f"# or use a secretKeyRef to load it from a Kubernetes Secret.")
+    lines.append("")
+
+    if output_dict:
+        lines.append(yaml.dump(output_dict, default_flow_style=False, sort_keys=False))
+    else:
+        lines.append("# No enabled toolsets or model found. Run 'holmes toolset list' to check status.")
+        lines.append("")
+
+    if include_disabled and disabled_toolsets:
+        lines.append("# --- Disabled/failed toolsets (uncomment and configure to enable) ---")
+        indent = "#     " if config_format == _ConfigFormat.ROBUSTA_HELM else "#   "
+        for name, status in sorted(disabled_toolsets.items()):
+            lines.append(f"{indent}{name}:  # status: {status}")
+            lines.append(f"{indent}  enabled: true")
+        lines.append("")
+
+    output_text = "\n".join(lines)
+
+    if output_file:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(output_text)
+        typer.echo(f"Config written to {output_file}")
+    else:
+        typer.echo(output_text)
+
+
+_PROVIDER_ENV_MAP: list[tuple[str, str, str]] = [
+    # (model_prefix, env_var_name, placeholder_hint)
+    ("anthropic/", "ANTHROPIC_API_KEY", "<your-anthropic-api-key>"),
+    ("azure/", "AZURE_API_KEY", "<your-azure-api-key>"),
+    ("bedrock/", "", ""),  # IAM-based, no API key env var
+    ("openrouter/", "OPENROUTER_API_KEY", "<your-openrouter-api-key>"),
+    ("vertex_ai/", "", ""),  # IAM-based
+    ("gemini/", "GEMINI_API_KEY", "<your-gemini-api-key>"),
+]
+
+
+def _detect_ai_provider_env(model_name: Optional[str]) -> tuple[str, str]:
+    """Return (env_var_name, placeholder_hint) for the model's AI provider."""
+    if not model_name:
+        return "", ""
+
+    for prefix, env_var, hint in _PROVIDER_ENV_MAP:
+        if model_name.startswith(prefix):
+            return env_var, hint
+
+    # Default: assume OpenAI-compatible
+    return "OPENAI_API_KEY", "<your-openai-api-key>"
 
 
 @app.command()
