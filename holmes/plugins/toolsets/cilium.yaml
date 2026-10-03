@@ -145,7 +145,7 @@ toolsets:
     tools:
       # Flow Observation
       - name: "hubble_observe"
-        description: "Observe network flows in real-time (last 100 flows)"
+        description: "Fetch the most recent network flows (last 1000 flows). This is a one-shot historical query, not a live stream."
         command: "hubble observe --last 1000"
         transformers:
           - name: llm_summarize
