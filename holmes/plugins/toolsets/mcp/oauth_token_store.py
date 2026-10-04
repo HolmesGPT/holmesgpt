@@ -16,8 +16,9 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.hashes import SHA256
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from holmes.common.env_vars import DEFAULT_CLI_USER, ROBUSTA_SIGNING_KEY
+from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.core.config import config_path_dir
+from holmes.utils.env import get_env_replacement
 
 logger = logging.getLogger(__name__)
 
@@ -332,10 +333,20 @@ class DalTokenStore(TokenStore):
 
     @staticmethod
     def _get_signing_key() -> Optional[str]:
-        if ROBUSTA_SIGNING_KEY:
-            return ROBUSTA_SIGNING_KEY
         from holmes.config import Config
-        return Config.get_robusta_global_config_value("signing_key")
+        key = Config.get_robusta_global_config_value("signing_key")
+        if not key:
+            return None
+        # Generated values set signing_key to "{{ env.SIGNING_KEY }}"; without
+        # resolving it every such install would share that literal as its key.
+        try:
+            return get_env_replacement(key)
+        except ValueError:
+            logger.warning(
+                "global_config.signing_key references an env var that is not set; "
+                "OAuth tokens will not be stored"
+            )
+            return None
 
     def _get_signing_key_hash(self) -> Optional[str]:
         key = self._get_signing_key()
