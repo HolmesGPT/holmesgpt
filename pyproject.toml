@@ -4,10 +4,11 @@ version = "0.0.0"
 description = ""
 authors = ["Natan Yellin <natan@robusta.dev>"]
 readme = "README.md"
-packages = [{ include = "holmes" }]
+packages = [{ include = "holmes" }, { include = "tracepilot" }]
 
 [tool.poetry.scripts]
 holmes = "holmes.main:run"
+tracepilot = "tracepilot.cli:app"
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.14"

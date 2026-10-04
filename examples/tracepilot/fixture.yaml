@@ -1,0 +1,24 @@
+# Real models with explicitly simulated telemetry. Run from repository root.
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-5-20250929
+  api_key_env: ANTHROPIC_API_KEY
+jev_api_key_env: TYPESAFE_API_KEY
+mcp_servers:
+  obs:
+    command: "{python}"
+    args: ["-m", "tracepilot.fixture_server"]
+    timeout_seconds: 20
+    tools:
+      service_instances: &read_policy
+        read_only: true
+        retry_safe: true
+      service_traces: *read_policy
+      service_logs: *read_policy
+      service_metrics: *read_policy
+      service_config: *read_policy
+budget:
+  max_steps: 20
+  max_tool_calls: 10
+  max_reasoning_calls: 5
+  max_context_chars: 160000

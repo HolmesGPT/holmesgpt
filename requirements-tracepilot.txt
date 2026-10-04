@@ -1,0 +1,12 @@
+# Standalone runtime; the original integration stack is optional.
+pydantic>=2.7,<3
+sqlalchemy>=2.0.46,<2.1
+tenacity>=9.1.2,<10
+jsonschema>=4.26,<5
+requests>=2.32.4,<3
+httpx[socks]>=0.28.1,<0.29
+typer>=0.22,<0.28
+mcp==1.28.1
+pydantic-settings==2.14.2
+PyYAML>=6.0,<7
+pg8000>=1.31.5,<2

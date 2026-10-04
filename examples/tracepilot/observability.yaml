@@ -1,0 +1,20 @@
+# Actual observability APIs; no fixture data.
+llm:
+  provider: anthropic
+  model: claude-sonnet-4-5-20250929
+  api_key_env: ANTHROPIC_API_KEY
+mcp_servers:
+  obs:
+    command: "{python}"
+    args: ["-m", "tracepilot.observability_server"]
+    timeout_seconds: 30
+    # Add configured *_TOKEN / *_TENANT / *_CA_BUNDLE, OBS_*_LABEL,
+    # and KUBERNETES_URL when needed. Every listed variable is required.
+    env_names: [LOKI_URL, PROMETHEUS_URL, TEMPO_URL]
+    tools:
+      service_logs: &read_policy
+        read_only: true
+        retry_safe: true
+      service_metrics: *read_policy
+      service_traces: *read_policy
+      service_instances: *read_policy

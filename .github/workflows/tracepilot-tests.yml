@@ -1,0 +1,43 @@
+name: TracePilot runtime and MCP contracts
+on:
+  pull_request:
+  push:
+    branches: [master, main, 'feat/tracepilot-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12']
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tracepilot_test
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: tracepilot_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U tracepilot_test'
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      HOLMES_TEST_POSTGRES_URL: postgresql+pg8000://tracepilot_test:test-only-password@localhost:5432/tracepilot_test
+      NO_PROXY: localhost,127.0.0.1,::1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-tracepilot.txt
+      - run: pip install -r requirements-tracepilot.txt pytest responses
+      - name: Runtime, MCP, legacy contracts and PostgreSQL
+        run: >-
+          python -m pytest -c tests/tracepilot/pytest.ini --confcutdir=tests/tracepilot
+          tests/tracepilot tests/decision/test_engine.py tests/decision/test_runtime_regressions.py
+          tests/decision/test_store.py tests/decision/test_providers.py

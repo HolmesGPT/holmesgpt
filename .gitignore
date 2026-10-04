@@ -176,3 +176,8 @@ config_toolsets.yaml
 .claude-trace/
 eval_results.json
 uv.lock
+
+# Local evidence stores may contain operational data.
+tracepilot*.db
+tracepilot*.db-shm
+tracepilot*.db-wal

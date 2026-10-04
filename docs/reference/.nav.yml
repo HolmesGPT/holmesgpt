@@ -1,4 +1,6 @@
 nav:
+  - TracePilot: tracepilot.md
+  - Implementation Map: tracepilot-implementation.md
   - Decision Agent: decision-agent.md
   - Python SDK: python-sdk.md
   - Environment Variables: environment-variables.md

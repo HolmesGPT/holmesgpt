@@ -172,6 +172,7 @@ RUN /usr/local/bin/pip install --upgrade --no-cache-dir \
 
 COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes
+COPY ./tracepilot /app/tracepilot
 COPY ./server.py /app/server.py
 COPY ./holmes_cli.py /app/holmes_cli.py
 

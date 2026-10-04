@@ -1,5 +1,7 @@
 # 通用服务智能排障 Agent
 
+独立入口与新能力见 [TracePilot 指南](tracepilot.md)。核心实现已迁移至 `tracepilot/`，本文中的 `holmes/decision` 路径保留兼容导出。
+
 这个 fork 在 HolmesGPT 上新增 `holmes decision`，将复杂推理与执行决策分开：
 LLM 理解故障、更新假设、生成候选工具参数、撰写报告；Jev 从候选动作中选择下一步，
 返回动作和置信度；运行时校验参数、权限、工具版本和预算，再执行工具并保存证据。
