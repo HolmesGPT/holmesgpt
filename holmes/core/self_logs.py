@@ -8,16 +8,16 @@ The result is bounded: ``tail_lines`` is clamped to 1..5000 and the combined
 log text to ``MAX_TOTAL_LOG_CHARS``, keeping the newest lines of each stream.
 """
 
-import logging
 import os
 import socket
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from holmes.utils.holmes_status import _detect_runner_namespace
 
 DEFAULT_TAIL_LINES = 500
 MAX_TAIL_LINES = 5000
@@ -27,9 +27,6 @@ MAX_TOTAL_LOG_CHARS = 400_000
 MAX_PODS = 20
 LOG_REQUEST_TIMEOUT_SECONDS = 20
 
-_SERVICEACCOUNT_NAMESPACE_FILE = Path(
-    "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-)
 
 
 class HolmesLogsRequest(BaseModel):
@@ -49,20 +46,6 @@ class HolmesLogsRequest(BaseModel):
 
 
 # ---- environment ----
-
-
-def detect_pod_namespace() -> Optional[str]:
-    env_val = os.environ.get("POD_NAMESPACE", "").strip()
-    if env_val:
-        return env_val
-    try:
-        if _SERVICEACCOUNT_NAMESPACE_FILE.is_file():
-            content = _SERVICEACCOUNT_NAMESPACE_FILE.read_text(encoding="utf-8").strip()
-            if content:
-                return content
-    except OSError:
-        logging.debug("Failed to read service-account namespace file", exc_info=True)
-    return None
 
 
 def detect_pod_name() -> str:
@@ -198,7 +181,7 @@ def get_holmes_logs(
     request: HolmesLogsRequest,
     core_api_factory: Callable[[], Any] = _default_core_api,
 ) -> Dict[str, Any]:
-    namespace = detect_pod_namespace()
+    namespace = _detect_runner_namespace()
     own_pod_name = detect_pod_name()
 
     if not namespace:

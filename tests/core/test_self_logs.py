@@ -21,6 +21,7 @@ from kubernetes.client import V1Container
 from kubernetes.client.rest import ApiException
 
 from holmes.core import self_logs
+from holmes.utils import holmes_status
 from holmes.core.self_logs import (
     HolmesLogsRequest,
     get_holmes_logs,
@@ -36,7 +37,10 @@ OTHER = "robusta-holmes-7d9f-fghij"
 def _pod_env(monkeypatch, tmp_path):
     monkeypatch.setenv("POD_NAMESPACE", NS)
     monkeypatch.setenv("HOSTNAME", OWN)
-    monkeypatch.setattr(self_logs, "_SERVICEACCOUNT_NAMESPACE_FILE", tmp_path / "absent")
+    monkeypatch.setattr(holmes_status, "_SERVICEACCOUNT_NAMESPACE_FILE", tmp_path / "absent")
+    holmes_status._detect_runner_namespace.cache_clear()
+    yield
+    holmes_status._detect_runner_namespace.cache_clear()
 
 
 def _pod(name, labels=None, restarts=0, ready=True, containers=("holmes",), last_reason=None):
@@ -253,7 +257,7 @@ def test_namespace_from_service_account_file(monkeypatch, tmp_path):
     monkeypatch.delenv("POD_NAMESPACE")
     ns_file = tmp_path / "namespace"
     ns_file.write_text("holmes-ns\n")
-    monkeypatch.setattr(self_logs, "_SERVICEACCOUNT_NAMESPACE_FILE", ns_file)
+    monkeypatch.setattr(holmes_status, "_SERVICEACCOUNT_NAMESPACE_FILE", ns_file)
     api = _api([_pod(OWN)])
     data = get_holmes_logs(HolmesLogsRequest(include_logs=False), core_api_factory=lambda: api)
     assert data["namespace"] == "holmes-ns"
