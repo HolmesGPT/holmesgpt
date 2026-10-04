@@ -598,7 +598,9 @@ class ConversationWorker:
         """
         names: List[str] = self.dal.list_pending_conversation_executors()
         self._refresh_executor_sizes()
-        for name in set(names) | set(self.executor_names()):
+        # DB order (by name), then pools with no pending rows: which names get
+        # a pool when the cap is hit must not depend on set iteration order.
+        for name in dict.fromkeys([*names, *self.executor_names()]):
             ex = self._get_or_create_executor(name)
             if ex is not None:
                 ex.wake()
