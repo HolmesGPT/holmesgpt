@@ -25,9 +25,15 @@ TODO_WRITE_TOOL_NAME = "TodoWrite"
 def parse_tasks(todos_data: Any) -> list[Task]:
     if isinstance(todos_data, str):
         try:
-            todos_data = json.loads(todos_data)
+            decoded = json.loads(todos_data)
         except (json.JSONDecodeError, ValueError):
             todos_data = [todos_data]
+        else:
+            if isinstance(decoded, (list, dict)):
+                todos_data = decoded
+            else:
+                # Scalars (e.g. "123", "true") stay as the original text
+                todos_data = [todos_data]
 
     if not isinstance(todos_data, list):
         todos_data = [todos_data] if todos_data else []

@@ -853,7 +853,10 @@ class AgenticProgressRenderer:
                 if self._live is not None:
                     # Freeze scrolling when waiting for user approval
                     if self._approval_pending:
-                        self._live.update(self._build_display())
+                        try:
+                            self._live.update(self._build_display())
+                        except Exception:
+                            logging.debug("Live display update failed", exc_info=True)
                         continue
                     # Scroll logic: modulo-forward through buffer.
                     # When new data arrives (_follow_tail), jump to end.
