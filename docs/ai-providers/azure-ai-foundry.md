@@ -40,22 +40,24 @@ The examples below lead with the Anthropic option and include a GPT deployment a
 
 === "Holmes Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=azure-api-key="your-azure-api-key" \
+    kubectl create secret generic holmes-azure-ai-foundry \
+      --from-literal=AZURE_API_KEY="your-azure-api-key" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
+    extraEnvVarsSecrets:
+      - holmes-azure-ai-foundry
+
     additionalEnvVars:
-      - name: AZURE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: azure-api-key
+      # Optional: Set default model (use modelList key name)
+      - name: MODEL
+        value: "azure-opus-4-7"  # This refers to the key name in modelList below
 
     # Configure at least one model using modelList
     modelList:
@@ -72,31 +74,35 @@ The examples below lead with the Anthropic option and include a GPT deployment a
         model: azure/my-gpt-5.4-deployment
         api_base: https://YYYY.cognitiveservices.azure.com/
         api_version: "2025-04-01-preview"
+    ```
 
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "azure-opus-4-7"  # This refers to the key name in modelList above
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Create Kubernetes Secret:**
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
     ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=azure-api-key="your-azure-api-key" \
+    kubectl create secret generic holmes-azure-ai-foundry \
+      --from-literal=AZURE_API_KEY="your-azure-api-key" \
       -n <namespace>
     ```
 
-    **Configure Helm Values:**
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
+      extraEnvVarsSecrets:
+        - holmes-azure-ai-foundry
+
       additionalEnvVars:
-        - name: AZURE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: azure-api-key
+        # Optional: Set default model (use modelList key name)
+        - name: MODEL
+          value: "azure-opus-4-7"  # This refers to the key name in modelList below
 
       # Configure at least one model using modelList
       modelList:
@@ -113,10 +119,12 @@ The examples below lead with the Anthropic option and include a GPT deployment a
           model: azure/my-gpt-5.4-deployment
           api_base: https://YYYY.cognitiveservices.azure.com/
           api_version: "2025-04-01-preview"
+    ```
 
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "azure-opus-4-7"  # This refers to the key name in modelList above
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Using CLI Parameters
@@ -211,45 +219,50 @@ export AZURE_TENANT_ID="<tenant-id>"
 
 When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview){:target="_blank"} so the pod authenticates via a federated credential rather than a stored secret. The managed identity (or service principal) bound to the pod must have the **Cognitive Services OpenAI User** role on the target resource.
 
+**Prerequisites:**
+
+- AKS cluster with OIDC issuer and workload identity enabled
+- A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
+- A federated credential linking the managed identity to the service account Holmes runs as, `<service-account>`
+
+**Step 1: Set up the identity and federation**
+
+```bash
+# Get the OIDC issuer URL
+OIDC_ISSUER=$(az aks show -n <cluster> -g <rg> --query "oidcIssuerProfile.issuerUrl" -o tsv)
+
+# Create a managed identity
+az identity create -n holmes-identity -g <rg>
+IDENTITY_CLIENT_ID=$(az identity show -n holmes-identity -g <rg> --query clientId -o tsv)
+IDENTITY_PRINCIPAL_ID=$(az identity show -n holmes-identity -g <rg> --query principalId -o tsv)
+
+# Assign the Cognitive Services OpenAI User role
+az role assignment create \
+  --assignee "$IDENTITY_PRINCIPAL_ID" \
+  --role "Cognitive Services OpenAI User" \
+  --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<resource>"
+
+# Create a federated credential for the Holmes ServiceAccount
+az identity federated-credential create \
+  --name holmes-federated \
+  --identity-name holmes-identity \
+  --resource-group <rg> \
+  --issuer "$OIDC_ISSUER" \
+  --subject "system:serviceaccount:<namespace>:<service-account>" \
+  --audiences "api://AzureADTokenExchange"
+```
+
+**Step 2: Configure HolmesGPT**
+
+Note that `api_key` is omitted from the `modelList` entries — authentication is handled entirely by the workload identity token.
+
 === "Holmes Helm Chart"
 
-    **Prerequisites:**
+    Holmes runs as the service account `holmes-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account) in the deployment `holmes-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
 
-    - AKS cluster with OIDC issuer and workload identity enabled
-    - A managed identity with the **Cognitive Services OpenAI User** role on your Azure AI Foundry resource
-    - A federated credential linking the managed identity to the Holmes ServiceAccount
-
-    **Set up the identity and federation:**
-
-    ```bash
-    # Get the OIDC issuer URL
-    OIDC_ISSUER=$(az aks show -n <cluster> -g <rg> --query "oidcIssuerProfile.issuerUrl" -o tsv)
-
-    # Create a managed identity
-    az identity create -n holmes-identity -g <rg>
-    IDENTITY_CLIENT_ID=$(az identity show -n holmes-identity -g <rg> --query clientId -o tsv)
-    IDENTITY_PRINCIPAL_ID=$(az identity show -n holmes-identity -g <rg> --query principalId -o tsv)
-
-    # Assign the Cognitive Services OpenAI User role
-    az role assignment create \
-      --assignee "$IDENTITY_PRINCIPAL_ID" \
-      --role "Cognitive Services OpenAI User" \
-      --scope "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<resource>"
-
-    # Create a federated credential for the Holmes ServiceAccount
-    az identity federated-credential create \
-      --name holmes-federated \
-      --identity-name holmes-identity \
-      --resource-group <rg> \
-      --issuer "$OIDC_ISSUER" \
-      --subject "system:serviceaccount:<namespace>:holmes" \
-      --audiences "api://AzureADTokenExchange"
-    ```
-
-    **Configure Helm Values:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    # values.yaml
     additionalEnvVars:
       - name: AZURE_AD_TOKEN_AUTH
         value: "true"
@@ -257,12 +270,14 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
         value: "<managed-identity-client-id>"
       - name: AZURE_TENANT_ID
         value: "<tenant-id>"
+      - name: MODEL
+        value: "azure-opus-4-7"
 
     serviceAccount:
       annotations:
         azure.workload.identity/client-id: "<managed-identity-client-id>"
 
-    podLabels:
+    commonLabels:
       azure.workload.identity/use: "true"
 
     modelList:
@@ -277,19 +292,21 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
         model: azure/my-gpt-5.4-deployment
         api_base: https://YYYY.cognitiveservices.azure.com/
         api_version: "2025-04-01-preview"
-
-    config:
-      model: "azure-opus-4-7"
     ```
 
-    Note that `api_key` is omitted from the `modelList` entries — authentication is handled entirely by the workload identity token.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
 
 === "Robusta Helm Chart"
 
-    **Configure Helm Values:**
+    Holmes runs as the service account `robusta-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account) in the deployment `robusta-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    # values.yaml
     holmes:
       additionalEnvVars:
         - name: AZURE_AD_TOKEN_AUTH
@@ -298,12 +315,14 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
           value: "<managed-identity-client-id>"
         - name: AZURE_TENANT_ID
           value: "<tenant-id>"
+        - name: MODEL
+          value: "azure-opus-4-7"
 
       serviceAccount:
         annotations:
           azure.workload.identity/client-id: "<managed-identity-client-id>"
 
-      podLabels:
+      commonLabels:
         azure.workload.identity/use: "true"
 
       modelList:
@@ -318,9 +337,12 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
           model: azure/my-gpt-5.4-deployment
           api_base: https://YYYY.cognitiveservices.azure.com/
           api_version: "2025-04-01-preview"
+    ```
 
-      config:
-        model: "azure-opus-4-7"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ### Troubleshooting
@@ -329,8 +351,8 @@ When running as a pod in AKS, use [AKS Workload Identity](https://learn.microsof
 # Verify the pod has workload identity labels and env vars injected
 kubectl describe pod -l app=holmes -n <namespace> | grep -A5 "AZURE_"
 
-# Test that the identity can obtain a token (from inside the pod)
-kubectl exec -n <namespace> deploy/holmes -- python -c "
+# Test that the identity can obtain a token (from inside the pod).
+kubectl exec -n <namespace> deploy/<holmes-deployment> -- python -c "
 from azure.identity import DefaultAzureCredential
 token = DefaultAzureCredential().get_token('https://cognitiveservices.azure.com/.default')
 print('Token obtained, expires at:', token.expires_on)

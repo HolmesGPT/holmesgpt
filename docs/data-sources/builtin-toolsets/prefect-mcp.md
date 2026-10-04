@@ -146,34 +146,77 @@ Before configuring the Prefect MCP server, you need:
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Prefect API key:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic prefect-mcp-token \
+    kubectl create secret generic holmes-prefect-mcp \
       --from-literal=token=<YOUR_PREFECT_API_KEY> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
       prefect:
         enabled: true
         auth:
-          secretName: "prefect-mcp-token"
+          secretName: "holmes-prefect-mcp"
         config:
           apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
     ```
 
-    To customize how Holmes uses Prefect, you can provide your own LLM instructions:
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-prefect-mcp \
+      --from-literal=token=<YOUR_PREFECT_API_KEY> \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        prefect:
+          enabled: true
+          auth:
+            secretName: "holmes-prefect-mcp"
+          config:
+            apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Custom LLM Instructions
+
+Reuses the `holmes-prefect-mcp` secret created in the [Configuration](#configuration) section above.
+
+To customize how Holmes uses Prefect, you can provide your own LLM instructions:
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
       prefect:
         enabled: true
         auth:
-          secretName: "prefect-mcp-token"
+          secretName: "holmes-prefect-mcp"
         config:
           apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
         llmInstructions: |
@@ -185,23 +228,15 @@ Before configuring the Prefect MCP server, you need:
             4. Look at recent runs of the same flow to identify patterns
     ```
 
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    First, create a Kubernetes secret with your Prefect API key:
-
-    ```bash
-    kubectl create secret generic prefect-mcp-token \
-      --from-literal=token=<YOUR_PREFECT_API_KEY> \
-      -n <NAMESPACE>
-    ```
-
-    Then add the following to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -209,15 +244,22 @@ Before configuring the Prefect MCP server, you need:
         prefect:
           enabled: true
           auth:
-            secretName: "prefect-mcp-token"
+            secretName: "holmes-prefect-mcp"
           config:
             apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
+          llmInstructions: |
+            Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
+            When investigating a failed flow run:
+              1. First get the flow run details to understand what failed
+              2. Retrieve the logs for the failed flow/task run
+              3. Check if the deployment is healthy and workers are running
+              4. Look at recent runs of the same flow to identify patterns
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Testing the Connection

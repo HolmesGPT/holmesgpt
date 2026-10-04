@@ -82,7 +82,7 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
 
 === "Holmes Helm Chart"
 
-    Add to your Helm `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     additionalEnvVars:
@@ -90,15 +90,15 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
         value: "2000"
     ```
 
-    Apply with:
+    Apply the configuration:
 
     ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml -n <namespace>
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    When using the Robusta Helm Chart (which includes HolmesGPT as a sub-chart), env vars for Holmes are nested under the `holmes:` key. Add to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -107,16 +107,14 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
           value: "2000"
     ```
 
-    Apply with:
+    Apply the configuration:
 
     ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml -n <namespace>
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
-    The value flows through to the Holmes pod automatically — no other changes required.
-
 !!! note "Keep the pod memory limit in sync"
-    Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. For the Robusta chart, pod resources live under `holmes.resources` in `generated_values.yaml`. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).
+    Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).
 
 ## Platform Notes
 

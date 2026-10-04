@@ -29,6 +29,12 @@ GRANT pg_read_all_stats TO holmes_readonly;
 
 ## Configuration
 
+**Connection URL format:**
+
+```
+postgresql://[username]:[password]@[host]:[port]/[database]
+```
+
 === "Holmes CLI"
 
     **~/.holmes/config.yaml:**
@@ -58,30 +64,21 @@ GRANT pg_read_all_stats TO holmes_readonly;
           connection_url: "{{ env.POSTGRES_URL }}"
     ```
 
-    **Connection URL format:**
-    ```
-    postgresql://[username]:[password]@[host]:[port]/[database]
-    ```
-
 === "Holmes Helm Chart"
 
-    **Step 1: Create secret with credentials**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic postgres-credentials \
-      --from-literal=url='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n holmes
+    kubectl create secret generic holmes-database-postgresql \
+      --from-literal=POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
+      -n <namespace>
     ```
 
-    **Step 2: Configure in values.yaml**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-credentials
-            key: url
+    extraEnvVarsSecrets:
+      - holmes-database-postgresql
 
     toolsets:
       prod-postgres:
@@ -91,20 +88,61 @@ GRANT pg_read_all_stats TO holmes_readonly;
         llm_instructions: "Production PostgreSQL database"
     ```
 
-    **Multiple instances:**
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-postgresql \
+      --from-literal=POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: PROD_POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-prod
-            key: url
-      - name: ANALYTICS_POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-analytics
-            key: url
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-database-postgresql
+
+      toolsets:
+        prod-postgres:
+          type: database
+          config:
+            connection_url: "{{ env.POSTGRES_URL }}"
+          llm_instructions: "Production PostgreSQL database"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Multiple instances
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-postgresql-instances \
+      --from-literal=PROD_POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
+      --from-literal=ANALYTICS_POSTGRES_URL='postgresql://analyst:pass@analytics-pg.internal:5432/analytics' \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-database-postgresql-instances
 
     toolsets:
       prod-postgres:
@@ -118,50 +156,29 @@ GRANT pg_read_all_stats TO holmes_readonly;
           connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic postgres-credentials \
-      --from-literal=url='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    **Step 2: Configure in values.yaml**
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-postgresql-instances \
+      --from-literal=PROD_POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
+      --from-literal=ANALYTICS_POSTGRES_URL='postgresql://analyst:pass@analytics-pg.internal:5432/analytics' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: PROD_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-prod
-              key: url
-        - name: ANALYTICS_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-analytics
-              key: url
+      extraEnvVarsSecrets:
+        - holmes-database-postgresql-instances
 
       toolsets:
         prod-postgres:
@@ -173,6 +190,12 @@ GRANT pg_read_all_stats TO holmes_readonly;
           type: database
           config:
             connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Configuration Options
