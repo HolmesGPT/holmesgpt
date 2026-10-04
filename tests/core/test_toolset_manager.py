@@ -96,6 +96,52 @@ def test__list_all_toolsets_custom_toolset(mock_load_builtin_toolsets, toolset_m
     os.remove(tmpfile_path)
 
 
+KUBECTL_RUN_CONFIG = {
+    "enabled": True,
+    "config": {
+        "allowed_images": [
+            {"image": "busybox:1.36", "allowed_commands": ["nslookup .*"]}
+        ]
+    },
+}
+
+
+@patch("holmes.core.toolset_manager.load_builtin_toolsets")
+def test__list_all_toolsets_skips_removed_toolset_with_warning(
+    mock_load_builtin_toolsets, toolset_manager, caplog
+):
+    builtin_toolset = YAMLToolset(
+        name="builtin",
+        tags=[ToolsetTag.CORE],
+        description="Builtin toolset",
+        experimental=False,
+    )
+    mock_load_builtin_toolsets.return_value = [builtin_toolset]
+    toolset_manager.toolsets = {
+        "kubectl-run": KUBECTL_RUN_CONFIG,
+        "builtin": {"enabled": True},
+    }
+
+    with caplog.at_level("WARNING", logger="holmes.display.toolset_manager"):
+        toolsets = toolset_manager._list_all_toolsets(check_prerequisites=True)
+
+    assert [t.name for t in toolsets] == ["builtin"]
+    assert toolsets[0].enabled is True
+    assert "The toolset 'kubectl-run' no longer exists" in caplog.text
+
+
+def test_load_custom_toolsets_skips_removed_toolset(tmp_path, toolset_manager, caplog):
+    custom_file = tmp_path / "custom_toolset.yaml"
+    custom_file.write_text(yaml.dump({"toolsets": {"kubectl-run": KUBECTL_RUN_CONFIG}}))
+    toolset_manager.custom_toolsets = [custom_file]
+
+    with caplog.at_level("WARNING", logger="holmes.display.toolset_manager"):
+        result = toolset_manager.load_custom_toolsets(builtin_toolsets_names=[])
+
+    assert result == []
+    assert "The toolset 'kubectl-run' no longer exists" in caplog.text
+
+
 @patch("holmes.core.toolset_manager.ToolsetManager._list_all_toolsets")
 def test_refresh_toolset_status_creates_file(mock_list_all_toolsets, toolset_manager):
     toolset = MagicMock(spec=Toolset)
