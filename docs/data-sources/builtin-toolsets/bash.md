@@ -7,6 +7,8 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
 
 ## Configuration
 
+In Kubernetes, `extended` is recommended, since Holmes runs in a container with a minimal filesystem.
+
 === "Holmes CLI"
 
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
@@ -35,7 +37,33 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
     | `--bash-always-deny` | Automatically deny commands not in the allow list |
     | `--bash-always-allow` | Automatically approve all commands (use with caution) |
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    toolsets:
+      bash:
+        enabled: true
+        config:
+          builtin_allowlist: "extended"
+          # allow:
+          #   - "helm list"
+          #   - "kubectl rollout history"
+          #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
+          deny:
+            - "kubectl get secret"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -52,7 +80,11 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
               - "kubectl get secret"
     ```
 
-    `extended` is recommended for Helm deployments where Holmes runs in a container with a minimal filesystem.
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Builtin Allowlist Levels
 
