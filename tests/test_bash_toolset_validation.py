@@ -18,6 +18,7 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
 )
+from holmes.plugins.toolsets.bash.shell_parser import ShellParseError
 from holmes.plugins.toolsets.bash.validation import (
     DenyReason,
     ValidationStatus,
@@ -178,31 +179,22 @@ class TestParseCommandSegments:
 
     def test_invalid_pipe_syntax_raises(self):
         """Test that invalid pipe syntax raises a parsing error."""
-        import bashlex
-
-        with pytest.raises(bashlex.errors.ParsingError):
+        with pytest.raises(ShellParseError):
             parse_command_segments("  |  kubectl get pods  |  ")
 
-    def test_for_loop_extracts_inner_segments(self):
-        """For loop returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments(
-            'for i in 1 2 3; do echo "$i"; done'
-        )
-        assert has_compound
-        assert len(segments) > 0
-        assert any("echo" in s for s in segments)
+    def test_for_loop_raises(self):
+        """For loop is not parsed; validate_command asks for approval."""
+        with pytest.raises(ShellParseError):
+            parse_command_segments('for i in 1 2 3; do echo "$i"; done')
 
-    def test_if_statement_extracts_inner_segments(self):
-        """If statement returns inner command segments with compound flag."""
-        segments, has_compound = parse_command_segments(
-            "if [ -f file ]; then cat file; fi"
-        )
-        assert has_compound
-        assert len(segments) > 0
+    def test_if_statement_raises(self):
+        """If statement is not parsed; validate_command asks for approval."""
+        with pytest.raises(ShellParseError):
+            parse_command_segments("if [ -f file ]; then cat file; fi")
 
     def test_case_statement_raises(self):
-        """Case statement (unsupported by bashlex) raises NotImplementedError."""
-        with pytest.raises(NotImplementedError):
+        """Case statement (unsupported syntax) raises ShellParseError."""
+        with pytest.raises(ShellParseError):
             parse_command_segments("case $x in 1) echo one;; 2) echo two;; esac")
 
 
@@ -700,6 +692,26 @@ class TestUserConfiguredDenyList:
         assert result.status == ValidationStatus.DENIED
         assert result.deny_reason == DenyReason.DENY_LIST
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "kubectl get 'secret' -n x",
+            'kubectl get "secrets" x',
+            'kubectl get sec""ret x',
+            "kubectl  get secret x",
+        ],
+    )
+    def test_user_configured_deny_matches_unquoted_words(self, command):
+        """Quoting or extra blanks must not slip past a multi-word deny entry."""
+        config = BashExecutorConfig(
+            builtin_allowlist="extended",
+            deny=["kubectl get secret"],
+        )
+        allow_list, deny_list = get_effective_lists(config)
+        result = validate_command(command, [], allow_list, deny_list)
+        assert result.status == ValidationStatus.DENIED
+        assert result.deny_reason == DenyReason.DENY_LIST
+
     def test_kubectl_get_pods_allowed_with_defaults(self):
         """Test that non-denied kubectl commands are allowed."""
         config = BashExecutorConfig(builtin_allowlist="extended")
@@ -831,7 +843,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     def test_for_loop_with_command_requires_approval(self):
@@ -845,7 +859,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     def test_while_loop_requires_approval(self):
@@ -859,7 +875,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     def test_until_loop_requires_approval(self):
@@ -873,7 +891,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     def test_if_statement_requires_approval(self):
@@ -887,7 +907,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     def test_if_else_statement_requires_approval(self):
@@ -901,7 +923,9 @@ class TestCompoundStatements:
             deny_list,
         )
         assert result.status == ValidationStatus.APPROVAL_REQUIRED
-        assert result.message == "Contains compound statements (for/while/if/etc)."
+        assert (
+            result.message == "Command contains complex syntax which requires approval."
+        )
         assert result.prefixes_needing_approval == []
 
     def test_case_statement_requires_approval(self):

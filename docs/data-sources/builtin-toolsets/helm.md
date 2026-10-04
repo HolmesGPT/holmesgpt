@@ -18,32 +18,70 @@ By enabling this toolset, HolmesGPT will be able to provide read access to a clu
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    toolsets:
+        helm/core:
+            enabled: true
+    customClusterRoleRules:
+        - apiGroups: [""]
+          resources: ["secrets", "pods", "services", "configmaps", "persistentvolumeclaims"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: [""]
+          resources: ["namespaces"]
+          verbs: ["get"]
+        - apiGroups: ["apps"]
+          resources: ["deployments", "statefulsets", "daemonsets"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["batch"]
+          resources: ["jobs", "cronjobs"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["ingresses"]
+          verbs: ["get", "list", "watch"]
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-        toolsets:
-            helm/core:
-                enabled: true
-        customClusterRoleRules:
-            - apiGroups: [""]
-              resources: ["secrets", "pods", "services", "configmaps", "persistentvolumeclaims"]
-              verbs: ["get", "list", "watch"]
-            - apiGroups: [""]
-              resources: ["namespaces"]
-              verbs: ["get"]
-            - apiGroups: ["apps"]
-              resources: ["deployments", "statefulsets", "daemonsets"]
-              verbs: ["get", "list", "watch"]
-            - apiGroups: ["batch"]
-              resources: ["jobs", "cronjobs"]
-              verbs: ["get", "list", "watch"]
-            - apiGroups: ["networking.k8s.io"]
-              resources: ["ingresses"]
-              verbs: ["get", "list", "watch"]
+      toolsets:
+          helm/core:
+              enabled: true
+      customClusterRoleRules:
+          - apiGroups: [""]
+            resources: ["secrets", "pods", "services", "configmaps", "persistentvolumeclaims"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get"]
+          - apiGroups: ["apps"]
+            resources: ["deployments", "statefulsets", "daemonsets"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: ["batch"]
+            resources: ["jobs", "cronjobs"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: ["networking.k8s.io"]
+            resources: ["ingresses"]
+            verbs: ["get", "list", "watch"]
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Capabilities
 

@@ -59,16 +59,30 @@ def _without_authorization(headers: Dict[str, str]) -> Optional[Dict[str, str]]:
     return sanitized or None
 
 
+def investigating_model(llm: Any) -> Optional[str]:
+    """The model key the caller's LLM runs as (`Robusta/Opus 4.6`), falling
+    back to its litellm model string. This is what relay stamps onto the alert
+    as the model that investigated it (FRO-518), so it is the key the
+    frontend's model catalog maps to a display name — never the litellm string
+    when a key exists."""
+    for attr in ("name", "model"):
+        value = getattr(llm, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 class RobustaPlatformMCPTool(RemoteMCPTool):
     """RemoteMCPTool that forwards per-call invocation context to platform-mcp.
 
     `MCPTool._invoke` only passes `context.request_context` down to header
     rendering — the rest of `ToolInvokeContext` (tool_call_id,
-    max_token_count) never reaches `_render_headers`. Remote tool execution
-    needs those per call: the single-tool token budget is a function of the
-    CALLER's LLM and cannot be derived on the executor. So we enrich
-    request_context before delegating; `_render_headers` maps the keys to
-    X-Robusta-* headers.
+    max_token_count, the LLM) never reaches `_render_headers`. Remote tool
+    execution needs those per call: the single-tool token budget is a function
+    of the CALLER's LLM and cannot be derived on the executor, and only the
+    caller knows which model is running after routing and fallback. So we
+    enrich request_context before delegating; `_render_headers` maps the keys
+    to X-Robusta-* headers.
     """
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
@@ -76,6 +90,7 @@ class RobustaPlatformMCPTool(RemoteMCPTool):
             **(context.request_context or {}),
             "tool_call_id": context.tool_call_id,
             "max_token_count": context.max_token_count,
+            "model": investigating_model(context.llm),
         }
         return super()._invoke(
             params, context.model_copy(update={"request_context": enriched})
@@ -126,6 +141,9 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
             max_token_count = request_context.get("max_token_count")
             if max_token_count:
                 headers["X-Robusta-Max-Tool-Tokens"] = str(max_token_count)
+            model = request_context.get("model")
+            if model:
+                headers["X-Robusta-Model"] = str(model)
 
         # Always sent, independent of any feature flag: the executor version
         # gate and per-user RBAC on the relay depend on these.

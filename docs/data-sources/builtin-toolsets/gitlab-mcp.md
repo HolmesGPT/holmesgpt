@@ -146,43 +146,41 @@ You need a GitLab Personal Access Token (PAT).
 
 === "Holmes Helm Chart"
 
-    **Basic Configuration**
-
-    Create a Kubernetes secret with your GitLab PAT:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic gitlab-mcp-token \
+    kubectl create secret generic holmes-gitlab-mcp \
       --from-literal=token=<YOUR_GITLAB_PAT> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
       gitlabMcp:
         enabled: true
         auth:
-          secretName: "gitlab-mcp-token"
+          secretName: "holmes-gitlab-mcp"
     ```
 
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Basic Configuration**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic gitlab-mcp-token \
+    kubectl create secret generic holmes-gitlab-mcp \
       --from-literal=token=<YOUR_GITLAB_PAT> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Add to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -190,13 +188,13 @@ You need a GitLab Personal Access Token (PAT).
         gitlabMcp:
           enabled: true
           auth:
-            secretName: "gitlab-mcp-token"
+            secretName: "holmes-gitlab-mcp"
     ```
 
-    Then deploy or upgrade:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Self-Hosted GitLab
@@ -208,7 +206,7 @@ mcpAddons:
   gitlabMcp:
     enabled: true
     auth:
-      secretName: "gitlab-mcp-token"
+      secretName: "holmes-gitlab-mcp"
     config:
       apiUrl: "https://gitlab.mycompany.com/api/v4"
 ```
@@ -232,7 +230,7 @@ mcpAddons:
   gitlabMcp:
     enabled: true
     auth:
-      secretName: "gitlab-mcp-token"
+      secretName: "holmes-gitlab-mcp"
     config:
       apiUrl: "https://gitlab.mycompany.com/api/v4"
       caCert:
@@ -249,7 +247,7 @@ mcpAddons:
   gitlabMcp:
     enabled: true
     auth:
-      secretName: "gitlab-mcp-token"
+      secretName: "holmes-gitlab-mcp"
     config:
       apiUrl: "https://gitlab.internal/api/v4"
       verifySsl: false
@@ -291,7 +289,7 @@ mcpAddons:
   gitlabMcp:
     enabled: true
     auth:
-      secretName: "gitlab-mcp-token"
+      secretName: "holmes-gitlab-mcp"
     config:
       # Hard allowlist — only these tools are exposed
       tools: "get_file_contents,list_commits,get_pipeline,get_pipeline_jobs,get_job_logs"
@@ -326,8 +324,11 @@ holmes ask "List the last 5 commits in mygroup/myproject"
 Verify the secret exists and the PAT is valid:
 
 ```bash
-# Check secret exists
-kubectl get secret gitlab-mcp-token -n YOUR_NAMESPACE
+# Check secret exists (Helm deployments)
+kubectl get secret holmes-gitlab-mcp -n YOUR_NAMESPACE
+
+# Check secret exists (manual CLI deployments)
+kubectl get secret gitlab-mcp-token -n holmes-mcp
 
 # Test the token directly
 curl -H "PRIVATE-TOKEN: <YOUR_GITLAB_PAT>" https://gitlab.com/api/v4/user
@@ -335,7 +336,7 @@ curl -H "PRIVATE-TOKEN: <YOUR_GITLAB_PAT>" https://gitlab.com/api/v4/user
 
 ### SSL Certificate Verification Errors
 
-See the [Self-Hosted GitLab](#sslsignedtls-for-self-signed-certificates) section above. Prefer mounting a custom CA over disabling verification.
+See the [Self-Hosted GitLab](#ssltls-for-self-signed-certificates) section above. Prefer mounting a custom CA over disabling verification.
 
 ### Tool Not Found
 

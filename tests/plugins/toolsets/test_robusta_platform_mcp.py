@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     TOOLSET_NAME,
+    RobustaPlatformMCPTool,
+    investigating_model,
     make_robusta_platform_mcp_toolset,
 )
 
@@ -203,3 +205,111 @@ def test_user_id_header_falls_back_to_user_id_then_none():
     assert _toolset()._render_headers({"user_id": "u-1"})["X-Robusta-User-Id"] == "u-1"
     assert _toolset()._render_headers({})["X-Robusta-User-Id"] == "None"
     assert _toolset()._render_headers(None)["X-Robusta-User-Id"] == "None"
+
+
+# ---- FRO-518: the model that investigated travels as X-Robusta-Model ----
+
+
+def test_render_headers_injects_model_header():
+    headers = _toolset()._render_headers({"model": "Robusta/Opus 4.6"})
+    assert headers["X-Robusta-Model"] == "Robusta/Opus 4.6"
+
+
+def test_render_headers_omits_model_header_when_unknown():
+    for ctx in (None, {}, {"model": None}, {"model": ""}):
+        headers = _toolset()._render_headers(ctx)
+        assert "X-Robusta-Model" not in headers, ctx
+
+
+def test_investigating_model_prefers_the_model_key():
+    llm = MagicMock()
+    llm.name = "Robusta/Opus 4.6"
+    llm.model = "bedrock/us.anthropic.claude-opus-4-6"
+    assert investigating_model(llm) == "Robusta/Opus 4.6"
+
+
+def test_investigating_model_falls_back_to_the_litellm_model():
+    llm = MagicMock()
+    llm.name = None
+    llm.model = "anthropic/claude-sonnet-4-5"
+    assert investigating_model(llm) == "anthropic/claude-sonnet-4-5"
+
+    llm.name = "   "
+    assert investigating_model(llm) == "anthropic/claude-sonnet-4-5"
+
+    llm.model = ""
+    assert investigating_model(llm) is None
+
+    assert investigating_model(object()) is None
+
+
+def _llm(name, model):
+    from holmes.core.llm import LLM
+
+    llm = MagicMock(spec=LLM)
+    llm.name = name
+    llm.model = model
+    return llm
+
+
+def _invoke_context(llm, request_context=None):
+    from holmes.core.tools import ToolInvokeContext
+
+    return ToolInvokeContext(
+        llm=llm,
+        max_token_count=4096,
+        tool_call_id="call-1",
+        tool_name="update_ai_triage_metadata",
+        request_context=request_context,
+    )
+
+
+def _captured_invoke_context(llm, request_context=None):
+    """The request_context RobustaPlatformMCPTool hands to the base _invoke."""
+    tool = RobustaPlatformMCPTool(
+        name="update_ai_triage_metadata", description="", toolset=_toolset()
+    )
+    seen = {}
+
+    def fake_invoke(self, params, context):
+        seen["context"] = context
+        return MagicMock()
+
+    base = "holmes.plugins.toolsets.mcp.toolset_mcp.RemoteMCPTool._invoke"
+    with patch(base, new=fake_invoke):
+        tool._invoke({}, _invoke_context(llm, request_context))
+    return seen["context"].request_context
+
+
+def test_invoke_enriches_request_context_with_the_running_model():
+    llm = _llm("Robusta/Opus 4.6", "bedrock/us.anthropic.claude-opus-4-6")
+    ctx = _captured_invoke_context(llm, {"conversation_id": "conv-1"})
+    assert ctx["model"] == "Robusta/Opus 4.6"
+    assert ctx["conversation_id"] == "conv-1"
+    assert ctx["tool_call_id"] == "call-1"
+    assert ctx["max_token_count"] == 4096
+
+
+def test_invoke_model_comes_from_the_llm_not_the_request_context():
+    """A model named upstream (a chat request's `model`, a passthrough header)
+    is what was ASKED for; the header must name what actually runs."""
+    llm = _llm("Robusta/Haiku 4.5", "anthropic/claude-haiku-4-5")
+    ctx = _captured_invoke_context(llm, {"model": "Robusta/Opus 4.6"})
+    assert ctx["model"] == "Robusta/Haiku 4.5"
+
+
+def test_invoke_enriches_request_context_even_without_one():
+    llm = _llm("gpt-4o", "openai/gpt-4o")
+    ctx = _captured_invoke_context(llm, None)
+    assert ctx["model"] == "gpt-4o"
+
+
+def test_end_to_end_headers_carry_the_llm_model():
+    """_invoke -> _render_headers: the header on the wire is the LLM's key."""
+    llm = _llm("Robusta/Opus 4.6", "bedrock/us.anthropic.claude-opus-4-6")
+    toolset = _toolset()
+    ctx = _captured_invoke_context(llm, {"conversation_id": "conv-1"})
+    headers = toolset._render_headers(ctx)
+    assert headers["X-Robusta-Model"] == "Robusta/Opus 4.6"
+    assert headers["X-Robusta-Conversation-Id"] == "conv-1"
+    assert headers["X-Robusta-Tool-Call-Id"] == "call-1"
