@@ -8,7 +8,7 @@ Holmes connects to the hosted [AWS MCP Server](https://docs.aws.amazon.com/agent
 - **CLI users**: Holmes uses your local AWS credentials (`~/.aws`, environment variables or a named profile)
 
 !!! warning "Migrating from the AWS API MCP server pod"
-    Earlier Holmes versions deployed `aws-api-mcp-server` as a separate pod with the `aws-api-mcp-sa` service account. That server is [deprecated by AWS](https://github.com/awslabs/mcp/blob/main/src/aws-api-mcp-server/MIGRATION.md) and the pod is no longer rendered. Point the IAM role's trust policy at the **Holmes service account** instead (`system:serviceaccount:NAMESPACE:RELEASE-holmes-service-account`, `robusta-holmes-service-account` for the Robusta chart) and annotate it as shown below. `mcpAddons.aws.serviceAccount`, `image`, `networkPolicy` and `resources` are ignored. Export your current values with `helm get values RELEASE -n NAMESPACE > values.yaml` before upgrading.
+    Without `mcpAddons.aws.hosted.enabled: true` the chart still deploys the previous `aws-api-mcp-server` pod with the `aws-api-mcp-sa` service account, so existing values keep working. That server is [deprecated by AWS](https://github.com/awslabs/mcp/blob/main/src/aws-api-mcp-server/MIGRATION.md): to switch, set `hosted.enabled: true`, point the IAM role's trust policy at the **Holmes service account** instead (`system:serviceaccount:NAMESPACE:RELEASE-holmes-service-account`, `robusta-holmes-service-account` for the Robusta chart) and annotate it as shown below. In hosted mode `mcpAddons.aws.serviceAccount`, `image`, `networkPolicy` and `resources` are ignored. Export your current values with `helm get values RELEASE -n NAMESPACE > values.yaml` before upgrading.
 
 ## Single Account Setup
 
@@ -177,6 +177,8 @@ Choose your installation method.
     mcpAddons:
       aws:
         enabled: true
+        hosted:
+          enabled: true
         config:
           region: "us-east-1"  # Change to your AWS region
     ```
@@ -200,6 +202,8 @@ Choose your installation method.
       mcpAddons:
         aws:
           enabled: true
+          hosted:
+            enabled: true
           config:
             region: "us-east-1"  # Change to your AWS region
     ```
@@ -329,6 +333,8 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
     mcpAddons:
       aws:
         enabled: true
+        hosted:
+          enabled: true
         config:
           region: "us-east-1"  # Default region for all accounts
 
@@ -344,6 +350,9 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
               account_id: "222222222222"
               role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
               description: "Production account"
+              # Instead of the pod token, assume this role from another profile's credentials
+              # (or set credential_source, e.g. EcsContainer for EKS Pod Identity):
+              # source_profile: dev
           llm_account_descriptions: |
             aws_dev is the development account and contains the development resources.
             aws_prod is the production account and contains the production resources.
@@ -366,6 +375,8 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
       mcpAddons:
         aws:
           enabled: true
+          hosted:
+            enabled: true
           config:
             region: "us-east-1"  # Default region for all accounts
 

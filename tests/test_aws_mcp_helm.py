@@ -1,7 +1,8 @@
 """Regression checks for the hosted AWS MCP Server Helm wiring.
 
-Holmes signs requests to the hosted AWS MCP Server itself, so the chart must not
-render an AWS MCP pod any more and must emit one `mode: aws` server per account.
+With `hosted.enabled` Holmes signs requests to the hosted AWS MCP Server itself:
+no AWS MCP pod is rendered and one `mode: aws` server is emitted per account.
+Without it the chart keeps deploying the legacy aws-api-mcp-server pod unchanged.
 """
 
 from pathlib import Path
@@ -17,28 +18,21 @@ def _values() -> dict:
         return yaml.safe_load(f)["mcpAddons"]["aws"]
 
 
-def test_values_have_no_image_or_pod_settings():
+def test_hosted_mode_is_opt_in_and_legacy_values_are_kept():
     v = _values()
     assert v["enabled"] is False
-    assert v["config"]["region"] == "us-east-1"
-    assert v["multiAccount"]["profiles"] == {}
-    for removed in (
-        "image",
-        "registry",
-        "serviceAccount",
-        "networkPolicy",
-        "resources",
-    ):
-        assert removed not in v
-    assert "image" not in v["multiAccount"]
+    assert v["hosted"] == {"enabled": False, "profile": ""}
+    assert v["image"] == "aws-api-mcp-server:2.1.0"
+    assert v["multiAccount"]["image"] == "multi-aws-api-mcp-server:2.1.0"
+    assert v["serviceAccount"]["name"] == "aws-api-mcp-sa"
 
 
-def test_no_aws_mcp_pod_is_rendered():
-    assert sorted(p.name for p in AWS_TEMPLATE_DIR.iterdir()) == [
-        "_helpers.tpl",
-        "configmap.yaml",
-    ]
-    assert "kind: Deployment" not in (AWS_TEMPLATE_DIR / "configmap.yaml").read_text()
+def test_legacy_pod_is_gated_off_in_hosted_mode():
+    for name in ("deployment.yaml", "networkpolicy.yaml"):
+        assert (
+            "(not .Values.mcpAddons.aws.hosted.enabled)"
+            in (AWS_TEMPLATE_DIR / name).read_text()
+        )
 
 
 def test_servers_use_aws_mode_per_profile():
@@ -48,8 +42,11 @@ def test_servers_use_aws_mode_per_profile():
         "range $profile, $account := .Values.mcpAddons.aws.multiAccount.profiles"
         in helpers
     )
-    assert "call_aws" not in helpers
     assert "aws___run_script" in helpers
+    assert (
+        "h-aws-mcp-server" not in helpers
+        and "-aws-mcp-server.%s.svc.cluster.local" in helpers
+    )
 
 
 def test_multi_account_config_uses_web_identity_profiles():

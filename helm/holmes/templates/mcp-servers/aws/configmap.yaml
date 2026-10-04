@@ -14,12 +14,19 @@ metadata:
     {{- . | nindent 4 }}
   {{- end }}
 data:
-  # botocore assumes each role with the pod's projected token and refreshes it itself
+  # botocore assumes each role and refreshes it itself: with the pod's projected token
+  # by default, or via source_profile / credential_source when set on the profile
   config: |
     {{- range $profile, $account := .Values.mcpAddons.aws.multiAccount.profiles }}
     [profile {{ $profile }}]
     role_arn = {{ $account.role_arn }}
+    {{- if $account.source_profile }}
+    source_profile = {{ $account.source_profile }}
+    {{- else if $account.credential_source }}
+    credential_source = {{ $account.credential_source }}
+    {{- else }}
     web_identity_token_file = /var/run/secrets/eks.amazonaws.com/serviceaccount/token
+    {{- end }}
     region = {{ $account.region | default $.Values.mcpAddons.aws.config.region }}
     {{- end }}
 {{- end }}
