@@ -461,15 +461,18 @@ class TestScheduledPromptsExecutor:
         assert isinstance(call_args.args[0].trace_span, ScheduledPromptsHeartbeatSpan)
         assert isinstance(response, ChatResponse)
 
-    def test_execute_prompt_sends_no_behavior_controls(
+    def test_execute_prompt_always_explicit_fast_mode(
         self, executor, sample_scheduled_prompt_payload
     ):
-        """ROB-574: fast mode is Holmes' default, so scheduled prompts send no
-        controls (the report lands in ChatResponse.analysis, not behind a
-        trailing TodoWrite call)."""
+        """ROB-574: scheduled prompts always run in fast mode, explicitly and
+        with no toggle, so the report lands in ChatResponse.analysis rather
+        than behind a trailing TodoWrite call on every Holmes version."""
         executor._execute_prompt(ScheduledPrompt(**sample_scheduled_prompt_payload))
         chat_request = executor.chat_function.call_args.args[0]
-        assert chat_request.behavior_controls is None
+        assert chat_request.behavior_controls == {
+            "todowrite_instructions": False,
+            "todowrite_reminder": False,
+        }
 
 
 class TestScheduledPromptsHeartbeatSpan:

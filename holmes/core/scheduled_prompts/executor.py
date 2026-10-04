@@ -17,6 +17,7 @@ from holmes.common.env_vars import (
     SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS,
 )
 from holmes.core.models import ChatRequest, ChatResponse
+from holmes.core.prompt import todowrite_overrides
 from holmes.core.scheduled_prompts.heartbeat_tracer import (
     ScheduledPromptsHeartbeatSpan,
 )
@@ -197,6 +198,13 @@ class ScheduledPromptsExecutor:
             stream=False,
             additional_system_prompt=additional_system_prompt,
             trace_span=heartbeat_span,
+            # Always fast mode: explicit (not just Holmes' default) so the report
+            # lands in ChatResponse.analysis rather than behind a trailing
+            # TodoWrite call, on every Holmes version.
+            behavior_controls={
+                component.value: enabled
+                for component, enabled in todowrite_overrides(False).items()
+            },
             # AI usage tracking — these runs are server-driven, not user-driven.
             request_type="scheduled_prompt",
             request_source="scheduler",
