@@ -194,11 +194,6 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
-# Fast mode (no TodoWrite) is the global default; set this to false to force the
-# TodoWrite planning phase back on for scheduled prompts. Note the report then
-# risks ending up in conversation_history behind a trailing TodoWrite call
-# rather than in ChatResponse.analysis.
-ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
