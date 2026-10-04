@@ -161,7 +161,7 @@ def build_chat_recorder_state(
         is_internal=is_internal,
         model=model_name,
         provider=resolve_provider(model_name),
-        is_robusta_model=getattr(request_ai.llm, "is_robusta_model", False),
+        is_robusta_model=request_ai.llm.is_robusta_model,
         meta=merged_meta,
     )
 

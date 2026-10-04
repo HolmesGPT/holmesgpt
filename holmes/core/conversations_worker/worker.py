@@ -50,6 +50,7 @@ from holmes.core.usage_recorder import (
     stream_with_usage_recording,
 )
 from holmes.utils.holmes_status import update_holmes_status_in_db
+from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 from holmes.utils.stream import StreamEvents
 
 if TYPE_CHECKING:
@@ -1150,7 +1151,7 @@ class ConversationWorker:
                 tracer=server_tracer,
                 tool_results_dir=tool_results_dir,
             )
-            is_robusta_model = bool(getattr(ai.llm, "is_robusta_model", False))
+            is_robusta_model = ai.llm.is_robusta_model
 
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:
@@ -1275,6 +1276,22 @@ class ConversationWorker:
         except ConversationReassignedError as e:
             logging.warning(
                 "Conversation %s was reassigned: %s", task.conversation_id, e
+            )
+        except RelayRefusal as e:
+            # The platform refused the call on a Robusta-hosted model. Its
+            # sentence is what the user has to act on, and the error code says
+            # which refusal it was (ROB-1389).
+            logging.warning(
+                "Relay refused the chat for conversation %s (status %s): %s",
+                task.conversation_id,
+                e.status_code,
+                e,
+            )
+            self._fail_conversation(
+                task,
+                str(e),
+                error_code=RELAY_REFUSAL_ERROR_CODES[e.status_code],
+                raw_error=str(e),
             )
         except Exception as e:
             logging.exception(

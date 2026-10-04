@@ -129,67 +129,41 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Sentry auth token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic sentry-mcp-token \
+    kubectl create secret generic holmes-sentry-mcp \
       --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
       sentry:
         enabled: true
         auth:
-          secretName: "sentry-mcp-token"
+          secretName: "holmes-sentry-mcp"
     ```
 
-    To customize how Holmes uses Sentry, you can provide your own LLM instructions:
-
-    ```yaml
-    mcpAddons:
-      sentry:
-        enabled: true
-        auth:
-          secretName: "sentry-mcp-token"
-        llmInstructions: |
-          Use the Sentry MCP to investigate application errors and crashes.
-          When investigating, always start by listing projects, then search for relevant issues,
-          and retrieve full stack traces before drawing conclusions.
-    ```
-
-    For self-hosted Sentry, add the host configuration:
-
-    ```yaml
-    mcpAddons:
-      sentry:
-        enabled: true
-        auth:
-          secretName: "sentry-mcp-token"
-        config:
-          host: "https://sentry.mycompany.com"
-    ```
-
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    First, create a Kubernetes secret with your Sentry auth token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic sentry-mcp-token \
+    kubectl create secret generic holmes-sentry-mcp \
       --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -197,13 +171,111 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
         sentry:
           enabled: true
           auth:
-            secretName: "sentry-mcp-token"
+            secretName: "holmes-sentry-mcp"
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Custom LLM Instructions
+
+Reuses the `holmes-sentry-mcp` secret created in the [Configuration](#configuration) section above.
+
+To customize how Holmes uses Sentry, you can provide your own LLM instructions:
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      sentry:
+        enabled: true
+        auth:
+          secretName: "holmes-sentry-mcp"
+        llmInstructions: |
+          Use the Sentry MCP to investigate application errors and crashes.
+          When investigating, always start by listing projects, then search for relevant issues,
+          and retrieve full stack traces before drawing conclusions.
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        sentry:
+          enabled: true
+          auth:
+            secretName: "holmes-sentry-mcp"
+          llmInstructions: |
+            Use the Sentry MCP to investigate application errors and crashes.
+            When investigating, always start by listing projects, then search for relevant issues,
+            and retrieve full stack traces before drawing conclusions.
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Self-Hosted Sentry
+
+Reuses the `holmes-sentry-mcp` secret created in the [Configuration](#configuration) section above.
+
+For self-hosted Sentry, add the host configuration:
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      sentry:
+        enabled: true
+        auth:
+          secretName: "holmes-sentry-mcp"
+        config:
+          host: "https://sentry.mycompany.com"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        sentry:
+          enabled: true
+          auth:
+            secretName: "holmes-sentry-mcp"
+          config:
+            host: "https://sentry.mycompany.com"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Available Tools
