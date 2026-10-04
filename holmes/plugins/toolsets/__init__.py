@@ -55,7 +55,8 @@ from holmes.plugins.toolsets.investigator.core_investigation import (
 from holmes.plugins.toolsets.kafka import KafkaToolset
 from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
-from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.plugins.toolsets.mcp.aws_mcp import AwsMCPToolset
+from holmes.plugins.toolsets.mcp.toolset_mcp import MCPMode, RemoteMCPToolset
 from holmes.plugins.toolsets.multi_instance import multi_instance
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
@@ -221,6 +222,11 @@ def _make_invalid_toolset_placeholder(
     return placeholder
 
 
+def _mcp_mode(config: dict[str, Any]) -> Optional[str]:
+    mcp_config = config.get("config")
+    return mcp_config.get("mode") if isinstance(mcp_config, dict) else None
+
+
 def load_toolsets_from_config(
     toolsets: dict[str, dict[str, Any]],
     strict_check: bool = True,
@@ -267,7 +273,8 @@ def load_toolsets_from_config(
             validated_toolset: Optional[Toolset] = None
             # MCP server is not a built-in toolset, so we need to set the type explicitly
             if toolset_type == ToolsetType.MCP.value:
-                validated_toolset = RemoteMCPToolset(**config, name=name)
+                mcp_class = AwsMCPToolset if _mcp_mode(config) == MCPMode.AWS.value else RemoteMCPToolset
+                validated_toolset = mcp_class(**config, name=name)
             elif toolset_type == ToolsetType.HTTP.value:
                 validated_toolset = HttpToolset(name=name, **config)
             elif toolset_type == ToolsetType.DATABASE.value:
