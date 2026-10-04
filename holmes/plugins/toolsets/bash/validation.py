@@ -14,7 +14,11 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 from holmes.common.env_vars import HOLMES_TOOL_RESULT_STORAGE_PATH, load_bool
-
+from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
+from holmes.plugins.toolsets.bash.command_arg_rules import (
+    dangerous_argv_reason,
+    is_argv_checked_command,
+)
 from holmes.plugins.toolsets.bash.common.config import (
     HARDCODED_BLOCKS,
     BashExecutorConfig,
@@ -23,11 +27,6 @@ from holmes.plugins.toolsets.bash.common.default_lists import (
     CORE_ALLOW_LIST,
     DEFAULT_DENY_LIST,
     EXTENDED_ALLOW_LIST,
-)
-from holmes.plugins.toolsets.bash.argv_utils import is_benign_redirect_target
-from holmes.plugins.toolsets.bash.command_arg_rules import (
-    dangerous_argv_reason,
-    is_argv_checked_command,
 )
 from holmes.plugins.toolsets.bash.shell_parser import (
     ParsedCommand,
@@ -146,7 +145,10 @@ def parse_command_segments(command: str) -> Tuple[List[str], bool]:
 
 def _unsafe_args_approval_mode() -> bool:
     # Unknown/empty values fail safe to the strict "deny" behaviour.
-    return os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower() == "approval"
+    return (
+        os.environ.get("HOLMES_BASH_UNSAFE_ARGS_MODE", "deny").strip().lower()
+        == "approval"
+    )
 
 
 def _unsafe_arg_result(reason: str, approval_mode: bool) -> ValidationResult:
@@ -252,7 +254,9 @@ def check_hardcoded_blocks(segment: str) -> Optional[str]:
     return None
 
 
-def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optional[str]:
+def check_blocked_in_raw_command(
+    command: str, blocked_list: List[str]
+) -> Optional[str]:
     """
     Check for blocked patterns anywhere in a raw command string using word boundaries.
 
@@ -275,7 +279,20 @@ def check_blocked_in_raw_command(command: str, blocked_list: List[str]) -> Optio
 
 # Words that start a command without being its name (`do find ...`, `! find ...`).
 _RAW_LEADING_KEYWORDS = frozenset(
-    {"!", "{", "}", "do", "then", "else", "elif", "if", "while", "until", "time", "coproc"}
+    {
+        "!",
+        "{",
+        "}",
+        "do",
+        "then",
+        "else",
+        "elif",
+        "if",
+        "while",
+        "until",
+        "time",
+        "coproc",
+    }
 )
 _RAW_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _RAW_OPERATOR_CHARS = "();<>|&"
@@ -296,12 +313,19 @@ def _strip_heredoc_bodies(command: str) -> str:
     while i < len(lines):
         out.append(lines[i])
         # a `<<` inside quotes is not a heredoc
-        heredocs = [m.groups() for m in _RAW_HEREDOC.finditer(lines[i])
-                    if lines[i][: m.start()].count("'") % 2 == 0 and lines[i][: m.start()].count('"') % 2 == 0]
+        heredocs = [
+            m.groups()
+            for m in _RAW_HEREDOC.finditer(lines[i])
+            if lines[i][: m.start()].count("'") % 2 == 0
+            and lines[i][: m.start()].count('"') % 2 == 0
+        ]
         i += 1
         for strip_tabs, quote, delimiter in heredocs:
             end = i
-            while end < len(lines) and (lines[end].lstrip("\t") if strip_tabs else lines[end]) != delimiter:
+            while (
+                end < len(lines)
+                and (lines[end].lstrip("\t") if strip_tabs else lines[end]) != delimiter
+            ):
                 end += 1
             body = lines[i:end]
             if not quote and any(re.search(r"`|\$\(", line) for line in body):
@@ -316,7 +340,11 @@ def _raw_tokens(command: str) -> List[str]:
     """Best-effort shell tokenization for commands shell_parser can't parse.
     Lines that can't be tokenized (e.g. unbalanced quotes) are skipped. Escaped
     operator characters stay hidden in the tokens (see _RAW_ESCAPED)."""
-    hidden = re.sub(r"\\([();<>|&])", lambda m: _RAW_ESCAPED[m.group(1)], _strip_heredoc_bodies(command))
+    hidden = re.sub(
+        r"\\([();<>|&])",
+        lambda m: _RAW_ESCAPED[m.group(1)],
+        _strip_heredoc_bodies(command),
+    )
     tokens: List[str] = []
     for chunk in [hidden] + hidden.splitlines():
         lexer = shlex.shlex(chunk, posix=True, punctuation_chars=_RAW_OPERATOR_CHARS)
@@ -349,7 +377,13 @@ def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
         nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
         argv = argvs[-1]
         is_operator = bool(tok) and all(c in _RAW_OPERATOR_CHARS for c in tok)
-        if tok.endswith("$") and nxt.startswith("((") or mode == "cmd" and not argv and tok.startswith("(("):
+        if (
+            tok.endswith("$")
+            and nxt.startswith("((")
+            or mode == "cmd"
+            and not argv
+            and tok.startswith("((")
+        ):
             # arithmetic: `>` and `<` inside compare
             opener = nxt if tok.endswith("$") else tok
             if tok.endswith("$"):
@@ -387,8 +421,12 @@ def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
         if is_operator:
             if ">" in tok:
                 op = tok[tok.index(">") - 1 :] if tok.index(">") > 0 else tok
-                is_fd = ("&" in op or op.startswith("<")) and (nxt.isdigit() or nxt == "-")
-                if not is_fd and not is_benign_redirect_target(nxt.translate(_RAW_UNESCAPE)):
+                is_fd = ("&" in op or op.startswith("<")) and (
+                    nxt.isdigit() or nxt == "-"
+                )
+                if not is_fd and not is_benign_redirect_target(
+                    nxt.translate(_RAW_UNESCAPE)
+                ):
                     targets.append(nxt.translate(_RAW_UNESCAPE))
                 i += 2
                 continue
@@ -406,7 +444,9 @@ def _raw_argvs(command: str) -> Tuple[List[List[str]], List[str]]:
             i += 1  # fd number of a redirect, e.g. the `2` in `2>&1`
             continue
         word = tok.strip("`").lstrip("$").translate(_RAW_UNESCAPE)
-        if tok != "$" and not (not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))):
+        if tok != "$" and not (
+            not argv and (word in _RAW_LEADING_KEYWORDS or _RAW_ASSIGNMENT.match(word))
+        ):
             argv.append(word)
         i += 1
     return argvs, targets

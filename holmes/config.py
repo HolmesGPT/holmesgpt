@@ -4,8 +4,6 @@ import os.path
 import threading
 from enum import Enum
 from pathlib import Path
-
-display_logger = logging.getLogger("holmes.display.config")
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import sentry_sdk
@@ -59,6 +57,7 @@ from holmes.utils.pydantic_utils import (
     parse_model_from_file,
 )
 
+display_logger = logging.getLogger("holmes.display.config")
 
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
 
@@ -936,7 +935,12 @@ class SourceFactory(BaseModel):
         from holmes.plugins.sources.jira import JiraServiceManagementSource
         from holmes.plugins.sources.pagerduty import PagerDutySource
 
-        TicketSource.model_rebuild()
+        TicketSource.model_rebuild(
+            _types_namespace={
+                "JiraServiceManagementSource": JiraServiceManagementSource,
+                "PagerDutySource": PagerDutySource,
+            }
+        )
         supported_sources = [s.value for s in SupportedTicketSources]
         if source not in supported_sources:
             raise ValueError(

@@ -27,7 +27,11 @@ def test_build_json_formatter_emits_valid_json():
 
 def test_endpoint_filter_drops_matching_path():
     filt = EndpointFilter(path="/healthz")
-    healthz = logging.LogRecord("x", logging.INFO, "x", 0, "GET /healthz 200", None, None)
-    other = logging.LogRecord("x", logging.INFO, "x", 0, "GET /api/chat 200", None, None)
+    healthz = logging.LogRecord(
+        "x", logging.INFO, "x", 0, "GET /healthz 200", None, None
+    )
+    other = logging.LogRecord(
+        "x", logging.INFO, "x", 0, "GET /api/chat 200", None, None
+    )
     assert filt.filter(healthz) is False
     assert filt.filter(other) is True

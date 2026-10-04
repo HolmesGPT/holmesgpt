@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from holmes.core.tools import (
     StructuredToolResultStatus,
 )
-from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig, GrafanaTempoLabelsConfig
+from holmes.plugins.toolsets.grafana.common import GrafanaTempoConfig
 from holmes.plugins.toolsets.grafana.toolset_grafana_tempo import (
     FetchTracesSimpleComparison,
     GrafanaTempoToolset,
@@ -470,9 +470,7 @@ def test_build_k8s_filters_after_prerequisites_callable():
         "grafana_datasource_uid": "tempo_uid",
     }
 
-    with patch(
-        "holmes.plugins.toolsets.grafana.toolset_grafana_tempo.GrafanaTempoAPI"
-    ):
+    with patch("holmes.plugins.toolsets.grafana.toolset_grafana_tempo.GrafanaTempoAPI"):
         toolset.prerequisites_callable(config)
 
     # This is the call path that failed with:

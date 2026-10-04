@@ -73,7 +73,9 @@ def test_401_clears_stale_user_tools(patched_manager):
 
     connector = OAuthToolConnector()
     toolset = _make_toolset()
-    stale_tool = MagicMock(); stale_tool.name = "k8s_list_pods"; stale_tool.toolset = toolset
+    stale_tool = MagicMock()
+    stale_tool.name = "k8s_list_pods"
+    stale_tool.toolset = toolset
     connector.store_user_tools("u1", "k8s", [stale_tool])
 
     assert connector._user_tools["u1"]["k8s"] == [stale_tool]
@@ -81,12 +83,12 @@ def test_401_clears_stale_user_tools(patched_manager):
 
     connector.load_tools_for_user("u1", toolset, {"user_id": "u1"})
 
-    assert "k8s" not in connector._user_tools.get("u1", {}), (
-        "stale tools should be cleared from _user_tools on 401"
-    )
-    assert "k8s_list_pods" not in connector._user_tool_to_toolset.get("u1", {}), (
-        "stale tool->toolset mapping should be cleared on 401"
-    )
+    assert "k8s" not in connector._user_tools.get(
+        "u1", {}
+    ), "stale tools should be cleared from _user_tools on 401"
+    assert "k8s_list_pods" not in connector._user_tool_to_toolset.get(
+        "u1", {}
+    ), "stale tool->toolset mapping should be cleared on 401"
 
 
 def test_401_clears_mapping_when_stored_under_different_instance(patched_manager):
@@ -110,6 +112,6 @@ def test_401_clears_mapping_when_stored_under_different_instance(patched_manager
 
     connector.load_tools_for_user("u1", new_toolset, {"user_id": "u1"})
 
-    assert "k8s_list_pods" not in connector._user_tool_to_toolset.get("u1", {}), (
-        "mapping under old instance should still be evicted via name match"
-    )
+    assert "k8s_list_pods" not in connector._user_tool_to_toolset.get(
+        "u1", {}
+    ), "mapping under old instance should still be evicted via name match"

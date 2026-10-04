@@ -40,7 +40,6 @@ from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import (
 )
 from holmes.plugins.toolsets.kubectl_run.validation import validate_image_and_commands
 
-
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #
 # --------------------------------------------------------------------------- #

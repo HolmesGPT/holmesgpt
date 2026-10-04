@@ -128,9 +128,7 @@ def test_loader_failure_never_raises_and_skips_the_write(monkeypatch, tmp_path: 
     def boom(*_args, **_kwargs):
         raise RuntimeError("loader exploded")
 
-    monkeypatch.setattr(
-        "holmes.utils.holmes_sync_skills.load_filesystem_skills", boom
-    )
+    monkeypatch.setattr("holmes.utils.holmes_sync_skills.load_filesystem_skills", boom)
 
     holmes_sync_skills_status(dal, _config([tmp_path]))
 

@@ -10,7 +10,6 @@ from holmes.plugins.skills.skill_loader import (
     scan_skill_directory,
 )
 
-
 SKILL_BODY = "---\n" "description: Test skill {name}\n" "---\n" "## Goal\n" "Test\n"
 
 
@@ -235,7 +234,9 @@ class TestLoadFilesystemSkills:
         assert loaded.sources_ok is False
         assert loaded.skills == []
 
-    def test_unparseable_skill_is_named_and_does_not_block_pruning(self, tmp_path: Path):
+    def test_unparseable_skill_is_named_and_does_not_block_pruning(
+        self, tmp_path: Path
+    ):
         """A malformed SKILL.md is a KNOWN failure: we can say exactly which skill is broken.
 
         So it is reported as a named problem the caller can surface as a row, and it must
@@ -257,7 +258,9 @@ class TestLoadFilesystemSkills:
     def test_unnamed_problems_are_not_reported_as_failed_skills(self, tmp_path: Path):
         """The complement: an unreadable path cannot be attributed to a skill, so it blocks
         pruning and must not produce a row claiming some skill failed."""
-        loaded = load_filesystem_skills(custom_skill_paths=[tmp_path / "does-not-exist"])
+        loaded = load_filesystem_skills(
+            custom_skill_paths=[tmp_path / "does-not-exist"]
+        )
 
         assert loaded.sources_ok is False
         assert loaded.failed_skills == []
@@ -291,9 +294,7 @@ class TestLoadFilesystemSkills:
         good = tmp_path / "good"
         _write_skill(good / "alpha", "alpha")
 
-        loaded = load_filesystem_skills(
-            custom_skill_paths=[good, tmp_path / "missing"]
-        )
+        loaded = load_filesystem_skills(custom_skill_paths=[good, tmp_path / "missing"])
 
         assert loaded.sources_ok is False
         assert [s.name for s in loaded.skills] == ["alpha"]

@@ -21,9 +21,12 @@ NODE = "ip-10-0-42-17.eu-west-1.compute.internal"
 # whole channel (including the alert) — the eval measures WHETHER Holmes reads
 # the channel, not how deep it pages.
 _CHANNEL = [
-    ("U0ALERTMANAGER", ":rotating_light: *NodeDiskError*: node `" + NODE + "` — "
-     "root filesystem is 100% full, kubelet is reporting DiskPressure and has "
-     "started evicting pods."),
+    (
+        "U0ALERTMANAGER",
+        ":rotating_light: *NodeDiskError*: node `" + NODE + "` — "
+        "root filesystem is 100% full, kubelet is reporting DiskPressure and has "
+        "started evicting pods.",
+    ),
     ("U0ALICE", "ack — taking a look"),
     ("U0BOB", "pods are stuck ContainerCreating on it"),
     ("U0ALICE", "let's cordon it first so nothing new lands there"),
@@ -58,7 +61,9 @@ def _parse_cursor(cursor: Optional[str]) -> int:
         return 0
 
 
-@mcp.tool(name="read_slack_channel_history_by_id", description=(
+@mcp.tool(
+    name="read_slack_channel_history_by_id",
+    description=(
         "Read a page of messages from a Slack channel, newest first, going "
         "backwards in time from latest_ts (or from now if omitted). Wraps the "
         "Slack conversations.history API; each message includes reply_count so "
@@ -68,17 +73,26 @@ def _parse_cursor(cursor: Optional[str]) -> int:
         "tools or asking the user — to recover it from the earlier messages."
     ),
 )
-def read_slack_channel_history_by_id(channel_id: str, latest_ts: Optional[str] = None,
-        inclusive: bool = True, limit: int = 10, cursor: Optional[str] = None) -> str:
+def read_slack_channel_history_by_id(
+    channel_id: str,
+    latest_ts: Optional[str] = None,
+    inclusive: bool = True,
+    limit: int = 10,
+    cursor: Optional[str] = None,
+) -> str:
     if channel_id != CHANNEL_ID:
         return json.dumps({"ok": False, "error": "channel_not_found"})
     limit = min(int(limit), 999)
     msgs = sorted(_CHANNEL_MESSAGES, key=lambda m: float(m["ts"]), reverse=True)
     if latest_ts:
         latest = float(latest_ts)
-        msgs = [m for m in msgs if (float(m["ts"]) <= latest if inclusive else float(m["ts"]) < latest)]
+        msgs = [
+            m
+            for m in msgs
+            if (float(m["ts"]) <= latest if inclusive else float(m["ts"]) < latest)
+        ]
     offset = _parse_cursor(cursor)
-    window = msgs[offset:offset + limit]
+    window = msgs[offset : offset + limit]
     has_more = offset + limit < len(msgs)
     resp = {"ok": True, "messages": window, "has_more": has_more}
     if has_more:
@@ -86,13 +100,21 @@ def read_slack_channel_history_by_id(channel_id: str, latest_ts: Optional[str] =
     return json.dumps(resp)
 
 
-@mcp.tool(name="read_slack_channel_thread_by_id", description=(
+@mcp.tool(
+    name="read_slack_channel_thread_by_id",
+    description=(
         "Read the replies in a Slack thread (Slack conversations.replies). "
         "thread_ts is the ts of the thread's parent message."
     ),
 )
-def read_slack_channel_thread_by_id(channel_id: str, thread_ts: str, inclusive: bool = True,
-        latest_ts: Optional[str] = None, limit: int = 10, cursor: Optional[str] = None) -> str:
+def read_slack_channel_thread_by_id(
+    channel_id: str,
+    thread_ts: str,
+    inclusive: bool = True,
+    latest_ts: Optional[str] = None,
+    limit: int = 10,
+    cursor: Optional[str] = None,
+) -> str:
     if channel_id != CHANNEL_ID:
         return json.dumps({"ok": False, "error": "channel_not_found"})
     parent = next((m for m in _CHANNEL_MESSAGES if m["ts"] == thread_ts), None)

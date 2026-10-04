@@ -117,16 +117,26 @@ def _coerce_single_value(
             parsed = None
 
         if expected == "array" and isinstance(parsed, list):
-            logger.debug("Coerced param '%s' from string to array for tool '%s'", name, tool_name)
+            logger.debug(
+                "Coerced param '%s' from string to array for tool '%s'", name, tool_name
+            )
             return parsed
         if expected == "object" and isinstance(parsed, dict):
-            logger.debug("Coerced param '%s' from string to object for tool '%s'", name, tool_name)
+            logger.debug(
+                "Coerced param '%s' from string to object for tool '%s'",
+                name,
+                tool_name,
+            )
             return parsed
 
     # --- Single value → array wrap ---
     # LLM sends "cpu" instead of ["cpu"].  Safe: wrapping never loses data.
     if expected == "array" and not isinstance(value, list):
-        logger.debug("Coerced param '%s' by wrapping single value in array for tool '%s'", name, tool_name)
+        logger.debug(
+            "Coerced param '%s' by wrapping single value in array for tool '%s'",
+            name,
+            tool_name,
+        )
         return [value]
 
     # --- Below this point: scalar coercions that strict mode skips. ---
@@ -141,7 +151,11 @@ def _coerce_single_value(
             # "3.7" should NOT silently become 3.
             if as_float == int(as_float):
                 coerced = int(as_float)
-                logger.debug("Coerced param '%s' from string to integer for tool '%s'", name, tool_name)
+                logger.debug(
+                    "Coerced param '%s' from string to integer for tool '%s'",
+                    name,
+                    tool_name,
+                )
                 return coerced
         except (ValueError, OverflowError):
             pass
@@ -151,7 +165,11 @@ def _coerce_single_value(
     if expected == "number" and isinstance(value, str):
         try:
             coerced = float(value)
-            logger.debug("Coerced param '%s' from string to number for tool '%s'", name, tool_name)
+            logger.debug(
+                "Coerced param '%s' from string to number for tool '%s'",
+                name,
+                tool_name,
+            )
             return coerced
         except (ValueError, OverflowError):
             pass
@@ -163,10 +181,18 @@ def _coerce_single_value(
     if expected == "boolean" and isinstance(value, str):
         lower = value.lower()
         if lower == "true":
-            logger.debug("Coerced param '%s' from string to boolean for tool '%s'", name, tool_name)
+            logger.debug(
+                "Coerced param '%s' from string to boolean for tool '%s'",
+                name,
+                tool_name,
+            )
             return True
         if lower == "false":
-            logger.debug("Coerced param '%s' from string to boolean for tool '%s'", name, tool_name)
+            logger.debug(
+                "Coerced param '%s' from string to boolean for tool '%s'",
+                name,
+                tool_name,
+            )
             return False
         return value
 

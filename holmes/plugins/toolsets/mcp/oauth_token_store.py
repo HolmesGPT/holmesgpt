@@ -123,9 +123,14 @@ class OAuthTokenCache:
             refresh_expires_at = now + max(refresh_ttl - 30, 10)
         with self._lock:
             self._cache[key] = _CachedToken(
-                access_token, access_expires_at, refresh_token, refresh_expires_at,
-                token_url=token_url, client_id=client_id,
-                authorization_url=authorization_url, user_id=user_id,
+                access_token,
+                access_expires_at,
+                refresh_token,
+                refresh_expires_at,
+                token_url=token_url,
+                client_id=client_id,
+                authorization_url=authorization_url,
+                user_id=user_id,
                 resource=resource,
             )
 
@@ -134,12 +139,15 @@ class OAuthTokenCache:
         with self._lock:
             self._cache.pop(key, None)
 
-    def get_expiring_entries(self, within_seconds: int) -> list[tuple[str, "_CachedToken"]]:
+    def get_expiring_entries(
+        self, within_seconds: int
+    ) -> list[tuple[str, "_CachedToken"]]:
         """Return (key, entry) pairs for tokens whose access expires within the given window."""
         threshold = time.monotonic() + within_seconds
         with self._lock:
             return [
-                (key, entry) for key, entry in self._cache.items()
+                (key, entry)
+                for key, entry in self._cache.items()
                 if entry.expires_at <= threshold
             ]
 
@@ -197,7 +205,6 @@ class TokenStore(ABC):
         """
 
 
-
 # ── DB-backed token store ─────────────────────────────────────────────────
 
 
@@ -229,7 +236,9 @@ class DalTokenStore(TokenStore):
             providers_to_try.append("unknown")
 
         for provider in providers_to_try:
-            db_record = self._dal.get_oauth_token(provider, user_id=user_id, signing_key_hash=signing_key_hash)
+            db_record = self._dal.get_oauth_token(
+                provider, user_id=user_id, signing_key_hash=signing_key_hash
+            )
             if not db_record:
                 continue
 
@@ -240,7 +249,9 @@ class DalTokenStore(TokenStore):
                 if token_expiry_str:
                     try:
                         token_expiry = datetime.fromisoformat(token_expiry_str)
-                        remaining = (token_expiry - datetime.now(timezone.utc)).total_seconds()
+                        remaining = (
+                            token_expiry - datetime.now(timezone.utc)
+                        ).total_seconds()
                         token_data["_remaining_ttl"] = max(int(remaining), 1)
                     except (ValueError, TypeError):
                         pass
@@ -278,7 +289,10 @@ class DalTokenStore(TokenStore):
             # Store access token expiry so preload can compute remaining TTL
             expiry = None
             if token_data.get("expires_in"):
-                expiry = (datetime.now(timezone.utc) + timedelta(seconds=token_data["expires_in"])).isoformat()
+                expiry = (
+                    datetime.now(timezone.utc)
+                    + timedelta(seconds=token_data["expires_in"])
+                ).isoformat()
 
             self._dal.upsert_oauth_token(
                 provider_name=provider_name or "unknown",
@@ -287,7 +301,9 @@ class DalTokenStore(TokenStore):
                 token_expiry=expiry,
                 user_id=user_id,
             )
-            logger.debug("Token stored to DB (provider=%s, user_id=%s)", provider_name, user_id)
+            logger.debug(
+                "Token stored to DB (provider=%s, user_id=%s)", provider_name, user_id
+            )
             return True
         except Exception:
             logger.warning("Failed to store token to DB", exc_info=True)
@@ -303,7 +319,11 @@ class DalTokenStore(TokenStore):
             self._dal.delete_oauth_token(provider_name, user_id, signing_key_hash)
             return True
         except Exception:
-            logger.warning("Failed to delete token from DB (provider=%s)", provider_name, exc_info=True)
+            logger.warning(
+                "Failed to delete token from DB (provider=%s)",
+                provider_name,
+                exc_info=True,
+            )
             return False
 
     def get_all_for_preload(self) -> List[Dict[str, Any]]:
@@ -320,12 +340,14 @@ class DalTokenStore(TokenStore):
             token_data = self._decrypt_token(row["encrypted_token"])
             if not token_data or not token_data.get("access_token"):
                 continue
-            results.append({
-                "provider_name": row.get("provider_name", ""),
-                "user_id": row.get("user_id"),
-                "token_data": token_data,
-                "token_expiry": row.get("token_expiry"),
-            })
+            results.append(
+                {
+                    "provider_name": row.get("provider_name", ""),
+                    "user_id": row.get("user_id"),
+                    "token_data": token_data,
+                    "token_expiry": row.get("token_expiry"),
+                }
+            )
         return results
 
     # ── Encryption helpers ─────────────────────────────────────────────
@@ -333,6 +355,7 @@ class DalTokenStore(TokenStore):
     @staticmethod
     def _get_signing_key() -> Optional[str]:
         from holmes.config import Config
+
         return Config.get_robusta_global_config_value("signing_key")
 
     def _get_signing_key_hash(self) -> Optional[str]:
@@ -344,22 +367,32 @@ class DalTokenStore(TokenStore):
     @staticmethod
     def _derive_fernet_key(signing_key: str) -> bytes:
         return base64.urlsafe_b64encode(
-            HKDF(algorithm=SHA256(), length=32, salt=b"holmesgpt-oauth-db-token", info=b"token-encryption")
-            .derive(signing_key.encode())
+            HKDF(
+                algorithm=SHA256(),
+                length=32,
+                salt=b"holmesgpt-oauth-db-token",
+                info=b"token-encryption",
+            ).derive(signing_key.encode())
         )
 
     def _encrypt_token(self, token_data: Dict[str, Any]) -> Optional[str]:
         signing_key = self._get_signing_key()
         if not signing_key:
             return None
-        return Fernet(self._derive_fernet_key(signing_key)).encrypt(json.dumps(token_data).encode()).decode()
+        return (
+            Fernet(self._derive_fernet_key(signing_key))
+            .encrypt(json.dumps(token_data).encode())
+            .decode()
+        )
 
     def _decrypt_token(self, encrypted: str) -> Optional[Dict[str, Any]]:
         signing_key = self._get_signing_key()
         if not signing_key:
             return None
         try:
-            decrypted = Fernet(self._derive_fernet_key(signing_key)).decrypt(encrypted.encode())
+            decrypted = Fernet(self._derive_fernet_key(signing_key)).decrypt(
+                encrypted.encode()
+            )
             return json.loads(decrypted)
         except Exception:
             logger.warning("Failed to decrypt token from DB (signing_key mismatch?)")
@@ -448,13 +481,17 @@ class DiskTokenStore(TokenStore):
         results = []
         now = time.time()
         for key, token_data in data.items():
-            if token_data.get("expires_at", float("inf")) > now and token_data.get("access_token"):
-                results.append({
-                    "provider_name": key,
-                    "user_id": DEFAULT_CLI_USER,
-                    "token_data": token_data,
-                    "token_expiry": None,
-                })
+            if token_data.get("expires_at", float("inf")) > now and token_data.get(
+                "access_token"
+            ):
+                results.append(
+                    {
+                        "provider_name": key,
+                        "user_id": DEFAULT_CLI_USER,
+                        "token_data": token_data,
+                        "token_expiry": None,
+                    }
+                )
         return results
 
     def _load(self) -> Dict[str, Any]:

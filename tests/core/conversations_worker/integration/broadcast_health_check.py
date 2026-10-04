@@ -11,6 +11,7 @@ Run:
 
 Requires: ROBUSTA_UI_TOKEN, CLUSTER_NAME
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -76,13 +77,15 @@ def _setup_broadcast():
         global broadcast_ch
         store_url = decoded["store_url"].rstrip("/")
         if store_url.startswith("https://"):
-            ws_url = "wss://" + store_url[len("https://"):]
+            ws_url = "wss://" + store_url[len("https://") :]
         else:
-            ws_url = "ws://" + store_url[len("http://"):]
+            ws_url = "ws://" + store_url[len("http://") :]
         ws_url = f"{ws_url}/realtime/v1"
 
         topic = broadcast_submit_topic(account_id, cluster_id)
-        rt = AsyncRealtimeClient(url=ws_url, token=decoded["api_key"], auto_reconnect=True)
+        rt = AsyncRealtimeClient(
+            url=ws_url, token=decoded["api_key"], auto_reconnect=True
+        )
         await rt.connect()
         # Authenticate as the signed-in user so the realtime.messages RLS
         # policies on the private channel resolve. Without this the join
@@ -120,7 +123,9 @@ if broadcast_ch is None:
 
 def send_broadcast(conversation_id: str):
     future = asyncio.run_coroutine_threadsafe(
-        broadcast_ch.send_broadcast("pending_conversations", {"conversation_id": conversation_id}),
+        broadcast_ch.send_broadcast(
+            "pending_conversations", {"conversation_id": conversation_id}
+        ),
         broadcast_loop,
     )
     future.result(timeout=5)
@@ -132,19 +137,23 @@ created_ids = []
 
 def create_conversation(label: str) -> dict:
     now_iso = datetime.now(timezone.utc).isoformat()
-    conv = client.rpc(
-        "post_new_conversation",
-        {
-            "_account_id": account_id,
-            "_cluster_id": cluster_id,
-            "_origin": "chat",
-            "_user_id": user_id,
-            "_title": f"broadcast-health: {label}",
-            "_initial_events": [
-                {"event": "user_message", "data": {"ask": "Say ok."}, "ts": now_iso}
-            ],
-        },
-    ).execute().data
+    conv = (
+        client.rpc(
+            "post_new_conversation",
+            {
+                "_account_id": account_id,
+                "_cluster_id": cluster_id,
+                "_origin": "chat",
+                "_user_id": user_id,
+                "_title": f"broadcast-health: {label}",
+                "_initial_events": [
+                    {"event": "user_message", "data": {"ask": "Say ok."}, "ts": now_iso}
+                ],
+            },
+        )
+        .execute()
+        .data
+    )
     created_ids.append(conv["conversation_id"])
     return conv
 
@@ -153,9 +162,14 @@ def wait_for_claim(conversation_id: str, timeout: float = 150) -> float:
     """Wait until conversation leaves 'pending' status. Return seconds elapsed."""
     start = time.time()
     while time.time() - start < timeout:
-        conv = client.table("Conversations").select("status").eq(
-            "conversation_id", conversation_id
-        ).single().execute().data
+        conv = (
+            client.table("Conversations")
+            .select("status")
+            .eq("conversation_id", conversation_id)
+            .single()
+            .execute()
+            .data
+        )
         if conv["status"] != "pending":
             return time.time() - start
         time.sleep(0.5)
@@ -165,17 +179,25 @@ def wait_for_claim(conversation_id: str, timeout: float = 150) -> float:
 def cleanup():
     for cid in created_ids:
         try:
-            conv = client.table("Conversations").select("status").eq(
-                "conversation_id", cid
-            ).single().execute().data
+            conv = (
+                client.table("Conversations")
+                .select("status")
+                .eq("conversation_id", cid)
+                .single()
+                .execute()
+                .data
+            )
             if conv["status"] in ("pending", "queued", "running"):
-                client.rpc("stop_conversation", {
-                    "_conversation_id": cid, "_account_id": account_id
-                }).execute()
+                client.rpc(
+                    "stop_conversation",
+                    {"_conversation_id": cid, "_account_id": account_id},
+                ).execute()
         except Exception:
             pass
         try:
-            client.table("ConversationEvents").delete().eq("conversation_id", cid).execute()
+            client.table("ConversationEvents").delete().eq(
+                "conversation_id", cid
+            ).execute()
             client.table("Conversations").delete().eq("conversation_id", cid).execute()
         except Exception:
             pass
@@ -190,7 +212,9 @@ results = []
 
 log.info(
     "Starting broadcast health check: %d checks over %.1f hours (every %d min)",
-    total_checks, TOTAL_DURATION_HOURS, CHECK_INTERVAL_MINUTES,
+    total_checks,
+    TOTAL_DURATION_HOURS,
+    CHECK_INTERVAL_MINUTES,
 )
 
 for i in range(1, total_checks + 1):
@@ -231,9 +255,17 @@ for label, claim_time, status in results:
         all_ok = False
 
 if all_ok:
-    log.info("RESULT: All %d checks received broadcast within %ds", len(results), BROADCAST_CLAIM_THRESHOLD_SECONDS)
+    log.info(
+        "RESULT: All %d checks received broadcast within %ds",
+        len(results),
+        BROADCAST_CLAIM_THRESHOLD_SECONDS,
+    )
 else:
     failures = sum(1 for _, _, s in results if s != "BROADCAST")
-    log.info("RESULT: %d/%d checks fell back to polling — broadcast subscription degraded", failures, len(results))
+    log.info(
+        "RESULT: %d/%d checks fell back to polling — broadcast subscription degraded",
+        failures,
+        len(results),
+    )
 
 cleanup()

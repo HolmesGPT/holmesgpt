@@ -1,13 +1,13 @@
 import json
 import logging
 import os
+import re
 import time
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, Union
 from urllib.parse import urljoin, urlparse
 
 import dateutil.parser
-import re
 import requests  # type: ignore
 from prometrix.auth import PrometheusAuthorization
 from prometrix.connect.aws_connect import AWSPrometheusConnect
@@ -19,7 +19,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from requests import RequestException
 from requests.exceptions import SSLError  # type: ignore
 
-from holmes.common.env_vars import IS_OPENSHIFT, MAX_GRAPH_POINTS, MAX_GRAPH_POINTS_HARD_LIMIT
+from holmes.common.env_vars import (
+    IS_OPENSHIFT,
+    MAX_GRAPH_POINTS,
+    MAX_GRAPH_POINTS_HARD_LIMIT,
+)
 from holmes.common.openshift import load_openshift_token
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -104,8 +108,12 @@ class PrometheusConfig(ToolsetConfig):
     """Prometheus toolset configuration."""
 
     _name: ClassVar[Optional[str]] = "Prometheus"
-    _description: ClassVar[Optional[str]] = "Connect to a self-hosted Prometheus server."
-    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to a self-hosted Prometheus server."
+    )
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "configuration"
     _subtype: ClassVar[Optional[str]] = PrometheusSubtype.PROMETHEUS.value
 
@@ -228,8 +236,12 @@ class CoralogixPrometheusConfig(PrometheusConfig):
     """Coralogix Prometheus-compatible endpoint configuration."""
 
     _name: ClassVar[Optional[str]] = "Coralogix"
-    _description: ClassVar[Optional[str]] = "Connect to Coralogix's Prometheus-compatible endpoint."
-    _icon_url: ClassVar[Optional[str]] = "https://avatars.githubusercontent.com/u/35295744?s=200&v=4"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to Coralogix's Prometheus-compatible endpoint."
+    )
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://avatars.githubusercontent.com/u/35295744?s=200&v=4"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "coralogix-prometheus"
     _subtype: ClassVar[Optional[str]] = PrometheusSubtype.CORALOGIX.value
 
@@ -259,10 +271,16 @@ class GooglePrometheusConfig(PrometheusConfig):
     """Google Managed Prometheus configuration."""
 
     _name: ClassVar[Optional[str]] = "Google Managed Prometheus"
-    _description: ClassVar[Optional[str]] = "Connect to Google Cloud Managed Prometheus using Workload Identity."
-    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/google-cloud.svg"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to Google Cloud Managed Prometheus using Workload Identity."
+    )
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/google-cloud.svg"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "google-managed-prometheus"
-    _subtype: ClassVar[Optional[str]] = PrometheusSubtype.GOOGLE_MANAGED_PROMETHEUS.value
+    _subtype: ClassVar[Optional[str]] = (
+        PrometheusSubtype.GOOGLE_MANAGED_PROMETHEUS.value
+    )
 
     prometheus_url: str = Field(  # type: ignore[assignment]
         title="URL",
@@ -277,8 +295,12 @@ class GrafanaCloudPrometheusConfig(PrometheusConfig):
     """Grafana Cloud (Mimir) Prometheus-compatible endpoint configuration."""
 
     _name: ClassVar[Optional[str]] = "Grafana Cloud"
-    _description: ClassVar[Optional[str]] = "Connect to Grafana Cloud's Prometheus (Mimir) endpoint."
-    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to Grafana Cloud's Prometheus (Mimir) endpoint."
+    )
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/grafana.svg"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "grafana-cloud-mimir"
     _subtype: ClassVar[Optional[str]] = PrometheusSubtype.GRAFANA_CLOUD.value
 
@@ -307,7 +329,9 @@ class VictoriaMetricsConfig(PrometheusConfig):
     _description: ClassVar[Optional[str]] = (
         "Connect to VictoriaMetrics, a Prometheus-compatible TSDB."
     )
-    _icon_url: ClassVar[Optional[str]] = "https://cdn.simpleicons.org/victoriametrics/621773"
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://cdn.simpleicons.org/victoriametrics/621773"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "configuration"
     _subtype: ClassVar[Optional[str]] = PrometheusSubtype.VICTORIAMETRICS.value
 
@@ -326,8 +350,12 @@ class VictoriaMetricsConfig(PrometheusConfig):
 
 class AMPConfig(PrometheusConfig):
     _name: ClassVar[Optional[str]] = "AWS Managed Prometheus"
-    _description: ClassVar[Optional[str]] = "Connect to AWS Managed Service for Prometheus using IAM credentials."
-    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/aws.svg"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to AWS Managed Service for Prometheus using IAM credentials."
+    )
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/aws.svg"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "aws-managed-prometheus-amp"
     _subtype: ClassVar[Optional[str]] = PrometheusSubtype.AWS_MANAGED_PROMETHEUS.value
 
@@ -387,8 +415,12 @@ class AMPConfig(PrometheusConfig):
 
 class AzurePrometheusConfig(PrometheusConfig):
     _name: ClassVar[Optional[str]] = "Azure Managed Prometheus"
-    _description: ClassVar[Optional[str]] = "Connect to Azure Monitor Managed Prometheus using Azure AD."
-    _icon_url: ClassVar[Optional[str]] = "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
+    _description: ClassVar[Optional[str]] = (
+        "Connect to Azure Monitor Managed Prometheus using Azure AD."
+    )
+    _icon_url: ClassVar[Optional[str]] = (
+        "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/microsoft-azure.svg"
+    )
     _docs_anchor: ClassVar[Optional[str]] = "azure-managed-prometheus"
     _subtype: ClassVar[Optional[str]] = PrometheusSubtype.AZURE_MANAGED_PROMETHEUS.value
     # These fields are Optional at the Pydantic level so managed identity
@@ -2012,9 +2044,39 @@ class ExecuteRangeQuery(BasePrometheusTool):
 
 class PrometheusToolset(Toolset):
     config_classes: ClassVar[
-        list[Type[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]]]
-    ] = [PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]
-    config: Optional[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]] = None
+        list[
+            Type[
+                Union[
+                    PrometheusConfig,
+                    CoralogixPrometheusConfig,
+                    GooglePrometheusConfig,
+                    GrafanaCloudPrometheusConfig,
+                    VictoriaMetricsConfig,
+                    AMPConfig,
+                    AzurePrometheusConfig,
+                ]
+            ]
+        ]
+    ] = [
+        PrometheusConfig,
+        CoralogixPrometheusConfig,
+        GooglePrometheusConfig,
+        GrafanaCloudPrometheusConfig,
+        VictoriaMetricsConfig,
+        AMPConfig,
+        AzurePrometheusConfig,
+    ]
+    config: Optional[
+        Union[
+            PrometheusConfig,
+            CoralogixPrometheusConfig,
+            GooglePrometheusConfig,
+            GrafanaCloudPrometheusConfig,
+            VictoriaMetricsConfig,
+            AMPConfig,
+            AzurePrometheusConfig,
+        ]
+    ] = None
 
     def __init__(self):
         super().__init__(
@@ -2184,10 +2246,7 @@ class PrometheusToolset(Toolset):
             # URL — Pydantic already rejected it. Restricting discovery to
             # the exact generic class avoids silently auto-filling a URL
             # for a variant whose user *wanted* an explicit value.
-            if (
-                not self.config.prometheus_url
-                and type(self.config) is PrometheusConfig
-            ):
+            if not self.config.prometheus_url and type(self.config) is PrometheusConfig:
                 discovered = (
                     os.environ.get("PROMETHEUS_URL")
                     or self.auto_detect_prometheus_url()

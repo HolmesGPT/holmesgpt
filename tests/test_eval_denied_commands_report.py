@@ -21,9 +21,7 @@ def _bash_tc(call_id, command, status, error=None):
         tool_call_id=call_id,
         tool_name="bash",
         description=command,
-        result=StructuredToolResult(
-            status=status, error=error, invocation=command
-        ),
+        result=StructuredToolResult(status=status, error=error, invocation=command),
     )
 
 

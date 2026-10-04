@@ -32,16 +32,23 @@ class TestGrafanaDashboards:
 
     def _mock(self, rsps):
         # health (/api/dashboards/tags) + search (/api/search) on both hosts
-        _reg(rsps, responses.GET, r"https://graf-(eu|us)\.example\.com/api/(dashboards/tags|search).*", [])
+        _reg(
+            rsps,
+            responses.GET,
+            r"https://graf-(eu|us)\.example\.com/api/(dashboards/tags|search).*",
+            [],
+        )
 
     def _build(self, rsps):
         self._mock(rsps)
         ts = multi_instance(GrafanaToolset)
         ok, _ = ts.prerequisites_callable(
-            {"instances": [
-                {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
-                {"name": "us", "api_url": self.US, "api_key": "k_us"},
-            ]}
+            {
+                "instances": [
+                    {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
+                    {"name": "us", "api_url": self.US, "api_key": "k_us"},
+                ]
+            }
         )
         assert ok is True
         return ts
@@ -64,12 +71,17 @@ class TestGrafanaDashboards:
             if not isinstance(tool, ListInstancesTool):
                 assert INSTANCE_PARAM_NAME in tool.parameters
 
-    @pytest.mark.parametrize("instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")])
+    @pytest.mark.parametrize(
+        "instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")]
+    )
     def test_each_instance_calls_its_own_grafana(self, instance, host, key):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
             tool = next(t for t in ts.tools if t.name == "grafana_search_dashboards")
-            tool.invoke({"query": "x", INSTANCE_PARAM_NAME: instance}, create_mock_tool_invoke_context())
+            tool.invoke(
+                {"query": "x", INSTANCE_PARAM_NAME: instance},
+                create_mock_tool_invoke_context(),
+            )
             last = rsps.calls[-1].request
             assert last.url.startswith(f"{host}/api/search")
             assert last.headers.get("Authorization") == f"Bearer {key}"
@@ -80,17 +92,29 @@ class TestGrafanaLoki:
     US = "http://loki-us.svc:3100"
 
     def _mock(self, rsps):
-        _reg(rsps, responses.GET, r"http://loki-(eu|us)\.svc:3100/loki/api/v1/.*", {"data": {"result": []}})
-        _reg(rsps, responses.POST, r"http://loki-(eu|us)\.svc:3100/loki/api/v1/.*", {"data": {"result": []}})
+        _reg(
+            rsps,
+            responses.GET,
+            r"http://loki-(eu|us)\.svc:3100/loki/api/v1/.*",
+            {"data": {"result": []}},
+        )
+        _reg(
+            rsps,
+            responses.POST,
+            r"http://loki-(eu|us)\.svc:3100/loki/api/v1/.*",
+            {"data": {"result": []}},
+        )
 
     def _build(self, rsps):
         self._mock(rsps)
         ts = multi_instance(GrafanaLokiToolset)
         ok, _ = ts.prerequisites_callable(
-            {"instances": [
-                {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
-                {"name": "us", "api_url": self.US, "api_key": "k_us"},
-            ]}
+            {
+                "instances": [
+                    {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
+                    {"name": "us", "api_url": self.US, "api_key": "k_us"},
+                ]
+            }
         )
         assert ok is True
         return ts
@@ -100,7 +124,9 @@ class TestGrafanaLoki:
             ts = self._build(rsps)
         assert any(t.name == "grafana_loki_list_instances" for t in ts.tools)
 
-    @pytest.mark.parametrize("instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")])
+    @pytest.mark.parametrize(
+        "instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")]
+    )
     def test_each_instance_calls_its_own_loki(self, instance, host, key):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
@@ -109,9 +135,15 @@ class TestGrafanaLoki:
                 {"query": '{job="x"}', INSTANCE_PARAM_NAME: instance},
                 create_mock_tool_invoke_context(),
             )
-            hosts = [c.request.url for c in rsps.calls if c.request.url.startswith(f"{host}/loki")]
+            hosts = [
+                c.request.url
+                for c in rsps.calls
+                if c.request.url.startswith(f"{host}/loki")
+            ]
             assert hosts, f"no call to {host}"
-            assert rsps.calls[-1].request.headers.get("Authorization") == f"Bearer {key}"
+            assert (
+                rsps.calls[-1].request.headers.get("Authorization") == f"Bearer {key}"
+            )
 
 
 class TestGrafanaBasicAuth:
@@ -129,7 +161,12 @@ class TestGrafanaBasicAuth:
     US = "https://gba-us.example.com"
 
     def _mock(self, rsps):
-        _reg(rsps, responses.GET, r"https://gba-(eu|us)\.example\.com/api/(dashboards/tags|search).*", [])
+        _reg(
+            rsps,
+            responses.GET,
+            r"https://gba-(eu|us)\.example\.com/api/(dashboards/tags|search).*",
+            [],
+        )
 
     def _build(self, rsps):
         self._mock(rsps)
@@ -152,7 +189,10 @@ class TestGrafanaBasicAuth:
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
             tool = next(t for t in ts.tools if t.name == "grafana_search_dashboards")
-            tool.invoke({"query": "x", INSTANCE_PARAM_NAME: "eu"}, create_mock_tool_invoke_context())
+            tool.invoke(
+                {"query": "x", INSTANCE_PARAM_NAME: "eu"},
+                create_mock_tool_invoke_context(),
+            )
             last = rsps.calls[-1].request
             assert last.headers.get("Authorization") == expected
 
@@ -160,7 +200,10 @@ class TestGrafanaBasicAuth:
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
             tool = next(t for t in ts.tools if t.name == "grafana_search_dashboards")
-            tool.invoke({"query": "x", INSTANCE_PARAM_NAME: "us"}, create_mock_tool_invoke_context())
+            tool.invoke(
+                {"query": "x", INSTANCE_PARAM_NAME: "us"},
+                create_mock_tool_invoke_context(),
+            )
             last = rsps.calls[-1].request
             # instance set its own api_key -> Bearer, NOT inherited basic auth
             assert last.headers.get("Authorization") == "Bearer tok_us"
@@ -171,16 +214,23 @@ class TestGrafanaTempo:
     US = "http://tempo-us.svc:3200"
 
     def _mock(self, rsps):
-        _reg(rsps, responses.GET, r"http://tempo-(eu|us)\.svc:3200/api/.*", {"traces": []})
+        _reg(
+            rsps,
+            responses.GET,
+            r"http://tempo-(eu|us)\.svc:3200/api/.*",
+            {"traces": []},
+        )
 
     def _build(self, rsps):
         self._mock(rsps)
         ts = multi_instance(GrafanaTempoToolset)
         ok, _ = ts.prerequisites_callable(
-            {"instances": [
-                {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
-                {"name": "us", "api_url": self.US, "api_key": "k_us"},
-            ]}
+            {
+                "instances": [
+                    {"name": "eu", "api_url": self.EU, "api_key": "k_eu"},
+                    {"name": "us", "api_url": self.US, "api_key": "k_us"},
+                ]
+            }
         )
         assert ok is True
         return ts
@@ -190,7 +240,9 @@ class TestGrafanaTempo:
             ts = self._build(rsps)
         assert any(t.name == "grafana_tempo_list_instances" for t in ts.tools)
 
-    @pytest.mark.parametrize("instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")])
+    @pytest.mark.parametrize(
+        "instance,host,key", [("eu", EU, "k_eu"), ("us", US, "k_us")]
+    )
     def test_each_instance_calls_its_own_tempo(self, instance, host, key):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
@@ -199,6 +251,8 @@ class TestGrafanaTempo:
                 {"q": '{ .service.name = "x" }', INSTANCE_PARAM_NAME: instance},
                 create_mock_tool_invoke_context(),
             )
-            calls = [c.request for c in rsps.calls if c.request.url.startswith(f"{host}/api")]
+            calls = [
+                c.request for c in rsps.calls if c.request.url.startswith(f"{host}/api")
+            ]
             assert calls, f"no call to {host}"
             assert calls[-1].headers.get("Authorization") == f"Bearer {key}"

@@ -11,6 +11,7 @@ from typing import List, Optional
 from unittest.mock import patch
 
 import pytest
+
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
@@ -29,7 +30,6 @@ from tests.llm.utils.denied_commands import extract_denied_commands
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
 from tests.llm.utils.iteration_utils import get_test_cases
 from tests.llm.utils.mock_dal import load_test_dal
-from tests.llm.utils.test_toolset import TestToolsetManager
 from tests.llm.utils.property_manager import (
     handle_test_error,
     set_initial_properties,
@@ -37,13 +37,13 @@ from tests.llm.utils.property_manager import (
     update_property,
     update_test_results,
 )
+from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.skill_suggestions import (
     count_fetch_skill_calls,
     extract_suggested_skills,
     join_frontend_tool_turn_content,
     write_suggestions_as_skill_files,
 )
-from tests.llm.utils.retry_handler import retry_on_throttle
 from tests.llm.utils.test_case_utils import (
     AskHolmesTestCase,
     Evaluation,
@@ -52,6 +52,7 @@ from tests.llm.utils.test_case_utils import (
     get_models,
     load_frontend_tools,
 )
+from tests.llm.utils.test_toolset import TestToolsetManager
 
 TEST_CASES_FOLDER = Path(
     path.abspath(path.join(path.dirname(__file__), "fixtures", "test_ask_holmes"))
@@ -209,8 +210,7 @@ def test_ask_holmes(
     missing_skill_updates: List[str] = []
     if test_case.expected_skill_updates:
         actual_updates = {
-            str(s.get("updates_skill") or "").strip()
-            for s in suggested_memories
+            str(s.get("updates_skill") or "").strip() for s in suggested_memories
         }
         missing_skill_updates = [
             name
@@ -281,9 +281,7 @@ def test_ask_holmes(
     # request). This checks actual tool calls, not prompt content or LLM grading.
     forbidden_tools = getattr(test_case, "forbidden_tools", None) or []
     if forbidden_tools:
-        called = [
-            getattr(tc, "tool_name", None) for tc in (result.tool_calls or [])
-        ]
+        called = [getattr(tc, "tool_name", None) for tc in (result.tool_calls or [])]
         offending = sorted({t for t in called if t in forbidden_tools})
         assert not offending, (
             f"Test {test_case.id}: Holmes called forbidden tool(s) {offending} "
@@ -338,9 +336,7 @@ def test_ask_holmes(
                         else:
                             shutil.copy2(src, dst)
 
-            written = write_suggestions_as_skill_files(
-                suggested_memories, skills_dir
-            )
+            written = write_suggestions_as_skill_files(suggested_memories, skills_dir)
 
             # Optional assertion on the number of skill files written from
             # the captured suggestions (e.g. multi-quirk evals can pin how
@@ -516,9 +512,7 @@ def test_ask_holmes(
                     # exploration calls unnecessary on replay. If the agent
                     # still made them, the skill content didn't actually
                     # obviate the rediscovery it was saved for.
-                    forbidden = (
-                        getattr(test_case, "replay_forbidden_tools", None) or []
-                    )
+                    forbidden = getattr(test_case, "replay_forbidden_tools", None) or []
                     if forbidden:
                         replay_tool_names = [
                             getattr(tc, "tool_name", "?") for tc in replay_tool_calls
@@ -618,8 +612,7 @@ def ask_holmes(
             }
 
         test_type = (
-            test_case.test_type
-            or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
+            test_case.test_type or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
         )
         if test_type == "cli":
             if test_case.conversation_history:
@@ -662,9 +655,7 @@ def ask_holmes(
             if test_case.cluster_name:
                 config.cluster_name = test_case.cluster_name
 
-            dal = load_test_dal(
-                Path(test_case.folder), initialize_base=False
-            )
+            dal = load_test_dal(Path(test_case.folder), initialize_base=False)
             skills = load_skill_catalog(dal=dal)
             global_instructions = dal.get_global_instructions_for_account()
 

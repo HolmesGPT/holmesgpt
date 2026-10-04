@@ -51,9 +51,7 @@ class TestKubernetesYAMLTransformers:
                 kubernetes_jq_query = tool
                 break
 
-        assert (
-            kubernetes_jq_query is not None
-        ), "kubernetes_jq_query tool not found"
+        assert kubernetes_jq_query is not None, "kubernetes_jq_query tool not found"
         assert kubernetes_jq_query.transformers is not None
         assert len(kubernetes_jq_query.transformers) == 1
         assert kubernetes_jq_query.transformers[0].name == "llm_summarize"
@@ -485,9 +483,7 @@ class TestKubernetesTransformerPrompts:
             ),
             None,
         )
-        assert (
-            kubernetes_jq_query is not None
-        ), "kubernetes_jq_query tool not found"
+        assert kubernetes_jq_query is not None, "kubernetes_jq_query tool not found"
         assert kubernetes_jq_query.transformers is not None
         assert kubernetes_jq_query.transformers[0].config["input_threshold"] == 10000
 

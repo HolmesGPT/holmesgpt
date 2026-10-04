@@ -6,10 +6,10 @@ only `run_kubectl_command` prompts and the read-only tools do not.
 """
 
 from typing import Any, Dict
-
 from unittest.mock import MagicMock
 
 from holmes.core.llm import LLM
+from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools import (
     Tool,
     ToolInvokeContext,
@@ -17,7 +17,6 @@ from holmes.core.tools import (
     ToolsetTag,
     ToolsetYamlFromConfig,
 )
-from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 
 
 class _EchoTool(Tool):

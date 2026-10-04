@@ -10,9 +10,20 @@ from benedict import benedict
 from pydantic import FilePath
 
 from holmes.core.config import config_path_dir
-from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, ToolsetStatus
+from holmes.core.init_event import (
+    EventCallback,
+    StatusEvent,
+    StatusEventKind,
+    ToolsetStatus,
+)
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
+from holmes.core.tools import (
+    PrerequisiteCacheMode,
+    Toolset,
+    ToolsetStatusEnum,
+    ToolsetTag,
+    ToolsetType,
+)
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
 from holmes.utils.config_hash import check_and_update_config_hashes
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
@@ -159,7 +170,9 @@ class ToolsetManager:
             # through unchanged so scans report it unreadable rather than
             # walking its parent directory.
             additional_search_paths = [
-                os.path.dirname(os.path.abspath(str(p))) if Path(p).is_file() else os.path.abspath(str(p))
+                os.path.dirname(os.path.abspath(str(p)))
+                if Path(p).is_file()
+                else os.path.abspath(str(p))
                 for p in self.custom_skill_paths
             ]
 
@@ -230,7 +243,9 @@ class ToolsetManager:
                 enabled_toolsets.append(toolset)
             else:
                 toolset.status = ToolsetStatusEnum.DISABLED
-        self.check_toolset_prerequisites(enabled_toolsets, silent=silent, on_event=on_event)
+        self.check_toolset_prerequisites(
+            enabled_toolsets, silent=silent, on_event=on_event
+        )
 
         return final_toolsets
 
@@ -278,8 +293,14 @@ class ToolsetManager:
             future_to_toolset: dict[concurrent.futures.Future, Toolset] = {}
             for toolset in toolsets:
                 if on_event is not None:
-                    on_event(StatusEvent(kind=StatusEventKind.TOOLSET_CHECKING, name=toolset.name))
-                future_to_toolset[executor.submit(toolset.check_prerequisites, silent)] = toolset
+                    on_event(
+                        StatusEvent(
+                            kind=StatusEventKind.TOOLSET_CHECKING, name=toolset.name
+                        )
+                    )
+                future_to_toolset[
+                    executor.submit(toolset.check_prerequisites, silent)
+                ] = toolset
 
             # Single deadline shared across the batch. With max_workers ==
             # len(toolsets) every check starts immediately, so this functions
@@ -444,7 +465,9 @@ class ToolsetManager:
                 for toolset in all_toolsets
             ]
             json.dump(toolset_status, f, indent=2)
-        display_logger.info(f"Toolset statuses are cached to {self.toolset_status_location}")
+        display_logger.info(
+            f"Toolset statuses are cached to {self.toolset_status_location}"
+        )
 
     def _get_datasource_file_paths(self) -> list[str]:
         """
@@ -479,15 +502,25 @@ class ToolsetManager:
         if not refresh_status:
             datasource_paths = self._get_datasource_file_paths()
             if datasource_paths and check_and_update_config_hashes(datasource_paths):
-                display_logger.info("Datasource config file(s) changed, refreshing toolsets")
+                display_logger.info(
+                    "Datasource config file(s) changed, refreshing toolsets"
+                )
                 refresh_status = True
 
         if not os.path.exists(self.toolset_status_location) or refresh_status:
             display_logger.info("Refreshing available datasources (toolsets)")
             if on_event is not None:
-                on_event(StatusEvent(kind=StatusEventKind.REFRESHING, message="Refreshing available datasources (toolsets)"))
+                on_event(
+                    StatusEvent(
+                        kind=StatusEventKind.REFRESHING,
+                        message="Refreshing available datasources (toolsets)",
+                    )
+                )
             self.refresh_toolset_status(
-                dal, enable_all_toolsets=enable_all_toolsets, toolset_tags=toolset_tags, on_event=on_event
+                dal,
+                enable_all_toolsets=enable_all_toolsets,
+                toolset_tags=toolset_tags,
+                on_event=on_event,
             )
             using_cached = False
         else:
@@ -550,7 +583,9 @@ class ToolsetManager:
             if eager_toolsets:
                 self.check_toolset_prerequisites(eager_toolsets, on_event=on_event)
         else:
-            self.check_toolset_prerequisites(enabled_toolsets_from_cache, on_event=on_event)
+            self.check_toolset_prerequisites(
+                enabled_toolsets_from_cache, on_event=on_event
+            )
 
         # CLI custom toolsets status are not cached, and their prerequisites are always checked whenever the CLI runs.
         custom_toolsets_from_cli = self._load_toolsets_from_paths(
@@ -595,7 +630,13 @@ class ToolsetManager:
             msg = f"Using {num_available_toolsets} datasources (toolsets). To refresh: use flag `--refresh-toolsets`"
             display_logger.info(msg)
             if on_event is not None:
-                on_event(StatusEvent(kind=StatusEventKind.DATASOURCE_COUNT, count=num_available_toolsets, message=msg))
+                on_event(
+                    StatusEvent(
+                        kind=StatusEventKind.DATASOURCE_COUNT,
+                        count=num_available_toolsets,
+                        message=msg,
+                    )
+                )
         return all_toolsets_with_status
 
     def list_console_toolsets(
@@ -831,4 +872,3 @@ class ToolsetManager:
                 existing_toolsets_by_name[new_toolset.name].override_with(new_toolset)
             else:
                 existing_toolsets_by_name[new_toolset.name] = new_toolset
-

@@ -50,7 +50,9 @@ def _decision(tool_call_id: str, approved: bool = True):
     )
 
 
-def _assert_rejection_tool_result(events: list, messages: list, tool_call_id: str) -> None:
+def _assert_rejection_tool_result(
+    events: list, messages: list, tool_call_id: str
+) -> None:
     """A rejection produces exactly one TOOL_RESULT with ERROR status carrying
     the canonical approval-token message verbatim — no "denied by user"
     framing. The matching tool message is inserted into `messages`.
@@ -64,7 +66,11 @@ def _assert_rejection_tool_result(events: list, messages: list, tool_call_id: st
     assert "denied by the user" not in serialized
     assert "User feedback" not in serialized
 
-    tool_messages = [m for m in messages if m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id]
+    tool_messages = [
+        m
+        for m in messages
+        if m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id
+    ]
     assert len(tool_messages) == 1
 
 

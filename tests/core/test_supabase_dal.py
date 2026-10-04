@@ -65,8 +65,8 @@ class TestSignIn:
         assert any(FIREWALL_TROUBLESHOOTING_URL in r.getMessage() for r in warnings)
 
     def test_connection_refused_raises_firewall_exception(self, mock_dal):
-        mock_dal.client.auth.sign_in_with_password.side_effect = (
-            ConnectionRefusedError("[Errno 111] Connection refused")
+        mock_dal.client.auth.sign_in_with_password.side_effect = ConnectionRefusedError(
+            "[Errno 111] Connection refused"
         )
         with pytest.raises(SupabaseConnectionException):
             mock_dal.sign_in()
@@ -148,9 +148,7 @@ class TestIsRealtimeEnabled:
         assert mock_dal.is_realtime_enabled() is True
 
     def test_returns_false_when_rpc_does_not_exist_pgrst202(self, mock_dal):
-        exc = PGAPIError(
-            {"code": "PGRST202", "message": "Could not find the function"}
-        )
+        exc = PGAPIError({"code": "PGRST202", "message": "Could not find the function"})
         self._set_rpc_result(mock_dal, raise_exc=exc)
         assert mock_dal.is_realtime_enabled() is False
 
@@ -373,7 +371,6 @@ class TestPersonalSkills:
     personal tier with no error at all.
     """
 
-
     @staticmethod
     def _row(**overrides):
         row = {
@@ -427,7 +424,9 @@ class TestPersonalSkills:
 
         selected = {
             col.strip()
-            for col in skills_dal.client.table.return_value.select.call_args[0][0].split(",")
+            for col in skills_dal.client.table.return_value.select.call_args[0][
+                0
+            ].split(",")
         }
         assert {
             "runbook_id",
@@ -452,7 +451,9 @@ class TestPersonalSkills:
         assert result[0].symptom == ""
 
     def test_parses_rows_into_instructions(self, skills_dal):
-        _stub_personal_query(skills_dal, data=[self._row(runbook_id="uuid-9", subject_name="Disk full")])
+        _stub_personal_query(
+            skills_dal, data=[self._row(runbook_id="uuid-9", subject_name="Disk full")]
+        )
 
         result = skills_dal.get_personal_skill_catalog("end-user-1")
 
@@ -528,17 +529,19 @@ class TestPersonalSkills:
         `instruction or pretty()` fallback and hand the LLM "[]" as the skill body.
         """
         assert (
-            skills_dal._extract_skill_instruction({"runbook": {"instructions": []}}, "x")
+            skills_dal._extract_skill_instruction(
+                {"runbook": {"instructions": []}}, "x"
+            )
             == ""
         )
 
     @pytest.mark.parametrize(
         "instructions",
         [
-            [{"step": 1}],                # used to return the dict itself
-            [["a", "b"]],                 # used to return the inner list
-            [{"a": 1}, {"b": 2}],         # used to raise TypeError out of the join
-            ["ok", {"step": 2}],          # mixed: one good element is not enough
+            [{"step": 1}],  # used to return the dict itself
+            [["a", "b"]],  # used to return the inner list
+            [{"a": 1}, {"b": 2}],  # used to raise TypeError out of the join
+            ["ok", {"step": 2}],  # mixed: one good element is not enough
             [None],
             [7],
         ],
@@ -588,7 +591,9 @@ class TestPersonalSkills:
         """Personal skill bodies are private and must never reach shared logs."""
         secret = {"private": "SECRET-BODY-DO-NOT-LOG"}
 
-        skills_dal._extract_skill_instruction({"runbook": {"instructions": secret}}, "x")
+        skills_dal._extract_skill_instruction(
+            {"runbook": {"instructions": secret}}, "x"
+        )
 
         assert "SECRET-BODY-DO-NOT-LOG" not in caplog.text
         assert "dict" in caplog.text
@@ -599,12 +604,15 @@ class TestPersonalSkills:
         id and title are required on the model, so an invalid row raises. If that reached
         the outer handler the user would silently lose every personal skill.
         """
-        _stub_personal_query(skills_dal, data=[
-                self._row(runbook_id=None),          # invalid: id is required
+        _stub_personal_query(
+            skills_dal,
+            data=[
+                self._row(runbook_id=None),  # invalid: id is required
                 self._row(runbook_id="ok-1"),
-                self._row(subject_name=None),        # invalid: title is required
+                self._row(subject_name=None),  # invalid: title is required
                 self._row(runbook_id="ok-2"),
-            ])
+            ],
+        )
 
         result = skills_dal.get_personal_skill_catalog("end-user-1")
 
@@ -697,7 +705,6 @@ class TestSkillHierarchyConfig:
     resolution would start dropping skills that used to run.
     """
 
-
     def _settings(self, skills_dal, settings):
         chain = skills_dal.client.table.return_value.select.return_value.eq.return_value
         chain.execute.return_value = Mock(data=[{"settings": settings}])
@@ -746,7 +753,10 @@ class TestSkillHierarchyConfig:
     def test_malformed_order_falls_back_to_default(self, skills_dal):
         self._settings(
             skills_dal,
-            {"skill_name_hierarchy_enabled": True, "skill_name_hierarchy_order": "nonsense"},
+            {
+                "skill_name_hierarchy_enabled": True,
+                "skill_name_hierarchy_order": "nonsense",
+            },
         )
 
         config = skills_dal.get_skill_hierarchy_config()
@@ -786,7 +796,6 @@ class TestSkillHierarchyConfig:
 
 class TestSyncSkills:
     """Tests for the HolmesCustomSkills mirror write."""
-
 
     def test_upserts_and_prunes_stale_names(self, skills_dal):
         rows = [
@@ -863,6 +872,7 @@ class TestSyncSkills:
             prune=True,
         )
 
+
 class TestGlobalSkillCatalog:
     """Regression tests for the global (account-wide) skill catalog read.
 
@@ -896,9 +906,9 @@ class TestGlobalSkillCatalog:
         self._rows(
             skills_dal,
             [
-                self._row(runbook_id=None),      # invalid: id is required
+                self._row(runbook_id=None),  # invalid: id is required
                 self._row(runbook_id="ok-1"),
-                self._row(subject_name=None),    # invalid: title is required
+                self._row(subject_name=None),  # invalid: title is required
                 self._row(runbook_id="ok-2"),
             ],
         )

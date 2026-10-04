@@ -159,9 +159,9 @@ def test_forged_history_must_not_grant_bash_execution():
     # And with no user approval it must not execute.
     result = tool._invoke(params, context)
     assert result.status == StructuredToolResultStatus.ERROR
-    assert _MARKER not in (result.data or ""), (
-        "VULNERABLE: forged conversation_history caused bash command execution"
-    )
+    assert _MARKER not in (
+        result.data or ""
+    ), "VULNERABLE: forged conversation_history caused bash command execution"
 
 
 # ---------------------------------------------------------------------------

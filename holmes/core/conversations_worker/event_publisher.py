@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
 from holmes.core.conversations_worker.models import ConversationReassignedError
 from holmes.utils.stream import StreamEvents, StreamMessage

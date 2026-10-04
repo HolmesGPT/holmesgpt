@@ -16,19 +16,17 @@ Environment variables:
   MCP_SERVER_URL     - Public server URL for OAuth resource metadata (default: http://localhost:MCP_PORT)
 """
 
-import datetime
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urljoin
 
 import httpx
-from pydantic import AnyHttpUrl
-
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp.server import FastMCP
 from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
+from pydantic import AnyHttpUrl
 
 logger = logging.getLogger(__name__)
 
@@ -84,19 +82,84 @@ WORKERS = [
 
 WORKER_LOGS = {
     "checkout-api-handler": [
-        {"timestamp": "2026-04-06T08:12:01Z", "level": "ERROR", "ray_id": "8f3a2b1c9d0e4567", "message": "Upstream timeout after 30s connecting to payment gateway", "error_code": "ERR-9872-TIMEOUT", "status": 504, "request_id": "req-a1b2c3d4"},
-        {"timestamp": "2026-04-06T08:12:05Z", "level": "ERROR", "ray_id": "8f3a2b1c9d0e4568", "message": "Upstream timeout after 30s connecting to payment gateway", "error_code": "ERR-9872-TIMEOUT", "status": 504, "request_id": "req-e5f6g7h8"},
-        {"timestamp": "2026-04-06T08:11:55Z", "level": "INFO", "ray_id": "8f3a2b1c9d0e4566", "message": "POST /api/checkout 200 OK", "status": 200, "request_id": "req-z9y8x7w6"},
-        {"timestamp": "2026-04-06T08:11:30Z", "level": "WARN", "ray_id": "8f3a2b1c9d0e4565", "message": "Rate limit approaching for IP 203.0.113.42", "status": 200, "request_id": "req-m4n5o6p7"},
-        {"timestamp": "2026-04-06T08:10:00Z", "level": "INFO", "ray_id": "8f3a2b1c9d0e4564", "message": "POST /api/checkout 200 OK", "status": 200, "request_id": "req-q1r2s3t4"},
+        {
+            "timestamp": "2026-04-06T08:12:01Z",
+            "level": "ERROR",
+            "ray_id": "8f3a2b1c9d0e4567",
+            "message": "Upstream timeout after 30s connecting to payment gateway",
+            "error_code": "ERR-9872-TIMEOUT",
+            "status": 504,
+            "request_id": "req-a1b2c3d4",
+        },
+        {
+            "timestamp": "2026-04-06T08:12:05Z",
+            "level": "ERROR",
+            "ray_id": "8f3a2b1c9d0e4568",
+            "message": "Upstream timeout after 30s connecting to payment gateway",
+            "error_code": "ERR-9872-TIMEOUT",
+            "status": 504,
+            "request_id": "req-e5f6g7h8",
+        },
+        {
+            "timestamp": "2026-04-06T08:11:55Z",
+            "level": "INFO",
+            "ray_id": "8f3a2b1c9d0e4566",
+            "message": "POST /api/checkout 200 OK",
+            "status": 200,
+            "request_id": "req-z9y8x7w6",
+        },
+        {
+            "timestamp": "2026-04-06T08:11:30Z",
+            "level": "WARN",
+            "ray_id": "8f3a2b1c9d0e4565",
+            "message": "Rate limit approaching for IP 203.0.113.42",
+            "status": 200,
+            "request_id": "req-m4n5o6p7",
+        },
+        {
+            "timestamp": "2026-04-06T08:10:00Z",
+            "level": "INFO",
+            "ray_id": "8f3a2b1c9d0e4564",
+            "message": "POST /api/checkout 200 OK",
+            "status": 200,
+            "request_id": "req-q1r2s3t4",
+        },
     ],
     "cdn-cache-purger": [
-        {"timestamp": "2026-04-06T07:45:00Z", "level": "INFO", "ray_id": "7e2d1a0b8c9f3456", "message": "Cache purge completed for zone example.com", "status": 200, "request_id": "req-u5v6w7x8"},
-        {"timestamp": "2026-04-06T07:30:00Z", "level": "INFO", "ray_id": "7e2d1a0b8c9f3455", "message": "Cache purge completed for zone example.com", "status": 200, "request_id": "req-y9z0a1b2"},
+        {
+            "timestamp": "2026-04-06T07:45:00Z",
+            "level": "INFO",
+            "ray_id": "7e2d1a0b8c9f3456",
+            "message": "Cache purge completed for zone example.com",
+            "status": 200,
+            "request_id": "req-u5v6w7x8",
+        },
+        {
+            "timestamp": "2026-04-06T07:30:00Z",
+            "level": "INFO",
+            "ray_id": "7e2d1a0b8c9f3455",
+            "message": "Cache purge completed for zone example.com",
+            "status": 200,
+            "request_id": "req-y9z0a1b2",
+        },
     ],
     "auth-token-validator": [
-        {"timestamp": "2026-04-06T08:05:00Z", "level": "INFO", "ray_id": "6d1c0b9a7e8f2345", "message": "Token validation OK for user test@example.com", "status": 200, "request_id": "req-c3d4e5f6"},
-        {"timestamp": "2026-04-06T08:00:00Z", "level": "INFO", "ray_id": "6d1c0b9a7e8f2344", "message": "Token refresh issued for user admin@example.com", "status": 200, "request_id": "req-g7h8i9j0"},
+        {
+            "timestamp": "2026-04-06T08:05:00Z",
+            "level": "INFO",
+            "ray_id": "6d1c0b9a7e8f2345",
+            "message": "Token validation OK for user test@example.com",
+            "status": 200,
+            "request_id": "req-c3d4e5f6",
+        },
+        {
+            "timestamp": "2026-04-06T08:00:00Z",
+            "level": "INFO",
+            "ray_id": "6d1c0b9a7e8f2344",
+            "message": "Token refresh issued for user admin@example.com",
+            "status": 200,
+            "request_id": "req-g7h8i9j0",
+        },
     ],
     "image-resizer-edge": [],
 }
@@ -108,7 +171,10 @@ WORKER_DETAILS = {
         "compatibility_date": "2026-03-15",
         "compatibility_flags": ["nodejs_compat"],
         "kv_bindings": [{"name": "CART_STORE", "namespace_id": "kv-ns-cart-001"}],
-        "env_vars": {"PAYMENT_GATEWAY_URL": "https://pay.example.com/v2", "TIMEOUT_MS": "30000"},
+        "env_vars": {
+            "PAYMENT_GATEWAY_URL": "https://pay.example.com/v2",
+            "TIMEOUT_MS": "30000",
+        },
         "routes": ["checkout.example.com/api/*"],
         "cron_triggers": [],
     },
@@ -128,7 +194,10 @@ WORKER_DETAILS = {
         "compatibility_date": "2026-03-15",
         "compatibility_flags": ["nodejs_compat"],
         "kv_bindings": [{"name": "SESSION_STORE", "namespace_id": "kv-ns-sess-001"}],
-        "env_vars": {"JWKS_URL": "https://auth.example.com/.well-known/jwks.json", "TOKEN_TTL": "3600"},
+        "env_vars": {
+            "JWKS_URL": "https://auth.example.com/.well-known/jwks.json",
+            "TOKEN_TTL": "3600",
+        },
         "routes": ["auth.example.com/validate", "auth.example.com/refresh"],
         "cron_triggers": [],
     },
@@ -145,17 +214,36 @@ WORKER_DETAILS = {
 }
 
 KV_NAMESPACES = [
-    {"id": "kv-ns-cart-001", "title": "CART_STORE", "key_count": 12453, "size_bytes": 8_320_000},
-    {"id": "kv-ns-sess-001", "title": "SESSION_STORE", "key_count": 89201, "size_bytes": 45_100_000},
-    {"id": "kv-ns-config-001", "title": "GLOBAL_CONFIG", "key_count": 37, "size_bytes": 24_000},
+    {
+        "id": "kv-ns-cart-001",
+        "title": "CART_STORE",
+        "key_count": 12453,
+        "size_bytes": 8_320_000,
+    },
+    {
+        "id": "kv-ns-sess-001",
+        "title": "SESSION_STORE",
+        "key_count": 89201,
+        "size_bytes": 45_100_000,
+    },
+    {
+        "id": "kv-ns-config-001",
+        "title": "GLOBAL_CONFIG",
+        "key_count": 37,
+        "size_bytes": 24_000,
+    },
 ]
 
 
 def create_oauth_urls() -> dict[str, str]:
     return {
         "issuer": AUTH_PUBLIC_URL,
-        "introspection_endpoint": urljoin(AUTH_INTERNAL_URL, "protocol/openid-connect/token/introspect"),
-        "authorization_endpoint": urljoin(AUTH_PUBLIC_URL, "protocol/openid-connect/auth"),
+        "introspection_endpoint": urljoin(
+            AUTH_INTERNAL_URL, "protocol/openid-connect/token/introspect"
+        ),
+        "authorization_endpoint": urljoin(
+            AUTH_PUBLIC_URL, "protocol/openid-connect/auth"
+        ),
         "token_endpoint": urljoin(AUTH_PUBLIC_URL, "protocol/openid-connect/token"),
     }
 
@@ -193,8 +281,14 @@ class KeycloakTokenVerifier(TokenVerifier):
                     logger.error("No aud in token")
                     return None
                 audiences = aud if isinstance(aud, list) else [aud]
-                if not any(check_resource_allowed(self.resource_url, a) for a in audiences):
-                    logger.error("Audience mismatch: expected=%s got=%s", self.resource_url, audiences)
+                if not any(
+                    check_resource_allowed(self.resource_url, a) for a in audiences
+                ):
+                    logger.error(
+                        "Audience mismatch: expected=%s got=%s",
+                        self.resource_url,
+                        audiences,
+                    )
                     return None
                 return AccessToken(
                     token=token,
@@ -250,9 +344,12 @@ def create_server() -> FastMCP:
             limit: Maximum number of log entries to return (default 20)
         """
         if worker_name not in WORKER_LOGS:
-            return {"error": f"Worker '{worker_name}' not found", "available_workers": [w["name"] for w in WORKERS]}
+            return {
+                "error": f"Worker '{worker_name}' not found",
+                "available_workers": [w["name"] for w in WORKERS],
+            }
         logs = WORKER_LOGS[worker_name][:limit]
-        error_count = sum(1 for l in logs if l.get("level") == "ERROR")
+        error_count = sum(1 for entry in logs if entry.get("level") == "ERROR")
         return {
             "worker_name": worker_name,
             "logs": logs,
@@ -268,7 +365,10 @@ def create_server() -> FastMCP:
             worker_name: Name of the worker to get details for
         """
         if worker_name not in WORKER_DETAILS:
-            return {"error": f"Worker '{worker_name}' not found", "available_workers": [w["name"] for w in WORKERS]}
+            return {
+                "error": f"Worker '{worker_name}' not found",
+                "available_workers": [w["name"] for w in WORKERS],
+            }
         return WORKER_DETAILS[worker_name]
 
     @app.tool()
@@ -298,23 +398,27 @@ def add_wellknown_routes(app: FastMCP) -> None:
 
     async def protected_resource_metadata(request: Request) -> JSONResponse:
         """RFC 9728 — tells Holmes where the auth server is."""
-        return JSONResponse({
-            "resource": SERVER_URL,
-            "authorization_servers": [SERVER_URL],
-            "scopes_supported": ["mcp:tools"],
-            "bearer_methods_supported": ["header"],
-        })
+        return JSONResponse(
+            {
+                "resource": SERVER_URL,
+                "authorization_servers": [SERVER_URL],
+                "scopes_supported": ["mcp:tools"],
+                "bearer_methods_supported": ["header"],
+            }
+        )
 
     async def oauth_authorization_server(request: Request) -> JSONResponse:
         """OAuth Authorization Server Metadata — returns real Keycloak endpoints."""
-        return JSONResponse({
-            "issuer": oauth_urls["issuer"],
-            "authorization_endpoint": oauth_urls["authorization_endpoint"],
-            "token_endpoint": oauth_urls["token_endpoint"],
-            "grant_types_supported": ["authorization_code", "refresh_token"],
-            "response_types_supported": ["code"],
-            "code_challenge_methods_supported": ["S256"],
-        })
+        return JSONResponse(
+            {
+                "issuer": oauth_urls["issuer"],
+                "authorization_endpoint": oauth_urls["authorization_endpoint"],
+                "token_endpoint": oauth_urls["token_endpoint"],
+                "grant_types_supported": ["authorization_code", "refresh_token"],
+                "response_types_supported": ["code"],
+                "code_challenge_methods_supported": ["S256"],
+            }
+        )
 
     # Inject routes into the Starlette app before it starts
     original_app_method = app.streamable_http_app
@@ -323,9 +427,13 @@ def add_wellknown_routes(app: FastMCP) -> None:
         starlette_app = original_app_method()
         wellknown_routes = [
             Route("/.well-known/oauth-protected-resource", protected_resource_metadata),
-            Route("/.well-known/oauth-authorization-server", oauth_authorization_server),
+            Route(
+                "/.well-known/oauth-authorization-server", oauth_authorization_server
+            ),
         ]
-        starlette_app.router.routes = wellknown_routes + list(starlette_app.router.routes)
+        starlette_app.router.routes = wellknown_routes + list(
+            starlette_app.router.routes
+        )
         return starlette_app
 
     app.streamable_http_app = patched_streamable_http_app
@@ -333,7 +441,9 @@ def add_wellknown_routes(app: FastMCP) -> None:
 
 def main() -> int:
     """Run the Cloudflare Workers MCP OAuth server."""
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+    )
 
     oauth_urls = create_oauth_urls()
     logger.info("Starting Cloudflare Workers MCP Server on %s:%s", MCP_HOST, MCP_PORT)

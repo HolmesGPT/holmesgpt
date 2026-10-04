@@ -1,7 +1,10 @@
 """Unit tests for the ConversationWorker's realtime-gated polling logic."""
+
 from unittest.mock import MagicMock
 
-from holmes.common.env_vars import CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
+from holmes.common.env_vars import (
+    CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
+)
 from holmes.core.conversations_worker.worker import ConversationWorker
 
 

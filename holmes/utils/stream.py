@@ -63,7 +63,9 @@ def _is_rate_limit_error(e: Exception) -> bool:
     instead of litellm.exceptions.RateLimitError, so we need a string check
     as a fallback.
     """
-    return isinstance(e, litellm.exceptions.RateLimitError) or "Model is getting throttled" in str(e)
+    return isinstance(
+        e, litellm.exceptions.RateLimitError
+    ) or "Model is getting throttled" in str(e)
 
 
 def stream_chat_formatter(
@@ -96,9 +98,7 @@ def stream_chat_formatter(
                     "conversation_history": message.data.get("messages"),
                     "follow_up_actions": followups,
                     "requires_approval": True,
-                    "pending_approvals": message.data.get(
-                        "pending_approvals", []
-                    ),
+                    "pending_approvals": message.data.get("pending_approvals", []),
                     "pending_frontend_tool_calls": message.data.get(
                         "pending_frontend_tool_calls", []
                     ),
@@ -113,7 +113,9 @@ def stream_chat_formatter(
         # The platform refused the call; the stream's HTTP status is long
         # committed, so the refusal rides the error event's code, with relay's
         # own sentence as the text (ROB-1389).
-        logging.warning(f"Relay refused the streamed chat (status {e.status_code}): {e}")
+        logging.warning(
+            f"Relay refused the streamed chat (status {e.status_code}): {e}"
+        )
         yield create_sse_error_message(
             description=str(e),
             error_code=RELAY_REFUSAL_ERROR_CODES[e.status_code],

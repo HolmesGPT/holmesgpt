@@ -65,7 +65,9 @@ def extract_usage_from_response(response: ModelResponse) -> dict:
                 cached_tokens = _extract_detail_field(prompt_details, "cached_tokens")
             completion_details = usage.get("completion_tokens_details", None)
             if completion_details:
-                reasoning_tokens = _extract_detail_field(completion_details, "reasoning_tokens") or 0
+                reasoning_tokens = (
+                    _extract_detail_field(completion_details, "reasoning_tokens") or 0
+                )
             # Anthropic/Bedrock prompt-cache writes (billed at a premium rate);
             # litellm surfaces them as a top-level usage field.
             cache_creation_tokens = usage.get("cache_creation_input_tokens", None)

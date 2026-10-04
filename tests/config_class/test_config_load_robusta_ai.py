@@ -8,6 +8,7 @@ from holmes.core.llm import ModelEntry
 def _fake_existing_model_entry() -> ModelEntry:
     return ModelEntry(model="gpt-4o", base_url="http://foo")
 
+
 ROBUSTA_TEST_MODELS = RobustaModelsResponse(
     models={
         "Robusta/test": RobustaModel(

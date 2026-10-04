@@ -12,7 +12,8 @@ from tests.conftest import create_mock_tool_invoke_context
 
 
 @pytest.mark.skipif(
-    not os.getenv("RUN_SLOW_TESTS") or not all([os.getenv("DD_API_KEY"), os.getenv("DD_APP_KEY")]),
+    not os.getenv("RUN_SLOW_TESTS")
+    or not all([os.getenv("DD_API_KEY"), os.getenv("DD_APP_KEY")]),
     reason="Slow test - set RUN_SLOW_TESTS=1 and Datadog credentials to run",
 )
 class TestDatadogMetricsLiveIntegration:

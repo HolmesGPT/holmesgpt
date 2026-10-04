@@ -35,10 +35,22 @@ class ShellParseError(Exception):
 
 _CONTAINERS = frozenset({"program", "list", "pipeline", "negated_command"})
 _WORDS = frozenset(
-    {"word", "string", "raw_string", "ansi_c_string", "concatenation", "number",
-     "simple_expansion", "expansion", "command_substitution", "process_substitution"}
+    {
+        "word",
+        "string",
+        "raw_string",
+        "ansi_c_string",
+        "concatenation",
+        "number",
+        "simple_expansion",
+        "expansion",
+        "command_substitution",
+        "process_substitution",
+    }
 )
-_DYNAMIC = frozenset({"simple_expansion", "expansion", "command_substitution", "process_substitution"})
+_DYNAMIC = frozenset(
+    {"simple_expansion", "expansion", "command_substitution", "process_substitution"}
+)
 _SUBSTITUTIONS = frozenset({"command_substitution", "process_substitution"})
 _WRITE_OPERATORS = frozenset({">", ">>", ">|", "&>", "&>>", ">&"})
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -49,8 +61,21 @@ _BRACE_EXPANSION = re.compile(
 # Leaves whose text is literal to bash, so `$(` in them is not a substitution.
 _LITERAL_LEAVES = frozenset({"raw_string", "ansi_c_string", "comment"})
 
-_ANSI_C = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r",
-           "t": "\t", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+_ANSI_C = {
+    "a": "\a",
+    "b": "\b",
+    "e": "\x1b",
+    "E": "\x1b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+}
 
 
 @dataclass
@@ -99,7 +124,9 @@ class _Visitor:
         self.result = ParsedCommand(command=command)
 
     def text(self, n: Node) -> str:
-        return self.src[n.start_byte : n.end_byte].decode("utf-8", errors="surrogateescape")
+        return self.src[n.start_byte : n.end_byte].decode(
+            "utf-8", errors="surrogateescape"
+        )
 
     def gap(self, a: Node, b: Node) -> bytes:
         return self.src[a.end_byte : b.start_byte].replace(b"\\\n", b"")
@@ -121,16 +148,30 @@ class _Visitor:
                     continue
                 if c.type not in _DYNAMIC:
                     raise ShellParseError(f"unsupported syntax in string: {c.type}")
-                out.append(_unescape(self.src[pos : c.start_byte].decode(errors="surrogateescape"), '"\\$`\n'))
+                out.append(
+                    _unescape(
+                        self.src[pos : c.start_byte].decode(errors="surrogateescape"),
+                        '"\\$`\n',
+                    )
+                )
                 out.append(self.text(c))
                 pos = c.end_byte
-            out.append(_unescape(self.src[pos : n.end_byte - 1].decode(errors="surrogateescape"), '"\\$`\n'))
+            out.append(
+                _unescape(
+                    self.src[pos : n.end_byte - 1].decode(errors="surrogateescape"),
+                    '"\\$`\n',
+                )
+            )
             return "".join(out)
         if t in _DYNAMIC:
             return self.text(n)
         if t == "concatenation":
-            return "".join(self.unquote(self.check_word(c)) if c.is_named else _unescape(self.text(c))
-                           for c in n.children)
+            return "".join(
+                self.unquote(self.check_word(c))
+                if c.is_named
+                else _unescape(self.text(c))
+                for c in n.children
+            )
         raise ShellParseError(f"unsupported syntax: {t}")
 
     def check_word(self, n: Node) -> Node:
@@ -141,7 +182,9 @@ class _Visitor:
     def is_dynamic(self, n: Node) -> bool:
         if n.type in _DYNAMIC:
             return True
-        return n.type not in ("raw_string", "ansi_c_string") and any(self.is_dynamic(c) for c in n.named_children)
+        return n.type not in ("raw_string", "ansi_c_string") and any(
+            self.is_dynamic(c) for c in n.named_children
+        )
 
     # -- checks for known tree-sitter-bash misparses -------------------------
 
@@ -155,18 +198,32 @@ class _Visitor:
             if x.child_count == 0 or x.type in ("string_content", "comment"):
                 covered[x.start_byte : x.end_byte] = b"\x01" * len(raw)
             kids = x.children
-            if x.type in ("command", "redirected_statement", "file_redirect", "concatenation",
-                          "simple_expansion", "negated_command"):
+            if x.type in (
+                "command",
+                "redirected_statement",
+                "file_redirect",
+                "concatenation",
+                "simple_expansion",
+                "negated_command",
+            ):
                 for a, b in zip(kids, kids[1:]):
                     # `ls<NL>\<NL>rm x` is ONE command to tree-sitter
                     if b"\n" in self.gap(a, b):
                         raise ShellParseError("command continues across a newline")
                     # nodes with nothing between them are one shell word that
                     # tree-sitter split in two (`a\<NL>b`, `-x=1`, `>f'|'x`)
-                    if (a.is_named and b.is_named and self.gap(a, b) == b""
-                            and b.type != "file_redirect" and x.type not in ("concatenation", "simple_expansion")):
+                    if (
+                        a.is_named
+                        and b.is_named
+                        and self.gap(a, b) == b""
+                        and b.type != "file_redirect"
+                        and x.type not in ("concatenation", "simple_expansion")
+                    ):
                         raise ShellParseError("ambiguous word boundary")
-                    if x.type in ("concatenation", "simple_expansion") and a.end_byte != b.start_byte:
+                    if (
+                        x.type in ("concatenation", "simple_expansion")
+                        and a.end_byte != b.start_byte
+                    ):
                         raise ShellParseError("ambiguous word boundary")
             if x.type == "command" and any(not c.is_named for c in kids):
                 raise ShellParseError("unexpected token in command")  # e.g. a lone `$`
@@ -176,26 +233,38 @@ class _Visitor:
                 raise ShellParseError("'!' not followed by a blank")
             # e.g. `${HOME#$(cmd)}`: tree-sitter keeps the pattern as a `regex`
             # leaf, but bash runs the substitution
-            if x.is_named and x.child_count == 0 and x.type not in _LITERAL_LEAVES \
-                    and re.search(rb"`|\$[({\[]", raw):
+            if (
+                x.is_named
+                and x.child_count == 0
+                and x.type not in _LITERAL_LEAVES
+                and re.search(rb"`|\$[({\[]", raw)
+            ):
                 raise ShellParseError("unparsed substitution inside a word")
             if x.type == "comment":
                 self.check_comment_start(x)
             if x.type == "word" and re.search(rb"(?<!\\)\s", raw):
                 raise ShellParseError("ambiguous word boundary")
-            if x.type in ("word", "concatenation", "variable_assignment") and b"\\\n" in raw:
+            if (
+                x.type in ("word", "concatenation", "variable_assignment")
+                and b"\\\n" in raw
+            ):
                 raise ShellParseError("line continuation inside a word")
             if x.type == "command_substitution" and raw[:1] == b"`" and b"\\" in raw:
                 raise ShellParseError("backslash inside backticks")
             # tree-sitter merges adjacent substitutions (`a` `b`, `a``b`) into
             # one node, so the second command is never extracted
-            if x.type == "command_substitution" and raw[:1] == b"`" and (
-                    len(raw) < 2 or raw[-1:] != b"`" or b"`" in raw[1:-1]):
+            if (
+                x.type == "command_substitution"
+                and raw[:1] == b"`"
+                and (len(raw) < 2 or raw[-1:] != b"`" or b"`" in raw[1:-1])
+            ):
                 raise ShellParseError("backtick inside backticks")
             if x.type in ("raw_string", "ansi_c_string", "string"):
                 self.check_quote_extent(x, raw)
         # tree-sitter can silently drop text (e.g. a standalone `\ `)
-        uncovered = bytes(b for b, c in zip(self.src.replace(b"\\\n", b"  "), covered) if not c)
+        uncovered = bytes(
+            b for b, c in zip(self.src.replace(b"\\\n", b"  "), covered) if not c
+        )
         if uncovered.strip():
             raise ShellParseError("part of the command was not understood")
 
@@ -218,12 +287,14 @@ class _Visitor:
     def check_braces(self, n: Node) -> None:
         """Bash brace-expands `{a,b}` and `{1..3}` into several words, so the
         argv we would check (`find . {-exec,} ...`) is not the one bash runs."""
+
         def unquoted(c: Node) -> str:
             if c.type == "word" or not c.is_named:
                 return re.sub(r"\\.", "__", self.text(c), flags=re.S)
             if c.type == "concatenation":
                 return "".join(unquoted(k) for k in c.children)
             return "_"  # quoted text and expansions never brace-expand
+
         if _BRACE_EXPANSION.search(unquoted(n)):
             raise ShellParseError("unsupported syntax: brace expansion")
 
@@ -234,8 +305,11 @@ class _Visitor:
         if x.type == "raw_string":
             ok = t[-1:] == b"'" and b"'" not in t[1:-1]
         else:
-            skip = [(c.start_byte - x.start_byte, c.end_byte - x.start_byte)
-                    for c in x.named_children if c.type in _DYNAMIC]
+            skip = [
+                (c.start_byte - x.start_byte, c.end_byte - x.start_byte)
+                for c in x.named_children
+                if c.type in _DYNAMIC
+            ]
             quote = b"'" if x.type == "ansi_c_string" else b'"'
             i, close = (2 if x.type == "ansi_c_string" else 1), None
             while i < len(t):
@@ -268,7 +342,9 @@ class _Visitor:
                 self.visit(c, redirects if i == len(kids) - 1 else ())
         elif t == "redirected_statement" and n.child_by_field_name("body") is not None:
             body = n.child_by_field_name("body")
-            own = tuple(c for c in n.named_children if c.id != body.id and c.type != "comment")
+            own = tuple(
+                c for c in n.named_children if c.id != body.id and c.type != "comment"
+            )
             self.visit(body, own + redirects)
         else:
             raise ShellParseError(f"unsupported syntax: {t}")
@@ -312,7 +388,9 @@ class _Visitor:
         for w in words:
             self.check_braces(w)
         self.result.command_argvs.append([self.unquote(w) for w in words])
-        self.result.command_arg_dynamic.append(any(self.is_dynamic(w) for w in words[1:]))
+        self.result.command_arg_dynamic.append(
+            any(self.is_dynamic(w) for w in words[1:])
+        )
         for x in words + assignments:
             self.visit_nested(x)
         for r in redirects:
@@ -384,7 +462,12 @@ def scan_for_deny_checks(command: str) -> Tuple[List[List[str]], List[str]]:
         stack.extend(n.children)
         if n.type == "file_redirect":
             op, dests = redirect_parts(n)
-            if dests and ">" in op and op not in (">&-", "<&-") and not (op in (">&", "<&") and dests[0].type == "number"):
+            if (
+                dests
+                and ">" in op
+                and op not in (">&-", "<&-")
+                and not (op in (">&", "<&") and dests[0].type == "number")
+            ):
                 path = text(dests[0])
                 if not is_benign_redirect_target(path):
                     targets.append(path)
@@ -392,13 +475,23 @@ def scan_for_deny_checks(command: str) -> Tuple[List[List[str]], List[str]]:
             redirects = [c for c in n.named_children if c.type.endswith("redirect")]
             # `a | b > f x`: redirects after a pipeline/list belong to its last command
             owner = n
-            while owner.parent is not None and owner.parent.type in ("pipeline", "list", "negated_command") \
-                    and owner.parent.named_children and owner.parent.named_children[-1].id == owner.id:
+            while (
+                owner.parent is not None
+                and owner.parent.type in ("pipeline", "list", "negated_command")
+                and owner.parent.named_children
+                and owner.parent.named_children[-1].id == owner.id
+            ):
                 owner = owner.parent
             if owner.parent is not None and owner.parent.type == "redirected_statement":
-                redirects += [c for c in owner.parent.named_children if c.type.endswith("redirect")]
+                redirects += [
+                    c
+                    for c in owner.parent.named_children
+                    if c.type.endswith("redirect")
+                ]
             words = [
-                c.named_children[0] if c.type == "command_name" and c.named_children else c
+                c.named_children[0]
+                if c.type == "command_name" and c.named_children
+                else c
                 for c in n.named_children
                 if not c.type.endswith("redirect") and c.type != "variable_assignment"
             ]

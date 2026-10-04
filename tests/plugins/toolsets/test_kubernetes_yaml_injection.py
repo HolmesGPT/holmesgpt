@@ -244,7 +244,8 @@ def test_env_canary_positive_control(monkeypatch):
     # Mirrors the pre-fix error line: sanitize()d value inside "...'...'..."
     vulnerable = (
         'echo "Unable to find resource kind '
-        "'" + sanitize(f"$(printenv {CANARY_ENV})") + "'" '."'
+        "'" + sanitize(f"$(printenv {CANARY_ENV})") + "'"
+        '."'
     )
     result = subprocess.run(
         vulnerable,

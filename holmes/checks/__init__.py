@@ -1,5 +1,10 @@
 """Holmes health checks module."""
 
+from holmes.checks.checks import (
+    CheckRunner,
+    execute_check,
+    load_checks_config,
+)
 from holmes.checks.models import (
     Check,
     CheckMode,
@@ -8,11 +13,6 @@ from holmes.checks.models import (
     ChecksConfig,
     CheckStatus,
     DestinationConfig,
-)
-from holmes.checks.checks import (
-    CheckRunner,
-    execute_check,
-    load_checks_config,
 )
 
 __all__ = [

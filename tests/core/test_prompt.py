@@ -241,8 +241,7 @@ class TestBuildInitialAskMessages:
 
         assert messages[0]["role"] == "system"
         assert (
-            "https://holmesgpt.dev/data-sources/permissions/"
-            in messages[0]["content"]
+            "https://holmesgpt.dev/data-sources/permissions/" in messages[0]["content"]
         )
 
     def test_build_initial_ask_messages_with_system_prompt_additions(
@@ -576,7 +575,6 @@ class TestIsComponentEnabled:
         )
 
 
-
 class TestImpactAndBlastRadius:
     """ROB-1233 — the system prompt must constrain impact claims to evidence.
 
@@ -644,17 +642,23 @@ class TestImpactAndBlastRadius:
         """Each rule survives edits to the template around it."""
         assert rule in self._system_prompt(mock_tool_executor)
 
-    def test_section_rides_with_general_instructions(self, mock_tool_executor, monkeypatch):
+    def test_section_rides_with_general_instructions(
+        self, mock_tool_executor, monkeypatch
+    ):
         """It belongs to the investigation guidelines, so a caller that turns
         those off does not get it — and one that turns them on does."""
         monkeypatch.setenv("ENABLED_PROMPTS", "intro")
-        assert "# Impact and blast radius" not in self._system_prompt(mock_tool_executor)
+        assert "# Impact and blast radius" not in self._system_prompt(
+            mock_tool_executor
+        )
         monkeypatch.setenv("ENABLED_PROMPTS", "general_instructions")
         assert "# Impact and blast radius" in self._system_prompt(mock_tool_executor)
 
     def test_section_precedes_the_kubernetes_guidance(self, mock_tool_executor):
         """General discipline first, then the k8s specifics that lean on it."""
         prompt = self._system_prompt(mock_tool_executor)
-        assert prompt.index("# Investigation guidelines") < prompt.index(
-            "# Impact and blast radius"
-        ) < prompt.index("# If investigating Kubernetes problems")
+        assert (
+            prompt.index("# Investigation guidelines")
+            < prompt.index("# Impact and blast radius")
+            < prompt.index("# If investigating Kubernetes problems")
+        )

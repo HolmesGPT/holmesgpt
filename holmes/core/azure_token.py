@@ -36,12 +36,17 @@ def get_azure_ad_token() -> str:
 
     with _lock:
         now = time.monotonic()
-        if _cached_token is not None and (now - _token_timestamp) < TOKEN_EXPIRY_SECONDS:
+        if (
+            _cached_token is not None
+            and (now - _token_timestamp) < TOKEN_EXPIRY_SECONDS
+        ):
             return _cached_token
 
         logger.info("Fetching new Azure AD token for Azure AI Foundry authentication")
         credential = DefaultAzureCredential()
-        token_provider = get_bearer_token_provider(credential, AZURE_COGNITIVE_SERVICES_SCOPE)
+        token_provider = get_bearer_token_provider(
+            credential, AZURE_COGNITIVE_SERVICES_SCOPE
+        )
         _cached_token = token_provider()
         _token_timestamp = now
         return _cached_token

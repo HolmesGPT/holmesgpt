@@ -43,7 +43,10 @@ WHITELISTED_ENDPOINTS = [
     # Monitors
     (r"^/api/v\d+/monitor(/search)?$", ""),
     (r"^/api/v\d+/monitor/\d+$", "Get a specific monitor by ID"),
-    (r"^/api/v1/monitor/groups/search$", "Search monitor groups (v1 only, no v2 equivalent)"),
+    (
+        r"^/api/v1/monitor/groups/search$",
+        "Search monitor groups (v1 only, no v2 equivalent)",
+    ),
     # Dashboards
     (r"^/api/v\d+/dashboard(/lists)?$", ""),
     (r"^/api/v\d+/dashboard/[^/]+$", ""),
@@ -100,7 +103,10 @@ WHITELISTED_ENDPOINTS = [
     # Downtimes
     (r"^/api/v\d+/downtime$", "List scheduled downtimes"),
     (r"^/api/v\d+/downtime/[^/]+$", "Get specific downtime by ID"),
-    (r"^/api/v2/monitor/\d+/downtime_matches$", "Get active downtimes for a specific monitor"),
+    (
+        r"^/api/v2/monitor/\d+/downtime_matches$",
+        "Get active downtimes for a specific monitor",
+    ),
     # Tags
     (r"^/api/v\d+/tags/hosts(/[^/]+)?$", ""),
     # Notebooks

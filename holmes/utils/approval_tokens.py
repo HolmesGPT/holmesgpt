@@ -23,7 +23,9 @@ import jwt
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 
-APPROVAL_DOCS_URL = "https://holmesgpt.dev/reference/environment-variables/#holmes_approval_signing_key"
+APPROVAL_DOCS_URL = (
+    "https://holmesgpt.dev/reference/environment-variables/#holmes_approval_signing_key"
+)
 APPROVAL_REJECTION_MESSAGE = (
     "Approval token validation failed. This usually happens after Holmes "
     f"was restarted. See {APPROVAL_DOCS_URL} to configure a persistent signing key."

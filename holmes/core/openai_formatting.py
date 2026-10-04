@@ -71,7 +71,10 @@ def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
     # Handle union types (anyOf with multiple non-null branches) first.
     if hasattr(param_attributes, "any_of") and param_attributes.any_of:
-        branches = [type_to_open_ai_schema(branch, strict_mode) for branch in param_attributes.any_of]
+        branches = [
+            type_to_open_ai_schema(branch, strict_mode)
+            for branch in param_attributes.any_of
+        ]
         if not param_attributes.required:
             branches.append({"type": "null"})
         return {"anyOf": branches}
@@ -82,7 +85,9 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
     is_nullable_from_schema = False
 
     if isinstance(raw_type, list):
-        non_null_types = [t.strip() if isinstance(t, str) else t for t in raw_type if t != "null"]
+        non_null_types = [
+            t.strip() if isinstance(t, str) else t for t in raw_type if t != "null"
+        ]
         is_nullable_from_schema = "null" in raw_type
         param_type = non_null_types[0] if non_null_types else "string"
     else:
@@ -104,7 +109,9 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
                 type_obj["additionalProperties"] = False
 
         # Preserve additionalProperties schema for dynamic-key objects
-        elif hasattr(param_attributes, "additional_properties") and param_attributes.additional_properties not in (None, False):
+        elif hasattr(
+            param_attributes, "additional_properties"
+        ) and param_attributes.additional_properties not in (None, False):
             type_obj["additionalProperties"] = param_attributes.additional_properties
         elif strict_mode:
             type_obj["additionalProperties"] = False
@@ -138,13 +145,19 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 
     # Merge passthrough JSON Schema keywords (minItems, maxItems, minimum, etc.)
     # so the LLM sees validation constraints from the source schema.
-    if type_obj and hasattr(param_attributes, "json_schema_extra") and param_attributes.json_schema_extra:
+    if (
+        type_obj
+        and hasattr(param_attributes, "json_schema_extra")
+        and param_attributes.json_schema_extra
+    ):
         type_obj.update(param_attributes.json_schema_extra)
 
     # Add nullability using anyOf per the OpenAI Structured Outputs spec when strict mode
     # requires optional params to accept null, or when the source schema explicitly marks
     # the field as nullable (e.g., MCP ["string", "null"]).
-    if type_obj and (is_nullable_from_schema or (strict_mode and not param_attributes.required)):
+    if type_obj and (
+        is_nullable_from_schema or (strict_mode and not param_attributes.required)
+    ):
         type_obj = {"anyOf": [type_obj, {"type": "null"}]}
 
     return type_obj
@@ -157,7 +170,9 @@ def format_tool_to_open_ai_standard(
     # However, tools with dynamic-key objects (additionalProperties with a schema) are
     # automatically excluded from strict mode since both OpenAI and Anthropic require
     # additionalProperties: false on all objects in strict mode.
-    strict_mode = STRICT_TOOL_CALLS_ENABLED and _is_tool_strict_compatible(tool_parameters)
+    strict_mode = STRICT_TOOL_CALLS_ENABLED and _is_tool_strict_compatible(
+        tool_parameters
+    )
 
     tool_properties = {}
 

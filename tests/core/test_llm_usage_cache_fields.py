@@ -49,12 +49,8 @@ def test_from_response_without_cache_fields():
 def test_iadd_accumulates_cache_fields():
     """+= accumulates cache reads/writes across calls (None-safe)."""
     total = RequestStats()
-    total += RequestStats(
-        total_tokens=100, cached_tokens=80, cache_creation_tokens=10
-    )
+    total += RequestStats(total_tokens=100, cached_tokens=80, cache_creation_tokens=10)
     total += RequestStats(total_tokens=50)  # no cache info on this call
-    total += RequestStats(
-        total_tokens=200, cached_tokens=20, cache_creation_tokens=5
-    )
+    total += RequestStats(total_tokens=200, cached_tokens=20, cache_creation_tokens=5)
     assert total.cached_tokens == 100
     assert total.cache_creation_tokens == 15

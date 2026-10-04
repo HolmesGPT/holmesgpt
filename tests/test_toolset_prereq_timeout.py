@@ -25,7 +25,9 @@ class _NoopTool(Tool):
     name: str = "noop"
     description: str = "noop"
 
-    def _invoke(self, params: dict, user_approved: bool = False) -> StructuredToolResult:  # noqa: D401
+    def _invoke(
+        self, params: dict, user_approved: bool = False
+    ) -> StructuredToolResult:  # noqa: D401
         return None  # type: ignore[return-value]
 
     def get_parameterized_one_liner(self, params: Dict) -> str:
@@ -85,7 +87,9 @@ def test_check_toolset_prerequisites_marks_slow_toolsets_failed():
         assert "0.5s" in (slow.error or "")
         assert "HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS" in (slow.error or "")
 
-        ready_events = {e.name: e for e in events if e.kind == StatusEventKind.TOOLSET_READY}
+        ready_events = {
+            e.name: e for e in events if e.kind == StatusEventKind.TOOLSET_READY
+        }
         assert ready_events["fast_ds"].status == ToolsetStatus.ENABLED
         assert ready_events["slow_ds"].status == ToolsetStatus.FAILED
     finally:

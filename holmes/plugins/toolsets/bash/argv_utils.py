@@ -24,7 +24,11 @@ def abbreviates(opt: str, targets: frozenset) -> bool:
     option in `targets`. GNU getopt_long accepts unambiguous abbreviations, so a
     security check must treat `--out` as `--output`. Errs toward matching (safe):
     an ambiguous abbreviation the real tool would reject is still flagged."""
-    return len(opt) > 2 and opt.startswith("--") and any(t.startswith(opt) for t in targets)
+    return (
+        len(opt) > 2
+        and opt.startswith("--")
+        and any(t.startswith(opt) for t in targets)
+    )
 
 
 def parse_argv(

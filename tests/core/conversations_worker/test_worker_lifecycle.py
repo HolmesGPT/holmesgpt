@@ -1,6 +1,7 @@
 """Unit tests for worker lifecycle / claim-loop / error handling."""
-import threading
+
 import logging
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -183,9 +184,7 @@ def test_saturation_logs_only_after_continuous_window(monkeypatch, caplog):
 
     def saturation_lines():
         return [
-            r
-            for r in caplog.records
-            if "claim capacity saturated" in r.getMessage()
+            r for r in caplog.records if "claim capacity saturated" in r.getMessage()
         ]
 
     with caplog.at_level(logging.INFO):
@@ -212,9 +211,7 @@ def test_saturation_logs_only_after_continuous_window(monkeypatch, caplog):
         w.dal.claim_n_pending_conversations.return_value = []
         w._try_claim_and_dispatch()
         exits = [
-            r
-            for r in caplog.records
-            if "capacity available again" in r.getMessage()
+            r for r in caplog.records if "capacity available again" in r.getMessage()
         ]
         assert len(exits) == 1
         assert w._saturated_since is None and w._saturation_logged is False
@@ -245,9 +242,7 @@ def test_brief_free_slot_resets_saturation_clock(monkeypatch, caplog):
         # combined saturated time exceeds the threshold.
         w._active_conversation_ids = {("conv-b", 1): _slot(time.monotonic())}
         w._try_claim_and_dispatch()
-    assert not [
-        r for r in caplog.records if "claim capacity" in r.getMessage()
-    ]
+    assert not [r for r in caplog.records if "claim capacity" in r.getMessage()]
 
 
 def test_stuck_slot_emits_warning(monkeypatch, caplog):
@@ -269,8 +264,7 @@ def test_stuck_slot_emits_warning(monkeypatch, caplog):
         return [
             r
             for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "slot(s) stuck" in r.getMessage()
+            if r.levelno == logging.WARNING and "slot(s) stuck" in r.getMessage()
         ]
 
     with caplog.at_level(logging.INFO):
@@ -286,11 +280,11 @@ def test_stuck_slot_emits_warning(monkeypatch, caplog):
 def test_backlog_drains_with_exact_claim_calls_and_limits(monkeypatch):
     """Exact-accounting test: draining a 12-row backlog at capacity 5 must
 
-      * call claim exactly once per iteration that has free capacity,
-      * pass limit == free slots on every call (never more),
-      * dispatch exactly the rows it claimed — each conversation once, never
-        exceeding MAX_CONCURRENT — so no work is missed or double-claimed,
-      * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
+    * call claim exactly once per iteration that has free capacity,
+    * pass limit == free slots on every call (never more),
+    * dispatch exactly the rows it claimed — each conversation once, never
+      exceeding MAX_CONCURRENT — so no work is missed or double-claimed,
+    * issue ceil(12/5) == 3 claim calls total, then a final empty claim.
     """
     w = _bare_worker()
     monkeypatch.setattr(
@@ -419,9 +413,9 @@ def test_two_workers_claim_disjoint_sets(monkeypatch):
                 w._active_conversation_ids.pop(key, None)
 
     assert sorted(dispatched) == sorted(f"c{i}" for i in range(12))
-    assert "w1" in dispatched.values() and "w2" in dispatched.values(), (
-        "backlog exceeded one pool, so both workers should have claimed some"
-    )
+    assert (
+        "w1" in dispatched.values() and "w2" in dispatched.values()
+    ), "backlog exceeded one pool, so both workers should have claimed some"
 
 
 def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
@@ -443,8 +437,8 @@ def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
     w.dal.claim_n_pending_conversations.side_effect = claim_then_broadcast
 
     # One loop-body iteration in the same order as _claim_loop:
-    w._notify_event.clear()          # loop clears before claiming
-    w._try_claim_and_dispatch()      # claim runs; a broadcast arrives mid-claim
+    w._notify_event.clear()  # loop clears before claiming
+    w._try_claim_and_dispatch()  # claim runs; a broadcast arrives mid-claim
     # Event is set again -> the loop's next wait() wakes immediately to re-claim.
     assert w._notify_event.is_set()
     assert w._notify_event.wait(timeout=0) is True
@@ -524,7 +518,9 @@ def test_process_conversation_safe_marks_failed_on_exception():
     assert error_events[0]["event"] == "error"
     # The error event must use a generic message, not the raw exception text
     desc = error_events[0]["data"]["description"]
-    assert "synthetic failure" not in desc, "Raw exception text must not leak into error events"
+    assert (
+        "synthetic failure" not in desc
+    ), "Raw exception text must not leak into error events"
     assert "internal error" in desc.lower()
 
     w.dal.update_conversation_status.assert_called_once_with(
@@ -546,7 +542,9 @@ def test_process_conversation_safe_clears_active_on_success():
         origin="chat",
         request_sequence=1,
     )
-    with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
+    with patch.object(
+        ConversationWorker, "_process_conversation", lambda self, t: None
+    ):
         w._process_conversation_safe(task)
 
     assert ("c1", 1) not in w._active_conversation_ids
@@ -565,7 +563,9 @@ def test_process_conversation_safe_wakes_claim_loop_to_reclaim():
         origin="chat",
         request_sequence=1,
     )
-    with patch.object(ConversationWorker, "_process_conversation", lambda self, t: None):
+    with patch.object(
+        ConversationWorker, "_process_conversation", lambda self, t: None
+    ):
         w._process_conversation_safe(task)
 
     assert w._notify_event.is_set()
@@ -889,6 +889,7 @@ def test_realtime_verify_loop_warns_on_transient_connectivity_exception(caplog):
     """A transient connectivity exception (e.g. ConnectionError) must be
     treated as a None/retry and logged at WARNING, not ERROR."""
     import logging
+
     w = _verify_worker()
     # First call raises a transient error; second call returns True so the
     # loop terminates.
@@ -918,6 +919,7 @@ def test_realtime_verify_loop_surfaces_non_transient_exception(caplog):
     logged at ERROR and propagate out of the loop instead of being silently
     retried."""
     import logging
+
     w = _verify_worker()
     w.dal.is_realtime_enabled.side_effect = AttributeError("dal misconfigured")
 
@@ -1010,7 +1012,9 @@ def test_timeout_conversation_writes_timeout_only():
 
     w._timeout_conversation(task)
 
-    statuses = [c.kwargs["status"] for c in w.dal.update_conversation_status.call_args_list]
+    statuses = [
+        c.kwargs["status"] for c in w.dal.update_conversation_status.call_args_list
+    ]
     assert statuses == ["timeout"]
 
 

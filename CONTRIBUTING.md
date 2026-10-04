@@ -84,20 +84,25 @@ make test-llm-ask-holmes
 
 ### 6. Run pre-commit checks (optional)
 
-Pre-commit hooks run automatically in CI, so you don't need to run them locally unless you want to verify your changes first. If running locally, you'll need Python 3.11 available on your system (even if your project uses Python 3.14):
+CI enforces configured pre-commit hooks on every PR (including docs-only PRs):
+Ruff lint and formatting, private-key detection, end-of-file checks (for Python
+and YAML), and isort. Failures fail the `build-and-test-gate` check. Local
+checks are optional; skipping them with `--no-verify` does not skip CI checks.
+
+Two hooks are currently skipped in CI and deferred to future work:
+- `poetry-check`: skipped due to PEP 621 metadata vs. Poetry 1.8.5 lockfile format incompatibility
+- `mypy`: skipped due to pre-existing type errors across legacy modules
+
+To run the same checks locally:
 
 ```bash
-poetry run pre-commit run -a
+SKIP=poetry-check,mypy poetry run pre-commit run --all-files --show-diff-on-failure
 ```
 
-**Note:** Pre-commit is configured to use Python 3.11. If you only have Python 3.14 installed, install Python 3.11 as well:
-```bash
-# macOS
-brew install python@3.11
-
-# Linux/Ubuntu
-sudo apt install python3.11
-```
+Some hooks apply automatic fixes. If CI reports changed files, run the checks
+locally, review and commit the fixes, then rerun. CI does not push fixes to your
+branch. The hooks use your available `python3` interpreter, including Python
+3.14; the CI job uses Python 3.11.
 
 ## Reporting bugs
 
@@ -131,6 +136,6 @@ We encourage those interested to contribute code and also appreciate when issues
 - All new features require unit tests
 - New toolsets require integration tests
 - Maintain 40% minimum test coverage
-- Use `git commit -s --no-verify` when committing to skip local pre-commit hooks (they will run in CI)
+- Use `git commit -s --no-verify` when committing to skip local pre-commit hooks (all non-skipped hooks run in CI)
 - Always create commits and merge (never force push or rebase)
 - For complex documentation changes, see [docs/README.md](docs/README.md)

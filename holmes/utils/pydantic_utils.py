@@ -17,7 +17,13 @@ from typing import (
 
 import typer
 from benedict import benedict  # type: ignore
-from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    ValidationError,
+    model_validator,
+)
 
 from holmes.plugins.prompts import load_prompt
 
@@ -111,9 +117,7 @@ class ToolsetConfig(BaseModel):
                 ]
 
         # Don't re-mark fields that were just hidden as required.
-        ui_required = [
-            f for f in (cls._ui_required_fields or []) if f not in hidden
-        ]
+        ui_required = [f for f in (cls._ui_required_fields or []) if f not in hidden]
         if ui_required:
             existing = list(raw_schema.get("required", []))
             # Preserve declaration order: keep existing entries first, then
@@ -173,6 +177,7 @@ class ToolsetConfig(BaseModel):
 
         return data
 
+
 class RobustaBaseConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
@@ -221,6 +226,7 @@ def load_model_from_file(
             fg="red",
         )
         sys.exit()
+
 
 def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
     """
@@ -281,6 +287,7 @@ def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
         out[field_name] = example_value
 
     return out
+
 
 def _extract_base_model_subclass(annotation: Any) -> Optional[Type[BaseModel]]:
     """

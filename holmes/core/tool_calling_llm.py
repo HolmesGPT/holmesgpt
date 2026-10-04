@@ -1,16 +1,11 @@
 import concurrent.futures
 import json
-from json import tool
 import logging
 import re
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type, Union
-
-# Named logger for user-facing display messages (tool progress, AI messages, etc.)
-# In interactive mode this logger is silenced; the CLI renders from stream events instead.
-display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
 import sentry_sdk
 from openai import APIError, BadRequestError
@@ -34,19 +29,8 @@ from holmes.core.models import (
     ToolApprovalDecision,
     ToolCallResult,
 )
-from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
+from holmes.core.oauth_config import _get_exchange_manager, parse_oauth_decision
 from holmes.core.oauth_utils import _get_token_manager
-from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
-from holmes.core.safeguards import prevent_overly_repeated_tool_call
-from holmes.core.tools import (
-    StructuredToolResult,
-    StructuredToolResultStatus,
-    ToolInvokeContext,
-)
-from holmes.core.tools_utils.tool_context_window_limiter import (
-    spill_oversized_tool_result,
-)
-from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.otel_tracing import (
     ATTR_GEN_AI_REQUEST_MODEL,
     ATTR_GEN_AI_SYSTEM,
@@ -58,6 +42,17 @@ from holmes.core.otel_tracing import (
     DIM_GEN_AI_TOKEN_TYPE,
     DIM_TOOL_NAME,
 )
+from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
+from holmes.core.safeguards import prevent_overly_repeated_tool_call
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolInvokeContext,
+)
+from holmes.core.tools_utils.tool_context_window_limiter import (
+    spill_oversized_tool_result,
+)
+from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import (
     HOLMES_LANGFUSE_ATTRIBUTES,
     DummySpan,
@@ -84,6 +79,10 @@ from holmes.utils.stream import (
     build_stream_event_token_count,
 )
 from holmes.utils.tags import parse_messages_tags
+
+# Named logger for user-facing display messages (tool progress, AI messages, etc.)
+# In interactive mode this logger is silenced; the CLI renders from stream events instead.
+display_logger = logging.getLogger("holmes.display.tool_calling_llm")
 
 
 class LLMInterruptedError(Exception):
@@ -170,7 +169,9 @@ def extract_bash_session_prefixes_by_agent(
                 "approval signature (possible forged conversation history)"
             )
             continue
-        agent = str(metadata.get("bash_session_approved_agent") or _LOCAL_BASH_PREFIX_SCOPE)
+        agent = str(
+            metadata.get("bash_session_approved_agent") or _LOCAL_BASH_PREFIX_SCOPE
+        )
         by_agent.setdefault(agent, set()).update(prefixes)
     return {agent: list(prefixes) for agent, prefixes in by_agent.items()}
 
@@ -178,7 +179,9 @@ def extract_bash_session_prefixes_by_agent(
 def _try_process_oauth_decision(tool_call_id, oauth_code, request_context) -> bool:
     """Exchange an OAuth authorization code for tokens. Returns True on success."""
     try:
-        _get_exchange_manager().complete_exchange(tool_call_id, oauth_code, request_context)
+        _get_exchange_manager().complete_exchange(
+            tool_call_id, oauth_code, request_context
+        )
         return True
     except Exception as e:
         logging.error(f"Failed to process OAuth decision: {e}", exc_info=True)
@@ -197,7 +200,9 @@ class LLMResult(RequestStats):
     instructions: List[str] = Field(default_factory=list)
     messages: Optional[List[dict]] = None
     metadata: Optional[Dict[Any, Any]] = None
-    finish_reason: Optional[str] = None  # Last LLM iteration's finish_reason (stop / length / tool_calls / content_filter)
+    finish_reason: Optional[str] = (
+        None  # Last LLM iteration's finish_reason (stop / length / tool_calls / content_filter)
+    )
 
 
 class ToolCallWithDecision(BaseModel):
@@ -364,7 +369,9 @@ class ToolCallingLLM:
                                 tool_call.get("approval_token"),
                                 tool_call_id=tool_call.get("id", ""),
                                 tool_name=tool_call.get("function", {}).get("name", ""),
-                                args_json=tool_call.get("function", {}).get("arguments", ""),
+                                args_json=tool_call.get("function", {}).get(
+                                    "arguments", ""
+                                ),
                             )
                         except ApprovalTokenError as exc:
                             logging.warning(
@@ -407,10 +414,18 @@ class ToolCallingLLM:
                 oauth_code = parse_oauth_decision(tool_decision.decision)
                 user_id = (request_context or {}).get("user_id")
                 if oauth_code and user_id:
-                    oauth_success = _try_process_oauth_decision(tool_call.id, oauth_code, request_context)
-                    toolset = self.tool_executor._tool_to_toolset.get(tool_call.function.name) if oauth_success else None
+                    oauth_success = _try_process_oauth_decision(
+                        tool_call.id, oauth_code, request_context
+                    )
+                    toolset = (
+                        self.tool_executor._tool_to_toolset.get(tool_call.function.name)
+                        if oauth_success
+                        else None
+                    )
                     if oauth_success and toolset:
-                        self.tool_executor.oauth_connector.load_tools_for_user(user_id, toolset, request_context)
+                        self.tool_executor.oauth_connector.load_tools_for_user(
+                            user_id, toolset, request_context
+                        )
                     else:
                         tool_result = ToolCallResult(
                             tool_call_id=tool_call.id,
@@ -433,14 +448,19 @@ class ToolCallingLLM:
             else:
                 # Tool was rejected or no decision found
                 if tool_decision and not tool_decision.verified:
-                    error_text = tool_decision.feedback or "Tool execution was denied by the server."
+                    error_text = (
+                        tool_decision.feedback
+                        or "Tool execution was denied by the server."
+                    )
                 else:
                     feedback_text = (
                         f" User feedback: {tool_decision.feedback}"
                         if tool_decision and tool_decision.feedback
                         else ""
                     )
-                    error_text = f"Tool execution was denied by the user.{feedback_text}"
+                    error_text = (
+                        f"Tool execution was denied by the user.{feedback_text}"
+                    )
                 tool_result = ToolCallResult(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.function.name,
@@ -474,7 +494,9 @@ class ToolCallingLLM:
                 )
                 authenticated_prefixes = decided_params.get("suggested_prefixes") or []
                 saved_prefixes = [
-                    p for p in tool_decision.save_prefixes if p in authenticated_prefixes
+                    p
+                    for p in tool_decision.save_prefixes
+                    if p in authenticated_prefixes
                 ]
                 dropped_prefixes = [
                     p
@@ -567,9 +589,7 @@ class ToolCallingLLM:
                 )
                 messages.insert(
                     i + insert_offset,
-                    tool_result.to_llm_message(
-                        supports_vision=self._supports_vision()
-                    ),
+                    tool_result.to_llm_message(supports_vision=self._supports_vision()),
                 )
                 resolved_ids.add(tool_call_id)
                 insert_offset += 1
@@ -623,7 +643,9 @@ class ToolCallingLLM:
                         tool_result_msg = {
                             "tool_call_id": tool_call["id"],
                             "role": "tool",
-                            "name": tool_call.get("function", {}).get("name", "unknown"),
+                            "name": tool_call.get("function", {}).get(
+                                "name", "unknown"
+                            ),
                             "content": "Error: frontend did not return a result for this tool call.",
                         }
                     else:
@@ -645,9 +667,13 @@ class ToolCallingLLM:
                         tool_name=tool_call.get("function", {}).get("name", "unknown"),
                         description=f"Frontend tool: {tool_call.get('function', {}).get('name', 'unknown')}",
                         result=StructuredToolResult(
-                            status=StructuredToolResultStatus.SUCCESS if result else StructuredToolResultStatus.ERROR,
+                            status=StructuredToolResultStatus.SUCCESS
+                            if result
+                            else StructuredToolResultStatus.ERROR,
                             data=result.result if result else None,
-                            error="Frontend did not return a result" if not result else None,
+                            error="Frontend did not return a result"
+                            if not result
+                            else None,
                         ),
                     )
                     events.append(
@@ -672,7 +698,11 @@ class ToolCallingLLM:
         If a user_id is available (from request_context), per-user OAuth tools
         replace _connect placeholders for authenticated users.
         """
-        user_id = (self._request_context or {}).get("user_id") if hasattr(self, "_request_context") else None
+        user_id = (
+            (self._request_context or {}).get("user_id")
+            if hasattr(self, "_request_context")
+            else None
+        )
         return self.tool_executor.get_all_tools_openai_format(
             user_id=user_id,
         )
@@ -773,7 +803,9 @@ class ToolCallingLLM:
                         num_llm_calls=total_num_llm_calls,
                         messages=terminal_data.get("messages"),
                         metadata=terminal_data.get("metadata"),
-                        finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
+                        finish_reason=(terminal_data.get("metadata") or {}).get(
+                            "finish_reason"
+                        ),
                         **accumulated_stats.model_dump(),
                     )
 
@@ -795,7 +827,9 @@ class ToolCallingLLM:
                 num_llm_calls=total_num_llm_calls,
                 messages=terminal_data["messages"],
                 metadata=terminal_data.get("metadata"),
-                finish_reason=(terminal_data.get("metadata") or {}).get("finish_reason"),
+                finish_reason=(terminal_data.get("metadata") or {}).get(
+                    "finish_reason"
+                ),
                 **accumulated_stats.model_dump(),
             )
 
@@ -893,9 +927,13 @@ class ToolCallingLLM:
             # Store OAuth tools discovered by a _connect placeholder
             if tool_response.oauth_tools:
                 effective_user = _get_token_manager().require_user_id(request_context)
-                toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
+                toolset_name = self.tool_executor.get_toolset_name(
+                    tool_name, user_id=user_id
+                )
                 if toolset_name:
-                    self.tool_executor.oauth_connector.store_user_tools(effective_user, toolset_name, tool_response.oauth_tools)
+                    self.tool_executor.oauth_connector.store_user_tools(
+                        effective_user, toolset_name, tool_response.oauth_tools
+                    )
 
         except Exception as e:
             logging.error(
@@ -983,9 +1021,13 @@ class ToolCallingLLM:
         if trace_span is None:
             trace_span = DummySpan()
         # Extract tool name early for span naming
-        tool_name_for_span = getattr(getattr(tool_to_call, "function", None), "name", "unknown_tool")
+        tool_name_for_span = getattr(
+            getattr(tool_to_call, "function", None), "name", "unknown_tool"
+        )
         _tool_start = time.time()
-        with trace_span.start_span(name=f"holmesgpt.tool.{tool_name_for_span}", type="tool") as tool_span:
+        with trace_span.start_span(
+            name=f"holmesgpt.tool.{tool_name_for_span}", type="tool"
+        ) as tool_span:
             # ChatCompletionMessageToolCall is a union of FunctionToolCall (has 'function')
             # and CustomToolCall (has 'custom'). We only support function tool calls.
             if not hasattr(tool_to_call, "function"):
@@ -1046,7 +1088,9 @@ class ToolCallingLLM:
                     request_context=request_context,
                 )
 
-            toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
+            toolset_name = self.tool_executor.get_toolset_name(
+                tool_name, user_id=user_id
+            )
             tool_call_result = ToolCallResult(
                 tool_call_id=tool_id,
                 tool_name=tool_name,
@@ -1074,17 +1118,23 @@ class ToolCallingLLM:
             )
 
             # Record OTel tool span attributes
-            tool_span.log(metadata={
-                "holmesgpt.tool.name": tool_call_result.tool_name,
-                "holmesgpt.tool.status": tool_call_result.result.status.value if tool_call_result.result.status else "unknown",
-            })
+            tool_span.log(
+                metadata={
+                    "holmesgpt.tool.name": tool_call_result.tool_name,
+                    "holmesgpt.tool.status": tool_call_result.result.status.value
+                    if tool_call_result.result.status
+                    else "unknown",
+                }
+            )
 
             # Record OTel tool call metrics
             otel_metrics = TracingFactory.get_metrics()
             if otel_metrics:
                 tool_attrs = {DIM_TOOL_NAME: tool_call_result.tool_name}
                 otel_metrics.tool_call_count.add(1, tool_attrs)
-                otel_metrics.tool_call_duration.record(time.time() - _tool_start, tool_attrs)
+                otel_metrics.tool_call_duration.record(
+                    time.time() - _tool_start, tool_attrs
+                )
                 if tool_call_result.result.status == StructuredToolResultStatus.ERROR:
                     otel_metrics.tool_call_errors.add(1, tool_attrs)
 
@@ -1185,8 +1235,12 @@ class ToolCallingLLM:
 
         # Process frontend tool results if provided (frontend tool resume)
         if msgs and frontend_tool_results:
-            logging.info(f"Processing {len(frontend_tool_results)} frontend tool results")
-            msgs, events = self._process_frontend_tool_results(msgs, frontend_tool_results)
+            logging.info(
+                f"Processing {len(frontend_tool_results)} frontend tool results"
+            )
+            msgs, events = self._process_frontend_tool_results(
+                msgs, frontend_tool_results
+            )
             for ev in events:
                 yield ev
                 if ev.event == StreamEvents.TOOL_RESULT:
@@ -1272,113 +1326,128 @@ class ToolCallingLLM:
             # The span is activated in context so httpx calls during completion()
             # (e.g. LiteLLM HTTP calls) become children of this gen_ai.chat span.
             with trace_span.start_span(name="gen_ai.chat") as llm_span:
-              try:
-                _llm_call_start = time.time()
-                full_response = self.llm.completion(
-                    messages=parse_messages_tags(messages),  # type: ignore
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    response_format=response_format,
-                    temperature=TEMPERATURE,
-                    stream=False,
-                    drop_params=True,
-                )
-
-                # Accumulate cost information for this iteration
-                response_stats = RequestStats.from_response(full_response)
-                if response_stats.total_tokens > 0:
-                    cost_logger.debug(
-                        f"LLM iteration cost: ${response_stats.total_cost:.6f} | "
-                        f"Tokens: {response_stats.prompt_tokens} prompt + {response_stats.completion_tokens} completion = {response_stats.total_tokens} total"
+                try:
+                    _llm_call_start = time.time()
+                    full_response = self.llm.completion(
+                        messages=parse_messages_tags(messages),  # type: ignore
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        response_format=response_format,
+                        temperature=TEMPERATURE,
+                        stream=False,
+                        drop_params=True,
                     )
-                elif response_stats.total_cost > 0:
-                    cost_logger.debug(
-                        f"LLM iteration cost: ${response_stats.total_cost:.6f} | Token usage not available"
-                    )
-                if LOG_LLM_USAGE_RESPONSE:
-                    usage = getattr(full_response, "usage", None)
-                    if usage:
-                        logging.info(f"LLM usage response:\n{usage}\n")
-                stats += response_stats
 
-                # Record OTel LLM metrics
-                otel_metrics = TracingFactory.get_metrics()
-                if otel_metrics:
-                    model_attrs = {DIM_GEN_AI_REQUEST_MODEL: self.llm.model, DIM_GEN_AI_SYSTEM: "litellm"}
-                    if response_stats.prompt_tokens > 0:
-                        otel_metrics.token_usage.add(response_stats.prompt_tokens, {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "input"})
-                    if response_stats.completion_tokens > 0:
-                        otel_metrics.token_usage.add(response_stats.completion_tokens, {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "output"})
-                    llm_duration = time.time() - _llm_call_start
-                    otel_metrics.llm_call_duration.record(llm_duration, model_attrs)
+                    # Accumulate cost information for this iteration
+                    response_stats = RequestStats.from_response(full_response)
+                    if response_stats.total_tokens > 0:
+                        cost_logger.debug(
+                            f"LLM iteration cost: ${response_stats.total_cost:.6f} | "
+                            f"Tokens: {response_stats.prompt_tokens} prompt + {response_stats.completion_tokens} completion = {response_stats.total_tokens} total"
+                        )
+                    elif response_stats.total_cost > 0:
+                        cost_logger.debug(
+                            f"LLM iteration cost: ${response_stats.total_cost:.6f} | Token usage not available"
+                        )
+                    if LOG_LLM_USAGE_RESPONSE:
+                        usage = getattr(full_response, "usage", None)
+                        if usage:
+                            logging.info(f"LLM usage response:\n{usage}\n")
+                    stats += response_stats
 
-                # Log GenAI semantic convention attributes on the LLM child span
-                llm_span.log(metadata={
-                    ATTR_GEN_AI_SYSTEM: "litellm",
-                    ATTR_GEN_AI_REQUEST_MODEL: self.llm.model,
-                    ATTR_GEN_AI_USAGE_INPUT_TOKENS: stats.prompt_tokens,
-                    ATTR_GEN_AI_USAGE_OUTPUT_TOKENS: stats.completion_tokens,
-                    ATTR_GEN_AI_USAGE_TOTAL_TOKENS: stats.total_tokens,
-                    "holmesgpt.iteration": i,
-                })
+                    # Record OTel LLM metrics
+                    otel_metrics = TracingFactory.get_metrics()
+                    if otel_metrics:
+                        model_attrs = {
+                            DIM_GEN_AI_REQUEST_MODEL: self.llm.model,
+                            DIM_GEN_AI_SYSTEM: "litellm",
+                        }
+                        if response_stats.prompt_tokens > 0:
+                            otel_metrics.token_usage.add(
+                                response_stats.prompt_tokens,
+                                {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "input"},
+                            )
+                        if response_stats.completion_tokens > 0:
+                            otel_metrics.token_usage.add(
+                                response_stats.completion_tokens,
+                                {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "output"},
+                            )
+                        llm_duration = time.time() - _llm_call_start
+                        otel_metrics.llm_call_duration.record(llm_duration, model_attrs)
 
-                # Log prompt (input) + response content/reasoning/tool_calls (output).
-                # Only needed when Langfuse enrichment is on. Must stay in the `with` block.
-                if HOLMES_LANGFUSE_ATTRIBUTES:
-                    _resp_msg = full_response.choices[0].message  # type: ignore
-                    _raw_tool_calls = getattr(_resp_msg, "tool_calls", None) or []
-                    _tool_calls_out = []
-                    for _tc in _raw_tool_calls:
-                        _dump = getattr(_tc, "model_dump", None)
-                        _tool_calls_out.append(_dump() if callable(_dump) else str(_tc))
+                    # Log GenAI semantic convention attributes on the LLM child span
                     llm_span.log(
-                        input=messages,
-                        output={
-                            "content": getattr(_resp_msg, "content", None),
-                            "reasoning": getattr(_resp_msg, "reasoning_content", None),
-                            "tool_calls": _tool_calls_out,
-                        },
+                        metadata={
+                            ATTR_GEN_AI_SYSTEM: "litellm",
+                            ATTR_GEN_AI_REQUEST_MODEL: self.llm.model,
+                            ATTR_GEN_AI_USAGE_INPUT_TOKENS: stats.prompt_tokens,
+                            ATTR_GEN_AI_USAGE_OUTPUT_TOKENS: stats.completion_tokens,
+                            ATTR_GEN_AI_USAGE_TOTAL_TOKENS: stats.total_tokens,
+                            "holmesgpt.iteration": i,
+                        }
                     )
 
-              # One clause, because the checks are ordered rather than typed:
-              # litellm maps a refusal by the body's error *type*, so a 401
-              # whose body says `invalid_request_error` arrives as a
-              # BadRequestError carrying status 401. The refusal is therefore
-              # recognised by status before anything keyed on the class runs;
-              # the Azure case below is a 400, so it can never be taken first.
-              except Exception as e:
-                if _is_robusta_refusal(self.llm, e):
-                    # _is_robusta_refusal already established the status is one
-                    # of REFUSAL_STATUS_CODES.
-                    status_code = e.status_code  # type: ignore[attr-defined]
-                    logging.warning(
-                        f"Relay refused the call on model={self.llm.model} "
-                        f"(status {status_code}): {e}"
-                    )
-                    raise RelayRefusal(_refusal_message(e), status_code) from e
+                    # Log prompt (input) + response content/reasoning/tool_calls (output).
+                    # Only needed when Langfuse enrichment is on. Must stay in the `with` block.
+                    if HOLMES_LANGFUSE_ATTRIBUTES:
+                        _resp_msg = full_response.choices[0].message  # type: ignore
+                        _raw_tool_calls = getattr(_resp_msg, "tool_calls", None) or []
+                        _tool_calls_out = []
+                        for _tc in _raw_tool_calls:
+                            _dump = getattr(_tc, "model_dump", None)
+                            _tool_calls_out.append(
+                                _dump() if callable(_dump) else str(_tc)
+                            )
+                        llm_span.log(
+                            input=messages,
+                            output={
+                                "content": getattr(_resp_msg, "content", None),
+                                "reasoning": getattr(
+                                    _resp_msg, "reasoning_content", None
+                                ),
+                                "tool_calls": _tool_calls_out,
+                            },
+                        )
 
-                # a known error that occurs with Azure, replaced with something
-                # more obvious to the user
-                if isinstance(e, BadRequestError):
-                    if (
-                        "Unrecognized request arguments supplied: tool_choice, tools"
-                        in str(e)
-                    ):
-                        raise Exception(
-                            "The Azure model you chose is not supported. Model version 1106 and higher required."
-                        ) from e
+                # One clause, because the checks are ordered rather than typed:
+                # litellm maps a refusal by the body's error *type*, so a 401
+                # whose body says `invalid_request_error` arrives as a
+                # BadRequestError carrying status 401. The refusal is therefore
+                # recognised by status before anything keyed on the class runs;
+                # the Azure case below is a 400, so it can never be taken first.
+                except Exception as e:
+                    if _is_robusta_refusal(self.llm, e):
+                        # _is_robusta_refusal already established the status is one
+                        # of REFUSAL_STATUS_CODES.
+                        status_code = e.status_code  # type: ignore[attr-defined]
+                        logging.warning(
+                            f"Relay refused the call on model={self.llm.model} "
+                            f"(status {status_code}): {e}"
+                        )
+                        raise RelayRefusal(_refusal_message(e), status_code) from e
+
+                    # a known error that occurs with Azure, replaced with something
+                    # more obvious to the user
+                    if isinstance(e, BadRequestError):
+                        if (
+                            "Unrecognized request arguments supplied: tool_choice, tools"
+                            in str(e)
+                        ):
+                            raise Exception(
+                                "The Azure model you chose is not supported. Model version 1106 and higher required."
+                            ) from e
+                        logging.error(
+                            f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
+                            exc_info=True,
+                        )
+                        raise
+
                     logging.error(
-                        f"LLM BadRequestError on model={self.llm.model} (streaming iteration {i}): {e}",
+                        f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
+                        f"{type(e).__name__}: {e}",
                         exc_info=True,
                     )
                     raise
-
-                logging.error(
-                    f"LLM call failed on model={self.llm.model} (streaming iteration {i}): "
-                    f"{type(e).__name__}: {e}",
-                    exc_info=True,
-                )
-                raise
 
             if cancel_event and cancel_event.is_set():
                 raise LLMInterruptedError()
@@ -1480,7 +1549,9 @@ class ToolCallingLLM:
                         == StructuredToolResultStatus.APPROVAL_REQUIRED
                     ):
                         # OAuth approvals are always sent to frontend (user must authenticate)
-                        is_oauth = "__oauth_metadata" in (tool_call_result.result.params or {})
+                        is_oauth = "__oauth_metadata" in (
+                            tool_call_result.result.params or {}
+                        )
                         if enable_tool_approval or is_oauth:
                             pending_approvals.append(
                                 PendingToolApproval(
@@ -1587,7 +1658,9 @@ class ToolCallingLLM:
                         token = mint_token(
                             tool_call_id=tool_call["id"],
                             tool_name=tool_call.get("function", {}).get("name", ""),
-                            args_json=tool_call.get("function", {}).get("arguments", ""),
+                            args_json=tool_call.get("function", {}).get(
+                                "arguments", ""
+                            ),
                         )
                         tool_call["pending_approval"] = True
                         tool_call["approval_token"] = token

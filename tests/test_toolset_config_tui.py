@@ -1,11 +1,9 @@
 """Tests for holmes.toolset_config_tui module."""
 
-import os
-import tempfile
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Type
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import yaml  # type: ignore
@@ -28,14 +26,12 @@ from holmes.toolset_config_tui import (
     _resolve_primitive_type,
     _select_config_class,
     build_tree_from_schema,
-    run_toolset_config_tui,
+    run_config_test,
     save_config_to_file,
     select_toolset,
-    run_config_test,
     tree_to_dict,
 )
 from holmes.utils.pydantic_utils import ToolsetConfig
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -66,9 +62,7 @@ class NestedConfig(ToolsetConfig):
     labels: NestedLabelsConfig = Field(
         default_factory=NestedLabelsConfig, title="Labels"
     )
-    additional_headers: Optional[Dict[str, str]] = Field(
-        default=None, title="Headers"
-    )
+    additional_headers: Optional[Dict[str, str]] = Field(default=None, title="Headers")
     tags: Optional[List[str]] = Field(default=None, title="Tags")
 
 
@@ -76,7 +70,9 @@ class DummyTool(Tool):
     name: str = "dummy_tool"
     description: str = "A dummy tool"
 
-    def _invoke(self, _params: dict, _user_approved: bool = False) -> StructuredToolResult:
+    def _invoke(
+        self, _params: dict, _user_approved: bool = False
+    ) -> StructuredToolResult:
         return StructuredToolResult(status="success", data="ok")  # type: ignore
 
     def get_parameterized_one_liner(self, _params: Dict) -> str:
@@ -90,7 +86,9 @@ def make_toolset(
 ) -> Toolset:
     """Create a test toolset with optional config_classes."""
     if config_classes:
-        cls = type(f"{name}_TestSubclass", (Toolset,), {"config_classes": config_classes})
+        cls = type(
+            f"{name}_TestSubclass", (Toolset,), {"config_classes": config_classes}
+        )
     else:
         cls = Toolset
     return cls(
@@ -296,7 +294,9 @@ class TestFlattenTree:
         nodes = build_tree_from_schema(NestedConfig, values)
         flat = _flatten_tree(nodes)
         # Headers should appear before their children in the flat list
-        headers_idx = next(i for i, n in enumerate(flat) if n.key == "additional_headers")
+        headers_idx = next(
+            i for i, n in enumerate(flat) if n.key == "additional_headers"
+        )
         child_idx = next(i for i, n in enumerate(flat) if n.dict_key == "X-Custom")
         assert child_idx > headers_idx
 
@@ -361,7 +361,9 @@ class TestTreeToDict:
         assert headers_node.is_header is True
         result = tree_to_dict(nodes)
         # Empty headers should still produce an empty dict
-        assert result.get("additional_headers") == {} or "additional_headers" not in result
+        assert (
+            result.get("additional_headers") == {} or "additional_headers" not in result
+        )
 
     def test_empty_list_preserved(self) -> None:
         nodes = build_tree_from_schema(NestedConfig, {"api_url": "http://x"})
@@ -387,7 +389,9 @@ class TestSaveConfigToFile:
         with open(config_file) as f:
             saved = yaml.safe_load(f)
         assert saved["toolsets"]["test/toolset"]["enabled"] is True
-        assert saved["toolsets"]["test/toolset"]["config"]["api_url"] == "http://test:9090"
+        assert (
+            saved["toolsets"]["test/toolset"]["config"]["api_url"] == "http://test:9090"
+        )
 
     def test_merge_into_existing(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.yaml"
@@ -414,7 +418,9 @@ class TestSaveConfigToFile:
         assert saved["toolsets"]["other/toolset"]["config"]["url"] == "http://other"
         # New toolset added
         assert saved["toolsets"]["new/toolset"]["enabled"] is True
-        assert saved["toolsets"]["new/toolset"]["config"]["api_url"] == "http://new:8080"
+        assert (
+            saved["toolsets"]["new/toolset"]["config"]["api_url"] == "http://new:8080"
+        )
 
     def test_replace_existing_toolset_config(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.yaml"
@@ -470,13 +476,17 @@ class TestSaveConfigToFile:
         with open(config_file, "w") as f:
             yaml.dump({"mcp_servers": None}, f)
 
-        ok, _ = save_config_to_file(config_file, "jira_server", {"mode": "stdio"}, is_mcp=True)
+        ok, _ = save_config_to_file(
+            config_file, "jira_server", {"mode": "stdio"}, is_mcp=True
+        )
         assert ok is True
         with open(config_file) as f:
             saved = yaml.safe_load(f)
         assert saved["mcp_servers"]["jira_server"]["config"]["mode"] == "stdio"
 
-    def test_does_not_print_to_stdout(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_does_not_print_to_stdout(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         config_file = tmp_path / "config.yaml"
         save_config_to_file(config_file, "test/toolset", {"key": "val"})
 
@@ -516,7 +526,9 @@ class TestRunConfigTest:
         # Original should be unchanged
         assert ts.status == ToolsetStatusEnum.DISABLED
 
-    def test_allows_stdout_outside_tui(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_allows_stdout_outside_tui(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """run_config_test is called outside the TUI so output flows freely."""
 
         def noisy_check(config: dict) -> tuple:
@@ -569,7 +581,9 @@ class TestGetExistingConfig:
         ts = ConfigurableToolset()
         config = MagicMock()
         config.toolsets = {
-            "test/configurable": {"config": {"api_url": "http://saved:9090", "timeout": 60}}
+            "test/configurable": {
+                "config": {"api_url": "http://saved:9090", "timeout": 60}
+            }
         }
 
         result = _get_existing_config(ts, config)
@@ -607,9 +621,7 @@ class TestConfigFieldNodeManipulation:
         assert node.children[0].key == "B"
 
     def test_add_list_entry(self) -> None:
-        node = ConfigFieldNode(
-            key="tags", field_type="list", is_header=True, depth=0
-        )
+        node = ConfigFieldNode(key="tags", field_type="list", is_header=True, depth=0)
         child = ConfigFieldNode(
             key="0", field_type="str", value="new_tag", depth=1, parent=node
         )
@@ -618,9 +630,7 @@ class TestConfigFieldNodeManipulation:
         assert result["tags"] == ["new_tag"]
 
     def test_remove_list_entry(self) -> None:
-        node = ConfigFieldNode(
-            key="tags", field_type="list", is_header=True, depth=0
-        )
+        node = ConfigFieldNode(key="tags", field_type="list", is_header=True, depth=0)
         c0 = ConfigFieldNode(key="0", field_type="str", value="a", depth=1, parent=node)
         c1 = ConfigFieldNode(key="1", field_type="str", value="b", depth=1, parent=node)
         node.children.extend([c0, c1])
@@ -654,7 +664,11 @@ class TestConfigFieldNodeManipulation:
     def test_optional_field_null_explicitly_set_saved(self) -> None:
         """When an optional field is explicitly set to None, tree_to_dict includes it."""
         node = ConfigFieldNode(
-            key="api_key", field_type="str", value=None, required=False, depth=0,
+            key="api_key",
+            field_type="str",
+            value=None,
+            required=False,
+            depth=0,
             explicitly_set=True,
         )
         result = tree_to_dict([node])
@@ -664,7 +678,11 @@ class TestConfigFieldNodeManipulation:
     def test_empty_string_preserved_in_tree_to_dict(self) -> None:
         """Empty string is saved as empty string, not as None."""
         node = ConfigFieldNode(
-            key="api_key", field_type="str", value="", required=False, depth=0,
+            key="api_key",
+            field_type="str",
+            value="",
+            required=False,
+            depth=0,
             explicitly_set=True,
         )
         result = tree_to_dict([node])
@@ -775,7 +793,7 @@ class TestRealConfigSchemas:
         assert stdio_nodes[0].key == "mode"
 
     def test_stdio_mcp_config_tree(self) -> None:
-        from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig, MCPMode
+        from holmes.plugins.toolsets.mcp.toolset_mcp import StdioMCPConfig
 
         values = {"mode": "stdio", "command": "uvx", "args": ["mcp-atlassian"]}
         nodes = build_tree_from_schema(StdioMCPConfig, values)
@@ -882,15 +900,11 @@ class TestSelectConfigClass:
         assert result is EnumConfig
 
     def test_picks_correct_class_by_discriminator(self) -> None:
-        result = _select_config_class(
-            [EnumConfig, AltEnumConfig], {"mode": "beta"}
-        )
+        result = _select_config_class([EnumConfig, AltEnumConfig], {"mode": "beta"})
         assert result is AltEnumConfig
 
     def test_falls_back_to_first_class(self) -> None:
-        result = _select_config_class(
-            [EnumConfig, AltEnumConfig], {"mode": "gamma"}
-        )
+        result = _select_config_class([EnumConfig, AltEnumConfig], {"mode": "gamma"})
         assert result is EnumConfig
 
     def test_no_value_returns_first(self) -> None:
@@ -906,17 +920,26 @@ class TestSelectConfigClass:
         assert result is AltEnumConfig
 
     def test_field_matching_prefers_higher_overlap(self) -> None:
-        result = _select_config_class(
-            [EnumConfig, AltEnumConfig], {"name": "test"}
-        )
+        result = _select_config_class([EnumConfig, AltEnumConfig], {"name": "test"})
         assert result is EnumConfig
 
     def test_mcp_config_classes(self) -> None:
-        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, StdioMCPConfig
+        from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, StdioMCPConfig
 
-        assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "stdio"}) is StdioMCPConfig
-        assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "sse"}) is MCPConfig
-        assert _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "streamable-http"}) is MCPConfig
+        assert (
+            _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "stdio"})
+            is StdioMCPConfig
+        )
+        assert (
+            _select_config_class([MCPConfig, StdioMCPConfig], {"mode": "sse"})
+            is MCPConfig
+        )
+        assert (
+            _select_config_class(
+                [MCPConfig, StdioMCPConfig], {"mode": "streamable-http"}
+            )
+            is MCPConfig
+        )
 
 
 # ── MCP save/load ────────────────────────────────────────────────────
@@ -927,7 +950,9 @@ class TestSaveMCPConfig:
         config_file = tmp_path / "config.yaml"
         config_dict = {"mode": "stdio", "command": "uvx", "args": ["mcp-atlassian"]}
 
-        ok, msg = save_config_to_file(config_file, "jira_server", config_dict, is_mcp=True)
+        ok, msg = save_config_to_file(
+            config_file, "jira_server", config_dict, is_mcp=True
+        )
 
         assert ok is True
         with open(config_file) as f:
@@ -963,7 +988,9 @@ class TestSaveMCPConfig:
 
     def test_regular_save_still_uses_toolsets(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.yaml"
-        ok, _ = save_config_to_file(config_file, "grafana/dashboards", {"api_url": "http://x"})
+        ok, _ = save_config_to_file(
+            config_file, "grafana/dashboards", {"api_url": "http://x"}
+        )
         assert ok is True
         with open(config_file) as f:
             saved = yaml.safe_load(f)

@@ -62,7 +62,12 @@ class TestDatadogMultiInstance:
                 "app_key": "GLOBAL_APP",  # shared across instances
                 "instances": [
                     {"name": "us", "api_url": US, "api_key": "k_us"},
-                    {"name": "eu", "api_url": EU, "api_key": "k_eu", "app_key": "eu_app"},
+                    {
+                        "name": "eu",
+                        "api_url": EU,
+                        "api_key": "k_eu",
+                        "app_key": "eu_app",
+                    },
                 ],
             }
         )

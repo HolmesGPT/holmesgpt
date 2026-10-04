@@ -75,7 +75,10 @@ def tab_groups(lines, offset=0):
                 None,
             )
             if closing is None:
-                raise FenceError(offset + i + 1, "code block with no closing fence of the same length")
+                raise FenceError(
+                    offset + i + 1,
+                    "code block with no closing fence of the same length",
+                )
             i = closing + 1
             continue
         match = TAB_RE.match(lines[i])
@@ -129,7 +132,12 @@ def holmes_tab_problems(first, body):
             info = fence["info"].strip()
             if expecting == "secret":
                 if info != "bash" or not code.startswith(SECRET_COMMAND):
-                    problems.append((number, f"the secret step is not a `{SECRET_COMMAND.strip()}` bash block"))
+                    problems.append(
+                        (
+                            number,
+                            f"the secret step is not a `{SECRET_COMMAND.strip()}` bash block",
+                        )
+                    )
                 steps.append("secret")
             elif expecting == "values":
                 if info != "yaml":
@@ -137,7 +145,12 @@ def holmes_tab_problems(first, body):
                 steps.append("values")
             elif expecting == "upgrade":
                 if info != "bash" or code != cf.HOLMES_UPGRADE_COMMAND:
-                    problems.append((number, f"the upgrade step is not `{cf.HOLMES_UPGRADE_COMMAND}`"))
+                    problems.append(
+                        (
+                            number,
+                            f"the upgrade step is not `{cf.HOLMES_UPGRADE_COMMAND}`",
+                        )
+                    )
                 steps.append("upgrade")
             else:
                 problems.append((number, "code block with no step caption above it"))
@@ -152,7 +165,9 @@ def holmes_tab_problems(first, body):
         elif text == cf.APPLY_CAPTION:
             expecting = "upgrade"
         elif text and not (text.startswith(SERVICE_ACCOUNT_LINE) and not steps):
-            problems.append((number, f"not a step of a Holmes Helm Chart tab: {text[:80]}"))
+            problems.append(
+                (number, f"not a step of a Holmes Helm Chart tab: {text[:80]}")
+            )
         i += 1
     order = [step for step in ("secret", "values", "upgrade") if step in steps]
     if steps != order:
@@ -175,17 +190,23 @@ def page_problems(path):
         if not deployment:
             for label in labels:
                 if DEPLOYMENT_LIKE_RE.search(label):
-                    problems.append(f"{rel}:{number}: tab label {label!r} is not one of {', '.join(DEPLOYMENT_LABELS)}")
+                    problems.append(
+                        f"{rel}:{number}: tab label {label!r} is not one of {', '.join(DEPLOYMENT_LABELS)}"
+                    )
             continue
         if len(deployment) != len(labels):
-            problems.append(f"{rel}:{number}: deployment tabs mixed with other tabs: {labels}")
+            problems.append(
+                f"{rel}:{number}: deployment tabs mixed with other tabs: {labels}"
+            )
             continue
         if labels != [label for label in DEPLOYMENT_LABELS if label in labels]:
             problems.append(f"{rel}:{number}: tabs out of order: {labels}")
         by_label = {label: (first, body) for label, first, body in tabs}
         if HOLMES_CHART not in by_label:
             if ROBUSTA_CHART in by_label:
-                problems.append(f"{rel}:{number}: a Robusta Helm Chart tab with no Holmes Helm Chart tab")
+                problems.append(
+                    f"{rel}:{number}: a Robusta Helm Chart tab with no Holmes Helm Chart tab"
+                )
             continue
         problems += [
             f"{rel}:{line}: {message}"

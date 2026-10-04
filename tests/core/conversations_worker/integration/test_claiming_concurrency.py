@@ -24,6 +24,7 @@ unique per-run synthetic cluster (invisible to real cluster views) and are
 swept to terminal states by the claim itself — the same accepted leak pattern
 the RemoteToolCalls burst test already relies on (retention cron reclaims them).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -79,7 +80,9 @@ def _claim_conversations(rc, account_id, cluster_id, assignee, limit) -> List[di
                 "_assignee": assignee,
                 "_limit": limit,
             },
-        ).execute().data
+        )
+        .execute()
+        .data
         or []
     )
 
@@ -133,17 +136,16 @@ def _claim_tool_calls(rc, account_id, cluster_id, assignee, limit) -> List[dict]
                 "_assignee": assignee,
                 "_limit": limit,
             },
-        ).execute().data
+        )
+        .execute()
+        .data
         or []
     )
 
 
 def _tool_call_statuses(rc, ids: List[str]) -> Dict[str, str]:
     rows = (
-        rc.table("RemoteToolCalls")
-        .select("id,status")
-        .in_("id", ids)
-        .execute()
+        rc.table("RemoteToolCalls").select("id,status").in_("id", ids).execute()
     ).data or []
     return {r["id"]: r["status"] for r in rows}
 
@@ -154,7 +156,6 @@ def _tool_call_statuses(rc, ids: List[str]) -> Dict[str, str]:
 
 
 class TestConcurrentClaimingDisjoint:
-
     _N = 12  # backlog size; both claimers try to grab everything
 
     def test_concurrent_conversation_claims_are_disjoint(
@@ -178,11 +179,19 @@ class TestConcurrentClaimingDisjoint:
         with ThreadPoolExecutor(max_workers=2) as ex:
             fa = ex.submit(
                 _claim_conversations,
-                rc_a, supabase_fx.account_id, cluster, "claimer-a", self._N,
+                rc_a,
+                supabase_fx.account_id,
+                cluster,
+                "claimer-a",
+                self._N,
             )
             fb = ex.submit(
                 _claim_conversations,
-                rc_b, supabase_fx.account_id, cluster, "claimer-b", self._N,
+                rc_b,
+                supabase_fx.account_id,
+                cluster,
+                "claimer-b",
+                self._N,
             )
             claimed_a = [r["conversation_id"] for r in fa.result()]
             claimed_b = [r["conversation_id"] for r in fb.result()]
@@ -206,9 +215,7 @@ class TestConcurrentClaimingDisjoint:
         """Same SKIP LOCKED guarantee for RemoteToolCalls."""
         rc = supabase_fx._relay()
         cluster = _iso_cluster("tc-disjoint")
-        ids = _insert_pending_tool_calls(
-            rc, supabase_fx.account_id, cluster, self._N
-        )
+        ids = _insert_pending_tool_calls(rc, supabase_fx.account_id, cluster, self._N)
         supabase_fx._created_tool_calls.extend(ids)
         assert len(ids) == self._N
 
@@ -217,11 +224,19 @@ class TestConcurrentClaimingDisjoint:
         with ThreadPoolExecutor(max_workers=2) as ex:
             fa = ex.submit(
                 _claim_tool_calls,
-                rc_a, supabase_fx.account_id, cluster, "claimer-a", self._N,
+                rc_a,
+                supabase_fx.account_id,
+                cluster,
+                "claimer-a",
+                self._N,
             )
             fb = ex.submit(
                 _claim_tool_calls,
-                rc_b, supabase_fx.account_id, cluster, "claimer-b", self._N,
+                rc_b,
+                supabase_fx.account_id,
+                cluster,
+                "claimer-b",
+                self._N,
             )
             claimed_a = [r["id"] for r in fa.result()]
             claimed_b = [r["id"] for r in fb.result()]
@@ -243,7 +258,6 @@ class TestConcurrentClaimingDisjoint:
 
 
 class TestStalePendingSweep:
-
     def test_stale_pending_conversation_swept_to_timeout(
         self, supabase_fx: SupabaseFixture
     ):
@@ -292,9 +306,9 @@ class TestStalePendingSweep:
             f"got {statuses[stale_id]}"
         )
         for fid in fresh_ids:
-            assert statuses[fid] == "running", (
-                f"fresh conversation {fid} should be 'running', got {statuses[fid]}"
-            )
+            assert (
+                statuses[fid] == "running"
+            ), f"fresh conversation {fid} should be 'running', got {statuses[fid]}"
 
     def test_stale_pending_tool_call_swept_to_timeout(
         self, supabase_fx: SupabaseFixture
@@ -331,7 +345,9 @@ class TestStalePendingSweep:
         claimed = _claim_tool_calls(rc, supabase_fx.account_id, cluster, "sweeper", 10)
         claimed_ids = {r["id"] for r in claimed}
 
-        assert stale_id not in claimed_ids, "stale pending tool call must not be claimed"
+        assert (
+            stale_id not in claimed_ids
+        ), "stale pending tool call must not be claimed"
         assert set(fresh_ids) <= claimed_ids, "fresh pending tool calls must be claimed"
 
         statuses = _tool_call_statuses(rc, [stale_id, *fresh_ids])
@@ -340,6 +356,6 @@ class TestStalePendingSweep:
             f"got {statuses[stale_id]}"
         )
         for fid in fresh_ids:
-            assert statuses[fid] == "running", (
-                f"fresh tool call {fid} should be 'running', got {statuses[fid]}"
-            )
+            assert (
+                statuses[fid] == "running"
+            ), f"fresh tool call {fid} should be 'running', got {statuses[fid]}"

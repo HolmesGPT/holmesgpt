@@ -35,9 +35,7 @@ def mock_dal():
 @pytest.fixture(autouse=True)
 def _reset_pricing_warning_cache(monkeypatch):
     """Reset the per-process 'already warned' set between tests."""
-    monkeypatch.setattr(
-        "holmes.core.llm._warned_unknown_cost_models", set()
-    )
+    monkeypatch.setattr("holmes.core.llm._warned_unknown_cost_models", set())
 
 
 @pytest.fixture

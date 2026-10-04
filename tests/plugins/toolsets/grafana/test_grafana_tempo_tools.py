@@ -551,7 +551,9 @@ class TestNegativeTimestamps:
 class TestQueryMetricsRangeWithStepAdjustment:
     """Test QueryMetricsRange with automatic step adjustment."""
 
-    def test_metrics_range_with_no_step_auto_calculates(self, tempo_toolset, monkeypatch):
+    def test_metrics_range_with_no_step_auto_calculates(
+        self, tempo_toolset, monkeypatch
+    ):
         """Test that step is automatically calculated when not provided."""
         import holmes.plugins.toolsets.grafana.toolset_grafana_tempo as tempo_module
 
@@ -580,7 +582,9 @@ class TestQueryMetricsRangeWithStepAdjustment:
             # The function should convert this to "36s"
             assert kwargs["step"] == "36s"
 
-    def test_metrics_range_with_small_step_gets_adjusted(self, tempo_toolset, monkeypatch):
+    def test_metrics_range_with_small_step_gets_adjusted(
+        self, tempo_toolset, monkeypatch
+    ):
         """Test that a too-small step gets adjusted to prevent too many points."""
         import holmes.plugins.toolsets.grafana.toolset_grafana_tempo as tempo_module
 
@@ -658,7 +662,9 @@ class TestQueryMetricsRangeWithStepAdjustment:
             # Step should be "30s" since 30 seconds is fine for 300 second range
             assert kwargs["step"] == "30s"
 
-    def test_metrics_range_step_adjustment_various_ranges(self, tempo_toolset, monkeypatch):
+    def test_metrics_range_step_adjustment_various_ranges(
+        self, tempo_toolset, monkeypatch
+    ):
         """Test step adjustment for various time ranges."""
         import holmes.plugins.toolsets.grafana.toolset_grafana_tempo as tempo_module
 

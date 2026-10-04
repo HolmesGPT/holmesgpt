@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse, Usage

@@ -80,7 +80,9 @@ def _render_single_template(
     return template.render(context)
 
 
-def render_env_template(value: Optional[str], source_name: str = "unknown") -> Optional[str]:
+def render_env_template(
+    value: Optional[str], source_name: str = "unknown"
+) -> Optional[str]:
     """Render a single string with {{ env.X }} substitution at load time.
 
     No-op when ``value`` is ``None`` or contains no template syntax. On render

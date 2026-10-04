@@ -13,18 +13,12 @@ class TestDatabaseConfig:
 
     def test_read_only_explicit_true(self):
         """Test that read_only can be explicitly set to True."""
-        config = DatabaseConfig(
-            connection_url="sqlite:///:memory:",
-            read_only=True
-        )
+        config = DatabaseConfig(connection_url="sqlite:///:memory:", read_only=True)
         assert config.read_only is True
 
     def test_read_only_explicit_false(self):
         """Test that read_only can be explicitly set to False."""
-        config = DatabaseConfig(
-            connection_url="sqlite:///:memory:",
-            read_only=False
-        )
+        config = DatabaseConfig(connection_url="sqlite:///:memory:", read_only=False)
         assert config.read_only is False
 
     def test_connection_url_required(self):

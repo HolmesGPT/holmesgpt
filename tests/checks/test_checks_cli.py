@@ -1,14 +1,13 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import yaml
 from typer.testing import CliRunner
 
-from holmes.main import app
 from holmes.core.tool_calling_llm import LLMResult
-
+from holmes.main import app
 
 runner = CliRunner()
 

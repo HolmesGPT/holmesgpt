@@ -45,7 +45,9 @@ class TestElasticsearchMTLSConfig:
             api_url="https://es:9200",
             ca_cert="/path/to/ca.crt",
         )
-        assert not hasattr(config, "ca_cert") or config.model_fields.get("ca_cert") is None
+        assert (
+            not hasattr(config, "ca_cert") or config.model_fields.get("ca_cert") is None
+        )
         assert config.client_cert is None
 
     def test_config_without_mtls(self):

@@ -514,7 +514,9 @@ class TestCaseLoader:
                     test_case = TypeAdapter(HolmesTestCase).validate_python(config_dict)
                 elif self._test_cases_folder.name == "test_holmes_checks":
                     # Import CheckTestCase here to avoid circular imports
-                    from tests.llm.test_holmes_checks import CheckTestCase  # type: ignore
+                    from tests.llm.test_holmes_checks import (
+                        CheckTestCase,  # type: ignore
+                    )
 
                     test_case = TypeAdapter(CheckTestCase).validate_python(config_dict)
                 else:

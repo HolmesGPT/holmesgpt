@@ -18,7 +18,9 @@ def test_passed_when_judge_and_pytest_both_pass():
 
 
 def test_failed_when_judge_rejects_answer():
-    assert TestStatus(_result(actual_correctness_score=0, status="failed")).passed is False
+    assert (
+        TestStatus(_result(actual_correctness_score=0, status="failed")).passed is False
+    )
 
 
 def test_failed_when_pytest_failed_even_if_judge_scored_one():

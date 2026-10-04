@@ -1,4 +1,4 @@
-# This runs on every PR to test that we are properly building binaries that work.
+# This runs on every PR to check code quality, run tests, and build working binaries.
 # Branch protection should require the "build-and-test-gate" job.
 name: Build and test HolmesGPT
 
@@ -12,6 +12,37 @@ permissions:
   contents: read
 
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: python -m pip install poetry==1.8.5
+
+      # The system-language mypy hook needs the project's development dependencies.
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py3.11-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Run configured hooks so local --no-verify never bypasses CI checks.
+      - name: Run all non-skipped pre-commit checks
+        env:
+          SKIP: poetry-check,mypy # poetry-check and mypy are skipped until repo-wide type cleanup is completed.
+        run: poetry run pre-commit run --all-files --show-diff-on-failure
+
   check-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -237,12 +268,16 @@ jobs:
   # Require this check ("Build and test HolmesGPT / build-and-test-gate") in
   # branch protection instead of the individual build matrix jobs.
   build-and-test-gate:
-    needs: [check-changes, test, build-binary]
+    needs: [pre-commit, check-changes, test, build-binary]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
+          if [ "${{ needs.pre-commit.result }}" != "success" ]; then
+            echo "Pre-commit checks failed!"
+            exit 1
+          fi
           if [ "${{ needs.check-changes.result }}" != "success" ]; then
             echo "check-changes job failed!"
             exit 1

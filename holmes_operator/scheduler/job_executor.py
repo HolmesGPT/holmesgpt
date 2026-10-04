@@ -436,7 +436,9 @@ async def _move_to_history(
                 scheduled_namespace=scheduled_namespace,
                 check_name=check_name,
             )
-            logger.info(f"Successfully removed {check_name} from active list during cleanup")
+            logger.info(
+                f"Successfully removed {check_name} from active list during cleanup"
+            )
         except Exception as cleanup_error:
             # Log cleanup failure but don't let it suppress the original exception
             logger.error(

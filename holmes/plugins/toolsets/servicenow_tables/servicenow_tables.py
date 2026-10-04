@@ -101,7 +101,9 @@ class ServiceNowTablesConfig(ToolsetConfig):
         but not both methods at the same time.
         """
         if self.api_key and (self.username or self.password):
-            raise ValueError("authentication method must be either api key or basic auth, not both")
+            raise ValueError(
+                "authentication method must be either api key or basic auth, not both"
+            )
         if self.username and not self.password:
             raise ValueError("password is required when username is set")
         if self.password and not self.username:
@@ -110,7 +112,9 @@ class ServiceNowTablesConfig(ToolsetConfig):
 
 
 class ServiceNowTablesToolset(Toolset):
-    config_classes: ClassVar[list[Type[ServiceNowTablesConfig]]] = [ServiceNowTablesConfig]
+    config_classes: ClassVar[list[Type[ServiceNowTablesConfig]]] = [
+        ServiceNowTablesConfig
+    ]
 
     def __init__(self):
         super().__init__(
@@ -149,7 +153,10 @@ class ServiceNowTablesToolset(Toolset):
                 query_params={"sysparm_limit": 1},
                 timeout=10,
             )
-            return True, f"ServiceNow configuration is valid and API is accessible. (checked table: {table_name})"
+            return (
+                True,
+                f"ServiceNow configuration is valid and API is accessible. (checked table: {table_name})",
+            )
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
@@ -220,8 +227,10 @@ class ServiceNowTablesToolset(Toolset):
             "Content-Type": "application/json",
         }
         if self.servicenow_config.api_key:
-            headers[self.servicenow_config.api_key_header] = self.servicenow_config.api_key
-        
+            headers[self.servicenow_config.api_key_header] = (
+                self.servicenow_config.api_key
+            )
+
         if self.servicenow_config.extra_headers:
             rendered = render_header_templates(
                 extra_headers=self.servicenow_config.extra_headers,

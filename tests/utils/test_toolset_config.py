@@ -199,7 +199,9 @@ class TestDatadogConfigBackwardCompatibility:
         mock_log.warning.assert_not_called()
 
     @patch(_LOGGER_PATH)
-    def test_old_and_new_datadog_fields_new_takes_precedence(self, mock_log: Any) -> None:
+    def test_old_and_new_datadog_fields_new_takes_precedence(
+        self, mock_log: Any
+    ) -> None:
         """Test that new Datadog field names take precedence over deprecated ones."""
         config = DatadogBaseConfig(
             dd_api_key="old-api-key",
@@ -319,8 +321,12 @@ class TestKafkaConfigBackwardCompatibility:
         assert config.username == "my-user"
         assert config.password == "my-password"
         assert "kafka_broker -> broker" in _warning_text(mock_log.warning)
-        assert "kafka_security_protocol -> security_protocol" in _warning_text(mock_log.warning)
-        assert "kafka_sasl_mechanism -> sasl_mechanism" in _warning_text(mock_log.warning)
+        assert "kafka_security_protocol -> security_protocol" in _warning_text(
+            mock_log.warning
+        )
+        assert "kafka_sasl_mechanism -> sasl_mechanism" in _warning_text(
+            mock_log.warning
+        )
         assert "kafka_client_id -> client_id" in _warning_text(mock_log.warning)
         assert "kafka_username -> username" in _warning_text(mock_log.warning)
         assert "kafka_password -> password" in _warning_text(mock_log.warning)
@@ -395,7 +401,9 @@ class TestKafkaConfigBackwardCompatibility:
         assert config.clusters[0].security_protocol == "PLAINTEXT"
         assert "kafka_clusters -> clusters" in _warning_text(mock_log.warning)
         assert "kafka_broker -> broker" in _warning_text(mock_log.warning)
-        assert "kafka_security_protocol -> security_protocol" in _warning_text(mock_log.warning)
+        assert "kafka_security_protocol -> security_protocol" in _warning_text(
+            mock_log.warning
+        )
 
     def test_kafka_cluster_config_equivalence(self):
         """Test that configs created with old and new field names are equivalent."""
@@ -465,7 +473,9 @@ class TestRabbitMQConfigBackwardCompatibility:
         assert old_config.api_url == "http://rabbitmq:15672"
         assert old_config.timeout_seconds == 45
         assert "management_url -> api_url" in _warning_text(mock_log.warning)
-        assert "request_timeout_seconds -> timeout_seconds" in _warning_text(mock_log.warning)
+        assert "request_timeout_seconds -> timeout_seconds" in _warning_text(
+            mock_log.warning
+        )
 
     @patch(_LOGGER_PATH)
     def test_new_rabbitmq_fields_no_warning(self, mock_log):

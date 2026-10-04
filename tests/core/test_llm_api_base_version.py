@@ -88,9 +88,7 @@ class TestDefaultLLMCheckLLM:
         )
 
     @patch("litellm.get_llm_provider")
-    def test_check_llm_azure_api_version_handling(
-        self, mock_get_provider, monkeypatch
-    ):
+    def test_check_llm_azure_api_version_handling(self, mock_get_provider, monkeypatch):
         """Test Azure-specific api_version handling in check_llm."""
         mock_get_provider.return_value = ("azure/gpt-4o", "azure")
         monkeypatch.setenv("AZURE_API_KEY", "test-key")
@@ -182,9 +180,7 @@ class TestDefaultLLMCheckLLM:
         )
 
     @patch("litellm.get_llm_provider")
-    def test_check_llm_azure_all_config_passes(
-        self, mock_get_provider, monkeypatch
-    ):
+    def test_check_llm_azure_all_config_passes(self, mock_get_provider, monkeypatch):
         """Test Azure provider passes when all variables from configuration."""
         mock_get_provider.return_value = ("gpt-4o", "azure")
         monkeypatch.delenv("AZURE_API_KEY", raising=False)

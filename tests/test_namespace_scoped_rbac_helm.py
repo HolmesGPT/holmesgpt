@@ -16,7 +16,9 @@ import yaml
 
 HELM_DIR = Path(__file__).resolve().parents[1] / "helm" / "holmes"
 
-pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm binary not available")
+pytestmark = pytest.mark.skipif(
+    shutil.which("helm") is None, reason="helm binary not available"
+)
 
 
 def render_rbac(extra_args: Optional[List[str]] = None) -> List[dict]:
@@ -60,7 +62,8 @@ def test_namespace_scoped_renders_role_and_rolebinding():
     assert role["metadata"]["namespace"] == "default"
     # same rule set as the ClusterRole - spot-check a core rule survived the kind switch
     assert any(
-        "pods" in rule.get("resources", []) and "list" in rule.get("verbs", []) for rule in role["rules"]
+        "pods" in rule.get("resources", []) and "list" in rule.get("verbs", [])
+        for rule in role["rules"]
     )
 
     binding = get_doc(docs, "RoleBinding")

@@ -16,8 +16,8 @@ from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from tests.llm.utils.mock_dal import load_test_dal
-from tests.llm.utils.test_toolset import TestToolsetManager
 from tests.llm.utils.test_case_utils import get_models
+from tests.llm.utils.test_toolset import TestToolsetManager
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +73,7 @@ def test_cached_output(model: str, request):
             )
             config = Config()
 
-            test_dal = load_test_dal(
-                Path(temp_dir.name), initialize_base=False
-            )
+            test_dal = load_test_dal(Path(temp_dir.name), initialize_base=False)
             skills = config.get_skill_catalog()
 
             asks = [

@@ -55,8 +55,16 @@ class TestServiceNowMultiInstance:
         ok, _ = ts.prerequisites_callable(
             {
                 "instances": [
-                    {"name": "prod", "api_url": "https://prod.service-now.com", "api_key": "kp"},
-                    {"name": "dev", "api_url": "https://dev.service-now.com", "api_key": "kd"},
+                    {
+                        "name": "prod",
+                        "api_url": "https://prod.service-now.com",
+                        "api_key": "kp",
+                    },
+                    {
+                        "name": "dev",
+                        "api_url": "https://dev.service-now.com",
+                        "api_key": "kd",
+                    },
                 ]
             }
         )
@@ -106,7 +114,9 @@ class TestServiceNowMultiInstance:
             # correct per-instance credential
             assert call.headers.get("x-sn-apikey") == expected_key
             # tool params forwarded on the wire
-            assert "sysparm_query=active%3Dtrue" in call.url or "active=true" in call.url
+            assert (
+                "sysparm_query=active%3Dtrue" in call.url or "active=true" in call.url
+            )
 
     def test_list_instances_reports_both(self):
         with responses.RequestsMock() as rsps:

@@ -16,9 +16,7 @@ pytestmark = getattr(pytest.mark, "db-connectors")
 
 class TestClickhouseHttpJsonConfig:
     def test_default_disabled(self):
-        config = DatabaseConfig(
-            connection_url="clickhouse+http://u:p@host:8123/otel"
-        )
+        config = DatabaseConfig(connection_url="clickhouse+http://u:p@host:8123/otel")
         assert config.clickhouse_use_http_json is False
 
     def test_enabled_for_clickhouse_url(self):
@@ -46,9 +44,7 @@ class TestParseClickhouseHttpUrl:
         assert auth == ("user", "secret")
 
     def test_parse_default_port_and_database(self):
-        base, db, auth = _parse_clickhouse_http_url(
-            "clickhouse+http://localhost/logs"
-        )
+        base, db, auth = _parse_clickhouse_http_url("clickhouse+http://localhost/logs")
         assert base == "http://localhost:8123"
         assert db == "logs"
         assert auth is None
@@ -68,15 +64,11 @@ class TestParseClickhouseHttpUrl:
         assert auth == ("user", "p@ss")
 
     def test_parse_ipv6_host(self):
-        base, _, _ = _parse_clickhouse_http_url(
-            "clickhouse+http://[::1]:8123/otel"
-        )
+        base, _, _ = _parse_clickhouse_http_url("clickhouse+http://[::1]:8123/otel")
         assert base == "http://[::1]:8123"
 
     def test_parse_https_default_port(self):
-        base, _, _ = _parse_clickhouse_http_url(
-            "clickhouse+https://ch.example/otel"
-        )
+        base, _, _ = _parse_clickhouse_http_url("clickhouse+https://ch.example/otel")
         assert base == "https://ch.example:8443"
 
 

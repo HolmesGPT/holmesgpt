@@ -63,7 +63,9 @@ def create_mock_model_entry() -> ModelEntry:
     )
 
 
-def create_mock_litellm_response(content: str = "Mock analysis response for documentation test.") -> ModelResponse:
+def create_mock_litellm_response(
+    content: str = "Mock analysis response for documentation test.",
+) -> ModelResponse:
     """Create a mock litellm ModelResponse matching the real API structure."""
     return ModelResponse(
         id="chatcmpl-mock-doc-test",
@@ -124,12 +126,14 @@ def format_doc_test_failure(
     if extra_info:
         lines.append(f"Details:  {extra_info}")
 
-    lines.extend([
-        "",
-        f"Curl: {curl_preview}",
-        "",
-        "To fix: Edit the curl example or its <!-- test: ... --> annotation",
-    ])
+    lines.extend(
+        [
+            "",
+            f"Curl: {curl_preview}",
+            "",
+            "To fix: Edit the curl example or its <!-- test: ... --> annotation",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -154,7 +158,9 @@ def collect_doc_curl_tests() -> list[tuple[str, DocCurlTest]]:
                 continue
 
             relative_path = md_file.relative_to(DOCS_DIR)
-            test_id = doc_test.curl.test_id or f"{relative_path}:{doc_test.curl.line_number}"
+            test_id = (
+                doc_test.curl.test_id or f"{relative_path}:{doc_test.curl.line_number}"
+            )
             tests.append((test_id, doc_test))
 
     return tests
@@ -211,7 +217,9 @@ def execute_curl_test(client: TestClient, doc_test: DocCurlTest) -> dict[str, An
     return {
         "status_code": response.status_code,
         "response": response,
-        "json": response.json() if response.headers.get("content-type", "").startswith("application/json") else None,
+        "json": response.json()
+        if response.headers.get("content-type", "").startswith("application/json")
+        else None,
     }
 
 
@@ -252,7 +260,9 @@ def test_documented_curl(
     # Log response for debugging (visible in CI artifacts/extended logs)
     print(f"\n=== Test: {test_id} ===")
     print(f"Endpoint: {doc_test.curl.method} {doc_test.curl.url}")
-    print(f"Status: {result['status_code']} (expected: {doc_test.curl.expected_status})")
+    print(
+        f"Status: {result['status_code']} (expected: {doc_test.curl.expected_status})"
+    )
     print(f"Response: {result.get('json', result.get('response', 'N/A'))}")
 
     # Validate status code
@@ -291,9 +301,11 @@ class TestHttpApiDocs:
         """Setup mocks for all tests."""
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
 
-        with patch("litellm.completion") as mock_completion, \
-             patch("holmes.core.llm.LLMModelRegistry.get_model_params") as mock_model, \
-             patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account") as mock_instr:
+        with patch("litellm.completion") as mock_completion, patch(
+            "holmes.core.llm.LLMModelRegistry.get_model_params"
+        ) as mock_model, patch(
+            "holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account"
+        ) as mock_instr:
             mock_model.return_value = create_mock_model_entry()
             mock_completion.return_value = create_mock_litellm_response()
             mock_instr.return_value = []

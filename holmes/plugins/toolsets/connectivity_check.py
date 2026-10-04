@@ -5,7 +5,18 @@ import socket
 import threading
 import time
 from collections import deque
-from typing import Any, ClassVar, Deque, Dict, List, Literal, Optional, Sequence, Tuple, Type
+from typing import (
+    Any,
+    ClassVar,
+    Deque,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+)
 
 from pydantic import Field, PrivateAttr
 
@@ -181,7 +192,9 @@ class TcpCheckTool(Tool):
 
         def refuse(reason: str) -> StructuredToolResult:
             error_message = f"Refusing to connect to {host}:{port_int}: {reason}"
-            logging.warning("%s REFUSED %s:%s — %s", PROBE_AUDIT_PREFIX, host, port_int, reason)
+            logging.warning(
+                "%s REFUSED %s:%s — %s", PROBE_AUDIT_PREFIX, host, port_int, reason
+            )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 data={"ok": False, "error": error_message},

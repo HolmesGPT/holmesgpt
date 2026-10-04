@@ -59,7 +59,8 @@ def test_missing_cert_file_fails_fast(monkeypatch, tmp_path, cert_and_key):
 
 
 @pytest.mark.skipif(
-    os.geteuid() == 0, reason="root bypasses file permissions, so chmod 000 stays readable"
+    os.geteuid() == 0,
+    reason="root bypasses file permissions, so chmod 000 stays readable",
 )
 def test_unreadable_cert_file_fails_fast(monkeypatch, cert_and_key):
     # A file that exists but isn't readable (e.g. wrong permissions on a mounted

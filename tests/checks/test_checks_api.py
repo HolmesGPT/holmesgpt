@@ -1,10 +1,11 @@
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from server import app
 
 from holmes.core.tool_calling_llm import LLMResult, RelayRefusal
+from server import app
 
 
 @pytest.fixture

@@ -70,9 +70,7 @@ def test_conversation_history_compaction():
         )
         compacted_history = compaction_result.messages_after_compaction
         assert compacted_history
-        assert (
-            len(compacted_history) == 2
-        )  # [0]=summary (user), [1]=last user prompt
+        assert len(compacted_history) == 2  # [0]=summary (user), [1]=last user prompt
 
         assert compacted_history[0]["role"] == "user"
         assert "compacted" in compacted_history[0]["content"].lower()
@@ -109,8 +107,14 @@ def test_strip_images_for_compaction_replaces_image_blocks():
             "role": "tool",
             "content": [
                 {"type": "text", "text": "Rendered panel screenshot."},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,BBBB"},
+                },
             ],
             "token_count": 500,
         }
@@ -140,7 +144,10 @@ def test_strip_images_for_compaction_preserves_non_image_messages():
             "role": "tool",
             "content": [
                 {"type": "text", "text": "Dashboard screenshot"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,CCC"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,CCC"},
+                },
             ],
         },
         {"role": "assistant", "content": "I see a spike in the CPU panel."},
@@ -166,7 +173,10 @@ def test_strip_images_with_disk_paths_in_text():
                     "type": "text",
                     "text": "Images saved to disk:\n  - /tmp/results/grafana_render_abc_img0.png\n",
                 },
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                },
             ],
         }
     ]
@@ -189,8 +199,10 @@ def test_count_image_tokens_no_images():
     class FakeLLM:
         def count_tokens(self, messages):
             """Return a fixed token usage for any input."""
+
             class Usage:
                 total_tokens = 0
+
             return Usage()
 
     assert _count_image_tokens_in_messages(messages, FakeLLM()) == 0  # type: ignore
@@ -203,7 +215,10 @@ def test_count_image_tokens_with_images():
             "role": "tool",
             "content": [
                 {"type": "text", "text": "some text"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                },
             ],
         }
     ]
@@ -211,9 +226,11 @@ def test_count_image_tokens_with_images():
     class FakeLLM:
         def count_tokens(self, messages):
             """Return a fixed token usage for any input."""
+
             # Should receive a synthetic message with only image blocks
             class Usage:
                 total_tokens = 1600
+
             return Usage()
 
     assert _count_image_tokens_in_messages(messages, FakeLLM()) == 1600  # type: ignore
@@ -243,7 +260,11 @@ def test_flatten_tool_messages_removes_tool_calls_and_tool_role():
                 }
             ],
         },
-        {"role": "tool", "tool_call_id": "call_1", "content": "node-3 MemoryPressure=True"},
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "node-3 MemoryPressure=True",
+        },
     ]
     result = _flatten_tool_messages_for_compaction(messages)
 
@@ -292,7 +313,10 @@ def test_flatten_tool_messages_preserves_image_blocks():
             "tool_call_id": "call_1",
             "content": [
                 {"type": "text", "text": "screenshot"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAA"},
+                },
             ],
         }
     ]
@@ -318,6 +342,7 @@ def test_flatten_tool_messages_passes_through_plain_messages():
 
 class _Usage:
     """Minimal token-usage stub for the fake LLM."""
+
     total_tokens = 100
 
 
@@ -388,7 +413,12 @@ def _history_with_tool_calls():
                 }
             ],
         },
-        {"role": "tool", "tool_call_id": "c1", "name": "kubectl_get", "content": "CrashLoopBackOff"},
+        {
+            "role": "tool",
+            "tool_call_id": "c1",
+            "name": "kubectl_get",
+            "content": "CrashLoopBackOff",
+        },
     ]
 
 
@@ -446,7 +476,9 @@ def test_compaction_falls_back_when_model_calls_a_tool():
             }
         ]
     )
-    llm = RecordingFakeLLM([tool_call_response, _make_response(content="FALLBACK SUMMARY")])
+    llm = RecordingFakeLLM(
+        [tool_call_response, _make_response(content="FALLBACK SUMMARY")]
+    )
     result = compact_conversation_history(
         original_conversation_history=_history_with_tool_calls(),
         llm=llm,  # type: ignore
@@ -471,7 +503,10 @@ def test_compaction_falls_back_when_model_calls_a_tool():
 def test_compaction_falls_back_when_primary_request_fails():
     """A failing primary request triggers the flattened, tool-less retry."""
     llm = RecordingFakeLLM(
-        [RuntimeError("400 toolConfig must be defined"), _make_response(content="FALLBACK SUMMARY")]
+        [
+            RuntimeError("400 toolConfig must be defined"),
+            _make_response(content="FALLBACK SUMMARY"),
+        ]
     )
     result = compact_conversation_history(
         original_conversation_history=_history_with_tool_calls(),
@@ -526,7 +561,11 @@ def test_compaction_summary_never_stores_thinking_blocks():
         content="THE SUMMARY",
         reasoning_content="thinking about it...",
         thinking_blocks=[
-            {"type": "thinking", "thinking": "thinking about it...", "signature": "SIG=="}
+            {
+                "type": "thinking",
+                "thinking": "thinking about it...",
+                "signature": "SIG==",
+            }
         ],
     )
     llm = RecordingFakeLLM([response])

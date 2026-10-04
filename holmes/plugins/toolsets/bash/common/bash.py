@@ -4,7 +4,6 @@ from typing import List, Optional
 
 from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 
-
 # Grace period (seconds) to let a timed-out argv child exit on SIGTERM — and run
 # any cleanup it does on termination — before it is force-killed with SIGKILL.
 ARGV_TERMINATE_GRACE_SECONDS = 5

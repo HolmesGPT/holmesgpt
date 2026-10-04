@@ -17,6 +17,7 @@ Run:
     poetry run pytest tests/core/conversations_worker/integration/test_retry_resilience.py \
         -m conversation_worker --no-cov -v
 """
+
 from __future__ import annotations
 
 import json
@@ -47,9 +48,8 @@ def inprocess_worker():
     if not os.environ.get("ROBUSTA_UI_TOKEN"):
         pytest.skip("ROBUSTA_UI_TOKEN not set")
 
-    from holmes.core.supabase_dal import SupabaseDal
-
     import server  # builds config, dal, chat, conversation_worker at import
+    from holmes.core.supabase_dal import SupabaseDal
 
     # In a combined session a unit test may have activated the root
     # session-scoped ``storage_dal_mock`` (patches holmes.config.SupabaseDal)
@@ -93,11 +93,7 @@ class _TransientFaultInjector:
             real_execute = builder.execute
 
             def execute(*a, **k):
-                if (
-                    inj.on
-                    and inj.consec < inj.max_consec
-                    and inj._rng.random() < inj.p
-                ):
+                if inj.on and inj.consec < inj.max_consec and inj._rng.random() < inj.p:
                     inj.consec += 1
                     inj.injected += 1
                     inj.by_rpc[name] = inj.by_rpc.get(name, 0) + 1

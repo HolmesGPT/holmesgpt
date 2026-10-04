@@ -187,6 +187,7 @@ NULLABLE_INT = {
 # Tool schemas
 # ---------------------------------------------------------------------------
 
+
 def _content_realtime_timeseries_schema() -> dict:
     return {
         "$defs": {**TIMERANGE_DEF},
@@ -301,6 +302,7 @@ def _simple_schema(props: dict, required: Optional[List[str]] = None) -> dict:
 # Helper: validate raw arguments for the target tool
 # ---------------------------------------------------------------------------
 
+
 def _params_have_correct_types(arguments: dict) -> bool:
     """Check that time_range and filters arrived as objects, not strings."""
     tr = arguments.get("time_range")
@@ -336,8 +338,12 @@ def _filter_timeseries(metric_data: dict, filters: Optional[dict]) -> list:
     device_filter = filters.get("device_name")
     country_filter = filters.get("geo_country_code")
 
-    devices = [device_filter] if isinstance(device_filter, str) else (device_filter or [])
-    countries = [country_filter] if isinstance(country_filter, str) else (country_filter or [])
+    devices = (
+        [device_filter] if isinstance(device_filter, str) else (device_filter or [])
+    )
+    countries = (
+        [country_filter] if isinstance(country_filter, str) else (country_filter or [])
+    )
 
     results = []
     seen = set()
@@ -350,12 +356,14 @@ def _filter_timeseries(metric_data: dict, filters: Optional[dict]) -> list:
             key = (device, country, pt["timestamp"])
             if key not in seen:
                 seen.add(key)
-                results.append({
-                    "timestamp": pt["timestamp"],
-                    "value": pt["value"],
-                    "device_name": device,
-                    "geo_country_code": country,
-                })
+                results.append(
+                    {
+                        "timestamp": pt["timestamp"],
+                        "value": pt["value"],
+                        "device_name": device,
+                        "geo_country_code": country,
+                    }
+                )
     results.sort(key=lambda x: (x["device_name"], x["timestamp"]))
     return results
 
@@ -363,6 +371,7 @@ def _filter_timeseries(metric_data: dict, filters: Optional[dict]) -> list:
 # ---------------------------------------------------------------------------
 # Tool handler implementations
 # ---------------------------------------------------------------------------
+
 
 def _handle_content_realtime_timeseries(arguments: dict) -> str:
     # Check RAW types — this is the whole point of using low-level Server API
@@ -407,7 +416,9 @@ def _handle_content_realtime_timeseries(arguments: dict) -> str:
         for pt in data:
             extra = ""
             if "device_name" in pt:
-                extra = f" (device={pt['device_name']}, country={pt['geo_country_code']})"
+                extra = (
+                    f" (device={pt['device_name']}, country={pt['geo_country_code']})"
+                )
             lines.append(f"    {pt['timestamp']}: {pt['value']}{extra}")
 
     return "\n".join(lines)
@@ -447,8 +458,8 @@ def _handle_metadata() -> str:
         "  network_type - Connection type (e.g. 'wifi', 'cellular', 'wired')\n"
         "  resolution - Video resolution (e.g. '1080p', '4K', '720p')\n"
         "\nNOTE: Use exact dimension names as keys in the `filters` dict.\n"
-        "  e.g. filters={\"device_name\": \"smart_tv\", \"geo_country_code\": \"FR\"}\n"
-        "  Multi-select: filters={\"device_name\": [\"smart_tv\", \"tablet\"]}\n"
+        '  e.g. filters={"device_name": "smart_tv", "geo_country_code": "FR"}\n'
+        '  Multi-select: filters={"device_name": ["smart_tv", "tablet"]}\n'
         f"\nRealtime granularities: {REALTIME_GRANULARITY_DESC}"
     )
 
@@ -488,143 +499,193 @@ def _handle_network_flow_metadata() -> str:
 # Build all tools
 # ---------------------------------------------------------------------------
 
+
 def _build_tools() -> List[Tool]:
     tools: List[Tool] = []
 
     # === Content Quality Metadata (2) ===
-    tools.append(Tool(
-        name="get_content_metrics_metadata",
-        description="Get available content quality metrics, dimensions, and filter options.",
-        inputSchema={"properties": {}, "type": "object"},
-    ))
-    tools.append(Tool(
-        name="get_available_benchmarks",
-        description="List available quality benchmarks for comparison.",
-        inputSchema=_simple_schema(
-            {"metric": {**NULLABLE_STRING, "title": "Metric"}}, required=[]
-        ),
-    ))
+    tools.append(
+        Tool(
+            name="get_content_metrics_metadata",
+            description="Get available content quality metrics, dimensions, and filter options.",
+            inputSchema={"properties": {}, "type": "object"},
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_available_benchmarks",
+            description="List available quality benchmarks for comparison.",
+            inputSchema=_simple_schema(
+                {"metric": {**NULLABLE_STRING, "title": "Metric"}}, required=[]
+            ),
+        )
+    )
 
     # === Content Quality Realtime (3) ===
-    tools.append(Tool(
-        name="get_content_realtime_timeseries",
-        description=(
-            "Query real-time content quality metrics as time series data points.\n\n"
-            "Args:\n"
-            "  metrics: Array of metric names (e.g. ['quality_index']).\n"
-            "  time_range: Time range object with 'minutes' (1-15) or "
-            "'start_date'/'end_date' or 'start_epoch_ms'/'end_epoch_ms'.\n"
-            "  granularity: Bucket size (ALL, PT1M, PT10S-PT59S).\n"
-            "  filters: Key-value filter map. Keys=dimension names, "
-            "values=string or array for multi-select.\n"
-            "  benchmark_id: Optional benchmark ID.\n"
-            "  account_name: Account override."
-        ),
-        inputSchema=_content_realtime_timeseries_schema(),
-    ))
-    tools.append(Tool(
-        name="get_content_realtime_group_by",
-        description=(
-            "Query real-time content quality metrics grouped by a dimension.\n\n"
-            "Args:\n  metrics: Array of metric names.\n  dimension: Dimension to group by.\n"
-            "  time_range: Time range object.\n  filters: Key-value filter map."
-        ),
-        inputSchema=_content_realtime_group_by_schema(),
-    ))
+    tools.append(
+        Tool(
+            name="get_content_realtime_timeseries",
+            description=(
+                "Query real-time content quality metrics as time series data points.\n\n"
+                "Args:\n"
+                "  metrics: Array of metric names (e.g. ['quality_index']).\n"
+                "  time_range: Time range object with 'minutes' (1-15) or "
+                "'start_date'/'end_date' or 'start_epoch_ms'/'end_epoch_ms'.\n"
+                "  granularity: Bucket size (ALL, PT1M, PT10S-PT59S).\n"
+                "  filters: Key-value filter map. Keys=dimension names, "
+                "values=string or array for multi-select.\n"
+                "  benchmark_id: Optional benchmark ID.\n"
+                "  account_name: Account override."
+            ),
+            inputSchema=_content_realtime_timeseries_schema(),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_content_realtime_group_by",
+            description=(
+                "Query real-time content quality metrics grouped by a dimension.\n\n"
+                "Args:\n  metrics: Array of metric names.\n  dimension: Dimension to group by.\n"
+                "  time_range: Time range object.\n  filters: Key-value filter map."
+            ),
+            inputSchema=_content_realtime_group_by_schema(),
+        )
+    )
 
     # === Content Quality Historical (2) ===
-    tools.append(Tool(
-        name="get_content_historical_timeseries",
-        description="Query historical content quality metrics as time series (up to 90 days).",
-        inputSchema=_content_historical_timeseries_schema(),
-    ))
-    tools.append(Tool(
-        name="get_content_historical_group_by",
-        description="Query historical content quality metrics grouped by dimension.",
-        inputSchema=_content_historical_group_by_schema(),
-    ))
+    tools.append(
+        Tool(
+            name="get_content_historical_timeseries",
+            description="Query historical content quality metrics as time series (up to 90 days).",
+            inputSchema=_content_historical_timeseries_schema(),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_content_historical_group_by",
+            description="Query historical content quality metrics grouped by dimension.",
+            inputSchema=_content_historical_group_by_schema(),
+        )
+    )
 
     # === Network Analytics Metadata (2) ===
-    tools.append(Tool(
-        name="get_network_analytics_metadata",
-        description=(
-            "Get network analytics metrics and dimensions.\n"
-            "NOTE: Network tools use DIFFERENT params than content tools:\n"
-            "  - selected_metrics: COMMA-SEPARATED STRING (not array)\n"
-            "  - filter: SQL WHERE clause STRING (not dict)\n"
-            "  - relative_time_interval: STRING enum (not TimeRange object)"
-        ),
-        inputSchema={"properties": {}, "type": "object"},
-    ))
-    tools.append(Tool(
-        name="get_network_flow_metadata",
-        description="Get network flow models and metrics.",
-        inputSchema={"properties": {}, "type": "object"},
-    ))
+    tools.append(
+        Tool(
+            name="get_network_analytics_metadata",
+            description=(
+                "Get network analytics metrics and dimensions.\n"
+                "NOTE: Network tools use DIFFERENT params than content tools:\n"
+                "  - selected_metrics: COMMA-SEPARATED STRING (not array)\n"
+                "  - filter: SQL WHERE clause STRING (not dict)\n"
+                "  - relative_time_interval: STRING enum (not TimeRange object)"
+            ),
+            inputSchema={"properties": {}, "type": "object"},
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_flow_metadata",
+            description="Get network flow models and metrics.",
+            inputSchema={"properties": {}, "type": "object"},
+        )
+    )
 
     # === Network Realtime (5) ===
-    tools.append(Tool(
-        name="get_network_analytics_realtime_timeseries",
-        description="Query real-time network analytics as time series. Uses selected_metrics (comma-sep string), relative_time_interval (enum), filter (SQL WHERE).",
-        inputSchema=_network_realtime_schema(),
-    ))
-    tools.append(Tool(
-        name="get_network_analytics_realtime_group_by",
-        description="Query real-time network analytics grouped by dimension.",
-        inputSchema=_network_realtime_schema({"group_by": {"type": "string"}, "limit": {**NULLABLE_INT}}),
-    ))
-    tools.append(Tool(
-        name="get_network_flow_realtime_timeseries",
-        description="Query real-time network flow metrics as time series.",
-        inputSchema=_network_realtime_schema({"flow_model": {"type": "string"}}),
-    ))
-    tools.append(Tool(
-        name="get_network_flow_realtime_group_by",
-        description="Query real-time network flow metrics grouped by dimension.",
-        inputSchema=_network_realtime_schema({"flow_model": {"type": "string"}, "group_by": {"type": "string"}}),
-    ))
-    tools.append(Tool(
-        name="get_network_analytics_realtime_top_n",
-        description="Get top N dimension values by network metric.",
-        inputSchema=_network_realtime_schema({"group_by": {"type": "string"}, "n": {"type": "integer", "default": 10}}),
-    ))
+    tools.append(
+        Tool(
+            name="get_network_analytics_realtime_timeseries",
+            description="Query real-time network analytics as time series. Uses selected_metrics (comma-sep string), relative_time_interval (enum), filter (SQL WHERE).",
+            inputSchema=_network_realtime_schema(),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_analytics_realtime_group_by",
+            description="Query real-time network analytics grouped by dimension.",
+            inputSchema=_network_realtime_schema(
+                {"group_by": {"type": "string"}, "limit": {**NULLABLE_INT}}
+            ),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_flow_realtime_timeseries",
+            description="Query real-time network flow metrics as time series.",
+            inputSchema=_network_realtime_schema({"flow_model": {"type": "string"}}),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_flow_realtime_group_by",
+            description="Query real-time network flow metrics grouped by dimension.",
+            inputSchema=_network_realtime_schema(
+                {"flow_model": {"type": "string"}, "group_by": {"type": "string"}}
+            ),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_analytics_realtime_top_n",
+            description="Get top N dimension values by network metric.",
+            inputSchema=_network_realtime_schema(
+                {
+                    "group_by": {"type": "string"},
+                    "n": {"type": "integer", "default": 10},
+                }
+            ),
+        )
+    )
 
     # === Network Historical (5) ===
-    tools.append(Tool(
-        name="get_network_analytics_historical_timeseries",
-        description="Query historical network analytics. Uses HistoricalTimeRange (no minutes field).",
-        inputSchema=_network_historical_schema(),
-    ))
-    tools.append(Tool(
-        name="get_network_analytics_historical_group_by",
-        description="Query historical network analytics grouped by dimension.",
-        inputSchema=_network_historical_schema({"group_by": {"type": "string"}, "limit": {**NULLABLE_INT}}),
-    ))
-    tools.append(Tool(
-        name="get_network_flow_historical_timeseries",
-        description="Query historical network flow metrics.",
-        inputSchema=_network_historical_schema({"flow_model": {"type": "string"}}),
-    ))
-    tools.append(Tool(
-        name="get_network_flow_historical_group_by",
-        description="Query historical network flow metrics grouped by dimension.",
-        inputSchema=_network_historical_schema({"flow_model": {"type": "string"}, "group_by": {"type": "string"}}),
-    ))
-    tools.append(Tool(
-        name="get_network_analytics_historical_comparison",
-        description="Compare network analytics across two time ranges.",
-        inputSchema={
-            "$defs": {**HISTORICAL_TIMERANGE_DEF},
-            "properties": {
-                "selected_metrics": {"type": "string"},
-                "time_range": {"$ref": "#/$defs/HistoricalTimeRange"},
-                "compare_time_range": {"$ref": "#/$defs/HistoricalTimeRange"},
-                "filter": {**NULLABLE_STRING},
+    tools.append(
+        Tool(
+            name="get_network_analytics_historical_timeseries",
+            description="Query historical network analytics. Uses HistoricalTimeRange (no minutes field).",
+            inputSchema=_network_historical_schema(),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_analytics_historical_group_by",
+            description="Query historical network analytics grouped by dimension.",
+            inputSchema=_network_historical_schema(
+                {"group_by": {"type": "string"}, "limit": {**NULLABLE_INT}}
+            ),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_flow_historical_timeseries",
+            description="Query historical network flow metrics.",
+            inputSchema=_network_historical_schema({"flow_model": {"type": "string"}}),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_flow_historical_group_by",
+            description="Query historical network flow metrics grouped by dimension.",
+            inputSchema=_network_historical_schema(
+                {"flow_model": {"type": "string"}, "group_by": {"type": "string"}}
+            ),
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_network_analytics_historical_comparison",
+            description="Compare network analytics across two time ranges.",
+            inputSchema={
+                "$defs": {**HISTORICAL_TIMERANGE_DEF},
+                "properties": {
+                    "selected_metrics": {"type": "string"},
+                    "time_range": {"$ref": "#/$defs/HistoricalTimeRange"},
+                    "compare_time_range": {"$ref": "#/$defs/HistoricalTimeRange"},
+                    "filter": {**NULLABLE_STRING},
+                },
+                "required": ["selected_metrics", "time_range", "compare_time_range"],
+                "type": "object",
             },
-            "required": ["selected_metrics", "time_range", "compare_time_range"],
-            "type": "object",
-        },
-    ))
+        )
+    )
 
     # === Alerts (7) ===
     for name, desc in [
@@ -633,40 +694,58 @@ def _build_tools() -> List[Tool]:
         ("get_content_alert_details", "Get details of a content quality alert."),
         ("get_ad_alert_details", "Get details of an ad quality alert."),
         ("get_network_alerts_summary", "Get summary of active network alerts."),
-        ("get_network_alert_diagnostics", "Get diagnostic details for a network alert."),
-        ("get_network_alert_severity_events", "Get severity events for a network alert."),
+        (
+            "get_network_alert_diagnostics",
+            "Get diagnostic details for a network alert.",
+        ),
+        (
+            "get_network_alert_severity_events",
+            "Get severity events for a network alert.",
+        ),
     ]:
-        tools.append(Tool(name=name, description=desc, inputSchema={
-            "properties": {"id": {**NULLABLE_STRING}},
-            "type": "object",
-        }))
+        tools.append(
+            Tool(
+                name=name,
+                description=desc,
+                inputSchema={
+                    "properties": {"id": {**NULLABLE_STRING}},
+                    "type": "object",
+                },
+            )
+        )
 
     # === Session (3) ===
-    tools.append(Tool(
-        name="get_authorized_accounts",
-        description="List accounts the current user has access to.",
-        inputSchema={"properties": {}, "type": "object"},
-    ))
-    tools.append(Tool(
-        name="list_viewer_sessions",
-        description="List individual viewer sessions with quality data.",
-        inputSchema={
-            "$defs": {**TIMERANGE_DEF},
-            "properties": {
-                "time_range": {"$ref": "#/$defs/TimeRange"},
-                "filters": {**FILTERS_SCHEMA},
-                "limit": {**NULLABLE_INT},
-                "sort_by": {**NULLABLE_STRING},
+    tools.append(
+        Tool(
+            name="get_authorized_accounts",
+            description="List accounts the current user has access to.",
+            inputSchema={"properties": {}, "type": "object"},
+        )
+    )
+    tools.append(
+        Tool(
+            name="list_viewer_sessions",
+            description="List individual viewer sessions with quality data.",
+            inputSchema={
+                "$defs": {**TIMERANGE_DEF},
+                "properties": {
+                    "time_range": {"$ref": "#/$defs/TimeRange"},
+                    "filters": {**FILTERS_SCHEMA},
+                    "limit": {**NULLABLE_INT},
+                    "sort_by": {**NULLABLE_STRING},
+                },
+                "required": ["time_range"],
+                "type": "object",
             },
-            "required": ["time_range"],
-            "type": "object",
-        },
-    ))
-    tools.append(Tool(
-        name="get_viewer_summary",
-        description="Get detailed summary for a specific viewer session.",
-        inputSchema=_simple_schema({"session_id": {"type": "string"}}),
-    ))
+        )
+    )
+    tools.append(
+        Tool(
+            name="get_viewer_summary",
+            description="Get detailed summary for a specific viewer session.",
+            inputSchema=_simple_schema({"session_id": {"type": "string"}}),
+        )
+    )
 
     # === Noise: Incident Management (10) ===
     _noise_names = [
@@ -737,10 +816,16 @@ def _build_tools() -> List[Tool]:
         ("list_automations", "List automation rules."),
     ]
     for name, desc in _noise_names:
-        tools.append(Tool(name=name, description=desc, inputSchema={
-            "properties": {"query": {**NULLABLE_STRING}},
-            "type": "object",
-        }))
+        tools.append(
+            Tool(
+                name=name,
+                description=desc,
+                inputSchema={
+                    "properties": {"query": {**NULLABLE_STRING}},
+                    "type": "object",
+                },
+            )
+        )
 
     return tools
 
@@ -778,7 +863,9 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
     elif name == "get_network_flow_metadata":
         text = _handle_network_flow_metadata()
     elif name == "get_authorized_accounts":
-        text = "Accounts: demo-account-1 (Demo Streaming), demo-account-2 (Test Network)"
+        text = (
+            "Accounts: demo-account-1 (Demo Streaming), demo-account-2 (Test Network)"
+        )
     elif name in TOOL_MAP:
         text = "Not available in test mode"
     else:
@@ -789,7 +876,9 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
 
 async def main():
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        await server.run(
+            read_stream, write_stream, server.create_initialization_options()
+        )
 
 
 if __name__ == "__main__":

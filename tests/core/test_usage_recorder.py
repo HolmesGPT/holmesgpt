@@ -26,7 +26,6 @@ from holmes.core.usage_recorder import (
 )
 from holmes.utils.stream import StreamEvents, StreamMessage
 
-
 # ──────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────
@@ -56,7 +55,9 @@ def _stream(*events: StreamMessage):
         yield e
 
 
-def _terminal_data(costs: dict, num_llm_calls: int = 1, finish_reason: str = "stop") -> dict:
+def _terminal_data(
+    costs: dict, num_llm_calls: int = 1, finish_reason: str = "stop"
+) -> dict:
     return {
         "content": "ok",
         "messages": [],
@@ -167,12 +168,22 @@ class TestStreamWithUsageRecording:
         _patch_inline_thread(monkeypatch)
         state = _make_state()
 
-        costs = {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150, "total_cost": 0.001}
+        costs = {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+            "total_cost": 0.001,
+        }
         events = [
             StreamMessage(event=StreamEvents.START_TOOL, data={}),
-            StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "kubectl"}),
+            StreamMessage(
+                event=StreamEvents.TOOL_RESULT, data={"tool_name": "kubectl"}
+            ),
             StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "prom"}),
-            StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data(costs, num_llm_calls=3)),
+            StreamMessage(
+                event=StreamEvents.ANSWER_END,
+                data=_terminal_data(costs, num_llm_calls=3),
+            ),
         ]
 
         # Drain the wrapped stream — the recorder fires in the finally block.
@@ -207,13 +218,21 @@ class TestStreamWithUsageRecording:
     def test_approval_required_marks_status_approval_required(self, monkeypatch):
         _patch_inline_thread(monkeypatch)
         state = _make_state()
-        list(stream_with_usage_recording(
-            _stream(StreamMessage(event=StreamEvents.APPROVAL_REQUIRED, data={"metadata": {}})),
-            state,
-        ))
+        list(
+            stream_with_usage_recording(
+                _stream(
+                    StreamMessage(
+                        event=StreamEvents.APPROVAL_REQUIRED, data={"metadata": {}}
+                    )
+                ),
+                state,
+            )
+        )
         assert _state_arg(state).status == "approval_required"
 
-    def test_exception_in_inner_stream_still_fires_recorder_with_error_status(self, monkeypatch):
+    def test_exception_in_inner_stream_still_fires_recorder_with_error_status(
+        self, monkeypatch
+    ):
         _patch_inline_thread(monkeypatch)
         state = _make_state()
 
@@ -240,14 +259,33 @@ class TestStreamWithUsageRecording:
         state = _make_state()
 
         # Two successful iterations broadcast their cumulative cost...
-        iter1_costs = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120, "total_cost": 0.001}
-        iter2_costs = {"prompt_tokens": 250, "completion_tokens": 50, "total_tokens": 300, "total_cost": 0.003}
+        iter1_costs = {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+            "total_cost": 0.001,
+        }
+        iter2_costs = {
+            "prompt_tokens": 250,
+            "completion_tokens": 50,
+            "total_tokens": 300,
+            "total_cost": 0.003,
+        }
 
         events = [
-            StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"metadata": {"costs": iter1_costs}}),
+            StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={"metadata": {"costs": iter1_costs}},
+            ),
             StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "k"}),
-            StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"metadata": {"costs": iter2_costs}}),
-            StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data(iter2_costs, num_llm_calls=2)),
+            StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={"metadata": {"costs": iter2_costs}},
+            ),
+            StreamMessage(
+                event=StreamEvents.ANSWER_END,
+                data=_terminal_data(iter2_costs, num_llm_calls=2),
+            ),
         ]
         list(stream_with_usage_recording(_stream(*events), state))
 
@@ -277,11 +315,29 @@ class TestStreamWithUsageRecording:
 
         def failing_stream():
             # Iteration 1 succeeds.
-            yield StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"metadata": {"costs": {"prompt_tokens": 800, "total_tokens": 850, "total_cost": 0.005}}})
-            yield StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "kubectl"})
+            yield StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={
+                    "metadata": {
+                        "costs": {
+                            "prompt_tokens": 800,
+                            "total_tokens": 850,
+                            "total_cost": 0.005,
+                        }
+                    }
+                },
+            )
+            yield StreamMessage(
+                event=StreamEvents.TOOL_RESULT, data={"tool_name": "kubectl"}
+            )
             # Iteration 2 succeeds.
-            yield StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"metadata": {"costs": partial_costs}})
-            yield StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "prom"})
+            yield StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={"metadata": {"costs": partial_costs}},
+            )
+            yield StreamMessage(
+                event=StreamEvents.TOOL_RESULT, data={"tool_name": "prom"}
+            )
             # Iteration 3's LLM call raises — TOKEN_COUNT for iter 3 is
             # never emitted; the exception unwinds call_stream's frame.
             raise RuntimeError("rate limit hit")
@@ -314,7 +370,10 @@ class TestStreamWithUsageRecording:
             "total_cost": 0.004,
         }
         events = [
-            StreamMessage(event=StreamEvents.TOKEN_COUNT, data={"metadata": {"costs": partial_costs}}),
+            StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={"metadata": {"costs": partial_costs}},
+            ),
             StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "k"}),
             # Stream just ends — no terminal event (client closed the tab).
         ]
@@ -332,10 +391,16 @@ class TestStreamWithUsageRecording:
         state = _make_state()
 
         # No terminal — e.g. client disconnected.
-        list(stream_with_usage_recording(
-            _stream(StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "y"})),
-            state,
-        ))
+        list(
+            stream_with_usage_recording(
+                _stream(
+                    StreamMessage(
+                        event=StreamEvents.TOOL_RESULT, data={"tool_name": "y"}
+                    )
+                ),
+                state,
+            )
+        )
 
         # finally block still fired, but status downgraded from default
         # "success" to "aborted" because no terminal event was seen.
@@ -347,13 +412,17 @@ class TestStreamWithUsageRecording:
         _patch_inline_thread(monkeypatch)
         state = _make_state()
 
-        list(stream_with_usage_recording(
-            _stream(StreamMessage(
-                event=StreamEvents.ANSWER_END,
-                data={"metadata": {}, "num_llm_calls": 1},
-            )),
-            state,
-        ))
+        list(
+            stream_with_usage_recording(
+                _stream(
+                    StreamMessage(
+                        event=StreamEvents.ANSWER_END,
+                        data={"metadata": {}, "num_llm_calls": 1},
+                    )
+                ),
+                state,
+            )
+        )
 
         assert _state_arg(state).status == "success"
 
@@ -389,7 +458,11 @@ class TestStreamWithUsageRecording:
 
         answer_end = StreamMessage(
             event=StreamEvents.ANSWER_END,
-            data={"content": "ok", "messages": [], "num_llm_calls": 1},  # no metadata key
+            data={
+                "content": "ok",
+                "messages": [],
+                "num_llm_calls": 1,
+            },  # no metadata key
         )
         consumed = list(stream_with_usage_recording(_stream(answer_end), state))
         assert consumed[0].data["metadata"] == {"request_id": "uuid-xyz"}
@@ -540,9 +613,9 @@ class TestFireAndForgetThreadMode:
         record_error(state, RuntimeError("x"))
         # Caller returns immediately; the executor worker is still running.
         # Wait briefly for it to finish.
-        assert called.wait(timeout=2.0), (
-            "executor worker did not run record_usage_event in the background"
-        )
+        assert called.wait(
+            timeout=2.0
+        ), "executor worker did not run record_usage_event in the background"
 
     def test_dal_exception_does_not_propagate(self, monkeypatch):
         """If record_usage_event raises, the caller of _fire must not see it.

@@ -72,7 +72,13 @@ class ToolExecutor:
                 msg = f"Overriding toolset '{ts.name}'!"
                 display_logger.warning(msg)
                 if on_event is not None:
-                    on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=ts.name, message=msg))
+                    on_event(
+                        StatusEvent(
+                            kind=StatusEventKind.TOOL_OVERRIDE,
+                            name=ts.name,
+                            message=msg,
+                        )
+                    )
             toolsets_by_name[ts.name] = ts
 
         self.tools_by_name: dict[str, Tool] = {}
@@ -89,7 +95,13 @@ class ToolExecutor:
                 msg = f"Overriding existing tool '{resolved_name} with new tool from {ts.name} at {ts.path}'!"
                 display_logger.warning(msg)
                 if on_event is not None:
-                    on_event(StatusEvent(kind=StatusEventKind.TOOL_OVERRIDE, name=resolved_name, message=msg))
+                    on_event(
+                        StatusEvent(
+                            kind=StatusEventKind.TOOL_OVERRIDE,
+                            name=resolved_name,
+                            message=msg,
+                        )
+                    )
             self.tools_by_name[resolved_name] = tool
             self._tool_to_toolset[resolved_name] = ts
 
@@ -97,7 +109,9 @@ class ToolExecutor:
 
     # ── Tool lookup ────────────────────────────────────────────────────
 
-    def get_tool_by_name(self, name: str, user_id: Optional[str] = None) -> Optional[Tool]:
+    def get_tool_by_name(
+        self, name: str, user_id: Optional[str] = None
+    ) -> Optional[Tool]:
         if name in self.tools_by_name:
             return self.tools_by_name[name]
         # Check per-user OAuth tools (registered in _tool_to_toolset but not in tools_by_name)
@@ -107,9 +121,13 @@ class ToolExecutor:
         logging.warning(f"could not find tool {name}. skipping")
         return None
 
-    def get_toolset_name(self, tool_name: str, user_id: Optional[str] = None) -> Optional[str]:
+    def get_toolset_name(
+        self, tool_name: str, user_id: Optional[str] = None
+    ) -> Optional[str]:
         """Return the toolset name that provides a given tool, or None."""
-        ts = self._tool_to_toolset.get(tool_name) or self.oauth_connector.get_toolset(tool_name, user_id)
+        ts = self._tool_to_toolset.get(tool_name) or self.oauth_connector.get_toolset(
+            tool_name, user_id
+        )
         return ts.name if ts else None
 
     def ensure_toolset_initialized(self, tool_name: str) -> Optional[str]:
@@ -127,7 +145,9 @@ class ToolExecutor:
 
         if toolset.needs_initialization:
             if not toolset.lazy_initialize():
-                error_msg = f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+                error_msg = (
+                    f"Toolset '{toolset.name}' failed to initialize: {toolset.error}"
+                )
                 logging.error(error_msg)
                 return error_msg
         elif toolset.status == ToolsetStatusEnum.FAILED:
@@ -163,9 +183,7 @@ class ToolExecutor:
 
         for tool in extra_tools:
             if tool.name in clone.tools_by_name:
-                logging.warning(
-                    f"Frontend tool '{tool.name}' overrides existing tool"
-                )
+                logging.warning(f"Frontend tool '{tool.name}' overrides existing tool")
             clone.tools_by_name[tool.name] = tool
             # No toolset mapping — frontend tools don't belong to a toolset,
             # so ensure_toolset_initialized() returns None (no-op) for them.
@@ -186,7 +204,9 @@ class ToolExecutor:
                      user's real tools (loaded after authentication).
         """
         tools = self._get_base_tools()
-        return self.oauth_connector.apply_user_tools(tools, user_id, self._tool_to_toolset)
+        return self.oauth_connector.apply_user_tools(
+            tools, user_id, self._tool_to_toolset
+        )
 
     def _get_base_tools(self) -> list:
         """Get all tools in OpenAI format (base set, no per-user overrides)."""

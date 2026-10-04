@@ -11,7 +11,9 @@ class TestTicketSourceModelRebuild:
         """TicketSource uses Union['JiraServiceManagementSource', 'PagerDutySource']
         as a forward reference. Without model_rebuild(), Pydantic v2 raises
         PydanticUserError at instantiation time."""
-        from holmes.plugins.sources.jira import JiraServiceManagementSource  # noqa: F401
+        from holmes.plugins.sources.jira import (  # noqa: F401
+            JiraServiceManagementSource,
+        )
         from holmes.plugins.sources.pagerduty import PagerDutySource  # noqa: F401
 
         TicketSource.model_rebuild()

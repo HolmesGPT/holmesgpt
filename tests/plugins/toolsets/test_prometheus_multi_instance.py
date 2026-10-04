@@ -57,10 +57,16 @@ class TestPrometheusMultiInstance:
         ok, _ = ts.prerequisites_callable(
             {
                 "instances": [
-                    {"name": "a", "prometheus_url": A,
-                     "additional_headers": {"X-Scope-OrgID": "team-a"}},
-                    {"name": "b", "prometheus_url": B,
-                     "additional_headers": {"X-Scope-OrgID": "team-b"}},
+                    {
+                        "name": "a",
+                        "prometheus_url": A,
+                        "additional_headers": {"X-Scope-OrgID": "team-a"},
+                    },
+                    {
+                        "name": "b",
+                        "prometheus_url": B,
+                        "additional_headers": {"X-Scope-OrgID": "team-b"},
+                    },
                 ]
             }
         )
@@ -77,14 +83,18 @@ class TestPrometheusMultiInstance:
 
     @pytest.mark.parametrize(
         "instance,host,org",
-        [("a", "http://prom-a.svc:9090", "team-a"),
-         ("b", "http://prom-b.svc:9090", "team-b")],
+        [
+            ("a", "http://prom-a.svc:9090", "team-a"),
+            ("b", "http://prom-b.svc:9090", "team-b"),
+        ],
     )
     def test_each_instance_calls_its_own_prometheus(self, instance, host, org):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
             tool = next(t for t in ts.tools if t.name == "list_prometheus_rules")
-            tool.invoke({INSTANCE_PARAM_NAME: instance}, create_mock_tool_invoke_context())
+            tool.invoke(
+                {INSTANCE_PARAM_NAME: instance}, create_mock_tool_invoke_context()
+            )
             last = rsps.calls[-1].request
             assert last.url.startswith(f"{host}/api/v1/rules")
             assert last.headers.get("X-Scope-OrgID") == org

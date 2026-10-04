@@ -5,7 +5,6 @@ external Confluence credentials. Returns real ImageContent blocks so Holmes
 must use vision to read the code from the image.
 """
 
-import base64
 import os
 
 from mcp.server.fastmcp import FastMCP, Image
@@ -104,7 +103,9 @@ def confluence_get_page(
     if page["attachments"]:
         lines.append(f"Attachments ({len(page['attachments'])}):")
         for att in page["attachments"]:
-            lines.append(f"  - {att['filename']} ({att['media_type']}): {att['comment']}")
+            lines.append(
+                f"  - {att['filename']} ({att['media_type']}): {att['comment']}"
+            )
         lines.append("")
         lines.append(
             "Use confluence_download_attachment to download and view attachment images."

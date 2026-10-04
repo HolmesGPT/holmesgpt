@@ -135,9 +135,7 @@ class RobustaToken(BaseModel):
 # Troubleshooting guide for an outbound firewall blocking egress to the Robusta
 # platform (surfaces as a connection reset during sign-in). Linked from the log
 # and exception so users can find the fix.
-FIREWALL_TROUBLESHOOTING_URL = (
-    "https://holmesgpt.dev/reference/troubleshooting/#firewall-blocking-robusta-platform"
-)
+FIREWALL_TROUBLESHOOTING_URL = "https://holmesgpt.dev/reference/troubleshooting/#firewall-blocking-robusta-platform"
 
 
 class SupabaseDnsException(Exception):
@@ -645,9 +643,7 @@ class SupabaseDal:
                         )
                     )
                 except ValidationError:
-                    logging.warning(
-                        "Skipping malformed skill row: runbook_id=%s", id
-                    )
+                    logging.warning("Skipping malformed skill row: runbook_id=%s", id)
             return instructions
         except Exception:
             logging.exception("Failed to fetch skill catalog", exc_info=True)
@@ -781,7 +777,8 @@ class SupabaseDal:
                 # See get_skill_catalog: alerts are a valid alternative to symptoms.
                 if not symptom and not alerts:
                     logging.warning(
-                        "Skipping personal skill with neither symptom nor alerts: %s", id
+                        "Skipping personal skill with neither symptom nor alerts: %s",
+                        id,
                     )
                     continue
                 # Cluster filter (null = all). Must precede hierarchy dedup, so a skill
@@ -891,7 +888,9 @@ class SupabaseDal:
                     raw_enabled,
                 )
                 enabled = False
-            order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
+            order = (
+                settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
+            )
             if not isinstance(order, list) or not all(
                 isinstance(tier, str) for tier in order
             ):
@@ -1054,9 +1053,7 @@ class SupabaseDal:
                 f"An error occurred during toolset synchronization: {e}", exc_info=True
             )
 
-    def sync_skills(
-        self, skills: list[dict], cluster_name: str, prune: bool
-    ) -> None:
+    def sync_skills(self, skills: list[dict], cluster_name: str, prune: bool) -> None:
         """Mirror this cluster's filesystem + builtin skills into HolmesCustomSkills.
 
         The filesystem stays the source of truth -- Holmes keeps executing these from disk.
@@ -1136,45 +1133,49 @@ class SupabaseDal:
             return
         try:
             stats = state.stats  # may be None on aborted/error rows
-            self.client.table(HOLMES_USAGE_EVENTS_TABLE).insert({
-                "account_id": self.account_id,
-                "cluster_id": state.cluster_id or self.cluster,
-                "user_id": state.user_id,
-                "user_email": state.user_email,
-                "conversation_id": state.conversation_id,
-                "conversation_source": state.conversation_source,
-                "request_id": state.request_id,
-                "request_type": state.request_type,
-                "request_source": state.request_source,
-                "source_ref": state.source_ref,
-                "status": state.status,
-                "model": state.model,
-                "provider": state.provider,
-                "is_robusta_model": state.is_robusta_model,
-                # Stats may be None when the request never reached a terminal
-                # event with cost data (aborted / pre-LLM error). The getattr
-                # default keeps the row writable in those cases.
-                "prompt_tokens": getattr(stats, "prompt_tokens", 0) or 0,
-                "completion_tokens": getattr(stats, "completion_tokens", 0) or 0,
-                "cached_tokens": getattr(stats, "cached_tokens", None),
-                "reasoning_tokens": getattr(stats, "reasoning_tokens", 0) or 0,
-                "total_tokens": getattr(stats, "total_tokens", 0) or 0,
-                "total_cost": float(getattr(stats, "total_cost", 0.0) or 0.0),
-                "num_compactions": getattr(stats, "num_compactions", 0) or 0,
-                "iterations": state.iterations,
-                "max_prompt_tokens_per_call": getattr(
-                    stats, "max_prompt_tokens_per_call", 0
-                ) or 0,
-                "max_completion_tokens_per_call": getattr(
-                    stats, "max_completion_tokens_per_call", 0
-                ) or 0,
-                "tool_call_count": state.tool_call_count,
-                "duration_ms": state.duration_ms,
-                "is_streaming": state.is_streaming,
-                "is_internal": state.is_internal,
-                "finish_reason": state.finish_reason,
-                "meta": state.meta or {},
-            }).execute()
+            self.client.table(HOLMES_USAGE_EVENTS_TABLE).insert(
+                {
+                    "account_id": self.account_id,
+                    "cluster_id": state.cluster_id or self.cluster,
+                    "user_id": state.user_id,
+                    "user_email": state.user_email,
+                    "conversation_id": state.conversation_id,
+                    "conversation_source": state.conversation_source,
+                    "request_id": state.request_id,
+                    "request_type": state.request_type,
+                    "request_source": state.request_source,
+                    "source_ref": state.source_ref,
+                    "status": state.status,
+                    "model": state.model,
+                    "provider": state.provider,
+                    "is_robusta_model": state.is_robusta_model,
+                    # Stats may be None when the request never reached a terminal
+                    # event with cost data (aborted / pre-LLM error). The getattr
+                    # default keeps the row writable in those cases.
+                    "prompt_tokens": getattr(stats, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(stats, "completion_tokens", 0) or 0,
+                    "cached_tokens": getattr(stats, "cached_tokens", None),
+                    "reasoning_tokens": getattr(stats, "reasoning_tokens", 0) or 0,
+                    "total_tokens": getattr(stats, "total_tokens", 0) or 0,
+                    "total_cost": float(getattr(stats, "total_cost", 0.0) or 0.0),
+                    "num_compactions": getattr(stats, "num_compactions", 0) or 0,
+                    "iterations": state.iterations,
+                    "max_prompt_tokens_per_call": getattr(
+                        stats, "max_prompt_tokens_per_call", 0
+                    )
+                    or 0,
+                    "max_completion_tokens_per_call": getattr(
+                        stats, "max_completion_tokens_per_call", 0
+                    )
+                    or 0,
+                    "tool_call_count": state.tool_call_count,
+                    "duration_ms": state.duration_ms,
+                    "is_streaming": state.is_streaming,
+                    "is_internal": state.is_internal,
+                    "finish_reason": state.finish_reason,
+                    "meta": state.meta or {},
+                }
+            ).execute()
         except Exception:
             logging.exception("Failed to record usage event")
 
@@ -1354,9 +1355,7 @@ class SupabaseDal:
         )
         return None
 
-    def claim_n_pending_conversations(
-        self, holmes_id: str, limit: int
-    ) -> List[Dict]:
+    def claim_n_pending_conversations(self, holmes_id: str, limit: int) -> List[Dict]:
         """
         Claim up to ``limit`` pending conversations (oldest first), landing them
         directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
@@ -1554,9 +1553,7 @@ class SupabaseDal:
                     if not res.data:
                         return None
                     return (
-                        int(res.data[0])
-                        if not isinstance(res.data[0], dict)
-                        else None
+                        int(res.data[0]) if not isinstance(res.data[0], dict) else None
                     )
                 return int(res.data)
             except ConversationReassignedError:

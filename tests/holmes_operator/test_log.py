@@ -55,7 +55,9 @@ def test_holmes_operator_does_not_import_holmes_package():
                 continue
             for name in names:
                 if name == "holmes" or name.startswith("holmes."):
-                    offenders.append(f"{py_file.relative_to(package_dir)}:{node.lineno} imports {name}")
+                    offenders.append(
+                        f"{py_file.relative_to(package_dir)}:{node.lineno} imports {name}"
+                    )
 
     assert not offenders, (
         "holmes_operator must not import the holmes package (it is not present "

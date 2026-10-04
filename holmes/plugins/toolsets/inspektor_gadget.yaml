@@ -254,4 +254,3 @@ toolsets:
             description: "Pod name to filter"
             default: ""
         command: "kubectl debug --profile=sysadmin node/{{ node_name }} --attach --quiet --image=ghcr.io/inspektor-gadget/ig:v0.49.0 -- ig run tcpdump:v0.49.0 -o pcap-ng --timeout {{ timeout }}{% if filter %} --pf {{ filter }}{% endif %}{% if namespace %} --k8s-namespace {{ namespace }}{% endif %}{% if podname %} --k8s-podname {{ podname }}{% endif %} | tcpdump -nvr -"
-

@@ -13,9 +13,9 @@ from holmes.plugins.skills.skill_loader import (
     TIER_PERSONAL,
     TIER_TO_SOURCE,
     Skill,
-    _resolve_name_collisions,
     SkillHierarchyConfig,
     SkillSource,
+    _resolve_name_collisions,
     load_skill_catalog,
     normalize_skill_name,
 )
@@ -426,12 +426,14 @@ def test_duplicate_tier_in_order_uses_its_first_position():
         _skill("shared", SkillSource.REMOTE),
     ]
 
-    assert [s.source for s in _resolve_name_collisions(
-        skills, ["global", "global", "personal"]
-    )] == [SkillSource.REMOTE]
-    assert [s.source for s in _resolve_name_collisions(
-        skills, ["personal", "global", "personal"]
-    )] == [SkillSource.PERSONAL]
+    assert [
+        s.source
+        for s in _resolve_name_collisions(skills, ["global", "global", "personal"])
+    ] == [SkillSource.REMOTE]
+    assert [
+        s.source
+        for s in _resolve_name_collisions(skills, ["personal", "global", "personal"])
+    ] == [SkillSource.PERSONAL]
 
 
 def test_survivors_keep_their_input_order():

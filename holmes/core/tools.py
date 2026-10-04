@@ -26,9 +26,6 @@ from typing import (
 )
 
 from jinja2 import Template
-
-from holmes.core.json_schema_coerce import coerce_params
-from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -37,9 +34,11 @@ from pydantic import (
     PrivateAttr,
     model_validator,
 )
+from requests.structures import CaseInsensitiveDict
 from rich.console import Console
 from rich.table import Table
 
+from holmes.core.json_schema_coerce import coerce_params
 from holmes.core.llm import LLM
 from holmes.core.openai_formatting import format_tool_to_open_ai_standard
 from holmes.core.transformers import (
@@ -129,7 +128,9 @@ class StructuredToolResult(BaseModel):
                 return self.data.model_dump_json(indent=None if compact else 2), True
             else:
                 if compact:
-                    return json.dumps(self.data, separators=(",", ":"), ensure_ascii=False), True
+                    return json.dumps(
+                        self.data, separators=(",", ":"), ensure_ascii=False
+                    ), True
                 else:
                     return json.dumps(self.data, indent=2, ensure_ascii=False), True
         except Exception:
@@ -232,7 +233,9 @@ class ToolParameter(BaseModel):
     required: bool = True
     properties: Optional[Dict[str, "ToolParameter"]] = None  # For object types
     items: Optional["ToolParameter"] = None  # For array item schemas
-    enum: Optional[List[Any]] = None  # For restricting to specific values (JSON Schema allows any type)
+    enum: Optional[List[Any]] = (
+        None  # For restricting to specific values (JSON Schema allows any type)
+    )
     # For object types: stores the additionalProperties JSON Schema value.
     # None = not specified, False = no additional properties allowed,
     # dict = schema for dynamic key-value maps (e.g. Dict[str, str])
@@ -255,7 +258,10 @@ class ToolParameter(BaseModel):
         are incompatible with strict mode.
         """
         # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
-        if self.additional_properties is not None and self.additional_properties is not False:
+        if (
+            self.additional_properties is not None
+            and self.additional_properties is not False
+        ):
             return False
         # Recursively check nested properties
         if self.properties:
@@ -757,7 +763,14 @@ class ToolsetEnvironmentPrerequisite(BaseModel):
     env: List[str] = []  # optional
 
 
-def _prereq_priority(prereq: Union[StaticPrerequisite, ToolsetCommandPrerequisite, ToolsetEnvironmentPrerequisite, CallablePrerequisite]) -> int:
+def _prereq_priority(
+    prereq: Union[
+        StaticPrerequisite,
+        ToolsetCommandPrerequisite,
+        ToolsetEnvironmentPrerequisite,
+        CallablePrerequisite,
+    ],
+) -> int:
     """Priority ordering for prerequisite checks. Lower number = higher priority.
 
     Static checks and env vars are fast config-validity checks (0-1).
@@ -815,6 +828,7 @@ class Toolset(BaseModel):
             "this cluster (kubectl, in-cluster prometheus, ...)."
         ),
     )
+
     def remote_exposure_default(
         self, instance_config: Optional[Dict[str, Any]] = None
     ) -> Optional[bool]:
@@ -1052,9 +1066,7 @@ class Toolset(BaseModel):
                     local_status = ToolsetStatusEnum.FAILED
                     stderr = (e.stderr or "").strip()
                     detail = f": {stderr}" if stderr else ""
-                    local_error = (
-                        f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
-                    )
+                    local_error = f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
                 for env_var in prereq.env:

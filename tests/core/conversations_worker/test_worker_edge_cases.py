@@ -12,6 +12,7 @@ Covered scenarios:
      but no new user_message for this turn — the prior user_message is
      "already answered" and must not be re-processed.
 """
+
 import threading
 from unittest.mock import MagicMock, patch
 
@@ -56,7 +57,8 @@ def _assert_failed_with_no_question(worker, task):
     and the LLM pipeline should NOT have been invoked."""
     # Status flipped to failed
     status_calls = [
-        c for c in worker.dal.update_conversation_status.call_args_list
+        c
+        for c in worker.dal.update_conversation_status.call_args_list
         if c.kwargs.get("status") == "failed"
     ]
     assert status_calls, (
@@ -66,7 +68,9 @@ def _assert_failed_with_no_question(worker, task):
 
     # Error event posted with the expected description
     post_calls = worker.dal.post_conversation_events.call_args_list
-    assert post_calls, "Expected post_conversation_events to be called with an error event"
+    assert (
+        post_calls
+    ), "Expected post_conversation_events to be called with an error event"
     events = post_calls[0].kwargs["events"]
     assert events[0]["event"] == "error"
     assert "No user question" in events[0]["data"]["description"]
@@ -77,9 +81,7 @@ def _run_process(worker, task, events):
     Patches _run_chat_and_publish so the test fails loudly if the LLM pipeline
     is invoked (which would mean the guard didn't fire)."""
     worker.dal.get_conversation_events = MagicMock(return_value=events)
-    with patch.object(
-        ConversationWorker, "_run_chat_and_publish"
-    ) as run_chat:
+    with patch.object(ConversationWorker, "_run_chat_and_publish") as run_chat:
         worker._process_conversation(task)
     return run_chat
 
@@ -126,7 +128,10 @@ def test_already_answered_user_message_fails():
         {"event": "user_message", "data": {"ask": "original"}, "ts": "1"},
         {
             "event": "ai_answer_end",
-            "data": {"content": "answered", "messages": [{"role": "system", "content": "s"}]},
+            "data": {
+                "content": "answered",
+                "messages": [{"role": "system", "content": "s"}],
+            },
             "ts": "2",
         },
     ]
@@ -185,7 +190,8 @@ def test_followup_with_tool_decisions_is_processed():
     run_chat = _run_process(worker, task, events)
     # Should NOT have failed — should have invoked the LLM pipeline
     failed_calls = [
-        c for c in worker.dal.update_conversation_status.call_args_list
+        c
+        for c in worker.dal.update_conversation_status.call_args_list
         if c.kwargs.get("status") == "failed"
     ]
     assert not failed_calls, f"Expected no failure, got {failed_calls}"

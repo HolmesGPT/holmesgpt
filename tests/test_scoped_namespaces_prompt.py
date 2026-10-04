@@ -2,7 +2,11 @@
 injects namespace-scope instructions into the system prompt, so Holmes doesn't waste
 tool calls discovering its RBAC scope from Forbidden errors."""
 
-from holmes.core.prompt import PromptComponent, build_system_prompt, get_scoped_namespaces
+from holmes.core.prompt import (
+    PromptComponent,
+    build_system_prompt,
+    get_scoped_namespaces,
+)
 
 
 def _build_prompt(prompt_component_overrides=None) -> str:

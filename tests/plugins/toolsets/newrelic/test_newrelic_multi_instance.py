@@ -32,7 +32,9 @@ class TestNewRelicFlat:
         ts = multi_instance(NewRelicToolset)
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             _mock(rsps)
-            ok, _ = ts.prerequisites_callable({"api_key": "NRAK-1", "account_id": "111"})
+            ok, _ = ts.prerequisites_callable(
+                {"api_key": "NRAK-1", "account_id": "111"}
+            )
         assert ok is True
         assert list(ts._children) == ["default"]
         assert not any(isinstance(t, ListInstancesTool) for t in ts.tools)
@@ -66,7 +68,9 @@ class TestNewRelicMultiInstance:
         "instance,api_key,account",
         [("team-a", "NRAK-a", "111"), ("team-b", "NRAK-b", "222")],
     )
-    def test_each_instance_uses_its_own_key_and_account(self, instance, api_key, account):
+    def test_each_instance_uses_its_own_key_and_account(
+        self, instance, api_key, account
+    ):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
             ts = self._build(rsps)
             tool = next(t for t in ts.tools if t.name == "newrelic_execute_nrql_query")

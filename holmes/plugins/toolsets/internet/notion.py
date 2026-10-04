@@ -22,11 +22,13 @@ from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 # else is rejected before the request is made — otherwise a caller who passes
 # a non-Notion URL (and the URL-rewrite below doesn't rewrite it) would leak
 # the auth token to whatever host `scrape()` ends up hitting.
-NOTION_ALLOWED_HOSTS: frozenset[str] = frozenset({
-    "api.notion.com",
-    "www.notion.so",
-    "notion.so",
-})
+NOTION_ALLOWED_HOSTS: frozenset[str] = frozenset(
+    {
+        "api.notion.com",
+        "www.notion.so",
+        "notion.so",
+    }
+)
 
 # Notion page IDs come in two forms:
 #   - dashless 32-char hex (what Notion URLs embed)
@@ -72,7 +74,10 @@ class FetchNotion(Tool):
 
         # Get headers from the toolset configuration
         additional_headers = dict(
-            self.toolset.internet_config.additional_headers if self.toolset.internet_config and self.toolset.internet_config.additional_headers else {}
+            self.toolset.internet_config.additional_headers
+            if self.toolset.internet_config
+            and self.toolset.internet_config.additional_headers
+            else {}
         )
         # Notion API requires a version header
         additional_headers["Notion-Version"] = "2022-06-28"
@@ -108,7 +113,9 @@ class FetchNotion(Tool):
         )
 
         if not content:
-            logging.error("Failed to retrieve Notion content (empty response) for %s", url)
+            logging.error(
+                "Failed to retrieve Notion content (empty response) for %s", url
+            )
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=f"Failed to retrieve content from {url}",

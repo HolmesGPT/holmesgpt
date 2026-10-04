@@ -8,8 +8,8 @@ from typing import Optional
 
 from holmes import get_version  # type: ignore
 from holmes.common.env_vars import (
-    ENABLE_CONVERSATION_WORKER,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
+    ENABLE_CONVERSATION_WORKER,
 )
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal

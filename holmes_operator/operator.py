@@ -9,12 +9,12 @@ import kopf
 
 from holmes_operator import context
 from holmes_operator.config import ENABLE_JSON_LOGS_FORMAT
-from holmes_operator.log import build_json_formatter
 
 # Import handlers to register them with kopf
 from holmes_operator.handlers import healthcheck  # noqa: F401
 from holmes_operator.handlers import scheduledhealthcheck  # noqa: F401
 from holmes_operator.handlers import triggeredhealthcheck  # noqa: F401
+from holmes_operator.log import build_json_formatter
 
 # Configure logging
 if ENABLE_JSON_LOGS_FORMAT:

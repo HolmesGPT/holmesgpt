@@ -3,7 +3,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Sequence, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, List, Optional, Sequence, Union
 
 import yaml
 from pydantic import BaseModel

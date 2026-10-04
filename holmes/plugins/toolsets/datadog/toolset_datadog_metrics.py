@@ -5,7 +5,6 @@ import re
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
-
 from holmes.core.tools import (
     CallablePrerequisite,
     ClassVar,
@@ -528,7 +527,9 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
 
             for metric_name in metric_names:
                 try:
-                    api_url = f"{self.toolset.dd_config.api_url}/api/v1/metrics/{metric_name}"
+                    api_url = (
+                        f"{self.toolset.dd_config.api_url}/api/v1/metrics/{metric_name}"
+                    )
 
                     data = execute_datadog_http_request(
                         url=api_url,

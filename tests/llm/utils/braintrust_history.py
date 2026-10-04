@@ -63,7 +63,6 @@ class BenchmarkMetrics:
     cached_tokens: Optional[int] = None
 
 
-
 @dataclass
 class HistoricalComparison:
     """Comparison data between current and benchmark metrics."""
@@ -377,7 +376,9 @@ def _load_baseline_from_experiment(
     try:
         api_key = _get_api_key()
         if not api_key:
-            details.status = "No Braintrust API key (BRAINTRUST_API_KEY or BRAINTRUST_SERVICE_TOKEN)"
+            details.status = (
+                "No Braintrust API key (BRAINTRUST_API_KEY or BRAINTRUST_SERVICE_TOKEN)"
+            )
             return {}, details
 
         project_id = _get_project_id()
@@ -399,7 +400,9 @@ def _load_baseline_from_experiment(
             created=exp.get("created"),
         )
         details.experiments.append(exp_info)
-        logging.info(f"Using baseline experiment: {exp_info.name} (created {exp_info.created})")
+        logging.info(
+            f"Using baseline experiment: {exp_info.name} (created {exp_info.created})"
+        )
 
         eval_spans = _fetch_all_eval_spans(exp["id"])
         if not eval_spans:

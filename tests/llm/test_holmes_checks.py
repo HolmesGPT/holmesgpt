@@ -12,8 +12,7 @@ from rich.console import Console
 
 from holmes.checks import CheckRunner, CheckStatus, load_checks_config
 from holmes.config import Config
-from holmes.core.tools import PrerequisiteCacheMode
-from holmes.core.tools import ToolsetTag
+from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tracing import SpanType, TracingFactory
 from tests.llm.utils.commands import set_test_env_vars
 from tests.llm.utils.iteration_utils import get_test_cases
@@ -176,7 +175,7 @@ def test_holmes_check(
 
     print(f"\n🧪 TEST: {test_case.id}")
     print("   CONFIGURATION:")
-    print(f"   • Mode: 🔥 LIVE")
+    print("   • Mode: 🔥 LIVE")
     print(f"   • Checks: {len(test_case.checks)} checks")
     print(f"   • Expected Results: {test_case.expected_results}")
 
