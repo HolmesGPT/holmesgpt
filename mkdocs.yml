@@ -80,7 +80,6 @@ nav:
                 - "Internet": data-sources/builtin-toolsets/internet.md
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
-                - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "Kubernetes Remediation (MCP)": data-sources/builtin-toolsets/kubernetes-remediation-mcp.md
                 - "KubeVela": data-sources/builtin-toolsets/kubevela.md
                 - "MariaDB": data-sources/builtin-toolsets/database-mariadb.md
