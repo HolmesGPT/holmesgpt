@@ -22,6 +22,14 @@ FLUSH PRIVILEGES;
 
 ## Configuration
 
+**Connection URL format:**
+
+```
+mysql+pymysql://[username]:[password]@[host]:[port]/[database]
+```
+
+Note: MariaDB uses MySQL wire protocol, so use `mysql+pymysql://` in the connection URL.
+
 === "Holmes CLI"
 
     **~/.holmes/config.yaml:**
@@ -51,32 +59,21 @@ FLUSH PRIVILEGES;
           connection_url: "{{ env.MARIADB_URL }}"
     ```
 
-    **Connection URL format:**
-    ```
-    mysql+pymysql://[username]:[password]@[host]:[port]/[database]
-    ```
-
-    Note: MariaDB uses MySQL wire protocol, so use `mysql+pymysql://` in the connection URL.
-
 === "Holmes Helm Chart"
 
-    **Step 1: Create secret with credentials**
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic mariadb-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n holmes
+    kubectl create secret generic holmes-database-mariadb \
+      --from-literal=MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
+      -n <namespace>
     ```
 
-    **Step 2: Configure in values.yaml**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: MARIADB_URL
-        valueFrom:
-          secretKeyRef:
-            name: mariadb-credentials
-            key: url
+    extraEnvVarsSecrets:
+      - holmes-database-mariadb
 
     toolsets:
       app-mariadb:
@@ -86,20 +83,61 @@ FLUSH PRIVILEGES;
         llm_instructions: "Application database with user and session data"
     ```
 
-    **Multiple instances:**
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-mariadb \
+      --from-literal=MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: APP_MARIADB_URL
-        valueFrom:
-          secretKeyRef:
-            name: mariadb-app
-            key: url
-      - name: CACHE_MARIADB_URL
-        valueFrom:
-          secretKeyRef:
-            name: mariadb-cache
-            key: url
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-database-mariadb
+
+      toolsets:
+        app-mariadb:
+          type: database
+          config:
+            connection_url: "{{ env.MARIADB_URL }}"
+          llm_instructions: "Application database with user and session data"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Multiple instances
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-mariadb-instances \
+      --from-literal=APP_MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
+      --from-literal=CACHE_MARIADB_URL='mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache' \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-database-mariadb-instances
 
     toolsets:
       app-mariadb:
@@ -113,50 +151,29 @@ FLUSH PRIVILEGES;
           connection_url: "{{ env.CACHE_MARIADB_URL }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic mariadb-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    **Step 2: Configure in values.yaml**
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-database-mariadb-instances \
+      --from-literal=APP_MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
+      --from-literal=CACHE_MARIADB_URL='mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache' \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-credentials
-              key: url
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.MARIADB_URL }}"
-          llm_instructions: "Application database with user and session data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: APP_MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-app
-              key: url
-        - name: CACHE_MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-cache
-              key: url
+      extraEnvVarsSecrets:
+        - holmes-database-mariadb-instances
 
       toolsets:
         app-mariadb:
@@ -168,6 +185,12 @@ FLUSH PRIVILEGES;
           type: database
           config:
             connection_url: "{{ env.CACHE_MARIADB_URL }}"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Configuration Options

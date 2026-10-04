@@ -18,6 +18,12 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export CORALOGIX_API_KEY=your-coralogix-api-key
+    ```
+
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
@@ -25,7 +31,7 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
       coralogix:
         enabled: true
         config:
-          api_key: "<your Coralogix API key>"
+          api_key: "{{ env.CORALOGIX_API_KEY }}"
           domain: "eu2.coralogix.com"
           # Optional: enables clickable UI permalink URLs in tool output
           team_slug: "your-company-name"
@@ -35,7 +41,7 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
         subtype: coralogix
         config:
           additional_headers:
-            Authorization: "Bearer <your Coralogix API key>"
+            Authorization: "Bearer {{ env.CORALOGIX_API_KEY }}"
           prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
     ```
 
@@ -43,25 +49,19 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Coralogix API key:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic coralogix-api-key \
-      --from-literal=api-key=your-coralogix-api-key \
-      -n holmes
+    kubectl create secret generic holmes-coralogix-logs \
+      --from-literal=CORALOGIX_API_KEY=your-coralogix-api-key \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: CORALOGIX_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: coralogix-api-key
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-coralogix-logs
 
     toolsets:
       coralogix:
@@ -81,34 +81,36 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
           prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Coralogix API key:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic coralogix-api-key \
-      --from-literal=api-key=your-coralogix-api-key \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-coralogix-logs \
+      --from-literal=CORALOGIX_API_KEY=your-coralogix-api-key \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: CORALOGIX_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: coralogix-api-key
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-coralogix-logs
+
       toolsets:
         coralogix:
           enabled: true
           config:
             api_key: "{{ env.CORALOGIX_API_KEY }}"
             domain: "eu2.coralogix.com"
+            # Optional: enables clickable UI permalink URLs in tool output
             team_slug: "your-company-name"
 
         prometheus/metrics:
@@ -117,12 +119,16 @@ Holmes automatically derives the UI hostname for permalinks from your `domain` â
           config:
             additional_headers:
               Authorization: "Bearer {{ env.CORALOGIX_API_KEY }}"
-            prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"
+            prometheus_url: "https://ng-api-http.eu2.coralogix.com/metrics"  # replace domain
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
 
-**Note**: Both toolsets use the same API key. Helm-tab users only need to create one Kubernetes secret â€” the env var feeds both the `coralogix` toolset's `api_key` field and the Prometheus toolset's `Authorization` header.
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+**Note**: Both toolsets use the same API key. In Kubernetes, you only need to create one secret â€” the env var feeds both the `coralogix` toolset's `api_key` field and the Prometheus toolset's `Authorization` header.
 
 ## Multiple Instances
 

@@ -29,7 +29,15 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
 
 === "Holmes CLI"
 
-    Add to your config file (`~/.holmes/config.yaml`):
+    Set the environment variables:
+
+    ```bash
+    export CONFLUENCE_API_URL="https://yourcompany.atlassian.net"
+    export CONFLUENCE_USER="your-email@example.com"
+    export CONFLUENCE_API_KEY=your-api-token
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     toolsets:
@@ -37,10 +45,12 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
         enabled: true
         subtype: cloud
         config:
-          api_url: "https://yourcompany.atlassian.net"
-          user: "your-email@example.com"
-          api_key: "your-api-token"
+          api_url: "{{ env.CONFLUENCE_API_URL }}"
+          user: "{{ env.CONFLUENCE_USER }}"
+          api_key: "{{ env.CONFLUENCE_API_KEY }}"
     ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
 
     To test, run:
 
@@ -48,33 +58,23 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
     holmes ask "search Confluence for runbooks about database issues"
     ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
-
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your API token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic confluence-credentials \
-      --from-literal=api-key=your-api-token \
-      -n holmes
+    kubectl create secret generic holmes-confluence \
+      --from-literal=CONFLUENCE_API_URL="https://yourcompany.atlassian.net" \
+      --from-literal=CONFLUENCE_USER="your-email@example.com" \
+      --from-literal=CONFLUENCE_API_KEY=your-api-token \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: CONFLUENCE_API_URL
-        value: "https://yourcompany.atlassian.net"
-      - name: CONFLUENCE_USER
-        value: "your-email@example.com"
-      - name: CONFLUENCE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: confluence-credentials
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-confluence
 
     toolsets:
       confluence:
@@ -86,32 +86,31 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
           api_key: "{{ env.CONFLUENCE_API_KEY }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your API token:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic confluence-credentials \
-      --from-literal=api-key=your-api-token \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-confluence \
+      --from-literal=CONFLUENCE_API_URL="https://yourcompany.atlassian.net" \
+      --from-literal=CONFLUENCE_USER="your-email@example.com" \
+      --from-literal=CONFLUENCE_API_KEY=your-api-token \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: CONFLUENCE_API_URL
-          value: "https://yourcompany.atlassian.net"
-        - name: CONFLUENCE_USER
-          value: "your-email@example.com"
-        - name: CONFLUENCE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: confluence-credentials
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-confluence
+
       toolsets:
         confluence:
           enabled: true
@@ -122,7 +121,11 @@ Go to [Atlassian API Tokens](https://id.atlassian.com/manage/api-tokens){:target
             api_key: "{{ env.CONFLUENCE_API_KEY }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 !!! note "Scoped tokens and service accounts"
     Scoped API tokens and service account tokens on Confluence Cloud require routing through the Atlassian API gateway (`api.atlassian.com`). HolmesGPT auto-detects this and switches to the gateway transparently — no extra configuration needed. If auto-detection doesn't work, you can set `cloud_id` explicitly in raw YAML (find it at `https://yourcompany.atlassian.net/_edge/tenant_info`).
@@ -137,7 +140,14 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
 
 === "Holmes CLI"
 
-    Add to your config file (`~/.holmes/config.yaml`):
+    Set the environment variables:
+
+    ```bash
+    export CONFLUENCE_API_URL="https://confluence.yourcompany.com"
+    export CONFLUENCE_PAT=your-personal-access-token
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     toolsets:
@@ -145,35 +155,28 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
         enabled: true
         subtype: dc-pat
         config:
-          api_url: "https://confluence.yourcompany.com"
-          api_key: "your-personal-access-token"
+          api_url: "{{ env.CONFLUENCE_API_URL }}"
+          api_key: "{{ env.CONFLUENCE_PAT }}"
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Personal Access Token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic confluence-credentials \
-      --from-literal=pat=your-personal-access-token \
-      -n holmes
+    kubectl create secret generic holmes-confluence-dc-pat \
+      --from-literal=CONFLUENCE_API_URL="https://confluence.yourcompany.com" \
+      --from-literal=CONFLUENCE_PAT=your-personal-access-token \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: CONFLUENCE_API_URL
-        value: "https://confluence.yourcompany.com"
-      - name: CONFLUENCE_PAT
-        valueFrom:
-          secretKeyRef:
-            name: confluence-credentials
-            key: pat
+    extraEnvVarsSecrets:
+      - holmes-confluence-dc-pat
 
     toolsets:
       confluence:
@@ -184,30 +187,30 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
           api_key: "{{ env.CONFLUENCE_PAT }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Personal Access Token:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic confluence-credentials \
-      --from-literal=pat=your-personal-access-token \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-confluence-dc-pat \
+      --from-literal=CONFLUENCE_API_URL="https://confluence.yourcompany.com" \
+      --from-literal=CONFLUENCE_PAT=your-personal-access-token \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: CONFLUENCE_API_URL
-          value: "https://confluence.yourcompany.com"
-        - name: CONFLUENCE_PAT
-          valueFrom:
-            secretKeyRef:
-              name: confluence-credentials
-              key: pat
+      extraEnvVarsSecrets:
+        - holmes-confluence-dc-pat
+
       toolsets:
         confluence:
           enabled: true
@@ -217,7 +220,11 @@ In Confluence Data Center, go to your **Profile** > **Personal Access Tokens** >
             api_key: "{{ env.CONFLUENCE_PAT }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Confluence Data Center - Basic Auth
 
@@ -225,7 +232,15 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
 
 === "Holmes CLI"
 
-    Add to your config file (`~/.holmes/config.yaml`):
+    Set the environment variables:
+
+    ```bash
+    export CONFLUENCE_API_URL="https://confluence.yourcompany.com"
+    export CONFLUENCE_USER="your-username"
+    export CONFLUENCE_PASSWORD=your-password
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
     toolsets:
@@ -233,38 +248,30 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
         enabled: true
         subtype: dc-basic
         config:
-          api_url: "https://confluence.yourcompany.com"
-          user: "your-username"
-          api_key: "your-password"
+          api_url: "{{ env.CONFLUENCE_API_URL }}"
+          user: "{{ env.CONFLUENCE_USER }}"
+          api_key: "{{ env.CONFLUENCE_PASSWORD }}"
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your password:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic confluence-credentials \
-      --from-literal=password=your-password \
-      -n holmes
+    kubectl create secret generic holmes-confluence-dc-basic \
+      --from-literal=CONFLUENCE_API_URL="https://confluence.yourcompany.com" \
+      --from-literal=CONFLUENCE_USER="your-username" \
+      --from-literal=CONFLUENCE_PASSWORD=your-password \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: CONFLUENCE_API_URL
-        value: "https://confluence.yourcompany.com"
-      - name: CONFLUENCE_USER
-        value: "your-username"
-      - name: CONFLUENCE_PASSWORD
-        valueFrom:
-          secretKeyRef:
-            name: confluence-credentials
-            key: password
+    extraEnvVarsSecrets:
+      - holmes-confluence-dc-basic
 
     toolsets:
       confluence:
@@ -276,32 +283,31 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
           api_key: "{{ env.CONFLUENCE_PASSWORD }}"
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your password:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic confluence-credentials \
-      --from-literal=password=your-password \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-confluence-dc-basic \
+      --from-literal=CONFLUENCE_API_URL="https://confluence.yourcompany.com" \
+      --from-literal=CONFLUENCE_USER="your-username" \
+      --from-literal=CONFLUENCE_PASSWORD=your-password \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: CONFLUENCE_API_URL
-          value: "https://confluence.yourcompany.com"
-        - name: CONFLUENCE_USER
-          value: "your-username"
-        - name: CONFLUENCE_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: confluence-credentials
-              key: password
+      extraEnvVarsSecrets:
+        - holmes-confluence-dc-basic
+
       toolsets:
         confluence:
           enabled: true
@@ -312,7 +318,11 @@ HolmesGPT authenticates to a self-hosted Confluence Data Center (or Server) inst
             api_key: "{{ env.CONFLUENCE_PASSWORD }}"
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Multiple Instances
 

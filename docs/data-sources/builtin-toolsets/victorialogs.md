@@ -28,7 +28,7 @@ toolsets:
 
 VictoriaLogs supports basic authentication and bearer tokens.
 
-**Basic auth:**
+#### Basic auth
 
 ```yaml-toolset-config
 toolsets:
@@ -40,9 +40,9 @@ toolsets:
       password: "{{ env.VICTORIALOGS_PASSWORD }}"
 ```
 
-**Bearer token:**
+#### Bearer token
 
-```yaml-toolset-config
+```yaml-toolset-config {secret-qualifier=token}
 toolsets:
   victorialogs:
     enabled: true

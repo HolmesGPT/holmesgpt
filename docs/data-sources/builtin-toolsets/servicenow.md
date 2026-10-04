@@ -75,6 +75,12 @@ You should receive a JSON response. If you get an authentication error, check yo
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export SERVICENOW_API_KEY=your-servicenow-api-key
+    ```
+
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
@@ -83,11 +89,11 @@ You should receive a JSON response. If you get an authentication error, check yo
         enabled: true
         config:
           api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-          api_key: <your servicenow API key>  # e.g. now_1234567890abcdef
+          api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
           # Alternative: use basic auth instead of api_key
           # username: "your-username"
           # password: "your-password"
-          
+
           # Optional
           api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
           health_check_table: sys_user  # Table used to verify connectivity on startup (default: sys_user)
@@ -104,35 +110,29 @@ You should receive a JSON response. If you get an authentication error, check yo
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your ServiceNow API key:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic servicenow-credentials \
-      --from-literal=api-key=your-servicenow-api-key \
-      -n holmes
+    kubectl create secret generic holmes-servicenow \
+      --from-literal=SERVICENOW_API_KEY=your-servicenow-api-key \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: SERVICENOW_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: servicenow-credentials
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-servicenow
 
     toolsets:
       servicenow/tables:
         enabled: true
         config:
           api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-          api_key: "{{ env.SERVICENOW_API_KEY }}"
+          api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
           # Alternative: use basic auth instead of api_key
           # username: "your-username"
-          # password: "{{ env.SERVICENOW_PASSWORD }}"
+          # password: "your-password"
 
           # Optional
           api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
@@ -140,37 +140,38 @@ You should receive a JSON response. If you get an authentication error, check yo
           api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your ServiceNow API key:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic servicenow-credentials \
-      --from-literal=api-key=your-servicenow-api-key \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-servicenow \
+      --from-literal=SERVICENOW_API_KEY=your-servicenow-api-key \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: SERVICENOW_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: servicenow-credentials
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-servicenow
+
       toolsets:
         servicenow/tables:
           enabled: true
           config:
             api_url: <your servicenow instance URL>  # e.g. https://dev12345.service-now.com
-            api_key: "{{ env.SERVICENOW_API_KEY }}"
+            api_key: "{{ env.SERVICENOW_API_KEY }}"  # e.g. now_1234567890abcdef
             # Alternative: use basic auth instead of api_key
             # username: "your-username"
-            # password: "{{ env.SERVICENOW_PASSWORD }}"
+            # password: "your-password"
 
             # Optional
             api_key_header: x-sn-apikey  # HTTP header name for the API key (default: x-sn-apikey)
@@ -178,7 +179,11 @@ You should receive a JSON response. If you get an authentication error, check yo
             api_version: v2  # Table API version: 'v2' (default) or '' for unversioned path
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Optional Fields
 

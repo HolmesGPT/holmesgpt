@@ -40,7 +40,7 @@ backoff = "^2.2.1"
 # and released (expected in litellm 1.90+).
 # litellm >= 1.84.0 also fixes CRITICAL CVE-2026-49468 (auth bypass via Host header
 # injection) and relaxes the pinned aiohttp to >=3.10,<4.0, letting us take aiohttp 3.14.1.
-litellm = "1.100.0"
+litellm = "1.101.1"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
@@ -62,7 +62,8 @@ google-cloud-aiplatform = ">=1.133.0"
 slack-sdk = "^3.39.0"
 
 jq = "^1.10.0"
-bashlex = "^0.18"
+tree-sitter = "^0.25.2"
+tree-sitter-bash = "^0.25.1"
 kopf = "^1.37.0"
 apscheduler = "^3.10.4"
 
@@ -148,6 +149,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.mypy]
 ignore_missing_imports = true
 scripts_are_modules = true
+# Name files from the repo root, so docs/custom_fences.py (docs/ has no __init__.py) is docs.custom_fences, the module mkdocs.yml and the fence tests import.
+explicit_package_bases = true
 exclude = [
     "tests/llm/fixtures/.*",
     "dist/.*",

@@ -143,60 +143,45 @@ You'll also need:
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Confluence credentials:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic confluence-mcp-credentials \
+    kubectl create secret generic holmes-confluence-mcp \
       --from-literal=confluence-username=<YOUR_EMAIL> \
       --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `values.yaml`:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     mcpAddons:
       confluenceMcp:
         enabled: true
         auth:
-          secretName: "confluence-mcp-credentials"
+          secretName: "holmes-confluence-mcp"
         config:
           url: "https://your-company.atlassian.net/wiki"
     ```
 
-    To customize how Holmes uses Confluence, you can provide your own LLM instructions:
-
-    ```yaml
-    mcpAddons:
-      confluenceMcp:
-        enabled: true
-        auth:
-          secretName: "confluence-mcp-credentials"
-        config:
-          url: "https://your-company.atlassian.net/wiki"
-        llmInstructions: |
-          Use the Confluence MCP to search and retrieve documentation.
-          Before every investigation, search Confluence for matching runbooks.
-    ```
-
-    Then deploy or upgrade your Holmes installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    First, create a Kubernetes secret with your Confluence credentials:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic confluence-mcp-credentials \
+    kubectl create secret generic holmes-confluence-mcp \
       --from-literal=confluence-username=<YOUR_EMAIL> \
       --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
-      -n <NAMESPACE>
+      -n <namespace>
     ```
 
-    Then add the following to your `generated_values.yaml`:
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -204,15 +189,68 @@ You'll also need:
         confluenceMcp:
           enabled: true
           auth:
-            secretName: "confluence-mcp-credentials"
+            secretName: "holmes-confluence-mcp"
           config:
             url: "https://your-company.atlassian.net/wiki"
     ```
 
-    Then deploy or upgrade your Robusta installation:
+    Apply the configuration:
 
     ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### Custom LLM Instructions
+
+Reuses the `holmes-confluence-mcp` secret created in the [Configuration](#configuration) section above.
+
+To customize how Holmes uses Confluence, you can provide your own LLM instructions:
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      confluenceMcp:
+        enabled: true
+        auth:
+          secretName: "holmes-confluence-mcp"
+        config:
+          url: "https://your-company.atlassian.net/wiki"
+        llmInstructions: |
+          Use the Confluence MCP to search and retrieve documentation.
+          Before every investigation, search Confluence for matching runbooks.
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        confluenceMcp:
+          enabled: true
+          auth:
+            secretName: "holmes-confluence-mcp"
+          config:
+            url: "https://your-company.atlassian.net/wiki"
+          llmInstructions: |
+            Use the Confluence MCP to search and retrieve documentation.
+            Before every investigation, search Confluence for matching runbooks.
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Available Tools
