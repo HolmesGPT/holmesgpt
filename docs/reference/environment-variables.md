@@ -249,6 +249,17 @@ See [Tool Execution Safety](../data-sources/tool-execution-safety.md) for the fu
 export TOOL_MEMORY_LIMIT_MB=2000
 ```
 
+### TOOL_SUBPROCESS_TIMEOUT_SECONDS
+**Default:** `300`
+
+Wall-clock timeout (in seconds) for every `command:`/`script:` toolset tool Holmes runs as a subprocess (e.g. `kubectl`, `jq`). If the command has not finished by the deadline, Holmes kills the entire process group it spawned — not just the immediate shell — so a stalled grandchild process (for example a `kubectl` call stuck on a hung apiserver connection) cannot be left running forever. On timeout, the tool returns exit code `124` (matching GNU `timeout`) with any output produced so far plus a note that the command was killed.
+
+**Example:**
+```bash
+# Allow long-running tool commands up to 10 minutes before Holmes kills them
+export TOOL_SUBPROCESS_TIMEOUT_SECONDS=600
+```
+
 ## HolmesGPT Configuration
 
 ### MODEL_LIST_FILE_LOCATION
