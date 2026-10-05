@@ -29,13 +29,14 @@ name, and closed by the first line of three backticks:
 
 A robusta-region fence opens at the start of a line or indented by four spaces, as
 ```` ```robusta-region ```` or ```` ```robusta-region {lang=<language>} ````, the language being
-`yaml`, `bash` or `json`. A `multi-instance` body has `toolset`, `name` and `config`. Every other fence is a code block, opened and closed by three
-backticks at any indent, its opening naming one of `CODE_LANGUAGES` or none. Any other fence line
-(another info string or case, superfences' `{.<name>}`, `~~~`, more backticks) fails the build with
-a message naming the page and the line, and so do a body that is not valid YAML, a value that is
-not the chart's, and a page whose rendered HTML shows a fence's markdown instead of its tabs
-(`on_post_page`). This module reads only files and imports nothing from `holmes`; the checks that
-need Holmes, of each `toolsets` and `mcp_servers` block, are the `docs/fence_checks.py` hook's.
+`yaml`, `bash` or `json`. A `multi-instance` body has `toolset`, `name` and `config`. Every other
+fence is a code block, opened and closed by three backticks at any indent, its opening naming one
+of `CODE_LANGUAGES` or none. Any other fence line (another info string or case, superfences'
+`{.<name>}`, `~~~`, more backticks) fails the build with a message naming the page and the line,
+and so do a body that is not valid YAML, a value that is not the chart's, and a page whose
+rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`). This module reads
+only files and imports nothing from `holmes`; the checks that need Holmes, of each `toolsets` and
+`mcp_servers` block, are the `docs/fence_checks.py` hook's.
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
@@ -128,7 +129,16 @@ from typing import Annotated, Any, Dict, Iterator, List, NamedTuple, Optional, T
 import yaml  # type: ignore
 from markdown.extensions import Extension
 from markdown.preprocessors import Preprocessor
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -408,7 +418,7 @@ def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ())
 
 def _list_entries_error(entries: list, path: tuple, name: str) -> Optional[str]:
     if path not in LIST_ENTRIES:
-        return f"`{name}` is a list no page writes (LIST_ENTRIES in docs/custom_fences.py lists those pages write)"
+        return f"`{name}` is a list no page writes: LIST_ENTRIES in docs/custom_fences.py declares those pages write"
     try:
         TypeAdapter(List[LIST_ENTRIES[path]], config=ConfigDict(strict=True)).validate_python(entries)
     except ValidationError as e:
@@ -845,7 +855,9 @@ def _include_indents(lines: List[str], fences) -> Dict[int, Optional[str]]:
     return indents
 
 
-def _check_includes(lines: List[str], page: str, offset: int, indents: Optional[Dict[int, Optional[str]]] = None) -> None:
+def _check_includes(
+    lines: List[str], page: str, offset: int, indents: Optional[Dict[int, Optional[str]]] = None
+) -> None:
     """Fail the build on an include in `lines`, which start `offset` lines into the page's
     source, in a form no page writes: not at the indent `indents` gives its line (none,
     for a line it does not name), or of a file that does not exist (pymdownx.snippets
