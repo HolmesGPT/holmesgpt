@@ -201,7 +201,7 @@ class ConversationWorker:
         # One wake signal per conversation this worker is mid-turn on, set by
         # the 'conversation_followup' broadcast (ROB-1499). A conversation
         # another replica runs has no entry here, so its wakes are ignored.
-        self._followup_signals: Dict[str, threading.Event] = {}
+        self._followup_signals: Dict[tuple, threading.Event] = {}
         self._followup_lock = threading.Lock()
         # True once the verifier saw the supports_mid_turn_followup RPC.
         self._mid_turn_followup_supported: bool = False
@@ -556,28 +556,41 @@ class ConversationWorker:
 
     def notify_followup(self, conversation_id: Optional[str]) -> bool:
         """Routing target for RealtimeWorker on 'conversation_followup'
-        broadcasts. Non-blocking: flags the running turn, which reads the new
-        user messages at its next step boundary. Returns whether this worker
-        is running that conversation."""
+        broadcasts. Non-blocking: flags every running turn of the conversation,
+        which reads the new user messages at its next step boundary. Returns
+        whether this worker is running that conversation.
+
+        The broadcast carries only the conversation_id, but a conversation can
+        have overlapping turns (one per request_sequence), each with its own
+        signal keyed by active_key — so wake all of them."""
         if not conversation_id:
             return False
         with self._followups_lock():
-            signal = self._followups().get(conversation_id)
-        if signal is None:
+            signals = [
+                signal
+                for active_key, signal in self._followups().items()
+                if active_key[0] == conversation_id
+            ]
+        if not signals:
             logging.debug(
                 "Follow-up broadcast for conversation %s ignored: not running here",
                 conversation_id,
             )
             return False
-        signal.set()
+        for signal in signals:
+            signal.set()
         logging.info(
-            "Conversation %s: mid-turn follow-up signalled", conversation_id
+            "Conversation %s: mid-turn follow-up signalled (%d turn(s))",
+            conversation_id,
+            len(signals),
         )
         return True
 
     # The registry is created on first use rather than only in __init__: the
     # worker tests build instances with __new__ and set attributes by hand.
-    def _followups(self) -> Dict[str, threading.Event]:
+    # Keyed by active_key = (conversation_id, request_sequence) so overlapping
+    # turns of one conversation never share or clobber a signal.
+    def _followups(self) -> Dict[tuple, threading.Event]:
         signals = getattr(self, "_followup_signals", None)
         if signals is None:
             signals = self._followup_signals = {}
@@ -589,15 +602,15 @@ class ConversationWorker:
             lock = self._followup_lock = threading.Lock()
         return lock
 
-    def _register_followup_signal(self, conversation_id: str) -> threading.Event:
+    def _register_followup_signal(self, active_key: tuple) -> threading.Event:
         signal = threading.Event()
         with self._followups_lock():
-            self._followups()[conversation_id] = signal
+            self._followups()[active_key] = signal
         return signal
 
-    def _unregister_followup_signal(self, conversation_id: str) -> None:
+    def _unregister_followup_signal(self, active_key: tuple) -> None:
         with self._followups_lock():
-            self._followups().pop(conversation_id, None)
+            self._followups().pop(active_key, None)
 
     def _realtime_connected(self) -> bool:
         if self._realtime_manager is None:
@@ -1342,7 +1355,7 @@ class ConversationWorker:
             followups = MidTurnFollowups(
                 dal=self.dal,
                 conversation_id=task.conversation_id,
-                signal=self._register_followup_signal(task.conversation_id),
+                signal=self._register_followup_signal(task.active_key),
                 consumed_seq=task.consumed_seq,
                 queued=task.queued_user_messages,
                 enabled=bool(getattr(self, "_mid_turn_followup_supported", False)),
@@ -1424,7 +1437,7 @@ class ConversationWorker:
                         )
                     break
             finally:
-                self._unregister_followup_signal(task.conversation_id)
+                self._unregister_followup_signal(task.active_key)
                 trace_span.end()
         except ConversationReassignedError as e:
             logging.warning(

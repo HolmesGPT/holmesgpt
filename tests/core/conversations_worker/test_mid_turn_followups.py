@@ -202,13 +202,30 @@ def test_hydrate_answered_turn_leaves_queue_empty():
 
 def test_notify_followup_sets_only_the_registered_signal():
     w, _ = _bare_worker()
-    signal = w._register_followup_signal("c1")
+    signal = w._register_followup_signal(("c1", 1))
     assert w.notify_followup("c-other") is False
     assert not signal.is_set()
     assert w.notify_followup("c1") is True
     assert signal.is_set()
-    w._unregister_followup_signal("c1")
+    w._unregister_followup_signal(("c1", 1))
     assert w.notify_followup("c1") is False
+
+
+def test_notify_followup_wakes_all_concurrent_turns_of_a_conversation():
+    """Two request sequences of one conversation each have their own signal,
+    keyed by active_key; the broadcast carries only the conversation_id and
+    must wake both, and unregistering one leaves the other intact."""
+    w, _ = _bare_worker()
+    s1 = w._register_followup_signal(("c1", 1))
+    s2 = w._register_followup_signal(("c1", 2))
+    assert w.notify_followup("c1") is True
+    assert s1.is_set() and s2.is_set()
+    s1.clear()
+    s2.clear()
+    w._unregister_followup_signal(("c1", 1))
+    assert w.notify_followup("c1") is True
+    assert not s1.is_set()
+    assert s2.is_set()
 
 
 def test_notify_followup_ignores_empty_ids_and_missing_registry():
@@ -697,15 +714,18 @@ def test_run_chat_registers_and_clears_the_followup_signal():
     seen = {}
     original = w._register_followup_signal
 
-    def register(conversation_id):
-        signal = original(conversation_id)
-        seen["registered"] = conversation_id in w._followup_signals
+    def register(active_key):
+        signal = original(active_key)
+        seen["registered_key"] = active_key
+        seen["present_during_run"] = active_key in w._followup_signals
         return signal
 
     w._register_followup_signal = register
     _drive(w, ai, call_stream_results=[_answer_stream([{"role": "user", "content": "q"}])], update_side_effects=[True], fetch_new_results=[])
-    assert seen["registered"] is True
-    assert "c1" not in w._followup_signals
+    assert seen["registered_key"] == ("c1", 1)
+    assert seen["present_during_run"] is True
+    # Cleared in the finally block once the turn ends.
+    assert ("c1", 1) not in w._followup_signals
 
 
 def test_run_chat_passes_the_followup_provider_to_call_stream():

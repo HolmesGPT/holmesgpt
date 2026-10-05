@@ -1608,10 +1608,16 @@ class SupabaseDal:
                 exc_info=True,
             )
             return None
+        # Accept only an explicit boolean. An empty result set or any other
+        # payload shape is inconclusive (None), not "supported" — never coerce
+        # a non-empty dict/string to True, which would turn the feature on for a
+        # malformed response.
         data = res.data
         if isinstance(data, list):
-            data = data[0] if data else None
-        return bool(data)
+            if not data:
+                return None
+            data = data[0]
+        return data if isinstance(data, bool) else None
 
     def update_conversation_status(
         self,
