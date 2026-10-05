@@ -13,7 +13,7 @@ import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 import yaml  # type: ignore
 
@@ -50,9 +50,13 @@ def _render(values: dict, chart_dir: Path) -> subprocess.CompletedProcess:
     )
 
 
-def _without_checksums(render: str) -> str:
+def _lines(render: str) -> List[str]:
     # A checksum annotation hashes a whole values subtree, so it changes with a value no template reads.
-    return "\n".join(line for line in render.split("\n") if "checksum/" not in line)
+    return [line for line in render.split("\n") if "checksum/" not in line]
+
+
+def _differing(lines: List[str], other: List[str]) -> Set[int]:
+    return {index for index, (line, other_line) in enumerate(zip(lines, other)) if line != other_line}
 
 
 def _leaves(node, path: tuple = ()) -> Iterator[Tuple[tuple, object]]:
@@ -91,18 +95,34 @@ def _with(values: dict, path: tuple, value) -> dict:
 
 
 def _unread(values: dict, render: str, chart_dir: Path) -> List[str]:
-    """The key path of each leaf of `values` whose change leaves the chart's `render` as it
-    is, so no template reads it. A change Helm refuses counts as read."""
-    base = _without_checksums(render)
+    """An error for each leaf of `values` whose change leaves the chart's `render` the same.
+    A change Helm refuses, or one that changes the number of lines, counts as read."""
+    leaves = list(_leaves(values))
+    if not leaves:
+        return []
+    base = _lines(render)
 
-    def unchanged(leaf) -> bool:
+    def differing(leaf) -> Optional[Set[int]]:
         path, value = leaf
         result = _render(_with(values, path, _changed(value)), chart_dir)
-        return result.returncode == 0 and _without_checksums(result.stdout) == base
+        lines = _lines(result.stdout)
+        if result.returncode != 0 or len(lines) != len(base):
+            return None
+        return _differing(base, lines)
 
-    leaves = list(_leaves(values))
     with ThreadPoolExecutor() as pool:
-        return [key_path(path) for (path, _), same in zip(leaves, pool.map(unchanged, leaves)) if same]
+        changes = list(pool.map(differing, leaves))
+    # Rendered after every change, so it differs from `base` at each line holding a random value,
+    # or a time that moved on while the changes rendered: a change there says nothing about a value.
+    again = _lines(_render(values, chart_dir).stdout)
+    if len(again) != len(base):
+        return ["two renders of these values differ in their number of lines, so which values the chart reads cannot be told"]
+    unstable = _differing(base, again)
+    return [
+        f"`{key_path(path)}`: the chart renders the same when it changes, so no template reads its value"
+        for (path, _), lines in zip(leaves, changes)
+        if lines is not None and lines <= unstable
+    ]
 
 
 def _schema_errors(render: str) -> List[str]:
@@ -135,12 +155,9 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
 
     The values must render with `helm template`, every leaf must change the render when it
     changes (else no template reads it), and every rendered object must match its
-    Kubernetes schema."""
+    Kubernetes schema. A line that differs between two renders of `values`, such as a random
+    token or the time, is not counted as a change."""
     result = _render(values, chart_dir)
     if result.returncode != 0:
         return [f"helm template fails: {result.stderr.strip()}"]
-    unread = [
-        f"`{path}`: the chart renders the same when it changes, so no template reads its value"
-        for path in _unread(values, result.stdout, chart_dir)
-    ]
-    return unread + _schema_errors(result.stdout)
+    return _unread(values, result.stdout, chart_dir) + _schema_errors(result.stdout)

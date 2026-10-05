@@ -1,6 +1,7 @@
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import markdown
@@ -343,21 +344,65 @@ def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path
             r"the rendered Deployment holmes-holmes does not match its Kubernetes 1\.36 schema at `spec\.template\.spec\.containers\.0\.env\.\d+`: 'name' is a required property",
         ),
         ({"tls": {"enabled": True}}, r"helm template fails: .*tls\.enabled requires tls\.secretName"),
+        (
+            # The addon's Secret holds a token the chart generates at random on each render.
+            {"mcpAddons": {"kubernetesRemediation": {"enabled": True, "config": {"dcgmEnabeld": True}}}},
+            r"`mcpAddons\.kubernetesRemediation\.config\.dcgmEnabeld`: the chart renders the same",
+        ),
     ],
-    ids=["unread-key", "string-for-a-bool", "kubernetes-schema", "helm-refuses"],
+    ids=["unread-key", "string-for-a-bool", "kubernetes-schema", "helm-refuses", "unread-key-beside-a-random-token"],
 )
 def test_a_value_the_chart_or_kubernetes_refuses_is_an_error(values, error):
     errors = fence_checks.check_fence(values, {}, CHART)
     assert len(errors) == 1 and re.match(error, errors[0]), errors
 
 
-def test_a_rendered_kind_with_no_kubernetes_schema_is_an_error(tmp_path):
-    (tmp_path / "templates").mkdir()
-    (tmp_path / "Chart.yaml").write_text("apiVersion: v2\nname: monitored\nversion: 0.1.0\n")
-    (tmp_path / "templates" / "service-monitor.yaml").write_text(
-        "apiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: holmes\nspec: {}\n"
+def chart(directory: Path, template: str) -> Path:
+    """A chart in `directory` with one template."""
+    (directory / "templates").mkdir()
+    (directory / "Chart.yaml").write_text("apiVersion: v2\nname: test\nversion: 0.1.0\n")
+    (directory / "templates" / "object.yaml").write_text(template)
+    return directory
+
+
+def test_a_value_no_template_reads_is_an_error_beside_a_time_that_moves_on(tmp_path, monkeypatch):
+    """Each render of a changed value starts a second after the render before it, so its time
+    differs from that of every render of the fence's own values before it."""
+    values = {"read": "x", "unread": "y"}
+    time_and_read = chart(
+        tmp_path,
+        'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: holmes\n'
+        'data:\n  rendered: {{ now | date "15:04:05" | quote }}\n  read: {{ .Values.read | quote }}\n',
     )
-    assert fence_checks.check_fence({}, {}, tmp_path) == [
+    render = fence_checks._render
+
+    def a_second_later(changed, chart_dir):
+        if changed != values:
+            time.sleep(1.1)
+        return render(changed, chart_dir)
+
+    monkeypatch.setattr(fence_checks, "_render", a_second_later)
+    assert fence_checks.check_fence(values, {}, time_and_read) == [
+        "`unread`: the chart renders the same when it changes, so no template reads its value"
+    ]
+
+
+def test_values_whose_renders_differ_in_their_number_of_lines_are_an_error(tmp_path):
+    random_lines = chart(
+        tmp_path,
+        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: holmes\n"
+        "data:\n  lines: |\n{{- range until (randInt 1 1000) }}\n    line{{ end }}\n",
+    )
+    assert fence_checks.check_fence({"unread": "y"}, {}, random_lines) == [
+        "two renders of these values differ in their number of lines, so which values the chart reads cannot be told"
+    ]
+
+
+def test_a_rendered_kind_with_no_kubernetes_schema_is_an_error(tmp_path):
+    service_monitor = chart(
+        tmp_path, "apiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: holmes\nspec: {}\n"
+    )
+    assert fence_checks.check_fence({}, {}, service_monitor) == [
         "the rendered ServiceMonitor holmes has no Kubernetes 1.36 schema in kubernetes-validate: "
         "kind ServiceMonitor, apiVersion monitoring.coreos.com/v1"
     ]
