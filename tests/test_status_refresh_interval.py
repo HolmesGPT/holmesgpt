@@ -6,21 +6,38 @@ import pytest
 
 import server
 from holmes.config import Config
+from holmes.core import tools as tools_module
+from holmes.core import toolset_manager as toolset_manager_module
 from holmes.core.tools import ToolsetStatusEnum, ToolsetTag
 
 STDIO_SERVER = Path(__file__).parent / "stdio_server.py"
 TAGS = [ToolsetTag.CORE, ToolsetTag.CLUSTER]
 
 
+class _ShiftedTime:
+    def __init__(self) -> None:
+        self.offset = 0.0
+
+    def __getattr__(self, name: str):
+        return getattr(time, name)
+
+    def monotonic(self) -> float:
+        return time.monotonic() + self.offset
+
+
 @pytest.fixture
 def clock(monkeypatch):
-    """Lets a test move time.monotonic forward without sleeping."""
-    real_monotonic = time.monotonic
-    offset = [0.0]
-    monkeypatch.setattr(time, "monotonic", lambda: real_monotonic() + offset[0])
+    """Lets a test move the status-check clock forward without sleeping.
+
+    Only the modules that time status checks see the shift; patching
+    time.monotonic itself would also shift background threads other tests
+    left running in this worker, such as the OAuth token refresh sweep."""
+    shifted = _ShiftedTime()
+    monkeypatch.setattr(tools_module, "time", shifted)
+    monkeypatch.setattr(toolset_manager_module, "time", shifted)
 
     def advance(seconds: float) -> None:
-        offset[0] += seconds
+        shifted.offset += seconds
 
     return advance
 
