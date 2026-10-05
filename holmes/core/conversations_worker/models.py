@@ -1,3 +1,5 @@
+import logging
+import re
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -56,9 +58,18 @@ class RemoteToolCallStatus(str, Enum):
 
 # Executor names (ROB-1369). A Conversations row's ``executor`` column names the
 # pool that must run it; callers may introduce further names without a Holmes
-# release (see ExecutorSettings in executors.py).
+# release (see sizing.py for how a pool is sized).
 DEFAULT_EXECUTOR = "manual"
 AUTO_EXECUTOR = "auto"
+
+# Executor names come from broadcast payloads and DB rows written by other
+# services; keep them to a conservative slug so a bad payload can't name a
+# pool something unloggable or unbounded. Same rule as the DB CHECK and relay.
+_EXECUTOR_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def is_valid_executor_name(name: object) -> bool:
+    return isinstance(name, str) and bool(_EXECUTOR_NAME_RE.fullmatch(name))
 
 
 class ConversationTask(BaseModel):
@@ -75,6 +86,33 @@ class ConversationTask(BaseModel):
     # Conversations.user_id (RLS-bound owner). The only identity source for
     # the turn: OAuth tokens, personal skills, relay RBAC, usage attribution.
     user_id: Optional[str] = None
+
+    @classmethod
+    def from_row(
+        cls, conv: Dict[str, Any], executor: Optional[str] = None
+    ) -> Optional["ConversationTask"]:
+        """A task from a claimed Conversations row, or None for a row that does
+        not parse (logged). ``executor`` is the pool that claimed the row and
+        wins over the column: a filtered claim only returns rows naming it."""
+        try:
+            return cls(
+                conversation_id=conv["conversation_id"],
+                account_id=conv["account_id"],
+                cluster_id=conv["cluster_id"],
+                origin=conv.get("origin", "chat"),
+                request_sequence=int(conv.get("request_sequence", 1)),
+                metadata=conv.get("metadata") or {},
+                title=conv.get("title"),
+                user_id=conv.get("user_id"),
+                executor=executor or conv.get("executor") or DEFAULT_EXECUTOR,
+            )
+        except Exception:
+            logging.exception(
+                "Failed to build conversation task from row (conversation_id=%s)",
+                conv.get("conversation_id", "unknown"),
+                exc_info=True,
+            )
+            return None
 
     @property
     def active_key(self) -> tuple:

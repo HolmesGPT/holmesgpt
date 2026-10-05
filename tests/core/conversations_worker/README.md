@@ -6,9 +6,16 @@ unit tests directly under that folder, integration tests under
 
 ## Unit tests (no external services)
 
-These cover the worker's internal logic — hydration, edge cases, lifecycle,
-polling, the DAL contract, the event publisher, the realtime manager — using
-mocks. They need no running server, no Supabase, and no environment variables.
+These cover the worker's internal logic using mocks, one file per module:
+`test_sizing.py` (pool sizes, the executor-name rule, `ConversationTask.from_row`),
+`test_executors.py` (one pool's claim loop, dispatch, slots, saturation logging),
+`test_registry.py` (pools on demand, the cap, live resizing, discovery),
+`test_processor.py` plus `test_worker_hydration.py` / `test_worker_edge_cases.py` /
+`test_worker_frontend_tools.py` / `test_worker_usage_recorder.py` (one row → one
+turn, and the outcome writes), `test_worker_lifecycle.py` (the runtime: Realtime
+verification, start/stop, the shutdown sweep), the DAL contract, the event
+publisher and the realtime manager. They need no running server, no Supabase,
+and no environment variables.
 
 ```bash
 poetry run pytest tests/core/conversations_worker/ \

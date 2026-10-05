@@ -1,5 +1,5 @@
 """
-Realtime manager for the ConversationWorker.
+Realtime manager for the conversation worker.
 
 Runs an asyncio event loop in a background daemon thread. Manages a Supabase
 Realtime subscription that notifies the worker when new pending conversations
@@ -12,7 +12,7 @@ appear.  Two subscription modes are supported (selected via the
     ``holmes:submit:{account_id}:{cluster_id}``.  The initiator (Frontend /
     Relay) must send a broadcast after creating the conversation.
 
-Communication with the sync ConversationWorker is via a callback that is
+Communication with the sync conversation worker is via a callback that is
 invoked when a pending-conversation notification arrives. The callback MUST
 be thread-safe (the worker passes a threading.Event.set).
 """
@@ -216,37 +216,29 @@ def _install_realtime_log_filter_if_needed() -> None:
 class RealtimeWorker:
     """Owns ALL generic Supabase Realtime plumbing for the holmes:submit
     channel — connection, auth refresh, reconnection, subscribe states —
-    and routes received broadcasts to the right worker:
+    and routes received broadcasts to the right consumer:
 
-      * 'pending_conversations' -> conversation_worker.claim_pending_conversations(executor)
-        (``executor`` from the broadcast payload; None wakes discovery)
+      * 'pending_conversations' -> on_new_pending(executor)
+        (``executor`` from the broadcast payload; None wakes discovery —
+        the runtime passes ExecutorRegistry.on_pending)
       * 'pending_tool_calls'    -> tool_call_worker.claim_pending_tool_calls()
 
-    Both routing targets MUST be non-blocking (they just wake the worker's
-    claim loop). On (re)subscribe both workers are notified so anything
-    missed during a disconnect gets drained.
+    Both routing targets MUST be non-blocking (they just wake a claim loop).
+    On (re)subscribe both are notified so anything missed during a
+    disconnect gets drained.
     """
 
     def __init__(
         self,
         dal: "SupabaseDal",
         holmes_id: str,
-        conversation_worker: Optional[Any] = None,
+        on_new_pending: Callable[..., None],
         tool_call_worker: Optional[Any] = None,
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
-        on_new_pending: Optional[Callable[..., None]] = None,
         on_new_tool_calls: Optional[Callable[[], None]] = None,
     ) -> None:
         self.dal = dal
         self.holmes_id = holmes_id
-        # Routing targets. The worker objects are the primary surface;
-        # the raw callables remain as low-level overrides (tests).
-        if on_new_pending is None and conversation_worker is not None:
-            on_new_pending = conversation_worker.claim_pending_conversations
-        if on_new_pending is None:
-            raise ValueError(
-                "RealtimeWorker needs a conversation_worker or on_new_pending"
-            )
         self.on_new_pending = on_new_pending
         if on_new_tool_calls is None and tool_call_worker is not None:
             on_new_tool_calls = tool_call_worker.claim_pending_tool_calls

@@ -1,4 +1,4 @@
-"""Verify the ConversationWorker wires the usage recorder around the LLM
+"""Verify the ConversationProcessor wires the usage recorder around the LLM
 stream so worker-driven chats produce HolmesUsageEvents rows.
 
 Context: the worker takes a code path that bypasses server.py::chat() and
@@ -16,42 +16,26 @@ These tests assert the integration without re-testing the recorder itself
    (``conversation_source='conversations'``, ``request_type='user_chat'``,
    etc.) so dashboards can attribute these rows correctly.
 """
-import threading
 from unittest.mock import MagicMock, patch
 
 from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.models import ChatRequest
 
 
 def _bare_worker():
-    w = ConversationWorker.__new__(ConversationWorker)
-    w.dal = MagicMock()
-    w.dal.enabled = True
-    w.dal.update_conversation_status = MagicMock(return_value=True)
-    w.dal.get_global_instructions_for_account = MagicMock(return_value=None)
-    w.config = MagicMock()
-    # create_toolcalling_llm returns the AI; we configure its llm attrs so
-    # build_chat_recorder_state can read model / is_robusta_model.
+    dal = MagicMock()
+    dal.enabled = True
+    dal.update_conversation_status = MagicMock(return_value=True)
+    dal.get_global_instructions_for_account = MagicMock(return_value=None)
+    config = MagicMock()
     ai = MagicMock()
     ai.llm = MagicMock()
     ai.llm.model = "anthropic/claude-sonnet-4-5"
     ai.llm.is_robusta_model = False
-    w.config.create_toolcalling_llm = MagicMock(return_value=ai)
-    w.config.get_skill_catalog = MagicMock(return_value=[])
-    w.chat_function = MagicMock()
-    w.holmes_id = "h-test"
-    w._running = True
-    w._claim_thread = None
-    w._notify_event = threading.Event()
-    w._saturated_since = None
-    w._saturation_logged = False
-    w._last_stuck_warn = None
-    w._executor = MagicMock()
-    w._active_conversation_ids = {}
-    w._active_lock = threading.Lock()
-    w._dispatch_lock = threading.Lock()
-    w._realtime_manager = None
+    config.create_toolcalling_llm = MagicMock(return_value=ai)
+    config.get_skill_catalog = MagicMock(return_value=[])
+    w = ConversationProcessor(dal=dal, config=config, holmes_id="h-test")
     return w, ai
 
 
@@ -101,15 +85,15 @@ def _run(worker, ai, task=None, chat_request=None, consume_side_effect=None):
 
     captured = {}
     with patch(
-        "holmes.core.conversations_worker.worker.stream_with_usage_recording"
+        "holmes.core.conversations_worker.processor.stream_with_usage_recording"
     ) as mock_wrap, patch(
-        "holmes.core.conversations_worker.worker.build_chat_recorder_state"
+        "holmes.core.conversations_worker.processor.build_chat_recorder_state"
     ) as mock_build_state, patch(
-        "holmes.core.conversations_worker.worker.build_chat_messages"
+        "holmes.core.conversations_worker.processor.build_chat_messages"
     ) as mock_build_messages, patch(
-        "holmes.core.conversations_worker.worker.tool_result_storage"
+        "holmes.core.conversations_worker.processor.tool_result_storage"
     ) as mock_storage, patch(
-        "holmes.core.conversations_worker.worker.TracingFactory"
+        "holmes.core.conversations_worker.processor.TracingFactory"
     ) as mock_tracing:
         # build_chat_messages is heavy (Jinja, prompts) — return a fake list.
         mock_build_messages.return_value = [{"role": "user", "content": "fake"}]
@@ -217,7 +201,7 @@ def _capture_chat_request_from_process(task, user_message_data):
     def capture(self, t, chat_request, publisher, resume_only=False):
         captured["chat_request"] = chat_request
 
-    with patch.object(ConversationWorker, "_run_chat_and_publish", capture):
+    with patch.object(ConversationProcessor, "_run_chat_and_publish", capture):
         worker._process_conversation(task)
 
     return captured.get("chat_request")
@@ -253,8 +237,8 @@ def _process_and_capture(task, user_message_data):
     def capture(self, t, chat_request, publisher, resume_only=False):
         captured["chat_request"] = chat_request
 
-    with patch.object(ConversationWorker, "_run_chat_and_publish", capture), \
-            patch.object(ConversationWorker, "_fail_conversation") as fail:
+    with patch.object(ConversationProcessor, "_run_chat_and_publish", capture), \
+            patch.object(ConversationProcessor, "fail") as fail:
         worker._process_conversation(task)
 
     return captured.get("chat_request"), fail
@@ -337,8 +321,8 @@ def test_spoofed_user_id_on_tool_decision_resume_is_rejected():
             "user_id": "u-victim",
         }},
     ])
-    with patch.object(ConversationWorker, "_run_chat_and_publish") as run, \
-            patch.object(ConversationWorker, "_fail_conversation") as fail:
+    with patch.object(ConversationProcessor, "_run_chat_and_publish") as run, \
+            patch.object(ConversationProcessor, "fail") as fail:
         worker._process_conversation(_task())
     run.assert_not_called()
     fail.assert_called_once()
@@ -349,7 +333,7 @@ def test_mismatch_posts_error_event_and_marks_failed():
     worker.dal.get_conversation_events = MagicMock(
         return_value=[{"event": "user_message", "data": {"ask": "q", "user_id": "u-victim"}, "ts": "1"}]
     )
-    with patch.object(ConversationWorker, "_run_chat_and_publish") as run:
+    with patch.object(ConversationProcessor, "_run_chat_and_publish") as run:
         worker._process_conversation(_task())
     run.assert_not_called()
     posted = worker.dal.post_conversation_events.call_args

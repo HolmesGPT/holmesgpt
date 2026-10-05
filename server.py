@@ -850,11 +850,9 @@ scheduled_prompts_executor = ScheduledPromptsExecutor(
 
 conversation_worker = None
 if ENABLE_CONVERSATION_WORKER:
-    from holmes.core.conversations_worker import ConversationWorker
+    from holmes.core.conversations_worker import ConversationRuntime
 
-    conversation_worker = ConversationWorker(
-        dal=dal, config=config, chat_function=chat
-    )
+    conversation_worker = ConversationRuntime(dal=dal, config=config)
 
 
 @app.on_event("shutdown")
@@ -863,7 +861,7 @@ def stop_conversation_worker():
 
     uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
     a graceful shutdown, which runs this hook. Without it nothing ever called
-    ConversationWorker.stop(): the worker threads are daemons, so they were
+    ConversationRuntime.stop(): the worker threads are daemons, so they were
     simply frozen at interpreter exit and every conversation the pod was
     mid-turn on stayed 'running' with a dead assignee until the stale-conversation
     sweep retired it — up to hours of spinner in the UI. stop() now marks those

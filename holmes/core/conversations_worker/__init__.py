@@ -1,3 +1,3 @@
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.worker import ConversationRuntime
 
-__all__ = ["ConversationWorker"]
+__all__ = ["ConversationRuntime"]

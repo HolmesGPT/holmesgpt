@@ -146,7 +146,7 @@ class ToolCallWorker:
         self._active_count = 0
         # Saturation-transition logging (ROB-759): claiming used to be
         # skipped silently at full capacity, which looks identical to a dead
-        # claim loop. Same debounced enter/exit scheme as ConversationWorker
+        # claim loop. Same debounced enter/exit scheme as ConversationExecutor
         # (see _note_saturation there): the INFO fires only after 60s of
         # CONTINUOUS saturation, so backlog churn (free→refill per completed
         # call) never flickers.
