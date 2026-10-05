@@ -410,6 +410,26 @@ mcp_servers:
     llm_instructions: "..."
 ```
 
+**Re-checking a Server Less Often**
+
+In server mode, Holmes re-checks every toolset every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS` (default 300), and after 30, 60 and 120 seconds while an MCP server is failing. Each re-check of an MCP server opens a session, lists its tools and runs its health check tool, if it has one. When many Holmes instances share one rate-limited credential, these checks alone can exhaust the limit.
+
+Set `status_refresh_interval_seconds` on the server to re-check it at most once per that many seconds. Between checks it keeps the status and tools of its last check, and a failed server stays failed until its next check instead of being retried sooner. Holmes still checks it at startup and on config reload.
+
+```yaml
+mcp_servers:
+  issue_tracker:
+    description: "Issue tracker shared by every cluster"
+    status_refresh_interval_seconds: 3600
+    config:
+      url: "https://mcp.example.com/mcp"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.ISSUE_TRACKER_API_KEY }}"
+```
+
+The setting works on any toolset, not only MCP servers.
+
 ## Configuration Format Migration
 
 The MCP server configuration format has been updated. The `url` field must now be inside the `config` section.

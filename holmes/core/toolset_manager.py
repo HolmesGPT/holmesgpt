@@ -141,6 +141,7 @@ class ToolsetManager:
         toolset_tags: Optional[List[ToolsetTag]] = None,
         silent: bool = False,
         on_event: EventCallback = None,
+        previous_toolsets: Optional[List[Toolset]] = None,
     ) -> List[Toolset]:
         """
         List all built-in and custom toolsets.
@@ -228,8 +229,18 @@ class ToolsetManager:
         if not check_prerequisites:
             return final_toolsets
 
+        # A toolset still inside its own status refresh interval keeps the
+        # previous instance, with the status and tools its last check produced.
+        previous_by_name = {t.name: t for t in previous_toolsets or []}
+        now = time.monotonic()
+        final_toolsets = []
         enabled_toolsets: List[Toolset] = []
-        for _, toolset in toolsets_by_name.items():
+        for name, toolset in toolsets_by_name.items():
+            previous = previous_by_name.get(name)
+            if toolset.enabled and previous is not None and not previous.status_check_due(now):
+                final_toolsets.append(previous)
+                continue
+            final_toolsets.append(toolset)
             if toolset.enabled:
                 enabled_toolsets.append(toolset)
             else:
@@ -728,6 +739,7 @@ class ToolsetManager:
             enable_all_toolsets=enable_all_toolsets_possible,
             toolset_tags=tags,
             silent=True,
+            previous_toolsets=current_toolsets,
         )
 
         changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
