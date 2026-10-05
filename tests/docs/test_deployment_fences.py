@@ -218,6 +218,17 @@ def test_a_chart_list_no_page_writes_fails_the_build(tmp_path, monkeypatch):
         build_page(tmp_path, "```yaml-helm-values\nserviceAccount:\n  imagePullSecrets:\n    - name: registry\n```\n")
 
 
+@pytest.mark.parametrize(
+    "entry",
+    ["    modle: anthropic/claude-sonnet-4-5\n", "    model: anthropic/claude-sonnet-4-5\n    temprature: 1\n"],
+    ids=["model", "temperature"],
+)
+def test_a_model_list_entry_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, entry):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: `modelList\.sonnet` is an entry in a form no page writes"):
+        build_page(tmp_path, f"```yaml-helm-values\nmodelList:\n  sonnet:\n{entry}```\n")
+
+
 def test_the_cli_tab_keys_are_the_chart_values_that_are_holmes_config(tmp_path, monkeypatch):
     monkeypatch.chdir(REPO)
     monkeypatch.setattr(custom_fences, "CLI_CONFIG_KEYS", frozenset({"toolsets"}))

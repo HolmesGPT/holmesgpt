@@ -58,7 +58,7 @@ one of the chart's defaults in `helm/holmes/values.yaml`, and its value has the 
 except inside the maps of `FREE_FORM_VALUES`, whose keys are the reader's, and inside the blocks
 `toolsets` and `mcp_servers` map each name to, which `docs/fence_checks.py` checks against Holmes.
 A list's entries are in the form `LIST_ENTRIES` declares for it, and a list it declares none for
-fails the build.
+fails the build; an entry of a map of `FREE_FORM_ENTRIES` is in the form declared there.
 No value at any key path is empty (null, `{}`, `[]` or `""`), and each block is a mapping. The
 top-level keys that are also Holmes config (`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
 
@@ -122,7 +122,7 @@ import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Dict, Iterator, List, NamedTuple, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, Iterator, List, NamedTuple, Optional, Tuple, Union
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
@@ -355,9 +355,10 @@ def _is_empty(value) -> bool:
 def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ()) -> Optional[str]:
     """Why `values`, the mapping at `path`, are not the chart's: the first key path whose
     value is empty, that the chart's `defaults` lack, or whose value has a type other than
-    the default's, or a list whose entries are not in its LIST_ENTRIES form. `defaults` is
-    None inside a map of FREE_FORM_VALUES, whose keys are the reader's. The toolset blocks,
-    which the hook checks, are each a mapping."""
+    the default's; a list whose entries are not in their LIST_ENTRIES form; or an entry of
+    a free-form map not in its FREE_FORM_ENTRIES form. `defaults` is None inside a map of
+    FREE_FORM_VALUES, whose keys are the reader's. The toolset blocks, which the hook
+    checks, are each a mapping."""
     for key, value in values.items():
         here = path + (key,)
         name = ".".join(map(str, here))
@@ -379,6 +380,11 @@ def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ())
             error = _chart_value_error(value, inner, here)
         elif isinstance(value, list):
             error = _list_entries_error(value, here, name)
+        if not error and path in FREE_FORM_ENTRIES:
+            try:
+                FREE_FORM_ENTRIES[path].model_validate(value)
+            except ValidationError as e:
+                error = f"`{name}` is an entry in a form no page writes: {e}"
         if error:
             return error
     return None
@@ -458,6 +464,7 @@ def _secret_keys(arguments) -> Dict[str, Tuple[str, str]]:
 
 SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)]
 Text = Annotated[str, Field(pattern=r"\S")]
+Mapping = Annotated[Dict[str, Any], Field(min_length=1)]
 
 
 class Form(BaseModel):
@@ -493,6 +500,29 @@ FREE_FORM_VALUES = frozenset(
         ("mcpAddons", "kubernetes", "config", "oauth"),
     }
 )
+
+
+class ModelListEntry(Form):
+    model: Text
+    api_key: Optional[Text] = None
+    api_base: Optional[Text] = None
+    api_version: Optional[Text] = None
+    temperature: Optional[float] = None
+    reasoning_effort: Optional[Text] = None
+    thinking: Optional[Mapping] = None
+    custom_args: Optional[Mapping] = None
+    extra_headers: Optional[Mapping] = None
+    aws_region_name: Optional[Text] = None
+    aws_access_key_id: Optional[Text] = None
+    aws_secret_access_key: Optional[Text] = None
+    vertex_project: Optional[Text] = None
+    vertex_location: Optional[Text] = None
+    input_cost_per_token: Optional[float] = None
+    output_cost_per_token: Optional[float] = None
+
+
+# The maps of FREE_FORM_VALUES whose entries pages write in one form, and that form.
+FREE_FORM_ENTRIES = {("modelList",): ModelListEntry}
 
 
 class EnvVar(Form):

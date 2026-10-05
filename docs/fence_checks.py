@@ -27,7 +27,7 @@ import functools
 import os
 import re
 from contextlib import contextmanager
-from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union, get_args, get_origin
+from typing import Annotated, ClassVar, List, Literal, Optional, Tuple, Union, get_args, get_origin
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -41,14 +41,11 @@ from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset
 PLACEHOLDER_RE = re.compile(r"<[A-Za-z0-9_-]+>")
 
 
-Mapping = Annotated[Dict[str, Any], Field(min_length=1)]
-
-
 class BuiltinToolsetBlock(cf.Form):
     kind: ClassVar[str] = "a built-in toolset"
     enabled: Optional[bool] = None
     subtype: Optional[cf.Text] = None
-    config: Optional[Mapping] = None
+    config: Optional[cf.Mapping] = None
 
 
 class TypedToolsetBlock(cf.Form):
@@ -57,7 +54,7 @@ class TypedToolsetBlock(cf.Form):
     enabled: Optional[bool] = None
     description: Optional[cf.Text] = None
     llm_instructions: Optional[cf.Text] = None
-    config: Optional[Mapping] = None
+    config: Optional[cf.Mapping] = None
 
 
 class YamlTool(cf.Form):
@@ -87,7 +84,7 @@ class McpServerBlock(cf.Form):
     description: Optional[cf.Text] = None
     llm_instructions: Optional[cf.Text] = None
     icon_url: Optional[cf.Text] = None
-    config: Optional[Mapping] = None
+    config: Optional[cf.Mapping] = None
 
 
 @functools.cache
