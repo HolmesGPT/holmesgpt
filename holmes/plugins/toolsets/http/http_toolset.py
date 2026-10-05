@@ -32,8 +32,11 @@ from holmes.core.tools import (
     ToolsetType,
 )
 from holmes.plugins.toolsets.internet.ssrf import (
+    SCHEME_DEFAULT_PORTS,
     SSRFValidationError,
     build_pinned_adapter,
+    strip_credentials,
+    url_origin,
     validate_url,
 )
 from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
@@ -44,7 +47,6 @@ logger = logging.getLogger(__name__)
 
 ALL_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 SUPPORTED_SCHEMES = ("http", "https")
-SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 # Redirects are never followed blindly: the whitelist is enforced against the
 # ORIGINAL url only, so an allowed host that can be made to emit a 30x (open
@@ -55,49 +57,6 @@ REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 # Bound the manual redirect chain, mirroring requests' default.
 MAX_REDIRECTS = 5
-
-# Only these headers survive a redirect that crosses an origin. Everything else
-# is operator- or model-supplied and must be assumed to carry a secret: `auth`
-# of every type, `default_headers`, the Jinja-rendered `extra_headers` (which
-# exist precisely to inject tokens, e.g. "{{ env.MY_TOKEN }}"), and any header
-# the model passed to the tool.
-#
-# This is an allowlist rather than a list of known credential header names so
-# that a new way to configure a secret header cannot silently start leaking.
-# requests' own rebuild_auth() is no help here: it strips only 'Authorization',
-# and only when the HOSTNAME changes, so header-type auth and
-# same-host/different-port hops would keep the credential.
-CROSS_ORIGIN_SAFE_HEADERS = frozenset(
-    {
-        "accept",
-        "accept-encoding",
-        "accept-language",
-        "content-type",
-        "user-agent",
-    }
-)
-
-
-def _origin(url: str) -> Tuple[str, str, Optional[int]]:
-    """(scheme, host, effective port) — the origin a credential is scoped to."""
-    parsed = urlparse(url)
-    scheme = (parsed.scheme or "").lower()
-    try:
-        port = parsed.port
-    except ValueError:
-        port = None
-    if port is None:
-        port = SCHEME_DEFAULT_PORTS.get(scheme)
-    return scheme, (parsed.hostname or "").lower(), port
-
-
-def _strip_credentials(headers: Dict[str, str]) -> Dict[str, str]:
-    """Keep only the headers that are safe to carry across an origin boundary.
-
-    See CROSS_ORIGIN_SAFE_HEADERS — anything not on that list is dropped rather
-    than matched against a list of known credential names.
-    """
-    return {k: v for k, v in headers.items() if k.lower() in CROSS_ORIGIN_SAFE_HEADERS}
 
 
 @dataclass(frozen=True)
@@ -691,7 +650,7 @@ class HttpToolset(Toolset):
         """
 
         def check(next_url: str) -> Tuple[Optional["EndpointConfig"], Optional[str]]:
-            if _origin(next_url) != _origin(origin_url):
+            if url_origin(next_url) != url_origin(origin_url):
                 return None, "redirect leaves the origin of the configured URL"
             return None, None
 
@@ -761,8 +720,8 @@ class HttpToolset(Toolset):
                     f"Allowed methods: {next_endpoint.get_methods()}"
                 )
 
-            if _origin(current_url) != _origin(next_url):
-                kwargs["headers"] = _strip_credentials(kwargs.get("headers") or {})
+            if url_origin(current_url) != url_origin(next_url):
+                kwargs["headers"] = strip_credentials(kwargs.get("headers") or {})
                 kwargs["auth"] = None
 
             current_url = next_url

@@ -36,8 +36,9 @@ guards every request:
   subdomains) may be fetched. Allowlisted hosts are exempt from the internal-IP block, so
   you can deliberately point the tool at a known internal endpoint.
 - **Auth headers are only sent to allowlisted hosts.** `additional_headers` are forwarded
-  only when the host is in `allowed_hosts` (and are stripped on cross-host redirects), so
-  configured credentials cannot leak to an arbitrary host the model picks.
+  only when the host is in `allowed_hosts` (and are dropped on any redirect that changes the
+  scheme, host or port), so configured credentials cannot leak to an arbitrary host the
+  model picks.
 
 The internal-IP block always runs (the host is resolved and checked before any request is
 made). The connection *pin* additionally protects direct connections against DNS rebinding;

@@ -21,7 +21,7 @@ This module centralises the defense so every caller of ``scrape()`` is protected
 
 import ipaddress
 import socket
-from typing import List, Optional, Sequence, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 from urllib.parse import urlparse
 
 from requests.adapters import HTTPAdapter
@@ -30,8 +30,52 @@ from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.poolmanager import PoolManager
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
+SCHEME_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+# Only these headers survive a redirect that crosses an origin. Everything else
+# is operator- or model-supplied and must be assumed to carry a secret: `auth`
+# of every type, `default_headers`, the Jinja-rendered `extra_headers` (which
+# exist precisely to inject tokens, e.g. "{{ env.MY_TOKEN }}"), and any header
+# the model passed to the tool.
+#
+# This is an allowlist rather than a list of known credential header names so
+# that a new way to configure a secret header cannot silently start leaking.
+# requests' own rebuild_auth() is no help here: it strips only 'Authorization',
+# and only when the HOSTNAME changes, so header-type auth and
+# same-host/different-port hops would keep the credential.
+CROSS_ORIGIN_SAFE_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "content-type",
+        "user-agent",
+    }
+)
 
 IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+def url_origin(url: str) -> Tuple[str, str, Optional[int]]:
+    """(scheme, host, effective port) — the origin a credential is scoped to."""
+    parsed = urlparse(url)
+    scheme = (parsed.scheme or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port is None:
+        port = SCHEME_DEFAULT_PORTS.get(scheme)
+    return scheme, (parsed.hostname or "").lower(), port
+
+
+def strip_credentials(headers: Dict[str, str]) -> Dict[str, str]:
+    """Keep only the headers that are safe to carry across an origin boundary.
+
+    See CROSS_ORIGIN_SAFE_HEADERS — anything not on that list is dropped rather
+    than matched against a list of known credential names.
+    """
+    return {k: v for k, v in headers.items() if k.lower() in CROSS_ORIGIN_SAFE_HEADERS}
 
 
 class SSRFValidationError(Exception):
