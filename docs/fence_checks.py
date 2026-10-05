@@ -60,28 +60,21 @@ def _differing(lines: List[str], other: List[str]) -> Set[int]:
 
 
 def _leaves(node, path: tuple = ()) -> Iterator[Tuple[tuple, object]]:
-    """(key path, value) of every leaf under the mapping or list `node`: each scalar at any
-    depth, list items included, and each empty mapping, empty list and null."""
+    """(key path, value) of every scalar under the mapping or list `node`, at any depth, list
+    items included. The page-text check refuses an empty mapping, list or null in the values."""
     for key, value in node.items() if isinstance(node, dict) else enumerate(node):
-        if isinstance(value, (dict, list)) and value:
+        if isinstance(value, (dict, list)):
             yield from _leaves(value, path + (key,))
         else:
             yield path + (key,), value
 
 
 def _changed(value):
-    """A value other than `value`: a bool flipped, a number plus one, an empty mapping or
-    list with one entry, and any other value, null included, a string."""
+    """A value other than `value`: a bool flipped, a number plus one, and any other value a string."""
     if isinstance(value, bool):
         return not value
     if isinstance(value, (int, float)):
         return value + 1
-    if value is None:
-        return "changed"
-    if value == {}:
-        return {"changed": "changed"}
-    if value == []:
-        return ["changed"]
     return f"{value}-changed"
 
 
