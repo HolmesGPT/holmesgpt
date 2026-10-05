@@ -140,7 +140,7 @@ class ConversationWorker:
         self._running = False
         self._active_started = False
 
-        self._executor_settings = executor_settings or ExecutorSettings.from_env()
+        self._executor_settings = executor_settings or ExecutorSettings()
         self._executors: Dict[str, ConversationExecutor] = {}
         self._executors_lock = threading.Lock()
         self._last_executor_reject_log: Dict[str, float] = {}
@@ -469,10 +469,10 @@ class ConversationWorker:
                 return None
             if len(self._executors) >= self._executor_settings.max_executors:
                 self._log_executor_reject(
-                    "executor %r not created: %d executors already exist "
-                    "(CONVERSATION_WORKER_MAX_EXECUTORS)",
+                    "executor %r not created: %d executors already exist (limit %d)",
                     name,
                     len(self._executors),
+                    self._executor_settings.max_executors,
                 )
                 return None
             ex = ConversationExecutor(
@@ -619,9 +619,8 @@ class ConversationWorker:
             description = (
                 f"No Holmes executor pool available for {name!r}: this agent "
                 f"already runs {len(self.executor_names())} executor pools "
-                f"(CONVERSATION_WORKER_MAX_EXECUTORS="
-                f"{self._executor_settings.max_executors}). Use 'manual' or "
-                f"'auto', or raise the limit."
+                f"(limit {self._executor_settings.max_executors}). Use 'manual' "
+                f"or 'auto'."
             )
         try:
             claimed = self.dal.claim_n_pending_conversations(

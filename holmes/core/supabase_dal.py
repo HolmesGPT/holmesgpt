@@ -36,7 +36,6 @@ from tenacity import (
 
 from holmes.clients.robusta_client import fetch_supabase_api_key
 from holmes.common.env_vars import (
-    CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC,
     ROBUSTA_ACCOUNT_ID,
     ROBUSTA_CONFIG_PATH,
     STORE_API_KEY,
@@ -159,6 +158,11 @@ def _is_missing_rpc_error(exc: Exception) -> bool:
     code = getattr(exc, "code", None) or ""
     message = (getattr(exc, "message", None) or str(exc) or "").lower()
     return code == "PGRST202" or "could not find the function" in message
+
+
+# How long the per-account executor pool sizes read from AccountSettings are
+# cached; a UI change takes at most this long to reach the worker.
+EXECUTOR_SIZES_CACHE_TTL_SEC = 60
 
 
 class ExecutorRpcUnsupportedError(Exception):
@@ -318,7 +322,7 @@ class SupabaseDal:
             hierarchy_ttl = 60
         self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
         self.executor_sizes_cache: TTLCache = TTLCache(
-            maxsize=1, ttl=max(1, CONVERSATION_WORKER_EXECUTOR_SETTINGS_TTL_SEC)
+            maxsize=1, ttl=EXECUTOR_SIZES_CACHE_TTL_SEC
         )
         self.lock = threading.Lock()
 
@@ -879,7 +883,7 @@ class SupabaseDal:
         """Per-account executor pool sizes (ROB-1369):
         ``AccountSettings.settings.conversation_executors`` — ``{name: size}``
         written from the UI. Invalid entries are dropped; any read failure
-        returns {} so the worker falls back to env / built-in sizes. Cached.
+        returns {} so the worker falls back to the built-in sizes. Cached.
         """
         if not self.enabled:
             return {}

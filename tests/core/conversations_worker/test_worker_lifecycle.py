@@ -39,12 +39,11 @@ def _bare_worker(sizes=None, default_size=2, max_executors=16):
     w._active_started = True
     w.dal.get_conversation_executor_sizes = MagicMock(return_value={})
     # `sizes` are the built-in per-name defaults, `default_size` the base size
-    # for any other name; env is empty so tests are hermetic.
+    # for any other name.
     w._executor_settings = ExecutorSettings(
         base_size=default_size,
         max_executors=max_executors,
         builtin_sizes=sizes if sizes is not None else {"manual": 5, "auto": 3},
-        env={},
     )
     w._executors = {}
     w._executors_lock = threading.Lock()
@@ -494,7 +493,7 @@ def test_stop_does_not_deadlock_with_a_claim_loop_waiting_to_dispatch():
 def test_executor_creation_clamps_account_size_to_thread_ceiling():
     w = _bare_worker()
     w._executor_settings = ExecutorSettings(
-        base_size=2, max_executors=16, thread_ceiling=8, env={}
+        base_size=2, max_executors=16, thread_ceiling=8
     )
     w.dal.get_conversation_executor_sizes.return_value = {"manual": 5000}
     try:
@@ -605,7 +604,7 @@ def test_no_executors_exist_before_a_request_names_one():
 def test_named_broadcast_without_a_pool_routes_through_discovery():
     """A broadcast naming an executor with no pool yet does not create one —
     only DB-backed discovery does, for names that really have pending rows —
-    so a stray publisher name cannot use up CONVERSATION_WORKER_MAX_EXECUTORS."""
+    so a stray publisher name cannot use up the executor cap."""
     w = _bare_worker()
     w._discovery_event.clear()
     w.claim_pending_conversations("auto")
@@ -663,7 +662,7 @@ def test_rows_of_an_executor_past_the_cap_are_failed_not_left_pending():
         assert w.executor_names() == ["a", "b"]
         events = w.dal.post_conversation_events.call_args.kwargs["events"]
         assert events[0]["data"]["error_code"] == EXECUTOR_UNAVAILABLE_ERROR_CODE
-        assert "CONVERSATION_WORKER_MAX_EXECUTORS=2" in events[0]["data"]["description"]
+        assert "limit 2" in events[0]["data"]["description"]
         w.dal.update_conversation_status.assert_called_once_with(
             conversation_id="c1", request_sequence=1, assignee="h-test", status="failed"
         )
@@ -1241,7 +1240,7 @@ def test_discovery_applies_changed_account_sizes_live():
     assert auto.max_concurrent == 6
     # A resize wakes the pool so newly freed/added slots are claimed.
     assert manual.notify_event.is_set()
-    # Removing the setting falls back to env/built-in.
+    # Removing the setting falls back to the built-in default.
     w.dal.get_conversation_executor_sizes.return_value = {}
     w._discover_and_wake()
     assert manual.max_concurrent == 10 and auto.max_concurrent == 2

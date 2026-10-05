@@ -7,7 +7,6 @@ conversation names it, so live user asks ('manual') and background work
 """
 
 import logging
-import os
 import re
 import threading
 import time
@@ -15,10 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Mapping, Optional
 
 from holmes.common.env_vars import (
-    CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX,
-    CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
     CONVERSATION_WORKER_MAX_CONCURRENT,
-    CONVERSATION_WORKER_MAX_EXECUTORS,
     CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS,
 )
 from holmes.core.conversations_worker.models import (
@@ -40,13 +36,20 @@ _LOOP_SAFETY_TIMEOUT_SECONDS = 300.0
 # pool something unloggable or unbounded.
 _EXECUTOR_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
+# Guardrails, not configuration. A pool is created with THREAD_CEILING threads
+# (spawned lazily) so a live settings change up to that size needs no new
+# pool, and it bounds a huge account setting. MAX_EXECUTORS bounds the pools
+# one process creates on demand, so a bogus executor name in a broadcast or a
+# row cannot spawn unbounded thread pools.
+THREAD_CEILING = 64
+MAX_EXECUTORS = 16
+
 
 def is_valid_executor_name(name: object) -> bool:
     return isinstance(name, str) and bool(_EXECUTOR_NAME_RE.fullmatch(name))
 
 
-# Built-in per-executor defaults, used when neither the account settings nor a
-# per-name env var says otherwise.
+# Built-in per-executor defaults, used when the account settings say nothing.
 BUILTIN_EXECUTOR_SIZES: Dict[str, int] = {DEFAULT_EXECUTOR: 10, AUTO_EXECUTOR: 2}
 
 
@@ -69,20 +72,19 @@ class ExecutorSettings:
 
     ``size_for(name, account_sizes)`` resolves, in order:
       1. ``account_sizes[name]`` — AccountSettings.settings.conversation_executors,
-         written from the UI (Settings → LLM Models sets 'manual', Settings →
-         AI Triage sets 'auto');
-      2. env ``CONVERSATION_WORKER_MAX_CONCURRENT_<NAME>`` (upper-cased name);
-      3. the built-in default for the name (manual=10, auto=2);
-      4. env ``CONVERSATION_WORKER_MAX_CONCURRENT`` (5) for any other name.
+         written from the UI (Settings → LLMs sets 'manual', Settings → Triage
+         sets 'auto');
+      2. the built-in default for the name (manual=10, auto=2);
+      3. ``CONVERSATION_WORKER_MAX_CONCURRENT`` (5) for any other name.
+    Every result is capped at the thread ceiling.
     """
 
     def __init__(
         self,
         base_size: int = CONVERSATION_WORKER_MAX_CONCURRENT,
-        max_executors: int = CONVERSATION_WORKER_MAX_EXECUTORS,
-        thread_ceiling: int = CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
+        max_executors: int = MAX_EXECUTORS,
+        thread_ceiling: int = THREAD_CEILING,
         builtin_sizes: Optional[Mapping[str, int]] = None,
-        env: Optional[Mapping[str, str]] = None,
     ):
         self.base_size = _positive_int(base_size) or 1
         self.max_executors = _positive_int(max_executors) or 1
@@ -90,33 +92,7 @@ class ExecutorSettings:
         self.builtin_sizes = dict(
             BUILTIN_EXECUTOR_SIZES if builtin_sizes is None else builtin_sizes
         )
-        self._env = env if env is not None else os.environ
         self._warned: set = set()
-
-    @classmethod
-    def from_env(cls) -> "ExecutorSettings":
-        return cls()
-
-    @staticmethod
-    def env_var_for(name: str) -> str:
-        # '-' is not exportable from most shells, so 'auto-triage' reads
-        # CONVERSATION_WORKER_MAX_CONCURRENT_AUTO_TRIAGE.
-        suffix = name.upper().replace("-", "_")
-        return f"{CONVERSATION_WORKER_EXECUTOR_MAX_CONCURRENT_ENV_PREFIX}{suffix}"
-
-    def env_size_for(self, name: str) -> Optional[int]:
-        var = self.env_var_for(name)
-        raw = self._env.get(var)
-        if raw is None:
-            return None
-        size = _positive_int(raw)
-        if size is None and var not in self._warned:
-            # size_for runs on every discovery tick; warn once per variable.
-            self._warned.add(var)
-            logging.warning(
-                "Ignoring invalid %s=%r (expected a positive integer)", var, raw
-            )
-        return size
 
     def size_for(
         self, name: str, account_sizes: Optional[Mapping[str, object]] = None
@@ -130,18 +106,14 @@ class ExecutorSettings:
             size = _positive_int(account_sizes.get(name))
             if size is not None:
                 return size
-            if name in account_sizes:
-                key = f"account:{name}"
-                if key not in self._warned:
-                    self._warned.add(key)
-                    logging.warning(
-                        "Ignoring invalid account setting conversation_executors[%r]=%r",
-                        name,
-                        account_sizes.get(name),
-                    )
-        size = self.env_size_for(name)
-        if size is not None:
-            return size
+            if name in account_sizes and name not in self._warned:
+                # size_for runs on every discovery tick; warn once per name.
+                self._warned.add(name)
+                logging.warning(
+                    "Ignoring invalid account setting conversation_executors[%r]=%r",
+                    name,
+                    account_sizes.get(name),
+                )
         return self.builtin_sizes.get(name, self.base_size)
 
 
@@ -167,7 +139,7 @@ class ConversationExecutor:
         self,
         name: str,
         max_concurrent: int,
-        thread_ceiling: int = CONVERSATION_WORKER_EXECUTOR_THREAD_CEILING,
+        thread_ceiling: int = THREAD_CEILING,
     ):
         self.name = name
         # The pool holds up to thread_ceiling threads so set_max_concurrent()
