@@ -58,6 +58,10 @@ DEPRECATED_TOOLSET_NAMES: dict[str, str] = {
     "runbook": "skills",
 }
 
+# Toolsets removed from HolmesGPT. A config entry naming one is skipped with a
+# warning, rather than loaded as a custom toolset that fails validation.
+REMOVED_TOOLSET_NAMES: set[str] = {"kubectl-run"}
+
 
 def handle_deprecated_toolset_name(
     toolset_name: str, builtin_toolset_names: list[str]
@@ -376,6 +380,13 @@ class ToolsetManager:
         custom_toolsets_dict: dict[str, dict[str, Any]] = {}
 
         for toolset_name, toolset_config in toolsets.items():
+            if toolset_name in REMOVED_TOOLSET_NAMES:
+                display_logger.warning(
+                    f"The toolset '{toolset_name}' no longer exists in HolmesGPT and is ignored. "
+                    "Remove it from your configuration."
+                )
+                continue
+
             toolset_name = handle_deprecated_toolset_name(
                 toolset_name, builtin_toolset_names
             )
