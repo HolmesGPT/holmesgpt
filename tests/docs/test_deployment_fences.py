@@ -338,7 +338,11 @@ def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path
     "values, error",
     [
         ({"crdPermissions": {"argoo": True}}, r"`crdPermissions\.argoo`: the chart renders the same"),
-        ({"namespaceScopedRBAC": "false"}, r"`namespaceScopedRBAC`: the chart renders the same"),
+        (
+            # Any non-empty string is truthy, so the chart's `if` takes it as true either way.
+            {"namespaceScopedRBAC": "false"},
+            r"`namespaceScopedRBAC`: the chart renders the same when its value changes: .* or one reads only whether it is truthy$",
+        ),
         (
             {"additionalEnvVars": [{"value": "30"}]},
             r"the rendered Deployment holmes-holmes does not match its Kubernetes 1\.36 schema at `spec\.template\.spec\.containers\.0\.env\.\d+`: 'name' is a required property",
@@ -396,7 +400,7 @@ def test_a_value_no_template_reads_is_an_error_beside_a_time_that_moves_on(tmp_p
 
     monkeypatch.setattr(fence_checks, "_render", a_second_later)
     assert fence_checks.check_fence(values, {}, time_and_read) == [
-        "`unread`: the chart renders the same when it changes, so no template reads its value"
+        "`unread`: the chart renders the same when its value changes: no template reads it, or one reads only whether it is truthy"
     ]
 
 
