@@ -40,6 +40,8 @@ python3 -m venv /tmp/poetry185 && /tmp/poetry185/bin/pip install "poetry==1.8.5"
 poetry install --with dev
 ```
 
+`tests/docs` also needs Helm on `PATH` (https://helm.sh/docs/intro/install/): it renders every docs example's Helm values with `helm/holmes`, and fails without it.
+
 ```bash
 # Run all non-LLM tests (unit and integration tests)
 make test-without-llm
