@@ -646,3 +646,57 @@ def test_requests_are_never_sent_with_redirects_enabled(responses, monkeypatch):
     )
 
     assert seen == [False]
+
+
+@pytest.mark.parametrize(
+    "tool_kwargs",
+    [
+        {"default_headers": {"Accept": "super-secret"}},
+        {"auth": AuthConfig(type="header", name="Accept", value="super-secret")},
+        {"auth": AuthConfig(type="header", name="Content-Type", value="super-secret")},
+        {"extra_headers": {"Accept-Language": "super-secret"}},
+    ],
+)
+def test_secret_in_a_safe_header_name_does_not_cross_an_origin(tool_kwargs, responses):
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "https://other.example.com/collect"},
+    )
+    responses.get("https://other.example.com/collect", status=200, json={"ok": True})
+
+    tool = build_tool(
+        extra_endpoints=[
+            EndpointConfig(hosts=["other.example.com"], auth=AuthConfig(type="none"))
+        ],
+        **tool_kwargs,
+    )
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    assert "super-secret" in responses.calls[0].request.headers.values()
+    assert "super-secret" not in responses.calls[1].request.headers.values()
+
+
+def test_netrc_credentials_not_reapplied_after_scheme_downgrade(
+    tmp_path, monkeypatch, responses
+):
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine api.example.com login netrc-user password netrc-pass\n")
+    netrc.chmod(0o600)
+    monkeypatch.setenv("NETRC", str(netrc))
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "http://api.example.com/plain"},
+    )
+    responses.get("http://api.example.com/plain", status=200, json={"ok": True})
+
+    tool = build_tool()
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    assert responses.calls[0].request.headers["Authorization"].startswith("Basic ")
+    assert "Authorization" not in responses.calls[1].request.headers

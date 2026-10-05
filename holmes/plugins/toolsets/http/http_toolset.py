@@ -35,6 +35,7 @@ from holmes.plugins.toolsets.internet.ssrf import (
     SCHEME_DEFAULT_PORTS,
     SSRFValidationError,
     build_pinned_adapter,
+    no_auth,
     strip_credentials,
     url_origin,
     validate_url,
@@ -57,6 +58,14 @@ REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 
 # Bound the manual redirect chain, mirroring requests' default.
 MAX_REDIRECTS = 5
+
+# The only headers that survive a redirect crossing an origin, and only with
+# these exact values. requests' own rebuild_auth() strips just 'Authorization',
+# and only when the hostname changes.
+DEFAULT_REQUEST_HEADERS = {
+    "Accept": "application/json",
+    "Content-Type": "application/json",
+}
 
 
 @dataclass(frozen=True)
@@ -587,10 +596,7 @@ class HttpToolset(Toolset):
     def build_headers(
         self, endpoint: EndpointConfig, extra_headers: Optional[Dict[str, str]] = None
     ) -> Dict[str, str]:
-        headers: Dict[str, str] = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+        headers: Dict[str, str] = dict(DEFAULT_REQUEST_HEADERS)
 
         if self._http_config:
             headers.update(self._http_config.default_headers)
@@ -721,8 +727,10 @@ class HttpToolset(Toolset):
                 )
 
             if url_origin(current_url) != url_origin(next_url):
-                kwargs["headers"] = strip_credentials(kwargs.get("headers") or {})
-                kwargs["auth"] = None
+                kwargs["headers"] = strip_credentials(
+                    kwargs.get("headers") or {}, DEFAULT_REQUEST_HEADERS
+                )
+                kwargs["auth"] = no_auth
 
             current_url = next_url
             current_method = next_method

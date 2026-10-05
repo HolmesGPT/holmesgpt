@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Type
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tuple, Type
 from urllib.parse import urljoin
 
 from pydantic import Field
@@ -23,6 +23,7 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.internet.ssrf import (
     SSRFValidationError,
     build_pinned_adapter,
+    no_auth,
     strip_credentials,
     url_origin,
     validate_url,
@@ -114,6 +115,7 @@ def scrape(
 
     current_url = url
     current_headers = headers
+    current_auth: Optional[Callable[..., Any]] = None
 
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -136,6 +138,7 @@ def scrape(
                 response = session.get(
                     current_url,
                     headers=current_headers,
+                    auth=current_auth,
                     timeout=INTERNET_TOOLSET_TIMEOUT_SECONDS,
                     allow_redirects=False,
                 )
@@ -148,7 +151,10 @@ def scrape(
                     break
                 next_url = urljoin(current_url, location)
                 if url_origin(next_url) != url_origin(current_url):
-                    current_headers = strip_credentials(current_headers)
+                    current_headers = strip_credentials(
+                        current_headers, {"User-Agent": INTERNET_TOOLSET_USER_AGENT}
+                    )
+                    current_auth = no_auth
                 current_url = next_url
                 continue
 

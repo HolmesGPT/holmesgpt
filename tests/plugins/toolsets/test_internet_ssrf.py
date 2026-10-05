@@ -561,3 +561,48 @@ def test_scrape_reports_transport_errors_after_redirect(
     assert mime is None
     assert content.startswith("Failed to load https://trusted.example/a")
     assert expected in content
+
+
+def test_scrape_secret_in_a_safe_header_name_does_not_cross_an_origin(
+    public_dns, responses
+):
+    _redirect_and_land(
+        responses, "https://trusted.example/a", "https://other.example/b"
+    )
+    secrets = {
+        "Accept": "secret-1",
+        "Accept-Language": "secret-2",
+        "Content-Type": "secret-3",
+    }
+
+    scrape(
+        "https://trusted.example/a",
+        dict(secrets),
+        allowed_hosts=["trusted.example", "other.example"],
+    )
+
+    first, second = (c.request.headers for c in responses.calls)
+    for name, value in secrets.items():
+        assert first[name] == value
+        assert second.get(name) != value, name
+    assert second["User-Agent"] == internet.INTERNET_TOOLSET_USER_AGENT
+
+
+def test_scrape_netrc_credentials_not_reapplied_after_scheme_downgrade(
+    tmp_path, monkeypatch, public_dns, responses
+):
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine trusted.example login netrc-user password netrc-pass\n")
+    netrc.chmod(0o600)
+    monkeypatch.setenv("NETRC", str(netrc))
+    _redirect_and_land(
+        responses, "https://trusted.example/a", "http://trusted.example/b"
+    )
+
+    content, _ = scrape(
+        "https://trusted.example/a", {}, allowed_hosts=["trusted.example"]
+    )
+
+    assert content == "landed"
+    assert responses.calls[0].request.headers["Authorization"].startswith("Basic ")
+    assert "Authorization" not in responses.calls[1].request.headers
