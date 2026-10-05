@@ -119,7 +119,7 @@ def _unread(values: dict, render: str, chart_dir: Path) -> List[str]:
         return ["two renders of these values differ in their number of lines, so which values the chart reads cannot be told"]
     unstable = _differing(base, again)
     return [
-        f"`{key_path(path)}`: the chart renders the same when its value changes: no template reads it, or one reads only whether it is truthy"
+        f"`{key_path(path)}`: the render does not depend on its value"
         for (path, _), lines in zip(leaves, changes)
         if lines is not None and lines <= unstable
     ]
@@ -154,9 +154,9 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
     Holmes, its secret's keys and its `additionalEnvVars`.
 
     The values must render with `helm template`, every leaf must change the render when it
-    changes (else the chart ignores its value), and every rendered object must match its
-    Kubernetes schema. A line that differs between two renders of `values`, such as a random
-    token or the time, is not counted as a change."""
+    changes (else the render does not depend on its value), and every rendered object must
+    match its Kubernetes schema. A line that differs between two renders of `values`, such as
+    a random token or the time, is not counted as a change."""
     result = _render(values, chart_dir)
     if result.returncode != 0:
         return [f"helm template fails: {result.stderr.strip()}"]

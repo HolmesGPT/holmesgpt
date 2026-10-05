@@ -337,11 +337,11 @@ def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path
 @pytest.mark.parametrize(
     "values, error",
     [
-        ({"crdPermissions": {"argoo": True}}, r"`crdPermissions\.argoo`: the chart renders the same"),
+        ({"crdPermissions": {"argoo": True}}, r"`crdPermissions\.argoo`: the render does not depend on its value$"),
         (
             # Any non-empty string is truthy, so the chart's `if` takes it as true either way.
             {"namespaceScopedRBAC": "false"},
-            r"`namespaceScopedRBAC`: the chart renders the same when its value changes: .* or one reads only whether it is truthy$",
+            r"`namespaceScopedRBAC`: the render does not depend on its value$",
         ),
         (
             {"additionalEnvVars": [{"value": "30"}]},
@@ -356,17 +356,23 @@ def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path
         (
             # The addon's pod template carries a checksum of its config, which hashes the key too.
             {"mcpAddons": {"github": {"enabled": True, "auth": {"secretName": "s"}, "config": {"customCACert": {"enable": True}}}}},
-            r"`mcpAddons\.github\.config\.customCACert\.enable`: the chart renders the same",
+            r"`mcpAddons\.github\.config\.customCACert\.enable`: the render does not depend on its value$",
         ),
         (
             # The addon's Secret holds a token the chart generates at random on each render.
             {"mcpAddons": {"kubernetesRemediation": {"enabled": True, "config": {"dcgmEnabeld": True}}}},
-            r"`mcpAddons\.kubernetesRemediation\.config\.dcgmEnabeld`: the chart renders the same",
+            r"`mcpAddons\.kubernetesRemediation\.config\.dcgmEnabeld`: the render does not depend on its value$",
+        ),
+        (
+            # A template reads `clientId` only when `authMethod` is workload-identity or managed-identity.
+            {"mcpAddons": {"azure": {"enabled": True, "config": {"authMethod": "service-principal", "clientId": "c"}}}},
+            r"`mcpAddons\.azure\.config\.clientId`: the render does not depend on its value$",
         ),
     ],
     ids=[
         "unread-key", "string-for-a-bool", "kubernetes-schema", "helm-refuses", "undeclared-field",
         "unread-key-in-a-checksum", "unread-key-beside-a-random-token",
+        "read-under-a-condition-the-values-do-not-meet",
     ],
 )
 def test_a_value_the_chart_or_kubernetes_refuses_is_an_error(values, error):
@@ -400,7 +406,7 @@ def test_a_value_no_template_reads_is_an_error_beside_a_time_that_moves_on(tmp_p
 
     monkeypatch.setattr(fence_checks, "_render", a_second_later)
     assert fence_checks.check_fence(values, {}, time_and_read) == [
-        "`unread`: the chart renders the same when its value changes: no template reads it, or one reads only whether it is truthy"
+        "`unread`: the render does not depend on its value"
     ]
 
 
