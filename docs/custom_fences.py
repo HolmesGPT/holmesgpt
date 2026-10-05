@@ -57,8 +57,8 @@ The values are written as the page shows them, comments included. Every key path
 one of the chart's defaults in `helm/holmes/values.yaml`, and its value has the default's type,
 except inside the maps of `FREE_FORM_VALUES`, whose keys are the reader's, and inside the blocks
 `toolsets` and `mcp_servers` map each name to, which `docs/fence_checks.py` checks against Holmes.
-Each top-level value, and each block, has a value. The top-level keys that are also Holmes config
-(`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
+No value at any key path is empty (null, `{}`, `[]` or `""`), and each block is a mapping. The
+top-level keys that are also Holmes config (`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -359,38 +359,46 @@ def _block_mapping(body: str):
     return data if isinstance(data, dict) and re.match(r"[A-Za-z_]", first) else None
 
 
-def _values_are_set(values: dict) -> bool:
-    """Whether every top-level value has a value, and `toolsets` and `mcp_servers` map
-    each name to a block of fields."""
-    blocks = [
-        block for part in CLI_CONFIG_KEYS if isinstance(values.get(part), dict) for block in values[part].values()
-    ]
-    return not any(value is None or value in ({}, [], "") for value in values.values()) and all(
-        isinstance(block, dict) and block for block in blocks
-    )
+def _is_empty(value) -> bool:
+    return value is None or value in ({}, [], "")
 
 
-def _chart_value_error(values: dict, defaults: dict, path: tuple = ()) -> Optional[str]:
-    """Why `values`, the values at `path`, are not the chart's: the first key path the
-    chart's `defaults` lack, or whose value has a type other than the default's. A list
-    has no key paths, and the maps of FREE_FORM_VALUES and the toolset blocks are not
-    the chart's."""
+def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ()) -> Optional[str]:
+    """Why `values`, the mapping at `path`, are not the chart's: the first key path whose
+    value is empty, that the chart's `defaults` lack, or whose value has a type other than
+    the default's. `defaults` is None inside a map of FREE_FORM_VALUES, whose keys are the
+    reader's. A list has no key paths, and the toolset blocks, which the hook checks, are
+    each a mapping."""
     for key, value in values.items():
         here = path + (key,)
         name = ".".join(map(str, here))
-        if key not in defaults:
-            return f"`{name}` is not a value of the Holmes chart (helm/holmes/values.yaml)"
-        default = defaults[key]
-        if type(value) is not type(default):
-            return (
-                f"`{name}` is a {type(value).__name__}, and the Holmes chart's default for it "
-                f"(helm/holmes/values.yaml) is a {type(default).__name__}"
-            )
-        toolset_blocks = len(here) == 1 and key in CLI_CONFIG_KEYS
-        if isinstance(value, dict) and here not in FREE_FORM_VALUES and not toolset_blocks:
-            error = _chart_value_error(value, default, here)
-            if error:
-                return error
+        if _is_empty(value):
+            return f"`{name}` has no value"
+        if defaults is not None:
+            if key not in defaults:
+                return f"`{name}` is not a value of the Holmes chart (helm/holmes/values.yaml)"
+            if type(value) is not type(defaults[key]):
+                return (
+                    f"`{name}` is a {type(value).__name__}, and the Holmes chart's default for it "
+                    f"(helm/holmes/values.yaml) is a {type(defaults[key]).__name__}"
+                )
+        error = None
+        if len(here) == 1 and key in CLI_CONFIG_KEYS:
+            error = _toolset_blocks_error(value, name)
+        elif isinstance(value, dict):
+            inner = None if defaults is None or here in FREE_FORM_VALUES else defaults[key]
+            error = _chart_value_error(value, inner, here)
+        if error:
+            return error
+    return None
+
+
+def _toolset_blocks_error(blocks: dict, name: str) -> Optional[str]:
+    for block_name, block in blocks.items():
+        if _is_empty(block):
+            return f"`{name}.{block_name}` has no value"
+        if not isinstance(block, dict):
+            return f"`{name}.{block_name}` is a {type(block).__name__}, and a block of `{name}` is a mapping"
     return None
 
 
@@ -582,8 +590,6 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     except ValidationError:
         return None
     if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
-        return None
-    if not _values_are_set(values):
         return None
     error = _chart_value_error(values, CHART_DEFAULTS)
     if error:

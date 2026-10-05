@@ -285,16 +285,32 @@ TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_acco
         f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n",
         "```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n",
         f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n",
-        "```yaml-toolset-config\ntoolsets:\n```\n",
-        "```yaml-toolset-config\ntoolsets: {}\n```\n",
-        "```yaml-helm-values\nmodelList:\n```\n",
     ],
-    ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field", "toolsets", "toolsets-{}", "modelList"],
+    ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field"],
 )
-def test_a_field_or_value_written_with_no_value_or_outside_the_list_fails_the_build(tmp_path, monkeypatch, fence):
+def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_path, monkeypatch, fence):
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
         build_page(tmp_path, fence)
+
+
+@pytest.mark.parametrize(
+    "values, path",
+    [
+        ("toolsets:\n", "toolsets"),
+        ("toolsets: {}\n", "toolsets"),
+        ("toolsets:\n  newrelic:\n", "toolsets.newrelic"),
+        ("modelList:\n", "modelList"),
+        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n    api_key: \"\"\n", "modelList.gpt.api_key"),
+        ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations"),
+        ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations"),
+    ],
+    ids=["toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]"],
+)
+def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` has no value"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 
 
 DATADOG = "toolsets:\n  datadog/general:\n    enabled: true\n    config:\n      api_key: \"{{ env.DD_API_KEY }}\"\n"
