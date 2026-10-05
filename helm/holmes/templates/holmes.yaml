@@ -46,12 +46,6 @@ spec:
         # alone does not refresh.
         checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
         {{- end }}
-        {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
-        # Roll this pod when the remediation MCP auth token rotates — the token
-        # is read from a Secret into env, so a content change alone would not
-        # restart anything.
-        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.authTokenChecksum" . }}
-        {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}

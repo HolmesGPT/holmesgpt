@@ -1,0 +1,208 @@
+{{- /*
+Creates the remediation MCP token Secret at deploy time instead of rendering
+it: a rendered random token differs on every clusterless render (ArgoCD,
+`helm template`) and would roll both pods on each sync. ArgoCD runs this as a
+PreSync hook. When it creates a token, it restarts the Deployments already
+reading the Secret so both sides switch together.
+*/ -}}
+{{- $k8s := .Values.mcpAddons.kubernetesRemediation }}
+{{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) }}
+{{- $name := printf "%s-k8s-remediation-mcp-auth-bootstrap" .Release.Name }}
+{{- $secretName := include "holmes.kubernetesRemediationMcp.authSecretName" . }}
+{{- $deployments := list (printf "%s-holmes" .Release.Name) (printf "%s-k8s-remediation-mcp-server" .Release.Name) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: mcp-server-auth-bootstrap
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- with (include "holmes.commonAnnotations" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: mcp-server-auth-bootstrap
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- with (include "holmes.commonAnnotations" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+rules:
+# create cannot be scoped by resourceNames.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: [{{ $secretName | quote }}]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  resourceNames: {{ toJson $deployments }}
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: mcp-server-auth-bootstrap
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- with (include "holmes.commonAnnotations" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: mcp-server-auth-bootstrap
+    app.kubernetes.io/part-of: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- with (include "holmes.commonAnnotations" .) }}
+    {{- . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mcp-server-auth-bootstrap
+        app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
+      {{- with (include "holmes.commonAnnotations" .) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      {{- with $k8s.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $k8s.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $k8s.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: bootstrap
+        # The server image already ships kubectl and python.
+        image: "{{ $k8s.registry }}/{{ $k8s.image }}"
+        imagePullPolicy: {{ $k8s.imagePullPolicy | default "IfNotPresent" }}
+        env:
+        - name: HOME
+          value: /tmp
+        - name: NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: SECRET_NAME
+          value: {{ $secretName | quote }}
+        - name: DEPLOYMENTS
+          value: {{ join " " $deployments | quote }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+          # Assign before testing: set -e ignores a failing $(...) inside [ ].
+          existing="$(kubectl get secret "$SECRET_NAME" -n "$NAMESPACE" --ignore-not-found -o name)"
+          if [ -n "$existing" ]; then
+            echo "Secret $SECRET_NAME exists; keeping its token"
+            exit 0
+          fi
+          # No app.kubernetes.io/instance label: ArgoCD label tracking would
+          # treat the Secret as part of the app and prune it.
+          python3 -c '
+          import json, os, secrets
+          print(json.dumps({
+              "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+              "metadata": {
+                  "name": os.environ["SECRET_NAME"],
+                  "namespace": os.environ["NAMESPACE"],
+                  "labels": {
+                      "app.kubernetes.io/component": "mcp-server-auth",
+                      "app.kubernetes.io/part-of": "holmes",
+                  },
+              },
+              "stringData": {"token": secrets.token_urlsafe(36)},
+          }))' > "$HOME/secret.json"
+          if ! out="$(kubectl create -f "$HOME/secret.json" 2>&1)"; then
+            case "$out" in
+              *AlreadyExists*) echo "Secret $SECRET_NAME was created concurrently; keeping it"; exit 0 ;;
+            esac
+            echo "$out" >&2
+            exit 1
+          fi
+          echo "Created Secret $SECRET_NAME"
+          # Only Deployments already reading this Secret need the new token now;
+          # the upcoming apply rolls the rest.
+          for d in $DEPLOYMENTS; do
+            refs="$(kubectl get deployment "$d" -n "$NAMESPACE" --ignore-not-found \
+              -o jsonpath='{.spec.template.spec.containers[*].env[*].valueFrom.secretKeyRef.name}')"
+            if printf '%s\n' $refs | grep -qx "$SECRET_NAME"; then
+              kubectl rollout restart deployment "$d" -n "$NAMESPACE"
+            fi
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          medium: Memory
+{{- end }}

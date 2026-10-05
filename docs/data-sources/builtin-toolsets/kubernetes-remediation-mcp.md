@@ -278,7 +278,30 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | **Locked-down mode** | Set `allowArbitraryKubectlCommands: false` to disable `run_kubectl_command` entirely |
 | **Scoped RBAC** | Least-privilege ClusterRole — no `cluster-admin`, no `secrets` |
 | **NetworkPolicy** | Ingress-only, locked to Holmes pods |
+| **Bearer-token auth** | Every HTTP request needs a token shared by Holmes and the server — see [Authentication token](#authentication-token) |
 | **Command timeout** | Commands are killed after a configurable timeout (default: 60s) |
+
+### Authentication token
+
+With `auth.enabled: true` (the default), a pre-install/pre-upgrade hook Job
+creates the Secret `<release>-k8s-remediation-mcp-token` with a random token
+the first time the chart is deployed, and both Holmes and the server read it.
+The token is never part of the rendered manifests, so `helm template` and
+ArgoCD renders are identical on every sync and do not restart Holmes. ArgoCD
+runs the hook as a `PreSync` hook. The Secret is not part of the Helm release,
+so `helm uninstall` leaves it in place and a reinstall reuses it.
+
+To rotate the token, delete the Secret and upgrade (or sync) again; the hook
+creates a new token and restarts both Deployments:
+
+```bash
+kubectl delete secret <release>-k8s-remediation-mcp-token -n <namespace>
+```
+
+To manage the token yourself instead, set
+`mcpAddons.kubernetesRemediation.auth.existingSecret` to a Secret holding it
+under the key `token`. The chart then runs no hook, and rotating that Secret
+does not restart the pods; restart both Deployments afterwards.
 
 ## Diagnostic-pod target policy
 
