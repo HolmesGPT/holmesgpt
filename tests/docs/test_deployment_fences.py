@@ -253,8 +253,9 @@ def test_a_fence_in_a_snippet_file_fails_the_build_naming_the_file(tmp_path, mon
     [
         '--8<-- "data-sources/builtin-toolsets/kafka.md"',
         "--8<--\nsnippets/toolset_refresh_warning.md\n--8<--",
+        '--8<-- "snippets/toolsets_that_provide_loging.md"',
     ],
-    ids=["outside-snippets", "block"],
+    ids=["outside-snippets", "block", "missing-snippet"],
 )
 def test_an_include_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, include):
     monkeypatch.chdir(REPO)

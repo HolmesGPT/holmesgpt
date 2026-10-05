@@ -100,8 +100,9 @@ that is written has a value.
 
 Every custom fence is in a page's own source: one in a file under `docs/snippets/` fails the build
 (`on_config`). The three this module expands are expanded before the includes, so in a snippet one
-would render as a plain code block. An include, on a page or in a snippet, names a file under
-`docs/snippets/`, on a line of its own, unindented or, in a `cli` field, indented by two spaces:
+would render as a plain code block. An include, on a page or in a snippet, names a file that
+exists under `docs/snippets/`, on a line of its own, unindented or, in a `cli` field, indented by
+two spaces:
 
     --8<-- "snippets/<file>.md"
 
@@ -255,7 +256,9 @@ CLOSING_LINE = "```"
 # A line pymdownx.snippets reads as an include, in any form ...
 INCLUDE_RE = re.compile(r"^[ \t>]*;*-+8<-+")
 # ... and the form pages write.
-SUPPORTED_INCLUDE_RE = re.compile(r'^(?:  )?--8<-- "snippets/[a-z0-9_]+\.md"$')
+SUPPORTED_INCLUDE_RE = re.compile(r'^(?:  )?--8<-- "(?P<file>snippets/[a-z0-9_]+\.md)"$')
+# The directory an include's path is relative to: pymdownx.snippets' base_path in mkdocs.yml.
+SNIPPETS_BASE = Path(__file__).resolve().parent
 # The line of a deployment fence body that ends the values and starts its fields.
 FIELDS_SEPARATOR = "---"
 # A key of a secret, as one argument of `kubectl create secret generic`.
@@ -709,9 +712,11 @@ def _unsupported(page: str, line: int, text: str, of: str = "a custom fence") ->
 
 def _check_includes(lines: List[str], page: str, offset: int) -> None:
     """Fail the build on an include in `lines`, which start `offset` lines into the page's
-    source, in a form no page writes."""
+    source, in a form no page writes, or of a file that does not exist (pymdownx.snippets
+    skips one without an error)."""
     for i, line in enumerate(lines):
-        if INCLUDE_RE.match(line) and not SUPPORTED_INCLUDE_RE.match(line):
+        include = SUPPORTED_INCLUDE_RE.match(line)
+        if INCLUDE_RE.match(line) and not (include and (SNIPPETS_BASE / include["file"]).is_file()):
             raise _unsupported(page, offset + i + 1, line, "an include")
 
 
