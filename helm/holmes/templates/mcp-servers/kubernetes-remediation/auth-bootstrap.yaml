@@ -2,8 +2,8 @@
 Creates the remediation MCP token Secret at deploy time instead of rendering
 it: a rendered random token differs on every clusterless render (ArgoCD,
 `helm template`) and would roll both pods on each sync. ArgoCD runs this as a
-PreSync hook. When it creates a token, it restarts the Deployments already
-reading the Secret so both sides switch together.
+PreSync hook. Every run also restarts any Deployment reading the Secret whose
+pods predate it, so an interrupted rotation converges on the next run.
 */ -}}
 {{- $k8s := .Values.mcpAddons.kubernetesRemediation }}
 {{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) }}
@@ -53,6 +53,9 @@ rules:
   resources: ["secrets"]
   resourceNames: [{{ $secretName | quote }}]
   verbs: ["get"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["list"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   resourceNames: {{ toJson $deployments }}
@@ -141,49 +144,71 @@ spec:
           value: {{ $secretName | quote }}
         - name: DEPLOYMENTS
           value: {{ join " " $deployments | quote }}
-        command: ["/bin/sh", "-c"]
+        command: ["python3", "-c"]
         args:
         - |
-          set -eu
-          # Assign before testing: set -e ignores a failing $(...) inside [ ].
-          existing="$(kubectl get secret "$SECRET_NAME" -n "$NAMESPACE" --ignore-not-found -o name)"
-          if [ -n "$existing" ]; then
-            echo "Secret $SECRET_NAME exists; keeping its token"
-            exit 0
-          fi
-          # No app.kubernetes.io/instance label: ArgoCD label tracking would
-          # treat the Secret as part of the app and prune it.
-          python3 -c '
-          import json, os, secrets
-          print(json.dumps({
-              "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-              "metadata": {
-                  "name": os.environ["SECRET_NAME"],
-                  "namespace": os.environ["NAMESPACE"],
-                  "labels": {
-                      "app.kubernetes.io/component": "mcp-server-auth",
-                      "app.kubernetes.io/part-of": "holmes",
+          import datetime, json, os, secrets, subprocess, sys
+
+          NS, NAME = os.environ["NAMESPACE"], os.environ["SECRET_NAME"]
+
+          def kubectl(*args, stdin=None):
+              p = subprocess.run(["kubectl", *args, "-n", NS], input=stdin, capture_output=True, text=True)
+              if p.returncode != 0 and not (stdin and "AlreadyExists" in p.stderr):
+                  sys.exit(f"kubectl {args[0]} {args[1]} failed: {p.stderr.strip()}")
+              return p
+
+          def get(*args):
+              out = kubectl("get", *args, "--ignore-not-found", "-o", "json").stdout
+              return json.loads(out) if out.strip() else None
+
+          def ts(value):
+              return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+          secret = get("secret", NAME)
+          if secret is None:
+              # No app.kubernetes.io/instance label: ArgoCD label tracking would
+              # treat the Secret as part of the app and prune it.
+              manifest = {
+                  "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                  "metadata": {
+                      "name": NAME,
+                      "namespace": NS,
+                      "labels": {"app.kubernetes.io/component": "mcp-server-auth", "app.kubernetes.io/part-of": "holmes"},
                   },
-              },
-              "stringData": {"token": secrets.token_urlsafe(36)},
-          }))' > "$HOME/secret.json"
-          if ! out="$(kubectl create -f "$HOME/secret.json" 2>&1)"; then
-            case "$out" in
-              *AlreadyExists*) echo "Secret $SECRET_NAME was created concurrently; keeping it"; exit 0 ;;
-            esac
-            echo "$out" >&2
-            exit 1
-          fi
-          echo "Created Secret $SECRET_NAME"
-          # Only Deployments already reading this Secret need the new token now;
-          # the upcoming apply rolls the rest.
-          for d in $DEPLOYMENTS; do
-            refs="$(kubectl get deployment "$d" -n "$NAMESPACE" --ignore-not-found \
-              -o jsonpath='{.spec.template.spec.containers[*].env[*].valueFrom.secretKeyRef.name}')"
-            if printf '%s\n' $refs | grep -qx "$SECRET_NAME"; then
-              kubectl rollout restart deployment "$d" -n "$NAMESPACE"
-            fi
-          done
+                  "stringData": {"token": secrets.token_urlsafe(36)},
+              }
+              created = kubectl("create", "-f", "-", stdin=json.dumps(manifest)).returncode == 0
+              print(f"Created Secret {NAME}" if created else f"Secret {NAME} was created concurrently; keeping it")
+              secret = get("secret", NAME)
+              if secret is None:
+                  sys.exit(f"Secret {NAME} disappeared right after creation")
+          else:
+              print(f"Secret {NAME} exists; keeping its token")
+          secret_created = ts(secret["metadata"]["creationTimestamp"])
+
+          # Env from a Secret is read at container start, so pods created before
+          # the Secret hold the previous token. A restart already issued after
+          # the Secret was created counts as done, so a stuck rollout is not
+          # restarted again on every sync.
+          for name in os.environ["DEPLOYMENTS"].split():
+              deployment = get("deployment", name)
+              if deployment is None:
+                  continue
+              template = deployment["spec"]["template"]
+              refs = {
+                  (env.get("valueFrom") or {}).get("secretKeyRef", {}).get("name")
+                  for c in template["spec"]["containers"]
+                  for env in c.get("env") or []
+              }
+              if NAME not in refs:
+                  continue
+              restarted_at = (template["metadata"].get("annotations") or {}).get("kubectl.kubernetes.io/restartedAt")
+              if restarted_at and ts(restarted_at) >= secret_created:
+                  continue
+              selector = ",".join(f"{k}={v}" for k, v in deployment["spec"]["selector"]["matchLabels"].items())
+              pods = (get("pods", "-l", selector) or {}).get("items", [])
+              if any(ts(p["metadata"]["creationTimestamp"]) < secret_created for p in pods):
+                  print(kubectl("rollout", "restart", "deployment", name).stdout.strip())
         resources:
           requests:
             cpu: 10m

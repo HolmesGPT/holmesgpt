@@ -292,7 +292,9 @@ runs the hook as a `PreSync` hook. The Secret is not part of the Helm release,
 so `helm uninstall` leaves it in place and a reinstall reuses it.
 
 To rotate the token, delete the Secret and upgrade (or sync) again; the hook
-creates a new token and restarts both Deployments:
+creates a new token and restarts both Deployments. Every run also restarts any
+Deployment whose pods predate the Secret, so an interrupted rotation finishes
+on the next upgrade or sync:
 
 ```bash
 kubectl delete secret <release>-k8s-remediation-mcp-token -n <namespace>
