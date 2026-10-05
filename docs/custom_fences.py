@@ -825,7 +825,7 @@ def _custom_fences(lines: List[str], page: str, offset: int) -> Iterator[Tuple[i
 def _unsupported(page: str, line: int, text: str, of: str = "a custom fence") -> TabFenceError:
     return TabFenceError(
         f"{page}:{line}: unsupported form of {of}: "
-        f"{text.strip()!r}. See the docstring of docs/custom_fences.py "
+        f"{text!r}. See the docstring of docs/custom_fences.py "
         "for the supported forms"
     )
 

@@ -297,7 +297,7 @@ def test_a_fence_in_a_snippet_file_fails_the_build_naming_the_file(tmp_path, mon
 )
 def test_an_include_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, include):
     monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of an include: '--8<--"):
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of an include: ' *--8<--"):
         build_page(tmp_path, f"{include}\n")
 
 
