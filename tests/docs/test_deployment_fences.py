@@ -11,7 +11,7 @@ from mkdocs.config import load_config
 from pydantic import BaseModel
 
 from docs import custom_fences, fence_checks
-from docs.custom_fences import FENCE_OPENING_RE, TabFenceError
+from docs.custom_fences import SUPPORTED_OPENING_RE, TabFenceError
 from holmes.plugins.toolsets.kafka import KafkaToolset
 
 REPO = Path(__file__).resolve().parents[2]
@@ -20,7 +20,7 @@ DOCS = REPO / "docs"
 PAGES_WITH_FENCES = sorted(
     path
     for path in DOCS.rglob("*.md")
-    if any(FENCE_OPENING_RE.match(line) for line in path.read_text().split("\n"))
+    if any(SUPPORTED_OPENING_RE.match(line) for line in path.read_text().split("\n"))
 )
 
 
@@ -144,12 +144,15 @@ def build_page(tmp_path, text):
         "```yaml-helm-values {secret-qualifier=bearer}",
         "```Robusta-Region",
         "```robusta-region {.yaml}",
+        "```yaml-toolset-confg",
+        "```Yaml",
+        "~~~yaml",
     ],
-    ids=["brace", "case", "helm-values-qualifier", "region-case", "region-attribute"],
+    ids=["brace", "case", "helm-values-qualifier", "region-case", "region-attribute", "name", "language-case", "tilde"],
 )
 def test_a_fence_opening_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, opening):
     monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: unsupported form of a custom fence: {re.escape(repr(opening))}"):
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: unsupported form of a fence: {re.escape(repr(opening))}"):
         build_page(tmp_path, f"{opening}\nmodelList:\n  gpt:\n    api_key: \"{{{{ env.OPENAI_API_KEY }}}}\"\n```\n")
 
 

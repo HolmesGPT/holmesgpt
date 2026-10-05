@@ -29,12 +29,13 @@ name, and closed by the first line of three backticks:
 
 A robusta-region fence opens at the start of a line or indented by four spaces, as
 ```` ```robusta-region ```` or ```` ```robusta-region {lang=<language>} ````. A `multi-instance` body
-has `toolset`, `name` and `config`. A fence opening that names a custom fence in any other form
-(another case, superfences' `{.<name>}`, other attributes) fails the build with a message naming
-the page and the line, and so do a body that is not valid YAML, a value that is not the chart's,
-and a page whose rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`). This
-module reads only files and imports nothing from `holmes`; the checks that need Holmes, of each
-`toolsets` and `mcp_servers` block, are the `docs/fence_checks.py` hook's.
+has `toolset`, `name` and `config`. Every other fence is a code block, opened and closed by three
+backticks at any indent, its opening naming one of `CODE_LANGUAGES` or none. Any other fence line
+(another info string or case, superfences' `{.<name>}`, `~~~`, more backticks) fails the build with
+a message naming the page and the line, and so do a body that is not valid YAML, a value that is
+not the chart's, and a page whose rendered HTML shows a fence's markdown instead of its tabs
+(`on_post_page`). This module reads only files and imports nothing from `holmes`; the checks that
+need Holmes, of each `toolsets` and `mcp_servers` block, are the `docs/fence_checks.py` hook's.
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
@@ -241,13 +242,26 @@ ROBUSTA_REGION_FENCE = "robusta-region"
 MULTI_INSTANCE_PAGE = "data-sources/multi-instance-toolsets.md"
 
 ENV_REFERENCE_RE = re.compile(r"\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
-# A line that opens a fence naming a custom fence, in any form ...
-FENCE_OPENING_RE = re.compile(
-    r"^[ \t>]*(?:`{3,}|~{3,}).*?"
-    rf"(?:{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE}|{MULTI_INSTANCE_FENCE}|{ROBUSTA_REGION_FENCE})",
-    re.IGNORECASE,
+# A line that opens or closes a fence, in any form ...
+FENCE_LINE_RE = re.compile(r"^[ \t>]*(?:`{3,}|~{3,})")
+# ... the languages of the code blocks pages write ...
+CODE_LANGUAGES = (
+    "bash",
+    "dockerfile",
+    "javascript",
+    "json",
+    "markdown",
+    "nginx",
+    "powershell",
+    "promql",
+    "python",
+    "sql",
+    "text",
+    "yaml",
 )
-# ... and the forms pages write. Only yaml-toolset-config fences take a secret qualifier.
+CODE_FENCE_RE = re.compile(rf"^ *```(?:{'|'.join(CODE_LANGUAGES)})?$")
+# ... and the custom fences, in the forms pages write. Only yaml-toolset-config fences take a
+# secret qualifier.
 SUPPORTED_OPENING_RE = re.compile(
     rf"^```(?P<multi>{MULTI_INSTANCE_FENCE})$"
     rf"|^```(?P<deployment>{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE})(?: \{{(?P<option>reuse"
@@ -777,21 +791,18 @@ def _deployment_section(opening, body: str, page: str):
 
 def _custom_fences(lines: List[str], page: str, offset: int) -> Iterator[Tuple[int, int, re.Match, str]]:
     """(index of the opening line, index of the closing line, the opening, the body)
-    of each custom fence in `lines`, which start `offset` lines into the page's
-    source; a fence in a form no page writes fails the build."""
+    of each fence this module expands in `lines`, which start `offset` lines into the
+    page's source; a fence with no closing line fails the build."""
     i = 0
     while i < len(lines):
-        if not FENCE_OPENING_RE.match(lines[i]):
-            i += 1
-            continue
         opening = SUPPORTED_OPENING_RE.match(lines[i])
-        if opening and opening["region"]:
+        if not opening or opening["region"]:
             i += 1
             continue
         if not page:
             raise TabFenceError(f"a custom fence needs the page's path, {NO_PAGE}")
         end = next((j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None)
-        if not opening or not end:
+        if not end:
             raise _unsupported(page, offset + i + 1, lines[i])
         yield i, end, opening, "\n".join(lines[i + 1 : end]).strip("\n")
         i = end + 1
@@ -803,6 +814,14 @@ def _unsupported(page: str, line: int, text: str, of: str = "a custom fence") ->
         f"{text.strip()!r}. See the docstring of docs/custom_fences.py "
         "for the supported forms"
     )
+
+
+def _check_fence_lines(lines: List[str], page: str, offset: int) -> None:
+    """Fail the build on a line of `lines`, which start `offset` lines into the page's
+    source, that opens or closes a fence in a form no page writes."""
+    for i, line in enumerate(lines):
+        if FENCE_LINE_RE.match(line) and not (CODE_FENCE_RE.match(line) or SUPPORTED_OPENING_RE.match(line)):
+            raise _unsupported(page, offset + i + 1, line, "a fence")
 
 
 def _check_includes(lines: List[str], page: str, offset: int) -> None:
@@ -876,6 +895,7 @@ class TabFencePreprocessor(Preprocessor):
         return _deployment_section(opening, body, self.page)
 
     def run(self, lines):
+        _check_fence_lines(lines, self.page, self.offset)
         _check_includes(lines, self.page, self.offset)
         out: list = []
         start = 0
@@ -913,18 +933,19 @@ def makeExtension(**kwargs):
 
 
 def on_config(config, **kwargs):
-    """MkDocs hook: fail the build on a custom fence, or an include in a form no page
-    writes, in a snippet file. A fence is expanded before the includes, so only a
-    page's own fences render."""
+    """MkDocs hook: fail the build on a custom fence in a snippet file, or a fence line or
+    an include in a form no page writes. A custom fence is expanded before the includes,
+    so only a page's own fences render."""
     docs = Path(config["docs_dir"])
     for path in sorted((docs / "snippets").rglob("*")):
         if path.is_file():
             snippet = path.relative_to(docs).as_posix()
             lines = path.read_text().split("\n")
-            _check_includes(lines, snippet, 0)
             for i, line in enumerate(lines):
-                if FENCE_OPENING_RE.match(line):
+                if SUPPORTED_OPENING_RE.match(line):
                     raise _unsupported(snippet, i + 1, line)
+            _check_fence_lines(lines, snippet, 0)
+            _check_includes(lines, snippet, 0)
     return config
 
 
