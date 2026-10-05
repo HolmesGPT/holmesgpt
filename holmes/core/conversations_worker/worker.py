@@ -203,6 +203,12 @@ class ConversationRuntime:
         logging.info("Stopping ConversationRuntime...")
         self._running = False
         self._realtime_verify_stop.set()
+        # Stop claiming before retiring: a retired turn frees its slot and wakes
+        # its pool, which would otherwise claim a row the sweep never sees.
+        try:
+            self.executors.quiesce()
+        except Exception:
+            logging.exception("Failed to quiesce executors", exc_info=True)
         # Retire whatever we're mid-turn on before tearing the pools down. Must
         # happen while the rows still carry our assignee and 'running' status —
         # both RPCs guard on that. Flipping the status also makes any straggler

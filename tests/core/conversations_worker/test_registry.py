@@ -342,6 +342,23 @@ def test_stop_closes_every_pool():
         pool.shutdown.assert_called_once_with(wait=False)
 
 
+def test_quiesce_stops_claims_but_keeps_in_flight_work_visible():
+    reg = _registry()
+    ex = _fake_executor(reg, "manual")
+    task = _task("c1")
+    ex.track(task)
+    reg.quiesce()
+    assert reg._started is False
+    assert not ex.running
+    ex.wake()
+    ex.claim_and_dispatch()
+    reg.dal.claim_n_pending_conversations.assert_not_called()
+    assert [t.conversation_id for t in reg.active_tasks()] == ["c1"]
+    assert reg.get_or_create("auto") is None
+    reg.stop()
+    assert reg.names() == []
+
+
 def test_stop_does_not_deadlock_with_a_claim_loop_in_dispatch():
     """A claim loop may be inside its own dispatch while the registry stops.
     Shutting the pool is non-blocking and the join is bounded, so stop()

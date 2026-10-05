@@ -82,19 +82,30 @@ class ExecutorRegistry:
         )
         self._discovery_thread.start()
 
-    def stop(self) -> None:
-        self._started = False
-        self._discovery_event.set()
+    def quiesce(self) -> None:
+        """Stop discovery and every pool's claiming, without blocking and
+        without forgetting in-flight work: ``active_tasks()`` still lists the
+        turns running on the pools, so the runtime's shutdown sweep can retire
+        them. Must run before that sweep: retiring a turn frees its slot, which
+        wakes its pool, which would otherwise claim a fresh row that nothing
+        retires."""
         with self._lock:
+            self._started = False
             executors = list(self._executors.values())
-            self._executors = {}
-        # Non-blocking shutdowns first, then the joins: a claim loop blocked in
-        # its own dispatch must see the pool close before it is joined.
+        self._discovery_event.set()
         for ex in executors:
             try:
                 ex.shutdown()
             except Exception:
                 logging.debug("Executor %r shutdown failed", ex.name, exc_info=True)
+
+    def stop(self) -> None:
+        self.quiesce()
+        with self._lock:
+            executors = list(self._executors.values())
+            self._executors = {}
+        # The pools are already closed (quiesce); a claim loop blocked in its
+        # own dispatch sees that before it is joined here.
         for ex in executors:
             ex.join()
         if self._discovery_thread is not None:

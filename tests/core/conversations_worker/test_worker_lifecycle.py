@@ -172,6 +172,40 @@ def test_stop_retires_in_flight_conversations_and_stops_executors():
     w._tool_call_worker.stop.assert_called_once()
 
 
+def test_stop_claims_nothing_after_the_sweep_frees_a_slot():
+    """Retiring an in-flight turn frees its slot and wakes the pool. With the
+    pool still claiming, that wake would claim a row the sweep never sees,
+    leaving it 'running' with a dead assignee. stop() quiesces first."""
+    w = _bare_runtime()
+    ex = w.executors.get_or_create("manual")
+    assert ex is not None and ex.running
+    task = _task("c1")
+    ex.track(task)
+    w.dal.claim_n_pending_conversations.return_value = [
+        {
+            "conversation_id": "c-late",
+            "account_id": "a1",
+            "cluster_id": "cl1",
+            "request_sequence": 1,
+            "executor": "manual",
+        }
+    ]
+
+    def turn_ends_during_sweep(**kwargs):
+        # The retired turn unwinds on its own thread: slot freed, pool woken.
+        ex.untrack(task)
+        ex.wake()
+        return 1
+
+    w.dal.post_conversation_events.side_effect = turn_ends_during_sweep
+    w.stop()
+    w.dal.claim_n_pending_conversations.assert_not_called()
+    statuses = [
+        c.kwargs["status"] for c in w.dal.update_conversation_status.call_args_list
+    ]
+    assert statuses == ["timeout"]
+
+
 def test_stop_survives_a_failing_retirement():
     w = _bare_runtime()
     _active(w, "c1", 1)
