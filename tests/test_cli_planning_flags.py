@@ -1,8 +1,11 @@
 """ROB-574: `holmes ask` runs in fast mode by default; --extended-planning opts in."""
 
+from unittest.mock import MagicMock, patch
+
 import typer
 from typer.testing import CliRunner
 
+from holmes.core.prompt import todowrite_overrides
 from holmes.main import app
 
 runner = CliRunner()
@@ -38,3 +41,45 @@ def test_ask_declares_the_planning_flags():
     fast = _ask_option("--fast-mode")
     assert "Deprecated" in fast.help
     assert "--extended-planning" in fast.help
+
+
+class _Captured(Exception):
+    """Raised from the patched prompt builder so `ask` stops right after the
+    CLI has forwarded its planning flags, before any LLM call."""
+
+
+def _run_ask(*flags: str):
+    """Invoke `holmes ask` for real up to build_initial_ask_messages and return the
+    prompt_component_overrides the CLI handed it."""
+    seen: dict = {}
+
+    def capture(*args, **kwargs):
+        seen["overrides"] = kwargs.get("prompt_component_overrides")
+        raise _Captured()
+
+    config = MagicMock()
+    config.model = "test-model"
+    with (
+        patch("holmes.main.Config.load_from_file", return_value=config),
+        patch("holmes.main.enable_disk_token_store"),
+        patch("holmes.main.build_initial_ask_messages", side_effect=capture),
+    ):
+        result = runner.invoke(app, ["ask", *flags, "what is wrong?"])
+    assert isinstance(result.exception, _Captured), result.output
+    return seen["overrides"]
+
+
+def test_ask_default_forwards_no_overrides_so_holmes_fast_mode_applies():
+    assert _run_ask() is None
+
+
+def test_ask_extended_planning_forwards_explicit_todowrite_opt_in():
+    assert _run_ask("--extended-planning") == todowrite_overrides(True)
+
+
+def test_ask_enable_todos_alias_forwards_the_same_opt_in():
+    assert _run_ask("--enable-todos") == todowrite_overrides(True)
+
+
+def test_ask_deprecated_fast_mode_forwards_no_overrides():
+    assert _run_ask("--fast-mode") is None
