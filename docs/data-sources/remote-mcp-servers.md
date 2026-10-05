@@ -414,7 +414,7 @@ mcp_servers:
 
 In server mode, Holmes re-checks every toolset every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS` (default 300), and after 30, 60 and 120 seconds while an MCP server is failing. Each re-check of an MCP server opens a session, lists its tools and runs its health check tool, if it has one. When many Holmes instances share one rate-limited credential, these checks alone can exhaust the limit.
 
-Set `status_refresh_interval_seconds` on the server to re-check it at most once per that many seconds. Between checks it keeps the status and tools of its last check, and a failed server stays failed until its next check instead of being retried sooner. Holmes still checks it at startup and on config reload.
+Set `status_refresh_interval_seconds` on the server to have these periodic re-checks run at most once per that many seconds. Between checks it keeps the status and tools of its last check, and a failed server stays failed until its next check instead of being retried sooner. Holmes still checks it whenever it builds its toolsets from scratch, such as at startup and on config reload.
 
 ```yaml
 mcp_servers:
