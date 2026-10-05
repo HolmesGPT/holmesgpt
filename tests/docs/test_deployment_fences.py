@@ -345,12 +345,25 @@ def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path
         ),
         ({"tls": {"enabled": True}}, r"helm template fails: .*tls\.enabled requires tls\.secretName"),
         (
+            # Only strict mode refuses a field the schema does not declare.
+            {"additionalVolumeMounts": [{"name": "x", "mountPath": "/x", "mountPth": "/x"}]},
+            r"the rendered Deployment holmes-holmes does not match .*: Additional properties are not allowed \('mountPth' was unexpected\)",
+        ),
+        (
+            # The addon's pod template carries a checksum of its config, which hashes the key too.
+            {"mcpAddons": {"github": {"enabled": True, "auth": {"secretName": "s"}, "config": {"customCACert": {"enable": True}}}}},
+            r"`mcpAddons\.github\.config\.customCACert\.enable`: the chart renders the same",
+        ),
+        (
             # The addon's Secret holds a token the chart generates at random on each render.
             {"mcpAddons": {"kubernetesRemediation": {"enabled": True, "config": {"dcgmEnabeld": True}}}},
             r"`mcpAddons\.kubernetesRemediation\.config\.dcgmEnabeld`: the chart renders the same",
         ),
     ],
-    ids=["unread-key", "string-for-a-bool", "kubernetes-schema", "helm-refuses", "unread-key-beside-a-random-token"],
+    ids=[
+        "unread-key", "string-for-a-bool", "kubernetes-schema", "helm-refuses", "undeclared-field",
+        "unread-key-in-a-checksum", "unread-key-beside-a-random-token",
+    ],
 )
 def test_a_value_the_chart_or_kubernetes_refuses_is_an_error(values, error):
     errors = fence_checks.check_fence(values, {}, CHART)
