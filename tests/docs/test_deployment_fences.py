@@ -196,6 +196,28 @@ def test_a_value_of_another_type_than_its_chart_default_fails_the_build(tmp_path
         build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
 
 
+@pytest.mark.parametrize(
+    "values, path",
+    [
+        ("additionalEnvVars:\n  - nmae: TIMEOUT_SECONDS\n    value: \"30\"\n", "additionalEnvVars"),
+        ("additionalEnvVars:\n  - TIMEOUT_SECONDS=30\n", "additionalEnvVars"),
+        ("additionalVolumes:\n  - name: certs\n    hostPath:\n      pth: /etc/certs\n      type: Directory\n", "additionalVolumes"),
+        ("customClusterRoleRules:\n  - apiGroups: [\"\"]\n    resources: [pods]\n    verb: [get]\n", "customClusterRoleRules"),
+    ],
+    ids=["env-var-key", "env-var-string", "volume-nested-key", "cluster-role-rule-key"],
+)
+def test_a_chart_list_entry_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, values, path):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` holds an entry in a form no page writes"):
+        build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
+
+
+def test_a_chart_list_no_page_writes_fails_the_build(tmp_path, monkeypatch):
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: `serviceAccount\.imagePullSecrets` is a list no page writes"):
+        build_page(tmp_path, "```yaml-helm-values\nserviceAccount:\n  imagePullSecrets:\n    - name: registry\n```\n")
+
+
 def test_the_cli_tab_keys_are_the_chart_values_that_are_holmes_config(tmp_path, monkeypatch):
     monkeypatch.chdir(REPO)
     monkeypatch.setattr(custom_fences, "CLI_CONFIG_KEYS", frozenset({"toolsets"}))

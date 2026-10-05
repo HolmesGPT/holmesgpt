@@ -57,6 +57,8 @@ The values are written as the page shows them, comments included. Every key path
 one of the chart's defaults in `helm/holmes/values.yaml`, and its value has the default's type,
 except inside the maps of `FREE_FORM_VALUES`, whose keys are the reader's, and inside the blocks
 `toolsets` and `mcp_servers` map each name to, which `docs/fence_checks.py` checks against Holmes.
+A list's entries are in the form `LIST_ENTRIES` declares for it, and a list it declares none for
+fails the build.
 No value at any key path is empty (null, `{}`, `[]` or `""`), and each block is a mapping. The
 top-level keys that are also Holmes config (`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
 
@@ -120,12 +122,12 @@ import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Dict, Iterator, List, NamedTuple, Optional, Tuple
+from typing import Annotated, Dict, Iterator, List, NamedTuple, Optional, Tuple, Union
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
 from markdown.preprocessors import Preprocessor
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
 
 ROBUSTA_REGIONS = (("US", ""), ("EU", "eu"), ("AP", "ap"))
 ROBUSTA_DOMAIN_RE = re.compile(r"\b(api|platform|sp)\.robusta\.dev\b")
@@ -273,19 +275,6 @@ CHART_KEYS = frozenset(CHART_DEFAULTS)
 # docs/fence_checks.py hook fails the build when this is not the `holmes.config.Config`
 # fields that are CHART_KEYS.
 CLI_CONFIG_KEYS = frozenset({"toolsets", "mcp_servers"})
-# The chart values whose default is an empty map, which pages fill with keys of their own.
-FREE_FORM_VALUES = frozenset(
-    {
-        ("modelList",),
-        ("commonLabels",),
-        ("serviceAccount", "annotations"),
-        ("mcpAddons", "aws", "multiAccount", "profiles"),
-        ("mcpAddons", "aws", "serviceAccount", "annotations"),
-        ("mcpAddons", "azure", "serviceAccount", "annotations"),
-        ("mcpAddons", "gcp", "serviceAccount", "annotations"),
-        ("mcpAddons", "kubernetes", "config", "oauth"),
-    }
-)
 # The chart-specific names a Helm tab can state, and the lines that state them.
 DEPLOYMENT_VALUES = {
     ("service-account",): ". Use it as `<service-account>` on this page.",
@@ -366,9 +355,9 @@ def _is_empty(value) -> bool:
 def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ()) -> Optional[str]:
     """Why `values`, the mapping at `path`, are not the chart's: the first key path whose
     value is empty, that the chart's `defaults` lack, or whose value has a type other than
-    the default's. `defaults` is None inside a map of FREE_FORM_VALUES, whose keys are the
-    reader's. A list has no key paths, and the toolset blocks, which the hook checks, are
-    each a mapping."""
+    the default's, or a list whose entries are not in its LIST_ENTRIES form. `defaults` is
+    None inside a map of FREE_FORM_VALUES, whose keys are the reader's. The toolset blocks,
+    which the hook checks, are each a mapping."""
     for key, value in values.items():
         here = path + (key,)
         name = ".".join(map(str, here))
@@ -388,8 +377,20 @@ def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ())
         elif isinstance(value, dict):
             inner = None if defaults is None or here in FREE_FORM_VALUES else defaults[key]
             error = _chart_value_error(value, inner, here)
+        elif isinstance(value, list):
+            error = _list_entries_error(value, here, name)
         if error:
             return error
+    return None
+
+
+def _list_entries_error(entries: list, path: tuple, name: str) -> Optional[str]:
+    if path not in LIST_ENTRIES:
+        return f"`{name}` is a list no page writes (LIST_ENTRIES in docs/custom_fences.py lists those pages write)"
+    try:
+        TypeAdapter(List[LIST_ENTRIES[path]], config=ConfigDict(strict=True)).validate_python(entries)
+    except ValidationError as e:
+        return f"`{name}` holds an entry in a form no page writes: {e}"
     return None
 
 
@@ -479,6 +480,74 @@ class NamedSecret(Form):
     keys: SecretKeys
 
 
+# The chart values whose default is an empty map, which pages fill with keys of their own.
+FREE_FORM_VALUES = frozenset(
+    {
+        ("modelList",),
+        ("commonLabels",),
+        ("serviceAccount", "annotations"),
+        ("mcpAddons", "aws", "multiAccount", "profiles"),
+        ("mcpAddons", "aws", "serviceAccount", "annotations"),
+        ("mcpAddons", "azure", "serviceAccount", "annotations"),
+        ("mcpAddons", "gcp", "serviceAccount", "annotations"),
+        ("mcpAddons", "kubernetes", "config", "oauth"),
+    }
+)
+
+
+class EnvVar(Form):
+    name: Text
+    value: Text
+
+
+class SecretItem(Form):
+    key: Text
+    path: Text
+
+
+class SecretVolumeSource(Form):
+    secretName: Text
+    items: Optional[Annotated[List[SecretItem], Field(min_length=1)]] = None
+
+
+class SecretVolume(Form):
+    name: Text
+    secret: SecretVolumeSource
+
+
+class HostPath(Form):
+    path: Text
+    type: Text
+
+
+class HostPathVolume(Form):
+    name: Text
+    hostPath: HostPath
+
+
+class VolumeMount(Form):
+    name: Text
+    mountPath: Text
+    readOnly: bool
+
+
+class ClusterRoleRule(Form):
+    # "" is the core API group.
+    apiGroups: Annotated[List[str], Field(min_length=1)]
+    resources: Annotated[List[Text], Field(min_length=1)]
+    verbs: Annotated[List[Text], Field(min_length=1)]
+
+
+# The chart values that are lists, and the form of each entry pages write in them.
+LIST_ENTRIES = {
+    ("additionalEnvVars",): EnvVar,
+    ("additionalVolumes",): Union[SecretVolume, HostPathVolume],
+    ("additionalVolumeMounts",): VolumeMount,
+    ("customClusterRoleRules",): ClusterRoleRule,
+    ("mcpAddons", "kubernetes", "config", "extraArgs"): Text,
+}
+
+
 class Fields(Form):
     """The fields part of a deployment fence body: the fields the docstring lists
     for the fence."""
@@ -547,11 +616,7 @@ def _environment_keys(values_text: str, values: dict, given: dict) -> dict:
     reference outside a comment and set in no `additionalEnvVars` entry, in the order
     the values first reference them, then the keys `given` adds; a key `given` names
     takes its value from there, any other key the placeholder value."""
-    plain = {
-        entry.get("name")
-        for entry in values.get("additionalEnvVars") or []
-        if isinstance(entry, dict)
-    }
+    plain = {entry["name"] for entry in values.get("additionalEnvVars", [])}
     code = "\n".join(
         line for line in values_text.split("\n") if not line.lstrip().startswith("#")
     )
@@ -610,13 +675,7 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     elif opening["option"]:
         return None
     environment = {key: "value" for key in keys}
-    environment.update(
-        {
-            entry["name"]: str(entry.get("value", ""))
-            for entry in values.get("additionalEnvVars", [])
-            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
-        }
-    )
+    environment.update({entry["name"]: entry["value"] for entry in values.get("additionalEnvVars", [])})
     return DeploymentBody(values_text, values, fields, secret, keys, environment)
 
 
