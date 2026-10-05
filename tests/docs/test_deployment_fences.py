@@ -301,6 +301,25 @@ def test_an_include_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypat
         build_page(tmp_path, f"{include}\n")
 
 
+REFRESH_WARNING = '--8<-- "snippets/toolset_refresh_warning.md"'
+
+
+@pytest.mark.parametrize(
+    "block, line",
+    [
+        (f"```markdown\n{REFRESH_WARNING}\n```\n", 4),
+        (f"```robusta-region\n{REFRESH_WARNING}\n```\n", 4),
+        (f"```yaml-toolset-config\ntoolsets:\n  kubernetes/core:\n    enabled: true\n---\ncli: |\n  ```bash\n  {REFRESH_WARNING}\n  ```\n```\n", 10),
+    ],
+    ids=["code-block", "robusta-region", "code-block-in-a-cli-field"],
+)
+def test_an_include_inside_a_block_fails_the_build(tmp_path, monkeypatch, block, line):
+    """pymdownx.snippets would expand it inside the block."""
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: unsupported form of an include: ' *--8<--"):
+        build_page(tmp_path, block)
+
+
 def test_an_include_in_a_snippet_file_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch):
     monkeypatch.chdir(REPO)
     docs = tmp_path / "docs"

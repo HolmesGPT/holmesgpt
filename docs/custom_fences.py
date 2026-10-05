@@ -105,8 +105,8 @@ that is written has a value.
 Every custom fence is in a page's own source: one in a file under `docs/snippets/` fails the build
 (`on_config`). The three this module expands are expanded before the includes, so in a snippet one
 would render as a plain code block. An include, on a page or in a snippet, names a file that
-exists under `docs/snippets/`, on a line of its own, unindented or, in a `cli` field, indented by
-two spaces:
+exists under `docs/snippets/`, on a line of its own outside every code block and robusta-region
+fence, unindented or, in a `cli` field, indented by two spaces:
 
     --8<-- "snippets/<file>.md"
 
@@ -838,12 +838,30 @@ def _check_fence_lines(lines: List[str], page: str, offset: int) -> None:
             raise _unsupported(page, offset + i + 1, line, "a fence")
 
 
+def _code_block_lines(lines: List[str], start: int, end: int) -> List[int]:
+    """The lines from `start` to `end` that open, hold or close a code block or a
+    robusta-region fence."""
+    inside: List[int] = []
+    opening = None
+    for i in range(start, end):
+        if opening is None and (CODE_FENCE_RE.match(lines[i]) or SUPPORTED_OPENING_RE.match(lines[i])):
+            opening = i
+        elif opening is not None and lines[i].strip() == CLOSING_LINE:
+            inside.extend(range(opening, i + 1))
+            opening = None
+    return inside
+
+
 def _include_indents(lines: List[str], fences) -> Dict[int, Optional[str]]:
-    """The indent an include takes on each line of the `fences` bodies in `lines`:
-    CLI_INCLUDE_INDENT in a deployment fence's `cli` field, and None, for no include,
-    on every other body line. Outside a body, an include is unindented."""
+    """The indent an include takes on each line of `lines` that is not unindented:
+    CLI_INCLUDE_INDENT in a deployment fence's `cli` field outside its code blocks, and
+    None, for no include, on every other line of a fence of `fences`, a code block or a
+    robusta-region fence, where pymdownx.snippets would expand it inside the block."""
     indents: Dict[int, Optional[str]] = {}
+    previous = 0
     for start, end, opening, _ in fences:
+        indents.update(dict.fromkeys(_code_block_lines(lines, previous, start)))
+        code = set(_code_block_lines(lines, start + 1, end))
         field = None
         in_fields = False
         for i in range(start + 1, end):
@@ -851,7 +869,9 @@ def _include_indents(lines: List[str], fences) -> Dict[int, Optional[str]]:
                 in_fields = True
             elif in_fields and re.match(r"\S", lines[i]):
                 field = lines[i].partition(":")[0]
-            indents[i] = CLI_INCLUDE_INDENT if field == "cli" else None
+            indents[i] = CLI_INCLUDE_INDENT if field == "cli" and i not in code else None
+        previous = end + 1
+    indents.update(dict.fromkeys(_code_block_lines(lines, previous, len(lines))))
     return indents
 
 
@@ -984,7 +1004,7 @@ def on_config(config, **kwargs):
                 if SUPPORTED_OPENING_RE.match(line):
                     raise _unsupported(snippet, i + 1, line)
             _check_fence_lines(lines, snippet, 0)
-            _check_includes(lines, snippet, 0)
+            _check_includes(lines, snippet, 0, _include_indents(lines, []))
     return config
 
 
