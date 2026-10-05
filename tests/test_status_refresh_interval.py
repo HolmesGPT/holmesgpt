@@ -25,22 +25,24 @@ def clock(monkeypatch):
     return advance
 
 
+def _stdio_server(sessions: Path, server_script: str, **server_fields) -> dict:
+    """A stdio MCP server entry that appends a line to `sessions` each time
+    Holmes opens a session to it."""
+    return {
+        "description": "Example MCP server",
+        "config": {
+            "mode": "stdio",
+            "command": "sh",
+            "args": ["-c", f"echo >> {sessions}; {server_script}"],
+        },
+        **server_fields,
+    }
+
+
 def _mcp_config(tmp_path: Path, server_script: str, **server_fields) -> tuple[Config, Path]:
-    """A Config with one stdio MCP server that appends a line to a file each
-    time Holmes opens a session to it."""
     sessions = tmp_path / "sessions"
     config = Config(
-        mcp_servers={
-            "example": {
-                "description": "Example MCP server",
-                "config": {
-                    "mode": "stdio",
-                    "command": "sh",
-                    "args": ["-c", f"echo >> {sessions}; {server_script}"],
-                },
-                **server_fields,
-            }
-        }
+        mcp_servers={"example": _stdio_server(sessions, server_script, **server_fields)}
     )
     return config, sessions
 
@@ -102,3 +104,38 @@ def test_failed_server_with_interval_does_not_shorten_the_refresh_loop(tmp_path,
     assert _example(without_interval).status == ToolsetStatusEnum.FAILED
     monkeypatch.setattr(server, "config", without_interval)
     assert server._has_failed_mcp_toolsets() is True
+
+
+def test_carried_over_server_keeps_its_tools_when_the_executor_is_rebuilt(tmp_path, clock):
+    sessions = tmp_path / "sessions"
+    other_down = tmp_path / "other_down"
+    config = Config(
+        mcp_servers={
+            "example": _stdio_server(sessions, WORKING_SERVER, status_refresh_interval_seconds=3600),
+            "other": _stdio_server(
+                tmp_path / "other_sessions", f"test -e {other_down} && exit 1; {WORKING_SERVER}"
+            ),
+        }
+    )
+    _refresh(config)
+    executor_before = config.cached_tool_executor
+
+    other_down.touch()
+    clock(300)
+    _refresh(config)
+
+    executor = config.cached_tool_executor
+    assert executor is not executor_before
+    assert next(t for t in executor.toolsets if t.name == "other").status == ToolsetStatusEnum.FAILED
+    assert _sessions_opened(sessions) == 1
+    assert _example(config).status == ToolsetStatusEnum.ENABLED
+    assert "greet" in executor.tools_by_name
+
+
+def test_reload_checks_the_server_inside_its_interval(tmp_path):
+    config, sessions = _mcp_config(tmp_path, WORKING_SERVER, status_refresh_interval_seconds=3600)
+    _refresh(config)
+
+    config.reload_toolsets()
+    _refresh(config)
+    assert _sessions_opened(sessions) == 2
