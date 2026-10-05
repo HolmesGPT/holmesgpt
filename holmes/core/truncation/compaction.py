@@ -231,12 +231,14 @@ def _text_length(message: dict) -> int:
 
 
 def _truncate_text(text: str, keep: int) -> str:
-    """Keep the head and tail of ``text``, at most ``keep`` characters in total."""
+    """Keep the head and tail of ``text`` in at most ``keep`` characters, marker included
+    (a marker longer than ``keep`` is still added, so a cut is never silent)."""
     if len(text) <= keep:
         return text
-    head = keep - keep // 2
-    tail = keep // 2
-    return text[:head] + TRUNCATION_MARKER.format(removed=len(text) - keep) + (text[-tail:] if tail else "")
+    body = max(keep - len(TRUNCATION_MARKER.format(removed=len(text))), 0)
+    head = body - body // 2
+    tail = body // 2
+    return text[:head] + TRUNCATION_MARKER.format(removed=len(text) - body) + (text[-tail:] if tail else "")
 
 
 def _truncate_message_text(message: dict, keep: int) -> dict:
@@ -389,9 +391,13 @@ def compact_conversation_history(
 
     # The history is compacted because it no longer fits, so the summarization
     # request itself must be cut down to the window: the provider rejects it
-    # otherwise and compaction can never recover (ROB-1519).
+    # otherwise and compaction can never recover (ROB-1519). Reserve room for
+    # the longer instructions, which are the ones sent once anything is cut.
+    truncated_instruction_tokens = llm.count_tokens(
+        messages=[truncated_instructions_message]
+    ).total_tokens
     input_budget = max(
-        context_window - maximum_output_token - instruction_tokens, context_window // 10
+        0, context_window - maximum_output_token - max(instruction_tokens, truncated_instruction_tokens)
     )
     primary_history, input_truncated = _fit_history_to_token_budget(
         conversation_history, llm, tools, input_budget
@@ -403,14 +409,14 @@ def compact_conversation_history(
     try:
         if tools:
             response: Optional[ModelResponse] = llm.completion(
-                messages=primary_history + [primary_instructions],
+                messages=[*primary_history, primary_instructions],
                 tools=tools,
                 tool_choice="auto",
                 drop_params=True,
             )  # type: ignore
         else:
             response = llm.completion(
-                messages=primary_history + [primary_instructions], drop_params=True
+                messages=[*primary_history, primary_instructions], drop_params=True
             )  # type: ignore
         compaction_usage += RequestStats.from_response(response)
         response_message = _get_response_message(response)
@@ -445,8 +451,10 @@ def compact_conversation_history(
             input_truncated = input_truncated or truncated
             try:
                 response = llm.completion(
-                    messages=fallback_history
-                    + [truncated_instructions_message if truncated else instructions_message],
+                    messages=[
+                        *fallback_history,
+                        truncated_instructions_message if truncated else instructions_message,
+                    ],
                     drop_params=True,
                 )  # type: ignore
                 compaction_usage += RequestStats.from_response(response)

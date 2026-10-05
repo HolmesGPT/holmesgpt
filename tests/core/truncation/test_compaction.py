@@ -6,9 +6,12 @@ import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
 from holmes.core.llm import ContextWindowUsage, DefaultLLM
+from holmes.core.truncation import compaction
+from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.truncation.compaction import (
     COMPACTION_TRUNCATION_NOTE,
     TRUNCATED_INPUT_INSTRUCTION,
+    TRUNCATION_MARKER,
     _count_image_tokens_in_messages,
     _fit_history_to_token_budget,
     _flatten_tool_messages_for_compaction,
@@ -782,10 +785,17 @@ def test_water_fill_cap(lengths, to_remove, expected_cap):
 def test_truncate_text_keeps_head_and_tail():
     """Short text is untouched; long text keeps both ends around a marker."""
     assert _truncate_text("short", 10) == "short"
-    out = _truncate_text("HEAD" + "x" * 100 + "TAIL", 8)
+    text = "HEAD" + "x" * 1_000 + "TAIL"
+    out = _truncate_text(text, 300)
     assert out.startswith("HEAD") and out.endswith("TAIL")
-    assert "100 characters truncated" in out
-    assert _truncate_text("abcdef", 1).startswith("a")
+    assert len(out) <= 300
+    removed = int(out.split("[... ")[1].split(" characters")[0])
+    assert len(out) - len(out.split("\n[...")[0]) - len(out.split("...]\n")[1]) > 0
+    assert removed == len(text) - (len(out) - len(TRUNCATION_MARKER.format(removed=removed)))
+    # Trimming a few characters must shrink the text, not grow it with the marker.
+    assert len(_truncate_text(text, len(text) - 3)) <= len(text) - 3
+    # Too small to keep any content: the marker alone still records the cut.
+    assert _truncate_text("abcdef" * 10, 1) == TRUNCATION_MARKER.format(removed=60)
 
 
 def test_compaction_without_tools_strips_images_then_truncates():
@@ -806,3 +816,52 @@ def test_compaction_without_tools_strips_images_then_truncates():
     assert "data:image/png" not in sent
     assert result.input_truncated is True
     assert result.summary == "THE SUMMARY"
+
+
+def _instruction_tokens(llm, truncated):
+    """Tokens the fake counts for the summarization instructions."""
+    text = load_and_render_prompt(prompt="builtin://conversation_history_compaction.jinja2", context={})
+    if truncated:
+        text = f"{text}\n\n{TRUNCATED_INPUT_INSTRUCTION}"
+    return llm.count_tokens([{"role": "user", "content": text}]).total_tokens
+
+
+@pytest.mark.parametrize("over_by", [1, 5, 20, 60])
+def test_compaction_reserves_room_for_the_truncation_instruction(over_by):
+    """A history barely over budget is cut just enough; the longer instructions
+    sent with a cut history must still leave the output reserve free."""
+    llm = CharCountingFakeLLM([_make_response(content="THE SUMMARY")])
+    capacity = llm.context_window - llm.max_output
+    llm.accept_up_to = capacity
+    history = _oversized_history(tool_result_chars=(400,))
+    room = capacity - _instruction_tokens(llm, truncated=False)
+    history[3].pop("token_count")
+    history[3]["content"] = ""
+    history[3]["content"] = "x" * ((room - llm.count_tokens(history, _TOOLS).total_tokens + over_by) * 4)
+    assert room < llm.count_tokens(history, _TOOLS).total_tokens <= room + over_by + 1
+
+    result = compact_conversation_history(original_conversation_history=history, llm=llm, tools=_TOOLS)  # type: ignore
+
+    assert result.input_truncated is True
+    assert result.fallback_used is False
+    assert _request_tokens(llm, llm.calls[0]) <= capacity
+
+
+@pytest.mark.parametrize("spare", [0, 400, 5_000])
+def test_compaction_budget_never_exceeds_remaining_capacity(monkeypatch, spare):
+    """The history budget is what remains after the output reserve and the longer
+    (truncated-input) instructions, with no floor that could overflow the window."""
+    budgets = []
+    real_fit = compaction._fit_history_to_token_budget
+
+    def spy(messages, llm, tools, budget_tokens):
+        budgets.append(budget_tokens)
+        return real_fit(messages, llm, tools, budget_tokens)
+
+    monkeypatch.setattr(compaction, "_fit_history_to_token_budget", spy)
+    llm = CharCountingFakeLLM([_make_response(content="THE SUMMARY")], context_window=10_000)
+    llm.max_output = 10_000 - _instruction_tokens(llm, truncated=True) - spare
+
+    compact_conversation_history(original_conversation_history=_oversized_history(), llm=llm, tools=_TOOLS)  # type: ignore
+
+    assert budgets[0] == spare
