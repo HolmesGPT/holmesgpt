@@ -244,6 +244,7 @@ class ToolsetManager:
             if (
                 toolset.enabled
                 and previous is not None
+                and previous.enabled
                 and interval is not None
                 and checked_at is not None
                 and now - checked_at < interval
