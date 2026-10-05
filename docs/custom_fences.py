@@ -55,8 +55,9 @@ the first column, then optionally a line `---` and the fields below, a second bl
       ```
 
 Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the chart's upgrade command.
-The values are written as the page shows them, comments included. No value at any key path,
-in mappings and list entries alike, is empty (null, `{}`, `[]` or `""`). The top-level keys that
+The values are written as the page shows them, comments included. No value at any key path is
+empty: no mapping value is null, `{}`, `[]` or `""`, and no list entry is null, `{}` or `[]`. A
+list entry `""` is accepted, as in `apiGroups: [""]`. The top-level keys that
 are also Holmes config (`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
@@ -372,10 +373,12 @@ def key_path(path: tuple) -> str:
 
 
 def _empty_value(node, path: tuple = ()) -> Optional[tuple]:
-    """The first key path under the mapping or list `node` whose value is empty."""
+    """The first key path under the mapping or list `node` whose value is empty, a list
+    entry `""` excepted."""
     for key, value in node.items() if isinstance(node, dict) else enumerate(node):
         here = path + (key,)
-        if isinstance(node, dict) and _is_empty(value):
+        # `apiGroups: [""]` names the core API group.
+        if _is_empty(value) and not (isinstance(node, list) and value == ""):
             return here
         if isinstance(value, (dict, list)):
             empty = _empty_value(value, here)

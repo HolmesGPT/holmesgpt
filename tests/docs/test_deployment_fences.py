@@ -262,6 +262,10 @@ def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_p
         build_page(tmp_path, fence)
 
 
+# A rule whose `apiGroups: [""]`, the core API group, is an empty string that stays accepted.
+RULE = 'customClusterRoleRules:\n  - apiGroups: [""]\n    resources: ["pods"]\n    verbs:\n'
+
+
 @pytest.mark.parametrize(
     "values, path",
     [
@@ -273,8 +277,15 @@ def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_p
         ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations"),
         ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations"),
         ("additionalEnvVars:\n  - name: TIMEOUT_SECONDS\n    value: \"\"\n", "additionalEnvVars[0].value"),
+        (f"{RULE}      - get\n      -\n", "customClusterRoleRules[0].verbs[1]"),
+        (f"{RULE}      - get\n      - null\n", "customClusterRoleRules[0].verbs[1]"),
+        (f"{RULE}      - get\n  - {{}}\n", "customClusterRoleRules[1]"),
+        (f"{RULE}      - get\n  - []\n", "customClusterRoleRules[1]"),
     ],
-    ids=["toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]", "list-entry"],
+    ids=[
+        "toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]",
+        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]",
+    ],
 )
 def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path):
     monkeypatch.chdir(REPO)
