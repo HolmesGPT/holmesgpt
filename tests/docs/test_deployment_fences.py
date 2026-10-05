@@ -147,8 +147,9 @@ def build_page(tmp_path, text):
         "```yaml-toolset-confg",
         "```Yaml",
         "~~~yaml",
+        "```robusta-region {lang=python}",
     ],
-    ids=["brace", "case", "helm-values-qualifier", "region-case", "region-attribute", "name", "language-case", "tilde"],
+    ids=["brace", "case", "helm-values-qualifier", "region-case", "region-attribute", "name", "language-case", "tilde", "region-language"],
 )
 def test_a_fence_opening_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, opening):
     monkeypatch.chdir(REPO)
@@ -290,8 +291,9 @@ def test_a_fence_in_a_snippet_file_fails_the_build_naming_the_file(tmp_path, mon
         '--8<-- "data-sources/builtin-toolsets/kafka.md"',
         "--8<--\nsnippets/toolset_refresh_warning.md\n--8<--",
         '--8<-- "snippets/toolsets_that_provide_loging.md"',
+        '  --8<-- "snippets/toolset_refresh_warning.md"',
     ],
-    ids=["outside-snippets", "block", "missing-snippet"],
+    ids=["outside-snippets", "block", "missing-snippet", "indented-outside-a-cli-field"],
 )
 def test_an_include_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, include):
     monkeypatch.chdir(REPO)
@@ -321,8 +323,9 @@ TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_acco
         f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n",
         "```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n",
         f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n",
+        f"```yaml-toolset-config\n{TOOLSET}---\ntest: |\n  holmes toolset list\n  holmes ask hi\n```\n",
     ],
-    ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field"],
+    ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field", "multi-line-test"],
 )
 def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_path, monkeypatch, fence):
     monkeypatch.chdir(REPO)

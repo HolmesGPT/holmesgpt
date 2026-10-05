@@ -28,8 +28,8 @@ name, and closed by the first line of three backticks:
     ```multi-instance
 
 A robusta-region fence opens at the start of a line or indented by four spaces, as
-```` ```robusta-region ```` or ```` ```robusta-region {lang=<language>} ````. A `multi-instance` body
-has `toolset`, `name` and `config`. Every other fence is a code block, opened and closed by three
+```` ```robusta-region ```` or ```` ```robusta-region {lang=<language>} ````, the language being
+`yaml`, `bash` or `json`. A `multi-instance` body has `toolset`, `name` and `config`. Every other fence is a code block, opened and closed by three
 backticks at any indent, its opening naming one of `CODE_LANGUAGES` or none. Any other fence line
 (another info string or case, superfences' `{.<name>}`, `~~~`, more backticks) fails the build with
 a message naming the page and the line, and so do a body that is not valid YAML, a value that is
@@ -99,7 +99,7 @@ that is written has a value.
   different procedure. Without it the CLI tab is derived: the exports, the values' Holmes config
   keys for ~/.holmes/config.yaml, and the refresh warning. A fence with `cli` and no values has the
   Holmes CLI tab alone, for a toolset that runs only in the CLI.
-- `test` (a derived CLI tab only): a command the CLI tab ends with, under "To test, run:".
+- `test` (a derived CLI tab only): a one-line command the CLI tab ends with, under "To test, run:".
 
 Every custom fence is in a page's own source: one in a file under `docs/snippets/` fails the build
 (`on_config`). The three this module expands are expanded before the includes, so in a snippet one
@@ -266,13 +266,15 @@ SUPPORTED_OPENING_RE = re.compile(
     rf"^```(?P<multi>{MULTI_INSTANCE_FENCE})$"
     rf"|^```(?P<deployment>{TOOLSET_CONFIG_FENCE}|{HELM_VALUES_FENCE})(?: \{{(?P<option>reuse"
     rf"|(?<={TOOLSET_CONFIG_FENCE} \{{)secret-qualifier=(?P<qualifier>[a-z0-9]+(?:-[a-z0-9]+)*))\}})?$"
-    rf"|^(?:    )?```(?P<region>{ROBUSTA_REGION_FENCE})(?: \{{lang=[a-z]+\}})?$"
+    rf"|^(?:    )?```(?P<region>{ROBUSTA_REGION_FENCE})(?: \{{lang=(?:yaml|bash|json)\}})?$"
 )
 CLOSING_LINE = "```"
 # A line pymdownx.snippets reads as an include, in any form ...
 INCLUDE_RE = re.compile(r"^[ \t>]*;*-+8<-+")
 # ... and the form pages write.
-SUPPORTED_INCLUDE_RE = re.compile(r'^(?:  )?--8<-- "(?P<file>snippets/[a-z0-9_]+\.md)"$')
+SUPPORTED_INCLUDE_RE = re.compile(r'^(?P<indent> *)--8<-- "(?P<file>snippets/[a-z0-9_]+\.md)"$')
+# The indent of an include in a deployment fence's `cli` field.
+CLI_INCLUDE_INDENT = "  "
 # The directory an include's path is relative to: pymdownx.snippets' base_path in mkdocs.yml.
 SNIPPETS_BASE = Path(__file__).resolve().parent
 # The line of a deployment fence body that ends the values and starts its fields.
@@ -478,6 +480,8 @@ def _secret_keys(arguments) -> Dict[str, Tuple[str, str]]:
 
 SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)]
 Text = Annotated[str, Field(pattern=r"\S")]
+# Text on one line, and the line break a block scalar ends it with.
+Line = Annotated[str, Field(pattern=r"^[^\n]*\S[^\n]*\n?$")]
 Mapping = Annotated[Dict[str, Any], Field(min_length=1)]
 
 
@@ -604,7 +608,7 @@ class Fields(Form):
 
 class ToolsetConfigFields(Fields):
     cli: Optional[Text] = None
-    test: Optional[Text] = None
+    test: Optional[Line] = None
 
     @model_validator(mode="after")
     def test_ends_a_derived_cli_tab(self):
@@ -824,13 +828,35 @@ def _check_fence_lines(lines: List[str], page: str, offset: int) -> None:
             raise _unsupported(page, offset + i + 1, line, "a fence")
 
 
-def _check_includes(lines: List[str], page: str, offset: int) -> None:
+def _include_indents(lines: List[str], fences) -> Dict[int, Optional[str]]:
+    """The indent an include takes on each line of the `fences` bodies in `lines`:
+    CLI_INCLUDE_INDENT in a deployment fence's `cli` field, and None, for no include,
+    on every other body line. Outside a body, an include is unindented."""
+    indents: Dict[int, Optional[str]] = {}
+    for start, end, opening, _ in fences:
+        field = None
+        in_fields = False
+        for i in range(start + 1, end):
+            if opening["deployment"] and not in_fields and lines[i] == FIELDS_SEPARATOR:
+                in_fields = True
+            elif in_fields and re.match(r"\S", lines[i]):
+                field = lines[i].partition(":")[0]
+            indents[i] = CLI_INCLUDE_INDENT if field == "cli" else None
+    return indents
+
+
+def _check_includes(lines: List[str], page: str, offset: int, indents: Optional[Dict[int, Optional[str]]] = None) -> None:
     """Fail the build on an include in `lines`, which start `offset` lines into the page's
-    source, in a form no page writes, or of a file that does not exist (pymdownx.snippets
+    source, in a form no page writes: not at the indent `indents` gives its line (none,
+    for a line it does not name), or of a file that does not exist (pymdownx.snippets
     skips one without an error)."""
     for i, line in enumerate(lines):
         include = SUPPORTED_INCLUDE_RE.match(line)
-        if INCLUDE_RE.match(line) and not (include and (SNIPPETS_BASE / include["file"]).is_file()):
+        if INCLUDE_RE.match(line) and not (
+            include
+            and include["indent"] == (indents or {}).get(i, "")
+            and (SNIPPETS_BASE / include["file"]).is_file()
+        ):
             raise _unsupported(page, offset + i + 1, line, "an include")
 
 
@@ -896,10 +922,11 @@ class TabFencePreprocessor(Preprocessor):
 
     def run(self, lines):
         _check_fence_lines(lines, self.page, self.offset)
-        _check_includes(lines, self.page, self.offset)
+        fences = list(_custom_fences(lines, self.page, self.offset))
+        _check_includes(lines, self.page, self.offset, _include_indents(lines, fences))
         out: list = []
         start = 0
-        for i, end, opening, body in _custom_fences(lines, self.page, self.offset):
+        for i, end, opening, body in fences:
             group = _checked(lambda: self._section(opening, body), self.page, self.offset + i + 1, lines[i])
             out.extend([*lines[start:i], "", *group.split("\n"), ""])
             start = end + 1
