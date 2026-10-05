@@ -10,14 +10,11 @@ values read a secret), the values step, and the upgrade step with
 is a deployment fence, checked in the fence's expansion with its errors naming
 the fence's line; a group written by hand in the page fails with one error
 naming the page and line, and so does a `===` line that is not a `=== "<label>"`
-tab. The values of every Holmes Helm Chart tab render through the chart.
-test_deployment_fences.py checks that every fence renders.
+tab. test_deployment_fences.py checks that every fence renders, and that the
+chart and the Kubernetes schemas take the values of every Holmes Helm Chart tab.
 """
 
-import os
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -263,41 +260,6 @@ def test_every_platform_page_exists():
 )
 def test_every_deployment_tab_group_has_the_standard_shape(path):
     problems = page_problems(path)
-    assert not problems, "\n".join(problems)
-
-
-def holmes_chart_values(path):
-    """(fence line, values) of the Holmes Helm Chart tab of every deployment fence on the page."""
-    rel = path.relative_to(DOCS).as_posix()
-    for fence_line, group in fence_expansions(rel, path.read_text().split("\n")):
-        for _, _, tabs in tab_groups(group.split("\n")):
-            for label, _, body in tabs:
-                if label != HOLMES_CHART:
-                    continue
-                opening = body.index("```yaml", body.index(cf.HOLMES_VALUES_CAPTION))
-                yield fence_line, "\n".join(body[opening + 1 : body.index("```", opening + 1)])
-
-
-HELM = shutil.which("helm")
-
-
-@pytest.mark.skipif(HELM is None and not os.environ.get("CI"), reason="helm is not installed; CI runs this")
-@pytest.mark.parametrize(
-    "path", PAGES, ids=[str(path.relative_to(DOCS)) for path in PAGES]
-)
-def test_the_values_of_every_holmes_helm_chart_tab_render_through_the_chart(path, tmp_path):
-    rel = path.relative_to(DOCS).as_posix()
-    problems = []
-    for fence_line, values in holmes_chart_values(path):
-        values_file = tmp_path / f"{fence_line}.yaml"
-        values_file.write_text(values)
-        result = subprocess.run(
-            ["helm", "template", "holmes", str(REPO / "helm" / "holmes"), "-f", str(values_file)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            problems.append(f"{rel}:{fence_line}: helm template fails: {result.stderr.strip()}")
     assert not problems, "\n".join(problems)
 
 

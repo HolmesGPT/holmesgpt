@@ -496,3 +496,65 @@ def test_a_toolset_block_in_a_form_no_page_writes_fails_the_build(tmp_path, monk
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
+
+
+CHART = REPO / "helm" / "holmes"
+
+
+@pytest.mark.parametrize(
+    "path",
+    PAGES_WITH_FENCES,
+    ids=[str(path.relative_to(DOCS)) for path in PAGES_WITH_FENCES],
+)
+def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path):
+    page = path.relative_to(DOCS).as_posix()
+    errors = [
+        f"{page}:{fence.line}: {error}"
+        for fence in custom_fences.deployment_fences(path.read_text(), page)
+        if fence.values
+        for error in fence_checks.check_fence(fence.values, fence.environment, CHART)
+    ]
+    assert not errors, "\n".join(errors)
+
+
+@pytest.mark.parametrize(
+    "values, error",
+    [
+        ({"crdPermissions": {"argoo": True}}, r"`crdPermissions\.argoo`: the chart renders the same"),
+        ({"namespaceScopedRBAC": "false"}, r"`namespaceScopedRBAC`: the chart renders the same"),
+        (
+            {"additionalEnvVars": [{"value": "30"}]},
+            r"the rendered Deployment holmes-holmes does not match its Kubernetes 1\.36 schema at `spec\.template\.spec\.containers\.0\.env\.\d+`: 'name' is a required property",
+        ),
+        ({"tls": {"enabled": True}}, r"helm template fails: .*tls\.enabled requires tls\.secretName"),
+    ],
+    ids=["unread-key", "string-for-a-bool", "kubernetes-schema", "helm-refuses"],
+)
+def test_a_value_the_chart_or_kubernetes_refuses_is_an_error(values, error):
+    errors = fence_checks.check_fence(values, {}, CHART)
+    assert len(errors) == 1 and re.match(error, errors[0]), errors
+
+
+def test_a_rendered_kind_with_no_kubernetes_schema_is_an_error(tmp_path):
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "Chart.yaml").write_text("apiVersion: v2\nname: monitored\nversion: 0.1.0\n")
+    (tmp_path / "templates" / "service-monitor.yaml").write_text(
+        "apiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: holmes\nspec: {}\n"
+    )
+    assert fence_checks.check_fence({}, {}, tmp_path) == [
+        "the rendered ServiceMonitor holmes has no Kubernetes 1.36 schema in kubernetes-validate: "
+        "kind ServiceMonitor, apiVersion monitoring.coreos.com/v1"
+    ]
+
+
+def test_the_fence_checks_without_helm_fail_saying_what_to_install(monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(RuntimeError, match=r"need Helm on PATH: install Helm"):
+        fence_checks.check_fence({}, {}, CHART)
+
+
+def test_the_fence_checks_without_kubernetes_validate_fail_saying_what_to_install():
+    hidden = "import sys; sys.modules['kubernetes_validate'] = None; import docs.fence_checks"
+    result = subprocess.run([sys.executable, "-c", hidden], cwd=REPO, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "the fence checks need kubernetes-validate, a dev dependency: run `poetry install --with dev`" in result.stderr

@@ -696,6 +696,13 @@ class DeploymentBody(NamedTuple):
     # The variables the group gives Holmes: its secret's keys and its `additionalEnvVars`.
     environment: Dict[str, str]
 
+    @property
+    def chart_values_text(self) -> str:
+        """The values the Helm tabs show: the page's, listing the group's secret first."""
+        if not self.secret:
+            return self.values_text
+        return f"extraEnvVarsSecrets:\n  - {self.secret}\n\n{self.values_text}"
+
 
 def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     """A deployment fence body parsed and checked, or None if it is not a supported form."""
@@ -743,18 +750,18 @@ def _deployment_section(opening, body: str, page: str):
     parsed = _deployment_body(opening, body, page)
     if parsed is None:
         return None
-    values_text, _, fields, secret, keys, _ = parsed
+    _, _, fields, secret, keys, _ = parsed
     toolset_config = isinstance(fields, ToolsetConfigFields)
     cli = fields.cli if isinstance(fields, ToolsetConfigFields) else None
     test = fields.test if isinstance(fields, ToolsetConfigFields) else None
-    if not values_text:
+    if not parsed.values_text:
         return _tab("Holmes CLI", [cli.strip("\n")])
 
     commands = [_secret_command(secret, keys)] if keys and opening["option"] != "reuse" else []
     commands += [_secret_command(entry.name, entry.keys) for entry in fields.named_secrets or []]
     deployment_values = fields.deployment_values if isinstance(fields, HelmValuesFields) else None
 
-    values_text = f"extraEnvVarsSecrets:\n  - {secret}\n\n{values_text}" if secret else values_text
+    values_text = parsed.chart_values_text
     tabs = []
     if toolset_config:
         if cli is None:
@@ -914,9 +921,10 @@ def source_line_offset(markdown: str, page) -> int:
 
 @dataclass(frozen=True)
 class DeploymentFence:
-    """A deployment fence of a page, as the docs/fence_checks.py hook checks it."""
+    """A deployment fence of a page, as docs/fence_checks.py checks it."""
 
     line: int
+    # The values the Helm tabs show.
     values: dict
     # The variables the group gives Holmes: its secret's keys and its `additionalEnvVars`.
     environment: Dict[str, str]
@@ -930,7 +938,7 @@ def deployment_fences(markdown: str, page: str, offset: int = 0) -> Iterator[Dep
         if opening["deployment"]:
             line = offset + i + 1
             parsed = _checked(lambda: _deployment_body(opening, body, page), page, line, lines[i])
-            yield DeploymentFence(line, parsed.values, parsed.environment)
+            yield DeploymentFence(line, _load(parsed.chart_values_text) or {}, parsed.environment)
 
 
 class TabFencePreprocessor(Preprocessor):

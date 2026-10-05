@@ -126,6 +126,12 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-root --with dev
 
+      # tests/docs renders the Helm values of every docs example with helm/holmes.
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
+
       - name: Run tests
         shell: bash
         run: |
