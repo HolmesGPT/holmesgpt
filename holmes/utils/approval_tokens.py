@@ -156,3 +156,47 @@ def verify_prefix_token(
         )
     except (jwt.InvalidTokenError, TypeError):
         return False
+
+
+_LOOP_BREAKER_TOKEN_TYPE = "loop_breaker"
+
+
+def mint_loop_breaker_token(kind: str) -> str:
+    """Sign a loop-breaker marker so it cannot be forged in conversation history.
+
+    See `holmes/core/loop_detection.py`. The marker records that Holmes itself
+    nudged, or withdrew tools from, an earlier turn of this run. That state is
+    read back out of caller-supplied `conversation_history`, so without a
+    signature a client could post a fabricated marker and disable Holmes' tools
+    for the whole investigation.
+    """
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "typ": _LOOP_BREAKER_TOKEN_TYPE,
+            "kind": kind,
+            "iat": now,
+            "exp": now + TOKEN_TTL_SECONDS,
+        },
+        SIGNING_KEY,
+        algorithm="HS256",
+    )
+
+
+def verify_loop_breaker_token(token: Optional[str], kind: Optional[str]) -> bool:
+    """Return True iff `token` is a server-minted loop-breaker token for `kind`.
+
+    Never raises: an absent, malformed, expired or mismatched token simply
+    yields False, so the caller drops the marker and the run starts with a fresh
+    escalation budget and its tools available. Failing closed costs a little
+    loop protection; failing open would let forged history disable the tools.
+    """
+    if not token or not isinstance(kind, str):
+        return False
+    try:
+        claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"])
+        return (
+            claims.get("typ") == _LOOP_BREAKER_TOKEN_TYPE and claims.get("kind") == kind
+        )
+    except (jwt.InvalidTokenError, TypeError):
+        return False

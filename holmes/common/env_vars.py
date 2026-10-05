@@ -293,3 +293,40 @@ CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = float(
 CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS", 120.0)
 )
+
+# --- Repetition loop detection (holmes/core/loop_detection.py) ---------------
+# Catches the loop shapes the exact-match tool-call safeguard misses: trivially
+# varied parameters, A/B ping-pong, repeated failures, restated narration, and
+# single responses that degenerate into repeated text. Most relevant on
+# self-hosted reasoning models decoded near-greedily (e.g. DeepSeek on vLLM).
+LOOP_DETECTION_ENABLED = load_bool("LOOP_DETECTION_ENABLED", True)
+# Number of consecutive turns making the identical set of tool calls.
+LOOP_DETECTION_REPEAT_THRESHOLD = int(
+    os.environ.get("LOOP_DETECTION_REPEAT_THRESHOLD", 3)
+)
+# Number of full A,B cycles before an alternating loop is flagged.
+LOOP_DETECTION_ALTERNATION_CYCLES = int(
+    os.environ.get("LOOP_DETECTION_ALTERNATION_CYCLES", 3)
+)
+# Number of consecutive turns in which every tool call failed.
+LOOP_DETECTION_ERROR_STREAK = int(os.environ.get("LOOP_DETECTION_ERROR_STREAK", 3))
+# Number of consecutive turns restating the same intent, and how similar the
+# normalized text must be (0-1) to count as a restatement.
+LOOP_DETECTION_NARRATION_REPEATS = int(
+    os.environ.get("LOOP_DETECTION_NARRATION_REPEATS", 3)
+)
+LOOP_DETECTION_NARRATION_SIMILARITY = float(
+    os.environ.get("LOOP_DETECTION_NARRATION_SIMILARITY", 0.8)
+)
+# Fraction of repeated 8-grams within a single response that marks it as
+# degenerate, and the minimum length before the check applies at all.
+LOOP_DETECTION_DEGENERATE_RATIO = float(
+    os.environ.get("LOOP_DETECTION_DEGENERATE_RATIO", 0.5)
+)
+LOOP_DETECTION_DEGENERATE_MIN_WORDS = int(
+    os.environ.get("LOOP_DETECTION_DEGENERATE_MIN_WORDS", 120)
+)
+# How many in-band nudges before tools are withdrawn to force a final answer.
+LOOP_DETECTION_MAX_NUDGES = int(os.environ.get("LOOP_DETECTION_MAX_NUDGES", 2))
+# Turns retained in the sliding window.
+LOOP_DETECTION_WINDOW = int(os.environ.get("LOOP_DETECTION_WINDOW", 8))
