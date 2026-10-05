@@ -125,6 +125,7 @@ def compact_if_necessary(
                 # reuse the agentic prompt cache). Key for diagnosing zero
                 # cached_tokens on the compaction call from event data alone.
                 "fallback_used": compaction_result.fallback_used,
+                "input_truncated": compaction_result.input_truncated,
             }
             if compaction_result.fallback_reason:
                 compaction_stats["fallback_reason"] = compaction_result.fallback_reason

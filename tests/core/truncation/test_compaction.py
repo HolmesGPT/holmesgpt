@@ -5,11 +5,16 @@ from pathlib import Path
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
-from holmes.core.llm import DefaultLLM
+from holmes.core.llm import ContextWindowUsage, DefaultLLM
 from holmes.core.truncation.compaction import (
+    COMPACTION_TRUNCATION_NOTE,
+    TRUNCATED_INPUT_INSTRUCTION,
     _count_image_tokens_in_messages,
+    _fit_history_to_token_budget,
     _flatten_tool_messages_for_compaction,
     _strip_images_for_compaction,
+    _truncate_text,
+    _water_fill_cap,
     compact_conversation_history,
 )
 
@@ -555,3 +560,249 @@ def test_compaction_returns_original_history_when_both_attempts_unusable():
     assert len(llm.calls) == 2
     assert result.summary is None
     assert result.messages_after_compaction == history
+
+
+# --- Fitting the summarization request into the context window (ROB-1519) ---
+
+
+class CharCountingFakeLLM(RecordingFakeLLM):
+    """Fake LLM whose token count is proportional to message text, and which
+    rejects requests larger than ``accept_up_to`` tokens like a real provider."""
+
+    def __init__(self, responses, context_window=10_000, max_output=2_000, accept_up_to=None):
+        """Configure the window, output reserve and the provider-side size limit."""
+        super().__init__(responses)
+        self.context_window = context_window
+        self.max_output = max_output
+        self.accept_up_to = accept_up_to
+
+    def count_tokens(self, messages, tools=None):
+        """Roughly four characters per token, plus a fixed cost for tool definitions."""
+        total = sum(len(json.dumps(m.get("content"))) for m in messages) // 4 + (100 if tools else 0)
+        return ContextWindowUsage(
+            total_tokens=total,
+            tools_tokens=0,
+            system_tokens=0,
+            user_tokens=0,
+            tools_to_call_tokens=0,
+            assistant_tokens=0,
+            other_tokens=0,
+        )
+
+    def completion(self, messages, tools=None, tool_choice=None, **kwargs):
+        """Reject requests over ``accept_up_to`` tokens, else replay a canned response."""
+        if self.accept_up_to is not None and self.count_tokens(messages, tools).total_tokens > self.accept_up_to:
+            self.calls.append({"messages": messages, "tools": tools, "tool_choice": tool_choice})
+            raise RuntimeError("400 The conversation is too long for the AI model's context window.")
+        return super().completion(messages, tools=tools, tool_choice=tool_choice, **kwargs)
+
+    def get_context_window_size(self):
+        """Return the configured context window."""
+        return self.context_window
+
+    def get_maximum_output_token(self):
+        """Return the configured output reserve."""
+        return self.max_output
+
+
+def _oversized_history(tool_result_chars=(30_000, 12_000, 400)):
+    """A history whose tool results overflow a 10k-token window."""
+    history = [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "why is checkout slow? code ZEBRA-4417"},
+    ]
+    for i, size in enumerate(tool_result_chars):
+        history.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": f"c{i}", "type": "function", "function": {"name": "kubectl_get", "arguments": "{}"}}
+                ],
+            }
+        )
+        history.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "name": "kubectl_get",
+                "content": f"HEAD-{i} " + "x" * size + f" TAIL-{i}",
+                "token_count": size // 4,
+            }
+        )
+    history.append({"role": "user", "content": "what did you find?"})
+    return history
+
+
+def _request_tokens(llm, call):
+    """Tokens the fake provider counted for a recorded request."""
+    return llm.count_tokens(call["messages"], call["tools"]).total_tokens
+
+
+def test_compaction_truncates_oversized_history_to_fit_window():
+    """A history larger than the window is cut down before it is sent, so the
+    summarization request is accepted instead of failing on every attempt."""
+    llm = CharCountingFakeLLM([_make_response(content="THE SUMMARY")], accept_up_to=10_000 - 2_000)
+    history = _oversized_history()
+    assert llm.count_tokens(history).total_tokens > llm.context_window
+
+    result = compact_conversation_history(original_conversation_history=history, llm=llm, tools=_TOOLS)  # type: ignore
+
+    assert len(llm.calls) == 1
+    assert result.summary == "THE SUMMARY"
+    assert result.input_truncated is True
+    assert result.fallback_used is False
+    assert _request_tokens(llm, llm.calls[0]) <= llm.context_window - llm.max_output
+    sent = llm.calls[0]["messages"]
+    # Native shape and system prompt preserved; only the longest results are cut,
+    # keeping both ends of each.
+    assert sent[0] == history[0]
+    assert [m["role"] for m in sent[:-1]] == [m["role"] for m in history]
+    truncated_results = [m["content"] for m in sent if m["role"] == "tool"]
+    assert "HEAD-0" in truncated_results[0] and "TAIL-0" in truncated_results[0]
+    assert "truncated to fit the compaction request" in truncated_results[0]
+    # The agent is told the summary is partial, so it re-queries instead of
+    # concluding that the cut content does not exist.
+    assert COMPACTION_TRUNCATION_NOTE in result.messages_after_compaction[1]["content"]
+    # ...and the summarizer is told which outputs it only partially saw.
+    assert TRUNCATED_INPUT_INSTRUCTION in sent[-1]["content"]
+    assert truncated_results[2] == history[-2]["content"]
+    # A stale token-count cache must not survive truncation.
+    assert all("token_count" not in m for m in sent if "truncated to fit" in str(m.get("content")))
+    # The caller's history is never mutated.
+    assert history == _oversized_history()
+
+
+def test_compaction_does_not_truncate_history_that_fits():
+    """A history within budget is sent untouched (keeps the prompt-cache prefix)."""
+    llm = CharCountingFakeLLM([_make_response(content="THE SUMMARY")], context_window=100_000)
+    history = _oversized_history()
+    result = compact_conversation_history(original_conversation_history=history, llm=llm, tools=_TOOLS)  # type: ignore
+
+    assert result.input_truncated is False
+    assert llm.calls[0]["messages"][:-1] == history
+    assert COMPACTION_TRUNCATION_NOTE not in result.messages_after_compaction[1]["content"]
+    assert TRUNCATED_INPUT_INSTRUCTION not in llm.calls[0]["messages"][-1]["content"]
+
+
+def test_compaction_fallback_shrinks_budget_when_provider_counts_more_tokens():
+    """When the provider still rejects the request (its tokenizer counts more than
+    ours), each fallback halves the budget until a request is accepted."""
+    llm = CharCountingFakeLLM(
+        [_make_response(content="FALLBACK SUMMARY")], accept_up_to=2_500
+    )
+    result = compact_conversation_history(
+        original_conversation_history=_oversized_history(), llm=llm, tools=_TOOLS  # type: ignore
+    )
+
+    assert len(llm.calls) == 3
+    sizes = [_request_tokens(llm, c) for c in llm.calls]
+    assert sizes[0] > sizes[1] > sizes[2]
+    assert sizes[2] <= 2_500
+    assert result.summary == "FALLBACK SUMMARY"
+    assert result.fallback_used is True
+    assert result.input_truncated is True
+    assert "too long" in (result.fallback_reason or "")
+
+
+def test_compaction_gives_up_after_all_fallback_budgets_fail():
+    """If even the smallest budget is rejected, the original history is returned."""
+    llm = CharCountingFakeLLM([], accept_up_to=10)
+    history = _oversized_history()
+    result = compact_conversation_history(original_conversation_history=history, llm=llm, tools=_TOOLS)  # type: ignore
+
+    assert len(llm.calls) == 1 + 2
+    assert result.summary is None
+    assert result.messages_after_compaction == history
+    assert result.fallback_reason is not None
+    assert "budget 25%" in result.fallback_reason
+
+
+def test_compaction_does_not_repeat_identical_fallback_request():
+    """A fallback that already fits does not resend the same request at a smaller budget."""
+    llm = RecordingFakeLLM([RuntimeError("400 toolConfig"), RuntimeError("502"), _make_response(content="unused")])
+    compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(), llm=llm, tools=_TOOLS  # type: ignore
+    )
+    assert len(llm.calls) == 2
+
+
+def test_fit_history_handles_block_content_and_keeps_images():
+    """The longest text blocks are cut first; short blocks and images are kept."""
+    llm = CharCountingFakeLLM([])
+    image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+    messages = [
+        {"role": "system", "content": "s" * 20_000},
+        {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": "a" * 16_000}, image, {"type": "text", "text": "b" * 8_000}]},
+        {"role": "assistant", "content": None},
+    ]
+    fitted, truncated = _fit_history_to_token_budget(messages, llm, None, 6_000)
+
+    assert truncated is True
+    assert fitted[0] == messages[0]
+    blocks = fitted[1]["content"]
+    assert blocks[1] == image
+    assert len(blocks[0]["text"]) < 16_000
+    assert llm.count_tokens(fitted).total_tokens <= 6_000
+    assert fitted[2] == messages[2]
+
+    short = {"type": "text", "text": "[1 image(s) were present but stripped from compaction]"}
+    message = {"role": "tool", "content": [{"type": "text", "text": "a" * 20_000}, short]}
+    fitted, _ = _fit_history_to_token_budget([message], llm, None, 1_000)
+    assert fitted[0]["content"][1] == short
+
+
+def test_fit_history_best_effort_when_only_untruncatable_content():
+    """With nothing truncatable the history is returned as-is (best effort)."""
+    llm = CharCountingFakeLLM([])
+    messages = [{"role": "system", "content": "s" * 40_000}]
+    fitted, truncated = _fit_history_to_token_budget(messages, llm, None, 100)
+    assert fitted == messages
+    assert truncated is True
+
+
+@pytest.mark.parametrize(
+    "lengths,to_remove,expected_cap",
+    [
+        ([100, 10], 50, 50),
+        ([100, 60], 60, 50),
+        ([100, 100], 1, 99),
+        ([10, 10], 100, 0),
+        ([], 5, 0),
+    ],
+)
+def test_water_fill_cap(lengths, to_remove, expected_cap):
+    """The cap trims only the longest messages, removing at least the requested amount."""
+    cap = _water_fill_cap(lengths, to_remove)
+    assert cap == expected_cap
+    if sum(lengths) >= to_remove:
+        assert sum(max(0, n - cap) for n in lengths) >= to_remove
+
+
+def test_truncate_text_keeps_head_and_tail():
+    """Short text is untouched; long text keeps both ends around a marker."""
+    assert _truncate_text("short", 10) == "short"
+    out = _truncate_text("HEAD" + "x" * 100 + "TAIL", 8)
+    assert out.startswith("HEAD") and out.endswith("TAIL")
+    assert "100 characters truncated" in out
+    assert _truncate_text("abcdef", 1).startswith("a")
+
+
+def test_compaction_without_tools_strips_images_then_truncates():
+    """Images are stripped first when the history overflows; the remaining text is
+    then cut to fit, and the no-tools request shape is used."""
+    llm = CharCountingFakeLLM([_make_response(content="THE SUMMARY")], accept_up_to=8_000)
+    history = _oversized_history()
+    history[3]["content"] = [
+        {"type": "text", "text": history[3]["content"]},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 400}},
+    ]
+    result = compact_conversation_history(original_conversation_history=history, llm=llm)  # type: ignore
+
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["tools"] is None
+    sent = json.dumps(llm.calls[0]["messages"])
+    assert "image(s) were present but stripped from compaction" in sent
+    assert "data:image/png" not in sent
+    assert result.input_truncated is True
+    assert result.summary == "THE SUMMARY"

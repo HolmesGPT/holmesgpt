@@ -6,6 +6,7 @@ docs/reference/context-management.md
 """
 
 import logging
+import math
 from typing import Any, Optional
 
 from litellm.types.utils import ModelResponse
@@ -24,6 +25,7 @@ class CompactionResult(BaseModel):
     summary: Optional[str] = None
     fallback_used: bool = False
     fallback_reason: Optional[str] = None
+    input_truncated: bool = False
 
 
 COMPACTION_SUMMARY_PREAMBLE = (
@@ -33,6 +35,19 @@ COMPACTION_SUMMARY_PREAMBLE = (
 COMPACTION_SUMMARY_SUFFIX = (
     "Continue the conversation from where it left off, using the summary above as "
     "established context."
+)
+TRUNCATED_INPUT_INSTRUCTION = (
+    "Some tool outputs above were cut to fit this request; each cut is marked "
+    "'characters truncated to fit the compaction request'. For each such "
+    "output, say in the summary that it was only partially seen, and never state that "
+    "something is absent from it."
+)
+COMPACTION_TRUNCATION_NOTE = (
+    "Some tool outputs were too large and were cut before this summary was written, "
+    "so the summary does not cover their omitted parts. Do not conclude that "
+    "something is absent from those outputs; if it matters, re-run the tool with a "
+    "narrower query (for example, filtering with grep) instead of fetching the full "
+    "output again."
 )
 
 
@@ -193,6 +208,120 @@ def _extract_text_content(message: Any) -> str:
     return ""
 
 
+# Each fallback attempt halves the input budget: the local token count can
+# undercount the provider's tokenizer by a third or more (seen on Claude), so a
+# history that "fits" locally can still be rejected as too long.
+FALLBACK_BUDGET_FRACTIONS = (0.5, 0.25)
+TRUNCATION_MARKER = "\n[... {removed} characters truncated to fit the compaction request; not shown to the summarizer ...]\n"
+_MAX_TRUNCATION_PASSES = 5
+
+
+def _text_length(message: dict) -> int:
+    """Number of characters of text in a message's content."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        return sum(
+            len(block.get("text") or "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return 0
+
+
+def _truncate_text(text: str, keep: int) -> str:
+    """Keep the head and tail of ``text``, at most ``keep`` characters in total."""
+    if len(text) <= keep:
+        return text
+    head = keep - keep // 2
+    tail = keep // 2
+    return text[:head] + TRUNCATION_MARKER.format(removed=len(text) - keep) + (text[-tail:] if tail else "")
+
+
+def _truncate_message_text(message: dict, keep: int) -> dict:
+    """Return a copy of ``message`` with at most ``keep`` characters of text."""
+    length = _text_length(message)
+    if length <= keep:
+        return message
+    new_msg = dict(message)
+    new_msg.pop("token_count", None)
+    content = message["content"]
+    if isinstance(content, str):
+        new_msg["content"] = _truncate_text(content, keep)
+    else:
+        is_text = [isinstance(block, dict) and block.get("type") == "text" for block in content]
+        block_cap = _water_fill_cap(
+            [len(block.get("text") or "") for block, text in zip(content, is_text) if text], length - keep
+        )
+        new_msg["content"] = [
+            {**block, "text": _truncate_text(block.get("text") or "", block_cap)} if text else block
+            for block, text in zip(content, is_text)
+        ]
+    return new_msg
+
+
+def _water_fill_cap(lengths: list[int], chars_to_remove: int) -> int:
+    """Largest per-message cap that removes at least ``chars_to_remove`` characters,
+    cutting only the longest messages."""
+    remaining = sorted(lengths, reverse=True)
+    removed_above_cap = 0
+    for i, length in enumerate(remaining):
+        next_length = remaining[i + 1] if i + 1 < len(remaining) else 0
+        # Lowering the cap from `length` to `next_length` trims the i+1 longest messages.
+        step = (length - next_length) * (i + 1)
+        if removed_above_cap + step >= chars_to_remove:
+            return length - math.ceil((chars_to_remove - removed_above_cap) / (i + 1))
+        removed_above_cap += step
+    return 0
+
+
+def _fit_history_to_token_budget(
+    messages: list[dict],
+    llm: LLM,
+    tools: Optional[list[dict[str, Any]]],
+    budget_tokens: int,
+) -> tuple[list[dict], bool]:
+    """Truncate the longest message texts until the history fits ``budget_tokens``.
+
+    A leading system message is never truncated. Returns (messages, truncated);
+    the result is best-effort when non-text content alone exceeds the budget.
+    """
+    total = llm.count_tokens(messages=messages, tools=tools).total_tokens  # type: ignore
+    if total <= budget_tokens:
+        return messages, False
+
+    has_system = bool(messages) and messages[0].get("role") == "system"
+    truncatable_from = 1 if has_system else 0
+    fixed_tokens = (
+        llm.count_tokens(messages=messages[:truncatable_from], tools=tools).total_tokens  # type: ignore
+        if has_system
+        else 0
+    )
+    original_total = total
+    for _ in range(_MAX_TRUNCATION_PASSES):
+        lengths = [_text_length(m) for m in messages[truncatable_from:]]
+        total_chars = sum(lengths)
+        if total_chars == 0:
+            break
+        chars_per_token = total_chars / max(total - fixed_tokens, 1)
+        # 10% overshoot so a pass rarely lands just above the budget.
+        chars_to_remove = min(total_chars, int((total - budget_tokens) * chars_per_token * 1.1) + 1)
+        cap = _water_fill_cap(lengths, chars_to_remove)
+        messages = messages[:truncatable_from] + [
+            _truncate_message_text(m, cap) for m in messages[truncatable_from:]
+        ]
+        total = llm.count_tokens(messages=messages, tools=tools).total_tokens  # type: ignore
+        if total <= budget_tokens:
+            break
+
+    logging.info(
+        f"Compaction: truncated the longest messages to fit the summarization request "
+        f"({original_total} -> {total} tokens, budget {budget_tokens})"
+    )
+    return messages, True
+
+
 def compact_conversation_history(
     original_conversation_history: list[dict],
     llm: LLM,
@@ -252,21 +381,36 @@ def compact_conversation_history(
         conversation_history = _strip_images_for_compaction(conversation_history)
 
     instructions_message = {"role": "user", "content": compaction_instructions}
+    truncated_instructions_message = {
+        "role": "user",
+        "content": f"{compaction_instructions}\n\n{TRUNCATED_INPUT_INSTRUCTION}",
+    }
     compaction_usage = RequestStats()
+
+    # The history is compacted because it no longer fits, so the summarization
+    # request itself must be cut down to the window: the provider rejects it
+    # otherwise and compaction can never recover (ROB-1519).
+    input_budget = max(
+        context_window - maximum_output_token - instruction_tokens, context_window // 10
+    )
+    primary_history, input_truncated = _fit_history_to_token_budget(
+        conversation_history, llm, tools, input_budget
+    )
+    primary_instructions = truncated_instructions_message if input_truncated else instructions_message
 
     response_message = None
     fallback_reason: Optional[str] = None
     try:
         if tools:
             response: Optional[ModelResponse] = llm.completion(
-                messages=conversation_history + [instructions_message],
+                messages=primary_history + [primary_instructions],
                 tools=tools,
                 tool_choice="auto",
                 drop_params=True,
             )  # type: ignore
         else:
             response = llm.completion(
-                messages=conversation_history + [instructions_message], drop_params=True
+                messages=primary_history + [primary_instructions], drop_params=True
             )  # type: ignore
         compaction_usage += RequestStats.from_response(response)
         response_message = _get_response_message(response)
@@ -290,18 +434,30 @@ def compact_conversation_history(
         )
         flattened_history, _ = strip_system_prompt(conversation_history)
         flattened_history = _flatten_tool_messages_for_compaction(flattened_history)
-        try:
-            response = llm.completion(
-                messages=flattened_history + [instructions_message], drop_params=True
-            )  # type: ignore
-            compaction_usage += RequestStats.from_response(response)
-            response_message = _get_response_message(response)
-        except Exception as e:
-            # Both attempts failed — degrade gracefully via the empty-summary
-            # path below (original history returned unchanged) instead of
-            # aborting the whole turn.
-            fallback_reason = f"{fallback_reason}; fallback request also failed: {e}"
-            response_message = None
+        previous_attempt: Optional[list[dict]] = None
+        for budget_fraction in FALLBACK_BUDGET_FRACTIONS:
+            fallback_history, truncated = _fit_history_to_token_budget(
+                flattened_history, llm, None, int(input_budget * budget_fraction)
+            )
+            if fallback_history is previous_attempt:
+                break  # a smaller budget no longer changes the request
+            previous_attempt = fallback_history
+            input_truncated = input_truncated or truncated
+            try:
+                response = llm.completion(
+                    messages=fallback_history
+                    + [truncated_instructions_message if truncated else instructions_message],
+                    drop_params=True,
+                )  # type: ignore
+                compaction_usage += RequestStats.from_response(response)
+                response_message = _get_response_message(response)
+                break
+            except Exception as e:
+                # Every attempt failed — degrade gracefully via the empty-summary
+                # path below (original history returned unchanged) instead of
+                # aborting the whole turn.
+                fallback_reason = f"{fallback_reason}; fallback request (budget {budget_fraction:.0%}) failed: {e}"
+                response_message = None
 
     summary_text = (
         _extract_text_content(response_message).strip() if response_message else ""
@@ -315,6 +471,7 @@ def compact_conversation_history(
             usage=compaction_usage,
             fallback_used=bool(fallback_reason),
             fallback_reason=fallback_reason,
+            input_truncated=input_truncated,
         )
 
     compacted_conversation_history: list[dict] = []
@@ -323,10 +480,11 @@ def compact_conversation_history(
 
     # The summary goes into history as a *user* message built from the response's
     # text only — thinking blocks / provider-specific fields must never be replayed.
+    suffix = f"{COMPACTION_TRUNCATION_NOTE}\n\n{COMPACTION_SUMMARY_SUFFIX}" if input_truncated else COMPACTION_SUMMARY_SUFFIX
     compacted_conversation_history.append(
         {
             "role": "user",
-            "content": f"{COMPACTION_SUMMARY_PREAMBLE}\n\n{summary_text}\n\n{COMPACTION_SUMMARY_SUFFIX}",
+            "content": f"{COMPACTION_SUMMARY_PREAMBLE}\n\n{summary_text}\n\n{suffix}",
         }
     )
 
@@ -340,4 +498,5 @@ def compact_conversation_history(
         summary=summary_text,
         fallback_used=bool(fallback_reason),
         fallback_reason=fallback_reason,
+        input_truncated=input_truncated,
     )
