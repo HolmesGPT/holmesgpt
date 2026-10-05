@@ -404,13 +404,27 @@ def test_a_value_no_template_reads_is_an_error_beside_a_time_that_moves_on(tmp_p
     ]
 
 
-def test_values_whose_renders_differ_in_their_number_of_lines_are_an_error(tmp_path):
-    random_lines = chart(
-        tmp_path,
-        "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: holmes\n"
-        "data:\n  lines: |\n{{- range until (randInt 1 1000) }}\n    line{{ end }}\n",
+def test_values_whose_renders_differ_in_their_number_of_lines_are_an_error(tmp_path, monkeypatch):
+    """The second render of the fence's own values has one more line, as a chart that writes a
+    random number of lines can give it."""
+    values = {"read": "x", "unread": "y"}
+    read = chart(
+        tmp_path, "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: holmes\ndata:\n  read: {{ .Values.read | quote }}\n"
     )
-    assert fence_checks.check_fence({"unread": "y"}, {}, random_lines) == [
+    render = fence_checks._render
+    renders_of_values = 0
+
+    def a_line_more_the_second_time(changed, chart_dir):
+        nonlocal renders_of_values
+        result = render(changed, chart_dir)
+        if changed == values:
+            renders_of_values += 1
+            if renders_of_values == 2:
+                result.stdout += "  line: line\n"
+        return result
+
+    monkeypatch.setattr(fence_checks, "_render", a_line_more_the_second_time)
+    assert fence_checks.check_fence(values, {}, read) == [
         "two renders of these values differ in their number of lines, so which values the chart reads cannot be told"
     ]
 
