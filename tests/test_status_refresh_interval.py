@@ -6,7 +6,6 @@ import pytest
 
 import server
 from holmes.config import Config
-from holmes.core import tools as tools_module
 from holmes.core import toolset_manager as toolset_manager_module
 from holmes.core.tools import ToolsetStatusEnum, ToolsetTag
 
@@ -29,11 +28,10 @@ class _ShiftedTime:
 def clock(monkeypatch):
     """Lets a test move the status-check clock forward without sleeping.
 
-    Only the modules that time status checks see the shift; patching
+    Only the module that times status checks sees the shift; patching
     time.monotonic itself would also shift background threads other tests
     left running in this worker, such as the OAuth token refresh sweep."""
     shifted = _ShiftedTime()
-    monkeypatch.setattr(tools_module, "time", shifted)
     monkeypatch.setattr(toolset_manager_module, "time", shifted)
 
     def advance(seconds: float) -> None:
@@ -88,25 +86,39 @@ def test_without_interval_every_refresh_checks_the_server(tmp_path):
         assert _sessions_opened(sessions) == expected
 
 
-def test_interval_skips_checks_until_it_elapses(tmp_path, clock):
+@pytest.mark.parametrize(
+    "server_script, status",
+    [(WORKING_SERVER, ToolsetStatusEnum.ENABLED), ("exit 1", ToolsetStatusEnum.FAILED)],
+    ids=["working", "failing"],
+)
+def test_interval_checks_once_per_interval(tmp_path, clock, server_script, status):
+    config, sessions = _mcp_config(tmp_path, server_script, status_refresh_interval_seconds=3600)
+
+    _refresh(config)
+    assert _sessions_opened(sessions) == 1
+
+    for interval_number in (1, 2):
+        clock(300)
+        _refresh(config)
+        clock(300)
+        _refresh(config)
+        assert _sessions_opened(sessions) == interval_number
+        assert _example(config).status == status
+
+        clock(3000)
+        _refresh(config)
+        assert _sessions_opened(sessions) == interval_number + 1
+
+
+def test_carried_over_server_keeps_its_tools(tmp_path, clock):
     config, sessions = _mcp_config(tmp_path, WORKING_SERVER, status_refresh_interval_seconds=3600)
-
     _refresh(config)
-    assert _sessions_opened(sessions) == 1
 
     clock(300)
     _refresh(config)
-    clock(300)
-    _refresh(config)
     assert _sessions_opened(sessions) == 1
-    example = _example(config)
-    assert example.status == ToolsetStatusEnum.ENABLED
-    assert {t.mcp_tool_name for t in example.tools} >= {"greet", "add"}
+    assert {t.mcp_tool_name for t in _example(config).tools} >= {"greet", "add"}
     assert "greet" in config.cached_tool_executor.tools_by_name
-
-    clock(3600)
-    _refresh(config)
-    assert _sessions_opened(sessions) == 2
 
 
 def test_failed_server_with_interval_does_not_shorten_the_refresh_loop(tmp_path, monkeypatch):

@@ -865,9 +865,6 @@ class Toolset(BaseModel):
     # main thread has already marked this toolset FAILED.
     _prereq_aborted: bool = PrivateAttr(default=False)
 
-    # time.monotonic() when check_prerequisites last started.
-    _status_checked_at: Optional[float] = PrivateAttr(default=None)
-
     # status fields that be cached
     type: Optional[ToolsetType] = None
     path: Optional[FilePath] = None
@@ -1023,16 +1020,10 @@ class Toolset(BaseModel):
 
         return self.config is None
 
-    def status_check_due(self, now: float) -> bool:
-        if self.status_refresh_interval_seconds is None or self._status_checked_at is None:
-            return True
-        return now - self._status_checked_at >= self.status_refresh_interval_seconds
-
     def check_prerequisites(self, silent: bool = False):
         if self._prereq_aborted:
             # Timeout handler has already finalized status; don't touch it.
             return
-        self._status_checked_at = time.monotonic()
 
         # Sort prerequisites by type to fail fast on missing env vars before
         # running slow commands (e.g., ArgoCD checks that timeout):

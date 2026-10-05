@@ -118,6 +118,10 @@ class ToolsetManager:
 
         self.custom_toolsets_from_cli = custom_toolsets_from_cli
         self.toolset_status_location = toolset_status_location
+        # time.monotonic() of each toolset's last prerequisite check, by name. Kept
+        # here rather than on the toolset because a refresh whose results are
+        # unchanged keeps the previous executor and discards the instances it checked.
+        self._status_checked_at: dict[str, float] = {}
 
     @property
     def cli_tool_tags(self) -> List[ToolsetTag]:
@@ -223,11 +227,9 @@ class ToolsetManager:
                     )
             toolsets_by_name = filtered_toolsets_by_name
 
-        final_toolsets = list(toolsets_by_name.values())
-
         # check_prerequisites against each enabled toolset
         if not check_prerequisites:
-            return final_toolsets
+            return list(toolsets_by_name.values())
 
         # A toolset still inside its own status refresh interval keeps the
         # previous instance, with the status and tools its last check produced.
@@ -237,12 +239,21 @@ class ToolsetManager:
         enabled_toolsets: List[Toolset] = []
         for name, toolset in toolsets_by_name.items():
             previous = previous_by_name.get(name)
-            if toolset.enabled and previous is not None and not previous.status_check_due(now):
+            interval = toolset.status_refresh_interval_seconds
+            checked_at = self._status_checked_at.get(name)
+            if (
+                toolset.enabled
+                and previous is not None
+                and interval is not None
+                and checked_at is not None
+                and now - checked_at < interval
+            ):
                 final_toolsets.append(previous)
                 continue
             final_toolsets.append(toolset)
             if toolset.enabled:
                 enabled_toolsets.append(toolset)
+                self._status_checked_at[name] = now
             else:
                 toolset.status = ToolsetStatusEnum.DISABLED
         self.check_toolset_prerequisites(enabled_toolsets, silent=silent, on_event=on_event)
