@@ -151,8 +151,8 @@ def robusta_region_fence_format(source, language, css_class, options, md, **kwar
 
     1. A markdown link `[text](url)` (with optional `{...}` attribute list) →
        renders as a clickable link per region.
-    2. Anything else → renders as a code block per region. Pass `lang=<name>`
-       in the fence options to set syntax highlighting (e.g. `lang=yaml`).
+    2. Anything else → renders as a code block per region. Write `{lang=<name>}`
+       after the fence name to set syntax highlighting (`yaml`, `bash` or `json`).
 
     Usage:
 
@@ -164,12 +164,12 @@ def robusta_region_fence_format(source, language, css_class, options, md, **kwar
         [platform.robusta.dev](https://platform.robusta.dev/)
         ```
 
-        ````robusta-region lang=yaml
+        ```robusta-region {lang=yaml}
         holmes:
           additionalEnvVars:
             - name: ROBUSTA_API_ENDPOINT
               value: "https://api.robusta.dev"
-        ````
+        ```
     """
     inner = source.strip()
     # Inline `{lang=yaml}` attrs arrive via kwargs['attrs']; config-level options
