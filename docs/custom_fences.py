@@ -33,10 +33,10 @@ A robusta-region fence opens at the start of a line or indented by four spaces, 
 fence is a code block, opened and closed by three backticks at any indent, its opening naming one
 of `CODE_LANGUAGES` or none. Any other fence line (another info string or case, superfences'
 `{.<name>}`, `~~~`, more backticks) fails the build with a message naming the page and the line,
-and so do a body that is not valid YAML, a value that is not the chart's, and a page whose
-rendered HTML shows a fence's markdown instead of its tabs (`on_post_page`). This module reads
-only files and imports nothing from `holmes`; the checks that need Holmes, of each `toolsets` and
-`mcp_servers` block, are the `docs/fence_checks.py` hook's.
+and so do a body that is not valid YAML, an empty value, and a page whose rendered HTML shows
+a fence's markdown instead of its tabs (`on_post_page`). This module reads only files and imports
+nothing from `holmes`; `docs/fence_checks.py` checks each fence's Helm values against the chart
+and the Kubernetes API, from tests/docs.
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
@@ -55,14 +55,9 @@ the first column, then optionally a line `---` and the fields below, a second bl
       ```
 
 Each Helm tab shows the values (under `holmes:` in the Robusta tab) and the chart's upgrade command.
-The values are written as the page shows them, comments included. Every key path of the values is
-one of the chart's defaults in `helm/holmes/values.yaml`, and its value has the default's type,
-except inside the maps of `FREE_FORM_VALUES`, whose keys are the reader's, and inside the blocks
-`toolsets` and `mcp_servers` map each name to, which `docs/fence_checks.py` checks against Holmes.
-A list's entries are in the form `LIST_ENTRIES` declares for it, and a list it declares none for
-fails the build; an entry of a map of `FREE_FORM_ENTRIES` is in the form declared there.
-No value at any key path is empty (null, `{}`, `[]` or `""`), and each block is a mapping. The
-top-level keys that are also Holmes config (`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
+The values are written as the page shows them, comments included. No value at any key path,
+in mappings and list entries alike, is empty (null, `{}`, `[]` or `""`). The top-level keys that
+are also Holmes config (`CLI_CONFIG_KEYS`) are what a derived CLI tab shows.
 
 Secrets. Every `{{ env.X }}` the values reference outside a comment line and set in no
 `additionalEnvVars` entry is a key of the group's Kubernetes secret, in the order the values first
@@ -124,7 +119,7 @@ import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Any, Dict, Iterator, List, NamedTuple, Optional, Tuple, Union
+from typing import Annotated, Dict, Iterator, List, NamedTuple, Optional, Tuple
 
 import yaml  # type: ignore
 from markdown.extensions import Extension
@@ -134,7 +129,6 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
-    TypeAdapter,
     ValidationError,
     field_validator,
     model_validator,
@@ -293,13 +287,7 @@ FIELDS_SEPARATOR = "---"
 SECRET_ARGUMENT_RE = re.compile(
     r"--from-(?P<kind>literal|file)=(?P<key>[A-Za-z0-9_.-]+)=(?P<value>\S.*)"
 )
-# The keys a fence's values may set: the Holmes chart's values.
-CHART_VALUES = Path(__file__).resolve().parents[1] / "helm" / "holmes" / "values.yaml"
-CHART_DEFAULTS = yaml.safe_load(CHART_VALUES.read_text())
-CHART_KEYS = frozenset(CHART_DEFAULTS)
-# The chart values that are also Holmes config, which a derived CLI tab shows. The
-# docs/fence_checks.py hook fails the build when this is not the `holmes.config.Config`
-# fields that are CHART_KEYS.
+# The chart values that are also Holmes config, which a derived CLI tab shows.
 CLI_CONFIG_KEYS = frozenset({"toolsets", "mcp_servers"})
 # The chart-specific names a Helm tab can state, and the lines that state them.
 DEPLOYMENT_VALUES = {
@@ -378,60 +366,16 @@ def _is_empty(value) -> bool:
     return value is None or value in ({}, [], "")
 
 
-def _chart_value_error(values: dict, defaults: Optional[dict], path: tuple = ()) -> Optional[str]:
-    """Why `values`, the mapping at `path`, are not the chart's: the first key path whose
-    value is empty, that the chart's `defaults` lack, or whose value has a type other than
-    the default's; a list whose entries are not in their LIST_ENTRIES form; or an entry of
-    a free-form map not in its FREE_FORM_ENTRIES form. `defaults` is None inside a map of
-    FREE_FORM_VALUES, whose keys are the reader's. The toolset blocks, which the hook
-    checks, are each a mapping."""
-    for key, value in values.items():
-        here = path + (key,)
-        name = ".".join(map(str, here))
-        if _is_empty(value):
-            return f"`{name}` has no value"
-        if defaults is not None:
-            if key not in defaults:
-                return f"`{name}` is not a value of the Holmes chart (helm/holmes/values.yaml)"
-            if type(value) is not type(defaults[key]):
-                return (
-                    f"`{name}` is a {type(value).__name__}, and the Holmes chart's default for it "
-                    f"(helm/holmes/values.yaml) is a {type(defaults[key]).__name__}"
-                )
-        error = None
-        if len(here) == 1 and key in CLI_CONFIG_KEYS:
-            error = _toolset_blocks_error(value, name)
-        elif isinstance(value, dict):
-            inner = None if defaults is None or here in FREE_FORM_VALUES else defaults[key]
-            error = _chart_value_error(value, inner, here)
-        elif isinstance(value, list):
-            error = _list_entries_error(value, here, name)
-        if not error and path in FREE_FORM_ENTRIES:
-            try:
-                FREE_FORM_ENTRIES[path].model_validate(value)
-            except ValidationError as e:
-                error = f"`{name}` is an entry in a form no page writes: {e}"
-        if error:
-            return error
-    return None
-
-
-def _list_entries_error(entries: list, path: tuple, name: str) -> Optional[str]:
-    if path not in LIST_ENTRIES:
-        return f"`{name}` is a list no page writes: LIST_ENTRIES in docs/custom_fences.py declares those pages write"
-    try:
-        TypeAdapter(List[LIST_ENTRIES[path]], config=ConfigDict(strict=True)).validate_python(entries)
-    except ValidationError as e:
-        return f"`{name}` holds an entry in a form no page writes: {e}"
-    return None
-
-
-def _toolset_blocks_error(blocks: dict, name: str) -> Optional[str]:
-    for block_name, block in blocks.items():
-        if _is_empty(block):
-            return f"`{name}.{block_name}` has no value"
-        if not isinstance(block, dict):
-            return f"`{name}.{block_name}` is a {type(block).__name__}, and a block of `{name}` is a mapping"
+def _empty_value(node, path: str = "") -> Optional[str]:
+    """The first key path under the mapping or list `node` whose value is empty."""
+    for key, value in node.items() if isinstance(node, dict) else enumerate(node):
+        here = f"{path}[{key}]" if isinstance(node, list) else f"{path}.{key}".lstrip(".")
+        if isinstance(node, dict) and _is_empty(value):
+            return here
+        if isinstance(value, (dict, list)):
+            empty = _empty_value(value, here)
+            if empty:
+                return empty
     return None
 
 
@@ -492,7 +436,6 @@ SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)
 Text = Annotated[str, Field(pattern=r"\S")]
 # Text on one line, and the line break a block scalar ends it with.
 Line = Annotated[str, Field(pattern=r"^[^\n]*\S[^\n]*\n?$")]
-Mapping = Annotated[Dict[str, Any], Field(min_length=1)]
 
 
 class Form(BaseModel):
@@ -513,97 +456,6 @@ class Form(BaseModel):
 class NamedSecret(Form):
     name: Text
     keys: SecretKeys
-
-
-# The chart values whose default is an empty map, which pages fill with keys of their own.
-FREE_FORM_VALUES = frozenset(
-    {
-        ("modelList",),
-        ("commonLabels",),
-        ("serviceAccount", "annotations"),
-        ("mcpAddons", "aws", "multiAccount", "profiles"),
-        ("mcpAddons", "aws", "serviceAccount", "annotations"),
-        ("mcpAddons", "azure", "serviceAccount", "annotations"),
-        ("mcpAddons", "gcp", "serviceAccount", "annotations"),
-        ("mcpAddons", "kubernetes", "config", "oauth"),
-    }
-)
-
-
-class ModelListEntry(Form):
-    model: Text
-    api_key: Optional[Text] = None
-    api_base: Optional[Text] = None
-    api_version: Optional[Text] = None
-    temperature: Optional[float] = None
-    reasoning_effort: Optional[Text] = None
-    thinking: Optional[Mapping] = None
-    custom_args: Optional[Mapping] = None
-    extra_headers: Optional[Mapping] = None
-    aws_region_name: Optional[Text] = None
-    aws_access_key_id: Optional[Text] = None
-    aws_secret_access_key: Optional[Text] = None
-    vertex_project: Optional[Text] = None
-    vertex_location: Optional[Text] = None
-    input_cost_per_token: Optional[float] = None
-    output_cost_per_token: Optional[float] = None
-
-
-# The maps of FREE_FORM_VALUES whose entries pages write in one form, and that form.
-FREE_FORM_ENTRIES = {("modelList",): ModelListEntry}
-
-
-class EnvVar(Form):
-    name: Text
-    value: Text
-
-
-class SecretItem(Form):
-    key: Text
-    path: Text
-
-
-class SecretVolumeSource(Form):
-    secretName: Text
-    items: Optional[Annotated[List[SecretItem], Field(min_length=1)]] = None
-
-
-class SecretVolume(Form):
-    name: Text
-    secret: SecretVolumeSource
-
-
-class HostPath(Form):
-    path: Text
-    type: Text
-
-
-class HostPathVolume(Form):
-    name: Text
-    hostPath: HostPath
-
-
-class VolumeMount(Form):
-    name: Text
-    mountPath: Text
-    readOnly: bool
-
-
-class ClusterRoleRule(Form):
-    # "" is the core API group.
-    apiGroups: Annotated[List[str], Field(min_length=1)]
-    resources: Annotated[List[Text], Field(min_length=1)]
-    verbs: Annotated[List[Text], Field(min_length=1)]
-
-
-# The chart values that are lists, and the form of each entry pages write in them.
-LIST_ENTRIES = {
-    ("additionalEnvVars",): EnvVar,
-    ("additionalVolumes",): Union[SecretVolume, HostPathVolume],
-    ("additionalVolumeMounts",): VolumeMount,
-    ("customClusterRoleRules",): ClusterRoleRule,
-    ("mcpAddons", "kubernetes", "config", "extraArgs"): Text,
-}
 
 
 class Fields(Form):
@@ -669,12 +521,21 @@ def _cli_config(values_text: str) -> str:
     )
 
 
+def _env_vars(values: dict) -> List[dict]:
+    """The `additionalEnvVars` entries that name a variable. The Kubernetes schema check of
+    docs/fence_checks.py refuses any other entry."""
+    entries = values.get("additionalEnvVars")
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict) and "name" in entry]
+
+
 def _environment_keys(values_text: str, values: dict, given: dict) -> dict:
     """{key: (kind, value)} of the group's env secret: every `{{ env.X }}` the values
     reference outside a comment and set in no `additionalEnvVars` entry, in the order
     the values first reference them, then the keys `given` adds; a key `given` names
     takes its value from there, any other key the placeholder value."""
-    plain = {entry["name"] for entry in values.get("additionalEnvVars", [])}
+    plain = {entry["name"] for entry in _env_vars(values)}
     code = "\n".join(
         line for line in values_text.split("\n") if not line.lstrip().startswith("#")
     )
@@ -721,9 +582,9 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
         return None
     if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
         return None
-    error = _chart_value_error(values, CHART_DEFAULTS)
-    if error:
-        raise FenceBodyError(error)
+    empty = _empty_value(values)
+    if empty:
+        raise FenceBodyError(f"`{empty}` has no value")
 
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.
@@ -740,7 +601,7 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     elif opening["option"]:
         return None
     environment = {key: "value" for key in keys}
-    environment.update({entry["name"]: entry["value"] for entry in values.get("additionalEnvVars", [])})
+    environment.update({entry["name"]: entry.get("value", "") for entry in _env_vars(values)})
     return DeploymentBody(values_text, values, fields, secret, keys, environment)
 
 

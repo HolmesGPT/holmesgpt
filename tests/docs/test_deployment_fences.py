@@ -2,17 +2,14 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict
 
 import markdown
 import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
-from pydantic import BaseModel
 
 from docs import custom_fences, fence_checks
 from docs.custom_fences import SUPPORTED_OPENING_RE, TabFenceError
-from holmes.plugins.toolsets.kafka import KafkaToolset
 
 REPO = Path(__file__).resolve().parents[2]
 DOCS = REPO / "docs"
@@ -40,7 +37,7 @@ def test_there_are_pages_with_fences():
     ids=[str(path.relative_to(DOCS)) for path in PAGES_WITH_FENCES],
 )
 def test_every_fence_of_a_page_is_in_a_supported_form(site_config, monkeypatch, path):
-    """The preprocessor and the fence_checks hook raise on a fence in any form they do not support."""
+    """The preprocessor raises on a fence in any form it does not support."""
     monkeypatch.chdir(REPO)  # pymdownx.snippets resolves base_path from the cwd
     page = path.relative_to(DOCS).as_posix()
     configs = {**site_config["mdx_configs"]}
@@ -49,7 +46,6 @@ def test_every_fence_of_a_page_is_in_a_supported_form(site_config, monkeypatch, 
         extensions=site_config["markdown_extensions"], extension_configs=configs
     )
     assert md.convert(path.read_text())
-    fence_checks.check_page(path.read_text(), page)
 
 
 # The holmes modules a process has imported, and whether it has the fence module.
@@ -63,10 +59,9 @@ LOADED = (
     "load",
     [
         "import docs.custom_fences",
-        # A tool that expands the fences without Holmes loads the config without its hooks.
-        "from mkdocs.config import load_config; load_config('mkdocs.yml', hooks=[])",
+        "from mkdocs.config import load_config; load_config('mkdocs.yml')",
     ],
-    ids=["the fence module", "mkdocs.yml without its hooks"],
+    ids=["the fence module", "mkdocs.yml"],
 )
 def test_expanding_the_fences_imports_nothing_from_holmes(load):
     result = subprocess.run(
@@ -157,89 +152,6 @@ def test_a_fence_opening_in_a_form_no_page_writes_fails_the_build(tmp_path, monk
         build_page(tmp_path, f"{opening}\nmodelList:\n  gpt:\n    api_key: \"{{{{ env.OPENAI_API_KEY }}}}\"\n```\n")
 
 
-@pytest.mark.parametrize(
-    "values, path",
-    [
-        *[(f"{key}:\n  app: holmes\n", key) for key in ("config", "podLabels", "extraVolumes", "customToolsets")],
-        ("serviceAccount:\n  annotaions:\n    eks.amazonaws.com/role-arn: arn\n", "serviceAccount.annotaions"),
-        ("crdPermissions:\n  argoo: true\n", "crdPermissions.argoo"),
-        ("mcpAddons:\n  aws:\n    enabeld: true\n", "mcpAddons.aws.enabeld"),
-        ("mcpAddons:\n  aws:\n    enabled: true\n    config:\n      regoin: us-east-1\n", "mcpAddons.aws.config.regoin"),
-        ("mcpAddons:\n  aws:\n    nodeSelector:\n      kubernetes.io/os: linux\n", "mcpAddons.aws.nodeSelector.kubernetes.io/os"),
-    ],
-    ids=[
-        "config",
-        "podLabels",
-        "extraVolumes",
-        "customToolsets",
-        "nested-key",
-        "crd-permission",
-        "addon-key",
-        "addon-nested-key",
-        "free-form-map-no-page-fills",
-    ],
-)
-def test_a_value_the_holmes_chart_has_no_key_for_fails_the_build(tmp_path, monkeypatch, values, path):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` is not a value of the Holmes chart"):
-        build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
-
-
-@pytest.mark.parametrize(
-    "values, path, written, default",
-    [
-        ('namespaceScopedRBAC: "false"\n', "namespaceScopedRBAC", "str", "bool"),
-        ("additionalEnvVars:\n  LOG_LEVEL: DEBUG\n", "additionalEnvVars", "dict", "list"),
-        ("mcpAddons:\n  aws:\n    image:\n      tag: x\n", "mcpAddons.aws.image", "dict", "str"),
-    ],
-    ids=["str-for-bool", "mapping-for-list", "mapping-for-str"],
-)
-def test_a_value_of_another_type_than_its_chart_default_fails_the_build(tmp_path, monkeypatch, values, path, written, default):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` is a {written}, and the Holmes chart's default for it \(helm/holmes/values\.yaml\) is a {default}"):
-        build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
-
-
-@pytest.mark.parametrize(
-    "values, path",
-    [
-        ("additionalEnvVars:\n  - nmae: TIMEOUT_SECONDS\n    value: \"30\"\n", "additionalEnvVars"),
-        ("additionalEnvVars:\n  - TIMEOUT_SECONDS=30\n", "additionalEnvVars"),
-        ("additionalVolumes:\n  - name: certs\n    hostPath:\n      pth: /etc/certs\n      type: Directory\n", "additionalVolumes"),
-        ("customClusterRoleRules:\n  - apiGroups: [\"\"]\n    resources: [pods]\n    verb: [get]\n", "customClusterRoleRules"),
-    ],
-    ids=["env-var-key", "env-var-string", "volume-nested-key", "cluster-role-rule-key"],
-)
-def test_a_chart_list_entry_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, values, path):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` holds an entry in a form no page writes"):
-        build_page(tmp_path, f"```yaml-helm-values\n{values}```\n")
-
-
-def test_a_chart_list_no_page_writes_fails_the_build(tmp_path, monkeypatch):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: `serviceAccount\.imagePullSecrets` is a list no page writes"):
-        build_page(tmp_path, "```yaml-helm-values\nserviceAccount:\n  imagePullSecrets:\n    - name: registry\n```\n")
-
-
-@pytest.mark.parametrize(
-    "entry",
-    ["    modle: anthropic/claude-sonnet-4-5\n", "    model: anthropic/claude-sonnet-4-5\n    temprature: 1\n"],
-    ids=["model", "temperature"],
-)
-def test_a_model_list_entry_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, entry):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: `modelList\.sonnet` is an entry in a form no page writes"):
-        build_page(tmp_path, f"```yaml-helm-values\nmodelList:\n  sonnet:\n{entry}```\n")
-
-
-def test_the_cli_tab_keys_are_the_chart_values_that_are_holmes_config(tmp_path, monkeypatch):
-    monkeypatch.chdir(REPO)
-    monkeypatch.setattr(custom_fences, "CLI_CONFIG_KEYS", frozenset({"toolsets"}))
-    with pytest.raises(TabFenceError, match=r"^docs/custom_fences\.py: CLI_CONFIG_KEYS is \['toolsets'\]"):
-        build_page(tmp_path, "Text.\n")
-
-
 INCLUDE = '--8<-- "snippets/toolsets_that_provide_logging.md"\n\n'
 FRONT_MATTER = "---\ntitle: Page\n---\n"
 
@@ -247,16 +159,14 @@ FRONT_MATTER = "---\ntitle: Page\n---\n"
 @pytest.mark.parametrize(
     "text, line, error",
     [
-        (f"# Page\n\n{INCLUDE}```yaml-helm-values\npodLabels:\n  app: holmes\n```\n", 5, "`podLabels` is not a value"),
+        (f"# Page\n\n{INCLUDE}```yaml-helm-values\nmodelList:\n```\n", 5, "`modelList` has no value"),
         (f"# Page\n\n{INCLUDE}```multi-instance\ntoolset: x\n```\n", 5, "unsupported form"),
-        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\npodLabels:\n  app: holmes\n```\n", 6, "`podLabels` is not a value"),
+        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\nmodelList:\n```\n", 6, "`modelList` has no value"),
         (f"{FRONT_MATTER}# Page\n\n```multi-instance\ntoolset: x\n```\n", 6, "unsupported form"),
     ],
-    ids=["include-hook", "include-preprocessor", "front-matter-hook", "front-matter-preprocessor"],
+    ids=["include-deployment", "include-multi-instance", "front-matter-deployment", "front-matter-multi-instance"],
 )
 def test_a_fence_error_names_the_line_in_the_page_source(tmp_path, monkeypatch, text, line, error):
-    """The hook raises a deployment fence's body errors before the Markdown pipeline
-    runs; the preprocessor raises a multi-instance fence's."""
     monkeypatch.chdir(REPO)
     docs = tmp_path / "docs"
     docs.mkdir()
@@ -362,8 +272,9 @@ def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_p
         ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n    api_key: \"\"\n", "modelList.gpt.api_key"),
         ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations"),
         ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations"),
+        ("additionalEnvVars:\n  - name: TIMEOUT_SECONDS\n    value: \"\"\n", "additionalEnvVars[0].value"),
     ],
-    ids=["toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]"],
+    ids=["toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]", "list-entry"],
 )
 def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path):
     monkeypatch.chdir(REPO)
@@ -390,112 +301,6 @@ def test_a_reuse_fence_with_a_field_other_than_cli_fails_the_build(tmp_path, mon
         build_page(tmp_path, fence)
 
 
-@pytest.mark.parametrize(
-    "values, error",
-    [
-        (
-            "toolsets:\n  grafana/dashboards:\n    enabled: true\n    config:\n      verify_ssl: true\n",
-            r"`toolsets\.grafana/dashboards\.config` is not a config the toolset accepts: .*api_url",
-        ),
-        (
-            "toolsets:\n  orders-db:\n    type: database\n    config:\n      read_only: true\n",
-            r"`toolsets\.orders-db\.config` is not a config the toolset accepts: .*connection_url",
-        ),
-        (
-            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    subtype: prom\n    config:\n      prometheus_url: http://prometheus:9090\n",
-            r"`toolsets\.prometheus/metrics\.subtype` names no config of the toolset",
-        ),
-        (
-            "mcp_servers:\n  jenkins:\n    description: Jenkins\n    config:\n      mode: streamable-http\n",
-            r"`mcp_servers\.jenkins\.config` is not a config the toolset accepts: .*url",
-        ),
-        (
-            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      prometheus_url: http://prometheus:9090\n      timout: 10\n",
-            r"`toolsets\.prometheus/metrics\.config` is not a config the toolset accepts: .*`timout` is not a field it declares",
-        ),
-        (
-            "mcp_servers:\n  jira:\n    description: Jira\n    config:\n      url: https://mcp.example.com/mcp\n      oauth:\n        client_idd: holmes\n",
-            r"`mcp_servers\.jira\.config` is not a config the toolset accepts: .*`oauth\.client_idd` is not a field it declares",
-        ),
-        (
-            "toolsets:\n  kafka/admin:\n    enabled: true\n    config:\n      clusters:\n        - name: prod\n          broker: kafka:9092\n          security_protocl: SSL\n",
-            r"`toolsets\.kafka/admin\.config` is not a config the toolset accepts: .*`clusters\[0\]\.security_protocl` is not a field it declares",
-        ),
-        (
-            "toolsets:\n  zabbix:\n    type: http\n    config:\n      endpoints:\n        - hosts: [zabbix.example.com]\n          method: [POST]\n",
-            r"`toolsets\.zabbix\.config` is not a config the toolset accepts: .*`endpoints\[0\]\.method` is not a field it declares",
-        ),
-    ],
-    ids=[
-        "built-in",
-        "custom-named",
-        "subtype",
-        "mcp_servers",
-        "undeclared-key",
-        "undeclared-nested-key",
-        "undeclared-key-in-a-list-entry",
-        "undeclared-key-in-a-typed-toolset-list-entry",
-    ],
-)
-def test_a_toolset_config_its_toolset_refuses_fails_the_build(tmp_path, monkeypatch, values, error):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
-        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
-
-
-class KafkaCluster(BaseModel):
-    broker: str
-
-
-class KafkaClustersByName(BaseModel):
-    clusters: Dict[str, KafkaCluster]
-
-
-def test_a_config_class_holding_a_model_in_a_form_the_check_does_not_read_fails_the_build(tmp_path, monkeypatch):
-    monkeypatch.chdir(REPO)
-    monkeypatch.setattr(KafkaToolset, "config_classes", [KafkaClustersByName])
-    values = "toolsets:\n  kafka/admin:\n    enabled: true\n    config:\n      clusters:\n        prod:\n          broker: kafka:9092\n"
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: KafkaClustersByName\.clusters holds a model as typing\.Dict\["):
-        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
-
-
-CURL = 'curl -s "$GRAFANA_URL/api/search"'
-
-
-@pytest.mark.parametrize(
-    "values, error",
-    [
-        (
-            "toolsets:\n  prometheus/metrics:\n    enabeld: true\n",
-            r"`toolsets\.prometheus/metrics` is not in a form pages write for a built-in toolset: .*enabeld",
-        ),
-        (
-            "toolsets:\n  orders-db:\n    type: databse\n    config:\n      connection_url: sqlite:///x.db\n",
-            r"`toolsets\.orders-db` is not in a form pages write for a toolset with a `type:`: .*databse",
-        ),
-        (
-            "toolsets:\n  prometheus/metric:\n    enabled: true\n",
-            r"`toolsets\.prometheus/metric` is not in a form pages write for a YAML toolset .*tools",
-        ),
-        (
-            "mcp_servers:\n  jenkins:\n    enabled: true\n    config:\n      url: http://jenkins:8080/mcp\n",
-            r"`mcp_servers\.jenkins` is not in a form pages write for an MCP server: .*enabled",
-        ),
-        (
-            f"toolsets:\n  grafana:\n    description: Grafana\n    tools:\n      - nam: search\n        description: Search\n        command: {CURL}\n",
-            r"`toolsets\.grafana` is not in a form pages write for a YAML toolset .*tools\.0\.nam",
-        ),
-        (
-            f"toolsets:\n  grafana:\n    description: Grafana\n    prerequisites:\n      - envs: [GRAFANA_URL]\n    tools:\n      - name: search\n        description: Search\n        command: {CURL}\n",
-            r"`toolsets\.grafana` is not in a form pages write for a YAML toolset .*prerequisites\.0\..*envs",
-        ),
-    ],
-    ids=["built-in", "type", "yaml-toolset", "mcp_servers", "yaml-toolset-tool", "yaml-toolset-prerequisite"],
-)
-def test_a_toolset_block_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, values, error):
-    monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"(?s)^index\.md:3: {error}"):
-        build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 
 
 CHART = REPO / "helm" / "holmes"

@@ -257,8 +257,6 @@ markdown_extensions:
 
 hooks:
     - docs/custom_fences.py
-    # The fence checks that need Holmes; docs/custom_fences.py needs none.
-    - docs/fence_checks.py
 
 extra_css:
     - stylesheets/extra.css
