@@ -366,10 +366,15 @@ def _is_empty(value) -> bool:
     return value is None or value in ({}, [], "")
 
 
-def _empty_value(node, path: str = "") -> Optional[str]:
+def key_path(path: tuple) -> str:
+    """A path of mapping keys and list indexes as an error names it: `a.b[0].c`."""
+    return "".join(f"[{key}]" if isinstance(key, int) else f".{key}" for key in path).lstrip(".")
+
+
+def _empty_value(node, path: tuple = ()) -> Optional[tuple]:
     """The first key path under the mapping or list `node` whose value is empty."""
     for key, value in node.items() if isinstance(node, dict) else enumerate(node):
-        here = f"{path}[{key}]" if isinstance(node, list) else f"{path}.{key}".lstrip(".")
+        here = path + (key,)
         if isinstance(node, dict) and _is_empty(value):
             return here
         if isinstance(value, (dict, list)):
@@ -584,7 +589,7 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
         return None
     empty = _empty_value(values)
     if empty:
-        raise FenceBodyError(f"`{empty}` has no value")
+        raise FenceBodyError(f"`{key_path(empty)}` has no value")
 
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.

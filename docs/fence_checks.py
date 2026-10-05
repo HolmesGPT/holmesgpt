@@ -17,6 +17,8 @@ from typing import Dict, Iterator, List, Tuple
 
 import yaml  # type: ignore
 
+from docs.custom_fences import key_path
+
 try:
     import kubernetes_validate.utils
 except ImportError as e:
@@ -32,7 +34,9 @@ KUBERNETES_VERSION = "1.36"
 def _helm() -> str:
     helm = shutil.which("helm")
     if helm is None:
-        raise RuntimeError("the fence checks need Helm on PATH: install Helm 3 or later, https://helm.sh/docs/intro/install/")
+        raise RuntimeError(
+            "the fence checks need Helm on PATH: install Helm 3 or later, https://helm.sh/docs/intro/install/"
+        )
     return helm
 
 
@@ -62,8 +66,8 @@ def _leaves(node, path: tuple = ()) -> Iterator[Tuple[tuple, object]]:
 
 
 def _changed(value):
-    """A value other than `value`, of its type where YAML gives the chart one: an empty
-    mapping or list gains an entry, and null becomes a string."""
+    """A value other than `value`: a bool flipped, a number plus one, an empty mapping or
+    list with one entry, and any other value, null included, a string."""
     if isinstance(value, bool):
         return not value
     if isinstance(value, (int, float)):
@@ -86,10 +90,6 @@ def _with(values: dict, path: tuple, value) -> dict:
     return changed
 
 
-def _key_path(path: tuple) -> str:
-    return "".join(f"[{key}]" if isinstance(key, int) else f".{key}" for key in path).lstrip(".")
-
-
 def _unread(values: dict, render: str, chart_dir: Path) -> List[str]:
     """The key path of each leaf of `values` whose change leaves the chart's `render` as it
     is, so no template reads it. A change Helm refuses counts as read."""
@@ -102,7 +102,7 @@ def _unread(values: dict, render: str, chart_dir: Path) -> List[str]:
 
     leaves = list(_leaves(values))
     with ThreadPoolExecutor() as pool:
-        return [_key_path(path) for (path, _), same in zip(leaves, pool.map(unchanged, leaves)) if same]
+        return [key_path(path) for (path, _), same in zip(leaves, pool.map(unchanged, leaves)) if same]
 
 
 def _schema_errors(render: str) -> List[str]:
@@ -117,7 +117,9 @@ def _schema_errors(render: str) -> List[str]:
             kubernetes_validate.utils.validate(document, KUBERNETES_VERSION, strict=True)
         except kubernetes_validate.utils.ValidationError as e:
             where = ".".join(map(str, e.path))
-            errors.append(f"the rendered {name} does not match its Kubernetes {KUBERNETES_VERSION} schema at `{where}`: {e.message}")
+            errors.append(
+                f"the rendered {name} does not match its Kubernetes {KUBERNETES_VERSION} schema at `{where}`: {e.message}"
+            )
         except kubernetes_validate.utils.SchemaNotFoundError:
             errors.append(
                 f"the rendered {name} has no Kubernetes {KUBERNETES_VERSION} schema in kubernetes-validate: "
@@ -137,5 +139,8 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
     result = _render(values, chart_dir)
     if result.returncode != 0:
         return [f"helm template fails: {result.stderr.strip()}"]
-    unread = [f"`{path}`: the chart renders the same when it changes, so no template reads it" for path in _unread(values, result.stdout, chart_dir)]
+    unread = [
+        f"`{path}`: the chart renders the same when it changes, so no template reads its value"
+        for path in _unread(values, result.stdout, chart_dir)
+    ]
     return unread + _schema_errors(result.stdout)
