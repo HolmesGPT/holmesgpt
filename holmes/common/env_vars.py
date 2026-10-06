@@ -218,6 +218,9 @@ HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
 
 # Conversation Worker (M2)
 ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
+# Size of a conversation executor whose name has no built-in default; 'manual'
+# and 'auto' are sized from account settings / their built-ins instead (see
+# holmes/core/conversations_worker/sizing.py).
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
 )
@@ -228,14 +231,6 @@ CONVERSATION_WORKER_MAX_CONCURRENT = int(
 CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
 )
-
-# Conversation executors (ROB-1369). Each Conversations row names the executor
-# pool that must run it ('manual' for live user asks, 'auto' for background
-# work). Pool sizes come from AccountSettings.settings.conversation_executors
-# (set from the UI) and the built-in defaults in executors.py (manual=10,
-# auto=2); CONVERSATION_WORKER_MAX_CONCURRENT only sizes a pool whose name has
-# no built-in default. Deployments that tuned it to size the single shared pool
-# should set the account setting instead.
 
 # Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
 # Tool calls run in their own pool so they never compete with user chats.

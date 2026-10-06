@@ -1,6 +1,6 @@
 """Turning one claimed Conversations row into one conversation turn.
 
-The processor is the part of the conversation worker that does the work:
+The processor is the part of conversation handling that does the work:
 hydrate the task from its events, run Holmes on it, stream the events back,
 and write the row's terminal status. It knows nothing about executors,
 threads or claiming; an executor calls ``run(task)`` on one of its threads.
@@ -19,9 +19,13 @@ from holmes.core.conversations_worker.event_publisher import (
 )
 from holmes.core.conversations_worker.models import (
     EVENT_USER_MESSAGE,
+    SHUTDOWN_ERROR_CODE,
+    SHUTDOWN_ERROR_DESCRIPTION,
+    SHUTDOWN_REASON,
     ConversationReassignedError,
     ConversationStatus,
     ConversationTask,
+    conversation_identity,
 )
 from holmes.core.models import ChatRequest
 from holmes.core.prompt import PromptComponent
@@ -43,33 +47,14 @@ if TYPE_CHECKING:
     from holmes.config import Config
     from holmes.core.supabase_dal import SupabaseDal
 
-# Shutdown handling. When the pod is asked to stop (SIGTERM from a rollout,
-# node drain, scale-down), whatever conversations we are mid-turn on are never
-# going to finish: the executors are not drained, the threads are daemons, and
-# nothing else picks the row back up (the claim RPCs only take 'pending').
-# Before this, the row simply stayed 'running' with our now-dead assignee until
-# the pg_cron stale sweep retired it hours later — a spinner in the UI the whole
-# time. We now retire them ourselves: an error event carrying the reason below,
-# then status 'timeout'.
-SHUTDOWN_REASON = "Holmes Restarted"
-SHUTDOWN_ERROR_DESCRIPTION = (
-    f"{SHUTDOWN_REASON} — this request was interrupted before it finished. "
-    "Ask again to retry."
-)
-# Distinct from the generic 5000 so this is greppable and the FE can special-case
-# it later; unmapped codes render `description` as-is today.
-SHUTDOWN_ERROR_CODE = 5205
-# A row naming an executor this agent cannot run (pool cap reached).
-EXECUTOR_UNAVAILABLE_ERROR_CODE = 5206
-
 
 class ConversationProcessor:
     """Runs one conversation turn and writes its outcome.
 
     ``run`` is the happy path. The other public methods are the outcome
     writers an executor or the runtime needs for a row that cannot run:
-    ``fail`` / ``fail_row`` (error event + 'failed'), ``retire`` (shutdown
-    error event + 'timeout') and ``timeout``.
+    ``fail`` / ``fail_unparsed_row`` (error event + 'failed'), ``retire``
+    (shutdown error event + 'timeout') and ``mark_timed_out``.
     """
 
     def __init__(self, dal: "SupabaseDal", config: "Config", holmes_id: str):
@@ -592,6 +577,24 @@ class ConversationProcessor:
         raw_error: Optional[str] = None,
         reason: Optional[str] = None,
     ) -> None:
+        self._post_error_event(
+            task.conversation_id,
+            task.request_sequence,
+            description,
+            error_code,
+            raw_error=raw_error,
+            reason=reason,
+        )
+
+    def _post_error_event(
+        self,
+        conversation_id: str,
+        request_sequence: int,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
         data: Dict[str, Any] = {
             "description": description,
@@ -610,9 +613,9 @@ class ConversationProcessor:
             data["raw_error"] = raw_error
         try:
             self.dal.post_conversation_events(
-                conversation_id=task.conversation_id,
+                conversation_id=conversation_id,
                 assignee=self.holmes_id,
-                request_sequence=task.request_sequence,
+                request_sequence=request_sequence,
                 events=[
                     {
                         "event": "error",
@@ -624,7 +627,7 @@ class ConversationProcessor:
         except Exception:
             logging.exception(
                 "Failed to post error event for conversation %s",
-                task.conversation_id,
+                conversation_id,
                 exc_info=True,
             )
 
@@ -636,48 +639,49 @@ class ConversationProcessor:
         raw_error: Optional[str] = None,
     ) -> None:
         """Post an error event and then mark the conversation as failed."""
-        self.post_error_event(task, description, error_code, raw_error=raw_error)
+        self._fail(
+            task.conversation_id,
+            task.request_sequence,
+            description,
+            error_code,
+            raw_error=raw_error,
+        )
+
+    def fail_unparsed_row(self, conv: Dict[str, Any], description: str) -> None:
+        """``fail`` for a claimed row that did not parse into a task: the claim
+        set it 'running' with our assignee, so it must still be closed out.
+        Needs only the row's identity."""
+        identity = conversation_identity(conv)
+        if identity is None:
+            return
+        self._fail(identity[0], identity[1], description)
+
+    def _fail(
+        self,
+        conversation_id: str,
+        request_sequence: int,
+        description: str,
+        error_code: int = 5000,
+        raw_error: Optional[str] = None,
+    ) -> None:
+        self._post_error_event(
+            conversation_id, request_sequence, description, error_code, raw_error
+        )
         try:
             self.dal.update_conversation_status(
-                conversation_id=task.conversation_id,
-                request_sequence=task.request_sequence,
+                conversation_id=conversation_id,
+                request_sequence=request_sequence,
                 assignee=self.holmes_id,
                 status="failed",
             )
         except Exception:
             logging.exception(
                 "Failed to mark conversation %s as failed",
-                task.conversation_id,
+                conversation_id,
                 exc_info=True,
             )
 
-    def fail_row(self, conv: Dict[str, Any], description: str) -> None:
-        """``fail`` for a claimed row that did not parse into a task: the claim
-        set it 'running' with our assignee, so it must still be closed out."""
-        cid = conv.get("conversation_id")
-        seq = conv.get("request_sequence")
-        if not cid or seq is None:
-            return
-        try:
-            task = ConversationTask(
-                conversation_id=cid,
-                account_id=conv.get("account_id", ""),
-                cluster_id=conv.get("cluster_id", ""),
-                origin=conv.get("origin", ""),
-                request_sequence=int(seq),
-                executor=conv.get("executor")
-                or ConversationTask.model_fields["executor"].default,
-            )
-        except Exception:
-            logging.exception(
-                "Failed to mark unparseable conversation %s as failed",
-                cid,
-                exc_info=True,
-            )
-            return
-        self.fail(task, description)
-
-    def timeout(self, task: ConversationTask) -> None:
+    def mark_timed_out(self, task: ConversationTask) -> None:
         """Transition one conversation to 'timeout'.
 
         'timeout' as a *target* status needs robusta-storage migration
@@ -698,8 +702,9 @@ class ConversationProcessor:
 
     def retire(self, task: ConversationTask) -> None:
         """Close out a turn this process will never finish (shutdown, or a
-        claimed row whose pool is gone): the restart error event first (the
-        events RPC requires status 'running'), then 'timeout'. Never raises."""
+        claimed row whose executor is gone): the restart error event first
+        (the events RPC requires status 'running'), then 'timeout'. Never
+        raises."""
         try:
             self.post_error_event(
                 task,
@@ -707,7 +712,7 @@ class ConversationProcessor:
                 error_code=SHUTDOWN_ERROR_CODE,
                 reason=SHUTDOWN_REASON,
             )
-            self.timeout(task)
+            self.mark_timed_out(task)
         except Exception:
             logging.warning(
                 "Failed to retire conversation %s",

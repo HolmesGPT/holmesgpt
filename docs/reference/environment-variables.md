@@ -251,9 +251,9 @@ export TOOL_MEMORY_LIMIT_MB=2000
 
 ## Conversation Worker Executors
 
-The conversation worker (Robusta platform deployments) runs each conversation on a named **executor** pool. `Conversations.executor` names the pool: `manual` for live user asks (chat, follow-ups, a single "Investigate now") and `auto` for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Pools are created on demand and sized from the account setting `conversation_executors.<name>` (Settings → LLMs sets `manual`, Settings → Triage sets `auto`; applied live, no restart), falling back to the built-in default (`manual`=10, `auto`=2). `CONVERSATION_WORKER_MAX_CONCURRENT` (default 5) only sizes a pool whose name has no built-in default.
+The conversation runtime (Robusta platform deployments) runs each conversation on a named **executor**. `Conversations.executor` names it: `manual` for live user asks (chat, follow-ups, a single "Investigate now") and `auto` for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Executors are created on demand and sized from the account setting `conversation_executors.<name>` (Settings → LLMs sets `manual`, Settings → Triage sets `auto`; applied live, no restart), falling back to the built-in default (`manual`=10, `auto`=2). `CONVERSATION_WORKER_MAX_CONCURRENT` (default 5) only sizes an executor whose name has no built-in default.
 
-**Upgrade note.** Before executors existed, one shared pool of `CONVERSATION_WORKER_MAX_CONCURRENT` (5) ran everything. With the defaults above an agent now runs up to 12 conversations at once (10 `manual` + 2 `auto`), and `CONVERSATION_WORKER_MAX_CONCURRENT` no longer sizes those two pools. Deployments that tuned it should set the concurrency in Settings instead.
+**Upgrade note.** Before executors existed, one shared pool of `CONVERSATION_WORKER_MAX_CONCURRENT` (5) ran everything. With the defaults above an agent now runs up to 12 conversations at once (10 `manual` + 2 `auto`), and `CONVERSATION_WORKER_MAX_CONCURRENT` no longer sizes those two executors. Deployments that tuned it should set the concurrency in Settings instead.
 
 ## HolmesGPT Configuration
 

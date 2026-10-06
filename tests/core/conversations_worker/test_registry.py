@@ -1,4 +1,4 @@
-"""ExecutorRegistry: pools on demand, the cap, live sizing, discovery."""
+"""ExecutorRegistry: executors on demand, the cap, live sizing, discovery."""
 
 import logging
 import threading
@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from holmes.core.conversations_worker.executors import ConversationExecutor
-from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.processor import (
+from holmes.core.conversations_worker.executor import ConversationExecutor
+from holmes.core.conversations_worker.models import (
     EXECUTOR_UNAVAILABLE_ERROR_CODE,
-    ConversationProcessor,
+    ConversationTask,
 )
+from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.conversations_worker.registry import ExecutorRegistry
 from holmes.core.conversations_worker.sizing import ExecutorSizing
 from holmes.core.supabase_dal import ExecutorRpcUnsupportedError
@@ -49,7 +49,7 @@ def _registry(sizes=None, default_size=2, max_executors=16, ceiling=64, started=
 
 
 def _fake_executor(reg, name="manual", max_concurrent=None):
-    """Register a running-looking pool whose submit is a MagicMock."""
+    """Register a running-looking executor whose pool.submit is a MagicMock."""
     ex = ConversationExecutor(
         name,
         max_concurrent or reg.sizing.size_for(name),
@@ -171,7 +171,7 @@ def test_pools_go_to_the_first_names_in_db_order_when_capped():
         reg.stop()
 
 
-def test_discovery_does_not_fail_rows_before_start():
+def test_discovery_does_not_fail_unparsed_rows_before_start():
     reg = _registry(sizes={}, default_size=1, max_executors=1, started=False)
     reg.dal.list_pending_conversation_executors.return_value = ["a"]
     reg.discover()
@@ -349,7 +349,7 @@ def test_quiesce_stops_claims_but_keeps_in_flight_work_visible():
     ex.track(task)
     reg.quiesce()
     assert reg._started is False
-    assert not ex.running
+    assert not ex._running
     ex.wake()
     ex.claim_and_dispatch()
     reg.dal.claim_n_pending_conversations.assert_not_called()

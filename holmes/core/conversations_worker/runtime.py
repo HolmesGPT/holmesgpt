@@ -1,12 +1,12 @@
-"""The conversation worker's process lifecycle.
+"""The conversation runtime: the process lifecycle of conversation handling.
 
-``ConversationRuntime`` owns no conversation and no pool. It verifies that
+``ConversationRuntime`` owns no conversation and no executor. It verifies that
 Supabase Realtime is enabled, then starts the pieces that do the work and
 stops them in the right order on shutdown:
 
-* ``ExecutorRegistry`` (registry.py): which executor pools exist and how big;
-  the discovery loop that creates and wakes them.
-* ``ConversationExecutor`` (executors.py): one pool — its claim loop,
+* ``ExecutorRegistry`` (registry.py): which executors exist and how big; the
+  discovery loop that creates and wakes them.
+* ``ConversationExecutor`` (executor.py): one executor — its claim loop,
   dispatch and in-flight set.
 * ``ConversationProcessor`` (processor.py): one claimed row → one
   conversation turn, and the outcome writes.
@@ -31,11 +31,7 @@ from holmes.common.env_vars import (
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
-from holmes.core.conversations_worker.registry import (
-    MAX_EXECUTORS,
-    ExecutorRegistry,
-)
-from holmes.core.conversations_worker.sizing import ExecutorSizing
+from holmes.core.conversations_worker.registry import ExecutorRegistry
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.supabase_dal import SupabaseDnsException
 from holmes.utils.holmes_status import update_holmes_status_in_db
@@ -56,7 +52,7 @@ SHUTDOWN_RETIRE_BUDGET_SECONDS = 10.0
 
 
 class ConversationRuntime:
-    """Starts and stops the conversation worker inside the Holmes server.
+    """Starts and stops conversation handling inside the Holmes server.
 
     Lifecycle of a row: pending → running (claimed + processing) →
     completed/failed. The claim RPC lands a row directly in 'running', so a
@@ -66,13 +62,7 @@ class ConversationRuntime:
     definitive True; see ``_realtime_verify_loop``.
     """
 
-    def __init__(
-        self,
-        dal: "SupabaseDal",
-        config: "Config",
-        sizing: Optional[ExecutorSizing] = None,
-        max_executors: int = MAX_EXECUTORS,
-    ):
+    def __init__(self, dal: "SupabaseDal", config: "Config"):
         self.dal = dal
         self.config = config
         # Globally-unique process id (presence key + assignee). hostname alone
@@ -83,16 +73,12 @@ class ConversationRuntime:
         self.processor = ConversationProcessor(
             dal=self.dal, config=self.config, holmes_id=self.holmes_id
         )
-        self.executors = ExecutorRegistry(
-            dal=self.dal,
-            holmes_id=self.holmes_id,
-            processor=self.processor,
-            sizing=sizing,
-            max_executors=max_executors,
+        self.registry = ExecutorRegistry(
+            dal=self.dal, holmes_id=self.holmes_id, processor=self.processor
         )
         # Executes cross-cluster remote tool calls (RemoteToolCalls rows) in
         # its own pool; RealtimeWorker routes 'pending_tool_calls' broadcasts
-        # to it (same holmes:submit channel the conversation worker uses).
+        # to it (same holmes:submit channel the conversations use).
         self._tool_call_worker = ToolCallWorker(
             dal=self.dal, config=self.config, holmes_id=self.holmes_id
         )
@@ -148,7 +134,7 @@ class ConversationRuntime:
     def _start_active_workers(self) -> None:
         """Start the components that consume conversations — the Realtime
         manager (optional), executor discovery and the tool-call worker.
-        Executor pools are created on demand by the registry, not here.
+        Executors are created on demand by the registry, not here.
 
         Called by the verifier once Supabase confirms Realtime is enabled.
         Idempotent.
@@ -162,8 +148,8 @@ class ConversationRuntime:
                 self._realtime_manager = RealtimeWorker(
                     dal=self.dal,
                     holmes_id=self.holmes_id,
-                    on_new_pending=self.executors.on_pending,
-                    tool_call_worker=self._tool_call_worker,
+                    on_new_pending=self.registry.on_pending,
+                    on_new_tool_calls=self._tool_call_worker.claim_pending_tool_calls,
                 )
                 self._realtime_manager.start()
             except Exception:
@@ -176,7 +162,7 @@ class ConversationRuntime:
         # With Realtime, the SUBSCRIBED drain triggers the first discovery so
         # the subscription exists before the first claim; without it, discover
         # right away.
-        self.executors.start(
+        self.registry.start(
             realtime_connected=self._realtime_connected,
             discover_immediately=self._realtime_manager is None,
         )
@@ -194,9 +180,9 @@ class ConversationRuntime:
             self.dal.account_id,
             self.dal.cluster,
             self._realtime_manager is not None,
-            self.executors.sizing.builtin_sizes,
-            self.executors.sizing.base_size,
-            self.executors.account_sizes(),
+            self.registry.sizing.builtin_sizes,
+            self.registry.sizing.base_size,
+            self.registry.account_sizes(),
         )
 
     def stop(self) -> None:
@@ -204,12 +190,12 @@ class ConversationRuntime:
         self._running = False
         self._realtime_verify_stop.set()
         # Stop claiming before retiring: a retired turn frees its slot and wakes
-        # its pool, which would otherwise claim a row the sweep never sees.
+        # its executor, which would otherwise claim a row the sweep never sees.
         try:
-            self.executors.quiesce()
+            self.registry.quiesce()
         except Exception:
             logging.exception("Failed to quiesce executors", exc_info=True)
-        # Retire whatever we're mid-turn on before tearing the pools down. Must
+        # Retire whatever we're mid-turn on before tearing the executors down. Must
         # happen while the rows still carry our assignee and 'running' status —
         # both RPCs guard on that. Flipping the status also makes any straggler
         # write from the in-flight thread fail with MISMATCH, which the
@@ -231,7 +217,7 @@ class ConversationRuntime:
                 self._realtime_manager.stop()
             except Exception:
                 logging.exception("Error stopping realtime manager", exc_info=True)
-        self.executors.stop()
+        self.registry.stop()
         self._active_started = False
         # Drop the realtime manager handle so a subsequent start() can bring
         # up a fresh one.
@@ -255,7 +241,7 @@ class ConversationRuntime:
         stale sweep remains the backstop. Bounded by
         ``SHUTDOWN_RETIRE_BUDGET_SECONDS``.
         """
-        tasks: List[ConversationTask] = self.executors.active_tasks()
+        tasks: List[ConversationTask] = self.registry.active_tasks()
         if not tasks:
             return
         logging.info(

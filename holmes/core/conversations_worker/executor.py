@@ -1,4 +1,4 @@
-"""One named conversation pool (ROB-1369).
+"""One named conversation executor (ROB-1369).
 
 Every Conversations row names the executor that must run it. The registry
 keeps one ``ConversationExecutor`` per name, so live user asks ('manual') and
@@ -6,6 +6,7 @@ background work ('auto': alert triage, triggered workflows) never compete for
 the same slots. An executor owns everything between "a row is pending" and
 "the processor runs it": the claim loop, the claim RPC bounded by its free
 slots, dispatch into its thread pool, the in-flight set and saturation logging.
+"Pool" below always means that ``ThreadPoolExecutor``, never the executor.
 """
 
 import logging
@@ -42,12 +43,14 @@ class _ActiveTask:
 
 
 class ConversationExecutor:
-    """One named pool: its claim loop, in-flight set and threads.
+    """One named executor: its claim loop, in-flight set and thread pool.
 
     The loop only wakes on ``wake()`` (a broadcast naming this executor, the
     registry's discovery poll, or a slot freeing). Each wake claims at most
     ``free_slots()`` pending rows naming this executor and hands them to the
-    processor on the pool.
+    processor on the pool. ``max_concurrent`` arrives already clamped by
+    ``ExecutorSizing``; the pool is created with ``THREAD_CEILING`` threads
+    (spawned lazily) so ``set_max_concurrent()`` can raise the limit live.
     """
 
     def __init__(
@@ -57,26 +60,12 @@ class ConversationExecutor:
         dal: "SupabaseDal",
         holmes_id: str,
         processor: "ConversationProcessor",
-        thread_ceiling: int = THREAD_CEILING,
     ):
         self.name = name
         self.dal = dal
         self.holmes_id = holmes_id
         self.processor = processor
-        # The pool holds up to thread_ceiling threads so set_max_concurrent()
-        # can raise the limit live; only max_concurrent tasks are ever
-        # submitted (claims are bounded by free_slots()), so extra threads
-        # are never spawned. The ceiling also bounds a huge account setting.
-        self.thread_ceiling = max(1, int(thread_ceiling))
-        requested = max(1, int(max_concurrent))
-        self.max_concurrent = min(requested, self.thread_ceiling)
-        if self.max_concurrent != requested:
-            logging.warning(
-                "Conversation executor %r size %d capped at the thread ceiling %d",
-                name,
-                requested,
-                self.thread_ceiling,
-            )
+        self.max_concurrent = max(1, int(max_concurrent))
         self.notify_event = threading.Event()
         # One lock for the running flag, the pool and the in-flight set, so
         # "may I still submit this claimed row?" and shutdown are decided
@@ -94,17 +83,13 @@ class ConversationExecutor:
 
     # ---- lifecycle ----
 
-    @property
-    def running(self) -> bool:
-        return self._running
-
     def start(self) -> None:
         with self._lock:
             if self._running:
                 return
             self._running = True
             self._pool = ThreadPoolExecutor(
-                max_workers=self.thread_ceiling,
+                max_workers=THREAD_CEILING,
                 thread_name_prefix=f"conversation-executor-{self.name}",
             )
         self._thread = threading.Thread(
@@ -135,17 +120,13 @@ class ConversationExecutor:
             self._thread.join(timeout=timeout)
             self._thread = None
 
-    def stop(self) -> None:
-        self.shutdown()
-        self.join()
-
     def wake(self) -> None:
         self.notify_event.set()
 
     def set_max_concurrent(self, value: int) -> bool:
-        """Apply a new size (from account settings) without recreating the
-        pool. Capped at the thread ceiling. Returns True when it changed."""
-        new = max(1, min(int(value), self.thread_ceiling))
+        """Apply a new size (already clamped by ``ExecutorSizing``) without
+        recreating the pool. Returns True when it changed."""
+        new = max(1, int(value))
         if new == self.max_concurrent:
             return False
         logging.info(
@@ -160,8 +141,8 @@ class ConversationExecutor:
         return True
 
     def _loop(self) -> None:
-        # Event-driven, with a slow self-check so a pool that missed a wake
-        # (or outlived the discovery loop) still drains its backlog.
+        # Event-driven, with a slow self-check so an executor that missed a
+        # wake (or outlived the discovery loop) still drains its backlog.
         while self._running:
             self.notify_event.wait(timeout=_LOOP_SAFETY_TIMEOUT_SECONDS)
             if not self._running:
@@ -204,9 +185,11 @@ class ConversationExecutor:
                 free,
             )
         for conv in claimed:
-            task = ConversationTask.from_row(conv, self.name)
+            task = ConversationTask.from_row(conv)
             if task is None:
-                self.processor.fail_row(conv, "Failed to parse conversation row")
+                self.processor.fail_unparsed_row(
+                    conv, "Failed to parse conversation row"
+                )
                 continue
             self._dispatch(task)
 
@@ -219,16 +202,16 @@ class ConversationExecutor:
         """
         with self._lock:
             if self._running and self._pool is not None:
-                self._active[task.active_key] = _ActiveTask(task, time.monotonic())
+                self._track_locked(task)
                 try:
                     self._pool.submit(self._run, task)
                     return
                 except RuntimeError:
-                    self._active.pop(task.active_key, None)
+                    self._untrack_locked(task)
         # The claim already set the row 'running' with our assignee and this
-        # pool is gone, so nothing else would ever finish it: retire it now
-        # the same way the shutdown sweep retires in-flight turns, instead of
-        # leaving it for the stale-conversation sweep.
+        # executor is shut down, so nothing else would ever finish it: retire
+        # it now the same way the shutdown sweep retires in-flight turns,
+        # instead of leaving it for the stale-conversation sweep.
         logging.warning(
             "Executor %r unavailable; retiring claimed conversation %s",
             self.name,
@@ -247,12 +230,19 @@ class ConversationExecutor:
     # ---- capacity ----
 
     def track(self, task: ConversationTask) -> None:
+        """Count ``task`` as in flight (what ``_dispatch`` does before submitting)."""
         with self._lock:
-            self._active[task.active_key] = _ActiveTask(task, time.monotonic())
+            self._track_locked(task)
 
     def untrack(self, task: ConversationTask) -> None:
         with self._lock:
-            self._active.pop(task.active_key, None)
+            self._untrack_locked(task)
+
+    def _track_locked(self, task: ConversationTask) -> None:
+        self._active[task.active_key] = _ActiveTask(task, time.monotonic())
+
+    def _untrack_locked(self, task: ConversationTask) -> None:
+        self._active.pop(task.active_key, None)
 
     def active_count(self) -> int:
         with self._lock:

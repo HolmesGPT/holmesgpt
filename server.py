@@ -248,11 +248,11 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
-    if conversation_worker is not None:
+    if conversation_runtime is not None:
         try:
-            conversation_worker.start()
+            conversation_runtime.start()
         except Exception:
-            logging.error("Failed to start conversation worker", exc_info=True)
+            logging.error("Failed to start conversation runtime", exc_info=True)
     if not ENABLED_SCHEDULED_PROMPTS:
         return
     # No need to check if dal is enabled again, done at the start of this function
@@ -420,29 +420,29 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
         )
 
 
-def stop_conversation_worker():
+def stop_conversation_runtime():
     """Retire in-flight conversations before the process goes away.
 
     uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
     a graceful shutdown, which runs this via the app lifespan. Without it the
-    daemon worker threads are simply frozen at interpreter exit and every
+    daemon executor threads are simply frozen at interpreter exit and every
     conversation the pod was mid-turn on stays 'running' with a dead assignee
     until the stale-conversation sweep retires it. SIGKILL / OOM kill still
     bypass this — the pg_cron sweep stays the backstop.
     """
-    if conversation_worker is None:
+    if conversation_runtime is None:
         return
     try:
-        conversation_worker.stop()
+        conversation_runtime.stop()
     except Exception:
-        logging.error("Failed to stop conversation worker", exc_info=True)
+        logging.error("Failed to stop conversation runtime", exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
     # stop() blocks on Supabase writes and thread joins; keep it off the event loop.
-    await run_in_threadpool(stop_conversation_worker)
+    await run_in_threadpool(stop_conversation_runtime)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -876,11 +876,11 @@ scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
 )
 
-conversation_worker = None
+conversation_runtime = None
 if ENABLE_CONVERSATION_WORKER:
     from holmes.core.conversations_worker import ConversationRuntime
 
-    conversation_worker = ConversationRuntime(dal=dal, config=config)
+    conversation_runtime = ConversationRuntime(dal=dal, config=config)
 
 
 @app.get("/api/model")

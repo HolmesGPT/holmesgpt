@@ -2,7 +2,7 @@
 
 The helper is shared by every entry point that consumes a ChatRequest and
 wraps a stream — direct /api/chat (server.py) and the worker path
-(conversations_worker/worker.py). These tests cover the derivation logic
+(conversations_worker/processor.py). These tests cover the derivation logic
 without touching either entry point so they remain stable while the
 calling code evolves.
 

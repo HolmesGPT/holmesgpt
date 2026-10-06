@@ -10,7 +10,7 @@ writes tool_response + terminal status in one atomic UPDATE
 (post_remote_tool_call_result RPC).
 
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
-never compete with user chats for the conversation worker's pool.
+never compete with user chats for the conversation executors' slots.
 
 Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
@@ -122,7 +122,7 @@ _SATURATION_LOG_AFTER_SECONDS = 60.0
 class ToolCallWorker:
     """Claims and executes remote tool calls for this cluster.
 
-    Lifecycle mirrors the conversation worker's claim loop, with its own
+    Lifecycle mirrors a conversation executor's claim loop, with its own
     notify event (woken by the 'pending_tool_calls' broadcast via
     RealtimeManager) and its own thread pool.
     """

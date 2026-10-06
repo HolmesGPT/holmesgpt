@@ -6,16 +6,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from holmes.core.conversations_worker.executors import ConversationExecutor
-from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.processor import (
+from holmes.core.conversations_worker.executor import ConversationExecutor
+from holmes.core.conversations_worker.models import (
     SHUTDOWN_ERROR_CODE,
     SHUTDOWN_REASON,
-    ConversationProcessor,
+    ConversationTask,
 )
+from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.conversations_worker.registry import ExecutorRegistry
 from holmes.core.conversations_worker.sizing import ExecutorSizing
-from holmes.core.conversations_worker.worker import ConversationRuntime
+from holmes.core.conversations_worker.runtime import ConversationRuntime
 
 
 def _dal():
@@ -37,13 +37,13 @@ def _bare_runtime():
     w.config = MagicMock()
     w.holmes_id = "h-test"
     w.processor = ConversationProcessor(dal=w.dal, config=w.config, holmes_id="h-test")
-    w.executors = ExecutorRegistry(
+    w.registry = ExecutorRegistry(
         dal=w.dal,
         holmes_id="h-test",
         processor=w.processor,
         sizing=ExecutorSizing(base_size=2, builtin_sizes={"manual": 5, "auto": 3}),
     )
-    w.executors._started = True
+    w.registry._started = True
     w._tool_call_worker = MagicMock()
     w._realtime_manager = None
     w._running = True
@@ -66,14 +66,14 @@ def _task(cid="c1", seq=1, executor="manual"):
 
 def _active(w, conversation_id="c1", request_sequence=1, executor="manual"):
     """Occupy a slot on `executor`, creating a fake running pool if needed."""
-    ex = w.executors.get(executor)
+    ex = w.registry.get(executor)
     if ex is None:
         ex = ConversationExecutor(
             executor, 5, dal=w.dal, holmes_id="h-test", processor=w.processor
         )
         ex._running = True
         ex._pool = MagicMock()
-        w.executors._executors[executor] = ex
+        w.registry._executors[executor] = ex
     task = _task(conversation_id, request_sequence, executor)
     ex.track(task)
     return task
@@ -141,7 +141,7 @@ def test_retire_in_flight_stops_at_the_budget(caplog):
     _active(w, "c3", 1)
     clock = chain([0.0, 0.0], repeat(1_000.0))
     with patch(
-        "holmes.core.conversations_worker.worker.time.monotonic",
+        "holmes.core.conversations_worker.runtime.time.monotonic",
         lambda: next(clock),
     ):
         with caplog.at_level(logging.WARNING, logger="root"):
@@ -158,7 +158,7 @@ def test_stop_retires_in_flight_conversations_and_stops_executors():
     w = _bare_runtime()
     _active(w, "c1", 1, "manual")
     _active(w, "c2", 1, "auto")
-    pools = [w.executors.get("manual")._pool, w.executors.get("auto")._pool]
+    pools = [w.registry.get("manual")._pool, w.registry.get("auto")._pool]
     w.stop()
     statuses = {
         c.kwargs["conversation_id"]: c.kwargs["status"]
@@ -166,7 +166,7 @@ def test_stop_retires_in_flight_conversations_and_stops_executors():
     }
     assert statuses == {"c1": "timeout", "c2": "timeout"}
     assert w._running is False
-    assert w.executors.names() == []
+    assert w.registry.names() == []
     for pool in pools:
         pool.shutdown.assert_called_once_with(wait=False)
     w._tool_call_worker.stop.assert_called_once()
@@ -177,8 +177,8 @@ def test_stop_claims_nothing_after_the_sweep_frees_a_slot():
     pool still claiming, that wake would claim a row the sweep never sees,
     leaving it 'running' with a dead assignee. stop() quiesces first."""
     w = _bare_runtime()
-    ex = w.executors.get_or_create("manual")
-    assert ex is not None and ex.running
+    ex = w.registry.get_or_create("manual")
+    assert ex is not None and ex._running
     task = _task("c1")
     ex.track(task)
     w.dal.claim_n_pending_conversations.return_value = [
@@ -213,7 +213,7 @@ def test_stop_survives_a_failing_retirement():
     w.stop()
     assert w._running is False
     w._tool_call_worker.stop.assert_called_once()
-    assert w.executors.names() == []
+    assert w.registry.names() == []
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +229,7 @@ def test_realtime_verify_loop_updates_status_and_starts_workers_on_true():
     w._start_active_workers = MagicMock()
 
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -249,7 +249,7 @@ def test_realtime_verify_loop_shuts_down_on_definitive_false():
     w._start_active_workers = MagicMock()
 
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -267,7 +267,7 @@ def test_realtime_verify_loop_retries_on_connectivity_errors():
     w._realtime_verify_stop.wait = lambda timeout=None: False  # type: ignore[assignment]
 
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
 
@@ -280,7 +280,7 @@ def test_realtime_verify_loop_exits_when_stop_event_set():
     w.dal.is_realtime_enabled.return_value = None
     w._realtime_verify_stop.set()
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
     w.dal.is_realtime_enabled.assert_not_called()
@@ -292,7 +292,7 @@ def test_realtime_verify_loop_exits_when_running_flag_cleared():
     w._running = False
     w.dal.is_realtime_enabled.return_value = None
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         w._realtime_verify_loop()
     w.dal.is_realtime_enabled.assert_not_called()
@@ -306,7 +306,7 @@ def test_realtime_verify_loop_surfaces_unexpected_exceptions():
     w.dal.is_realtime_enabled.side_effect = RuntimeError("boom")
     w._realtime_verify_stop.wait = lambda timeout=None: False  # type: ignore[assignment]
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         with pytest.raises(RuntimeError):
             w._realtime_verify_loop()
@@ -324,7 +324,7 @@ def test_realtime_verify_loop_warns_on_transient_connectivity_exception(caplog):
 
     with caplog.at_level(logging.DEBUG, logger="root"):
         with patch(
-            "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+            "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
         ):
             w._realtime_verify_loop()
 
@@ -372,40 +372,40 @@ def test_start_only_spawns_verifier_not_consumers():
         w.start()
         assert w._realtime_verify_thread is not None
         assert w._realtime_verify_thread.is_alive()
-        assert w.executors._discovery_thread is None
+        assert w.registry._discovery_thread is None
         assert w._realtime_manager is None
-        assert w.executors.names() == []
+        assert w.registry.names() == []
     finally:
         block_event.set()
         w.stop()
 
 
 def test_start_runs_discovery_but_creates_no_executors_after_definitive_true():
-    """Once realtime is verified the discovery loop runs — but no executor pool
+    """Once realtime is verified the discovery loop runs — but no executor
     exists until a request names one (ROB-1369)."""
     dal = _dal()
     dal.is_realtime_enabled.return_value = True
     w = ConversationRuntime(dal=dal, config=MagicMock())
     with patch(
-        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_REALTIME_ENABLED",
+        "holmes.core.conversations_worker.runtime.CONVERSATION_WORKER_REALTIME_ENABLED",
         False,
     ), patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         try:
             w.start()
             w._realtime_verify_thread.join(timeout=3)
             assert not w._realtime_verify_thread.is_alive()
             mock_update.assert_called_once_with(dal, w.config, realtime_available=True)
-            assert w.executors._discovery_thread is not None
-            assert w.executors.names() == []
+            assert w.registry._discovery_thread is not None
+            assert w.registry.names() == []
             # A pending row naming an executor creates it, sized from settings.
             dal.list_pending_conversation_executors.return_value = ["auto"]
-            w.executors.discover()
-            assert w.executors.names() == ["auto"]
+            w.registry.discover()
+            assert w.registry.names() == ["auto"]
         finally:
             w.stop()
-    assert w.executors.names() == []
+    assert w.registry.names() == []
 
 
 def test_start_does_not_start_consumers_after_definitive_false():
@@ -413,15 +413,15 @@ def test_start_does_not_start_consumers_after_definitive_false():
     dal.is_realtime_enabled.return_value = False
     w = ConversationRuntime(dal=dal, config=MagicMock())
     with patch(
-        "holmes.core.conversations_worker.worker.update_holmes_status_in_db"
+        "holmes.core.conversations_worker.runtime.update_holmes_status_in_db"
     ) as mock_update:
         w.start()
         w._realtime_verify_thread.join(timeout=3)
         assert not w._realtime_verify_thread.is_alive()
     mock_update.assert_not_called()
-    assert w.executors._discovery_thread is None
+    assert w.registry._discovery_thread is None
     assert w._realtime_manager is None
-    assert w.executors.names() == []
+    assert w.registry.names() == []
     assert w._running is False
 
 
@@ -439,11 +439,11 @@ def test_realtime_manager_receives_the_registry_as_routing_target():
     w = _bare_runtime()
     w._active_started = False
     with patch(
-        "holmes.core.conversations_worker.worker.CONVERSATION_WORKER_REALTIME_ENABLED",
+        "holmes.core.conversations_worker.runtime.CONVERSATION_WORKER_REALTIME_ENABLED",
         True,
-    ), patch("holmes.core.conversations_worker.worker.RealtimeWorker") as rw:
+    ), patch("holmes.core.conversations_worker.runtime.RealtimeWorker") as rw:
         try:
             w._start_active_workers()
         finally:
             w.stop()
-    assert rw.call_args.kwargs["on_new_pending"] == w.executors.on_pending
+    assert rw.call_args.kwargs["on_new_pending"] == w.registry.on_pending

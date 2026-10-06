@@ -1,10 +1,10 @@
-"""Which executor pools exist, and how big (ROB-1369).
+"""Which executors exist, and how big (ROB-1369).
 
-The registry starts with no pools. One is created the first time DB-backed
+The registry starts with no executors. One is created the first time DB-backed
 discovery (``pending_conversation_executors()``) reports pending rows for a
-name, so a stray broadcast cannot spawn a pool no row needs. Discovery runs on
-every safety-net poll, on every (re)subscribe drain, and whenever a broadcast
-names an executor that has no pool yet.
+name, so a stray broadcast cannot spawn an executor no row needs. Discovery
+runs on every safety-net poll, on every (re)subscribe drain, and whenever a
+broadcast names an executor that does not exist yet.
 """
 
 import logging
@@ -16,13 +16,13 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
 )
-from holmes.core.conversations_worker.executors import ConversationExecutor
+from holmes.core.conversations_worker.executor import ConversationExecutor
 from holmes.core.conversations_worker.models import (
+    EXECUTOR_UNAVAILABLE_ERROR_CODE,
+    AUTO_EXECUTOR,
+    MANUAL_EXECUTOR,
     ConversationTask,
     is_valid_executor_name,
-)
-from holmes.core.conversations_worker.processor import (
-    EXECUTOR_UNAVAILABLE_ERROR_CODE,
 )
 from holmes.core.conversations_worker.sizing import ExecutorSizing
 
@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from holmes.core.conversations_worker.processor import ConversationProcessor
     from holmes.core.supabase_dal import SupabaseDal
 
-# Pools one process creates on demand, so a bogus executor name in a broadcast
-# or a row cannot spawn unbounded thread pools.
+# Executors one process creates on demand, so a bogus executor name in a
+# broadcast or a row cannot spawn unbounded thread pools.
 MAX_EXECUTORS = 16
 # Rejected names are logged at most this often, per cause.
 _REJECT_LOG_RATE_LIMIT_SECONDS = 300.0
@@ -41,7 +41,7 @@ _UNAVAILABLE_FAIL_BATCH = 20
 
 
 class ExecutorRegistry:
-    """The executor pools of one runtime: creation on demand, the cap, live
+    """The executors of one runtime: creation on demand, the cap, live
     resizing from account settings, and the discovery loop that drives them."""
 
     def __init__(
@@ -83,12 +83,12 @@ class ExecutorRegistry:
         self._discovery_thread.start()
 
     def quiesce(self) -> None:
-        """Stop discovery and every pool's claiming, without blocking and
+        """Stop discovery and every executor's claiming, without blocking and
         without forgetting in-flight work: ``active_tasks()`` still lists the
-        turns running on the pools, so the runtime's shutdown sweep can retire
-        them. Must run before that sweep: retiring a turn frees its slot, which
-        wakes its pool, which would otherwise claim a fresh row that nothing
-        retires."""
+        turns running on the executors, so the runtime's shutdown sweep can
+        retire them. Must run before that sweep: retiring a turn frees its
+        slot, which wakes its executor, which would otherwise claim a fresh
+        row that nothing retires."""
         with self._lock:
             self._started = False
             executors = list(self._executors.values())
@@ -104,8 +104,8 @@ class ExecutorRegistry:
         with self._lock:
             executors = list(self._executors.values())
             self._executors = {}
-        # The pools are already closed (quiesce); a claim loop blocked in its
-        # own dispatch sees that before it is joined here.
+        # The executors are already shut down (quiesce); a claim loop blocked
+        # in its own dispatch sees that before it is joined here.
         for ex in executors:
             ex.join()
         if self._discovery_thread is not None:
@@ -113,7 +113,7 @@ class ExecutorRegistry:
             self._discovery_thread.join(timeout=5)
             self._discovery_thread = None
 
-    # ---- pools ----
+    # ---- executors ----
 
     def names(self) -> List[str]:
         with self._lock:
@@ -134,12 +134,12 @@ class ExecutorRegistry:
     def get_or_create(
         self, name: str, account_sizes: Optional[Dict[str, int]] = None
     ) -> Optional[ConversationExecutor]:
-        """The pool for ``name``, created on first use.
+        """The executor for ``name``, created on first use.
 
         None (logged, rate-limited) for an invalid name, before start / after
-        stop, or once ``max_executors`` pools exist. Discovery fails the pending
-        rows of such a name so the request surfaces as an error instead of
-        hanging (see ``_fail_pending_rows``).
+        stop, or once ``max_executors`` exist. Discovery fails the pending rows
+        of such a name so the request surfaces as an error instead of hanging
+        (see ``_fail_pending_rows``).
         """
         if not is_valid_executor_name(name):
             self._log_reject("invalid executor name %r", name)
@@ -174,15 +174,16 @@ class ExecutorRegistry:
                 dal=self.dal,
                 holmes_id=self.holmes_id,
                 processor=self.processor,
-                thread_ceiling=self.sizing.thread_ceiling,
             )
             self._executors[name] = ex
-            # Started under the lock so stop() cannot detach the pool between
-            # the insert and the start and leave an untracked claim loop.
+            # Started under the lock so stop() cannot detach the executor
+            # between the insert and the start and leave an untracked claim loop.
             ex.start()
         return ex
 
-    def account_sizes(self) -> Dict[str, int]:
+    def account_sizes(self) -> Any:
+        """The raw ``conversation_executors`` account setting; ``ExecutorSizing``
+        validates it."""
         try:
             return self.dal.get_conversation_executor_sizes() or {}
         except Exception:
@@ -206,11 +207,11 @@ class ExecutorRegistry:
     def on_pending(self, executor: Optional[str] = None) -> None:
         """Routing target for 'pending_conversations' broadcasts. Non-blocking.
 
-        A broadcast naming an executor with a pool wakes exactly that pool.
-        Anything else — a name without a pool yet, a broadcast without a name
-        (a (re)subscribe drain, a pgchanges notification) — goes through
-        discovery, which creates pools only for names that really have pending
-        rows.
+        A broadcast naming an existing executor wakes exactly that executor.
+        Anything else — a name without an executor yet, a broadcast without a
+        name (a (re)subscribe drain, a pgchanges notification) — goes through
+        discovery, which creates executors only for names that really have
+        pending rows.
         """
         if executor is not None and is_valid_executor_name(executor):
             ex = self.get(executor)
@@ -225,31 +226,28 @@ class ExecutorRegistry:
             )
         self._discovery_event.set()
 
-    def wake_discovery(self) -> None:
-        self._discovery_event.set()
-
     # ---- discovery ----
 
     def discover(self) -> None:
         """Ask the DB which executors have pending rows; wake (or create) each.
 
-        Existing pools are woken too — the poll is the at-most-once safety net
-        for a lost broadcast, and a woken pool with nothing to claim costs one
-        cheap RPC. Sizes are re-resolved on every tick so a settings change
-        applies without a restart.
+        Existing executors are woken too — the poll is the at-most-once safety
+        net for a lost broadcast, and a woken executor with nothing to claim
+        costs one cheap RPC. Sizes are re-resolved on every tick so a settings
+        change applies without a restart.
         """
         names: List[str] = self.dal.list_pending_conversation_executors()
         account_sizes = self.account_sizes()
         with self._lock:
             existing = list(self._executors.values())
-        for pool in existing:
-            pool.set_max_concurrent(self.sizing.size_for(pool.name, account_sizes))
-        # DB order (by name), then pools with no pending rows: which names get
-        # a pool when the cap is hit must not depend on set iteration order.
-        for name in dict.fromkeys([*names, *(pool.name for pool in existing)]):
-            ex = self.get_or_create(name, account_sizes)
-            if ex is not None:
-                ex.wake()
+        for ex in existing:
+            ex.set_max_concurrent(self.sizing.size_for(ex.name, account_sizes))
+        # DB order (by name), then executors with no pending rows: which names
+        # get an executor when the cap is hit must not depend on set order.
+        for name in dict.fromkeys([*names, *(ex.name for ex in existing)]):
+            created = self.get_or_create(name, account_sizes)
+            if created is not None:
+                created.wake()
             elif name in names and self._started:
                 self._fail_pending_rows(name)
 
@@ -263,9 +261,10 @@ class ExecutorRegistry:
             description = f"Invalid Holmes executor name {name!r}"
         else:
             description = (
-                f"No Holmes executor pool available for {name!r}: this agent "
-                f"already runs {len(self.names())} executor pools "
-                f"(limit {self.max_executors}). Use 'manual' or 'auto'."
+                f"No Holmes executor available for {name!r}: this agent "
+                f"already runs {len(self.names())} executors "
+                f"(limit {self.max_executors}). Use {MANUAL_EXECUTOR!r} or "
+                f"{AUTO_EXECUTOR!r}."
             )
         try:
             claimed = self.dal.claim_n_pending_conversations(
@@ -277,7 +276,7 @@ class ExecutorRegistry:
             )
             return
         for conv in claimed:
-            task = ConversationTask.from_row(conv, name)
+            task = ConversationTask.from_row(conv)
             if task is None:
                 continue
             logging.warning(

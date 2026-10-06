@@ -1,14 +1,10 @@
-"""Executor pool sizing, executor-name rule and task construction (ROB-1369)."""
+"""ExecutorSizing: the one place account sizes are validated and clamped (ROB-1369)."""
 
 import logging
 
 import pytest
 
-from holmes.core.conversations_worker.models import (
-    ConversationTask,
-    is_valid_executor_name,
-)
-from holmes.core.conversations_worker.sizing import ExecutorSizing
+from holmes.core.conversations_worker.sizing import THREAD_CEILING, ExecutorSizing
 
 
 def _sizing(base=5, ceiling=64):
@@ -58,68 +54,18 @@ def test_sizes_are_never_below_one():
     assert sizing.thread_ceiling == 1
 
 
-@pytest.mark.parametrize("name", ["manual", "auto", "a", "nightly-report_2", "x" * 64])
-def test_valid_executor_names(name):
-    assert is_valid_executor_name(name)
+def test_malformed_account_setting_shape_is_ignored_with_one_warning(caplog):
+    """The DAL returns the jsonb as stored; a non-object value falls through to
+    the built-ins and is warned about once."""
+    sizing = _sizing()
+    with caplog.at_level(logging.WARNING):
+        assert sizing.size_for("manual", [1, 2]) == 10
+        assert sizing.size_for("auto", "nope") == 2
+    hits = [r for r in caplog.records if "malformed" in r.getMessage()]
+    assert len(hits) == 1
 
 
-@pytest.mark.parametrize(
-    "name", ["", "-lead", "Upper", "has space", "x" * 65, None, 3, "a/b", "manual\n"]
-)
-def test_invalid_executor_names(name):
-    assert not is_valid_executor_name(name)
-
-
-# ---- ConversationTask.from_row ----
-
-
-def _row(**overrides):
-    row = {
-        "conversation_id": "c1",
-        "account_id": "a1",
-        "cluster_id": "cl1",
-        "origin": "chat",
-        "request_sequence": 3,
-        "metadata": {"k": "v"},
-        "title": "t",
-        "user_id": "u1",
-        "executor": "auto",
-    }
-    row.update(overrides)
-    return row
-
-
-def test_from_row_parses_required_fields():
-    task = ConversationTask.from_row(_row())
-    assert task is not None
-    assert (task.conversation_id, task.account_id, task.cluster_id) == (
-        "c1",
-        "a1",
-        "cl1",
-    )
-    assert task.request_sequence == 3
-    assert task.metadata == {"k": "v"}
-    assert task.title == "t"
-    assert task.user_id == "u1"
-    assert task.executor == "auto"
-
-
-def test_from_row_tolerates_missing_optional_fields():
-    task = ConversationTask.from_row(
-        {"conversation_id": "c1", "account_id": "a1", "cluster_id": "cl1"}
-    )
-    assert task is not None
-    assert task.origin == "chat"
-    assert task.request_sequence == 1
-    assert task.metadata == {}
-    assert task.executor == "manual"
-
-
-def test_from_row_claiming_executor_wins_over_the_column():
-    task = ConversationTask.from_row(_row(executor="auto"), "manual")
-    assert task is not None and task.executor == "manual"
-
-
-def test_from_row_returns_none_on_bad_input():
-    assert ConversationTask.from_row({"conversation_id": "c1"}) is None
-    assert ConversationTask.from_row(_row(request_sequence="not-a-number")) is None
+def test_defaults_match_the_module_constants():
+    sizing = ExecutorSizing()
+    assert sizing.thread_ceiling == THREAD_CEILING
+    assert sizing.size_for("manual") == 10 and sizing.size_for("auto") == 2

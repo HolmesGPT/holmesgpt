@@ -1,7 +1,7 @@
 """Shared helper for recording AI usage events to HolmesUsageEvents.
 
 Used by every LLM-consuming entry point (server.py /api/chat, the
-the conversation worker, scheduled prompts, the AG-UI server, and
+the conversation runtime, scheduled prompts, the AG-UI server, and
 holmes/checks/checks_api.py) so usage tracking is consistent and there's
 exactly one place to update if the recording shape changes.
 

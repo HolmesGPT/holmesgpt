@@ -1,4 +1,4 @@
-"""ConversationExecutor: one pool's claim loop, dispatch, slots and logging."""
+"""ConversationExecutor: one executor's claim loop, dispatch, slots and logging."""
 
 import logging
 import threading
@@ -7,11 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from holmes.core.conversations_worker.executors import (
+from holmes.core.conversations_worker.executor import (
     ConversationExecutor,
     _ActiveTask,
 )
 from holmes.core.conversations_worker.models import ConversationTask
+from holmes.core.conversations_worker.sizing import THREAD_CEILING
 from holmes.core.supabase_dal import ExecutorRpcUnsupportedError
 
 
@@ -255,7 +256,7 @@ def test_unparseable_row_is_failed_through_the_processor():
     bad = {"conversation_id": "c-bad", "request_sequence": 1}  # no account/cluster
     ex.dal.claim_n_pending_conversations.return_value = [bad, _row("c1")]
     ex.claim_and_dispatch()
-    ex.processor.fail_row.assert_called_once_with(
+    ex.processor.fail_unparsed_row.assert_called_once_with(
         bad, "Failed to parse conversation row"
     )
     assert ("c1", 1) in ex._active and ("c-bad", 1) not in ex._active
@@ -340,50 +341,39 @@ def test_loop_claims_when_woken_and_stops_cleanly():
             "h-test", 2, executor="manual"
         )
     finally:
-        ex.stop()
-    assert ex._thread is None and ex._pool is None and not ex.running
+        ex.shutdown()
+        ex.join()
+    assert ex._thread is None and ex._pool is None and not ex._running
 
 
-def test_start_is_idempotent_and_pool_uses_the_thread_ceiling():
+def test_start_is_idempotent_and_pool_has_the_thread_ceiling():
+    """The pool is created with THREAD_CEILING threads (spawned lazily) so a
+    live size change up to the ceiling needs no new pool; ExecutorSizing
+    clamps sizes to that same constant."""
     ex = ConversationExecutor(
-        "auto", 2, dal=_dal(), holmes_id="h", processor=MagicMock(), thread_ceiling=16
+        "auto", 2, dal=_dal(), holmes_id="h", processor=MagicMock()
     )
     ex.start()
     try:
         pool = ex._pool
         ex.start()
         assert ex._pool is pool
-        assert pool._max_workers == 16
+        assert pool._max_workers == THREAD_CEILING
         assert ex.max_concurrent == 2
     finally:
-        ex.stop()
+        ex.shutdown()
+        ex.join()
 
 
-def test_creation_clamps_size_to_the_thread_ceiling(caplog):
-    with caplog.at_level(logging.WARNING):
-        ex = ConversationExecutor(
-            "manual",
-            5000,
-            dal=_dal(),
-            holmes_id="h",
-            processor=MagicMock(),
-            thread_ceiling=8,
-        )
-    assert ex.max_concurrent == 8
-    assert any("capped at the thread ceiling" in r.getMessage() for r in caplog.records)
-
-
-def test_set_max_concurrent_is_live_and_capped():
+def test_set_max_concurrent_is_live():
     ex = ConversationExecutor(
-        "manual", 2, dal=_dal(), holmes_id="h", processor=MagicMock(), thread_ceiling=8
+        "manual", 2, dal=_dal(), holmes_id="h", processor=MagicMock()
     )
     ex.notify_event.clear()
     assert ex.set_max_concurrent(5) is True
     assert ex.max_concurrent == 5 and ex.free_slots() == 5
     assert ex.notify_event.is_set()  # new slots → re-claim
     assert ex.set_max_concurrent(5) is False  # unchanged → no wake
-    assert ex.set_max_concurrent(100) is True
-    assert ex.max_concurrent == 8  # never above the pool's thread ceiling
     assert ex.set_max_concurrent(0) is True
     assert ex.max_concurrent == 1
 
@@ -394,7 +384,7 @@ def test_shutdown_closes_the_pool_without_waiting_and_is_idempotent():
     ex.shutdown()
     ex.shutdown()
     pool.shutdown.assert_called_once_with(wait=False)
-    assert ex._pool is None and not ex.running and ex.notify_event.is_set()
+    assert ex._pool is None and not ex._running and ex.notify_event.is_set()
 
 
 def test_active_tasks_lists_in_flight_tasks():
@@ -463,7 +453,7 @@ def test_brief_free_slot_resets_saturation_clock(caplog):
 def test_stuck_slot_emits_warning(monkeypatch, caplog):
     ex = _executor("manual", 1)
     monkeypatch.setattr(
-        "holmes.core.conversations_worker.executors.CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS",
+        "holmes.core.conversations_worker.executor.CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS",
         100.0,
     )
     _slot(ex, time.monotonic() - 150.0, "conv-stuck")

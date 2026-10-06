@@ -6,11 +6,11 @@ from holmes.core.conversations_worker.models import (
     ConversationReassignedError,
     ConversationTask,
 )
-from holmes.core.conversations_worker.processor import (
+from holmes.core.conversations_worker.models import (
     SHUTDOWN_ERROR_CODE,
     SHUTDOWN_REASON,
-    ConversationProcessor,
 )
+from holmes.core.conversations_worker.processor import ConversationProcessor
 
 
 def _processor():
@@ -83,38 +83,39 @@ def test_fail_survives_dal_errors():
     p.fail(_task(), "why")  # must not raise
 
 
-def test_fail_row_closes_out_an_unparseable_claimed_row():
+def test_fail_unparsed_row_closes_out_an_unparseable_claimed_row():
     p = _processor()
-    p.fail_row({"conversation_id": "c9", "request_sequence": 2}, "bad row")
+    # No account_id / cluster_id: ConversationTask.from_row would refuse this row.
+    p.fail_unparsed_row({"conversation_id": "c9", "request_sequence": 2}, "bad row")
     p.dal.update_conversation_status.assert_called_once_with(
         conversation_id="c9", request_sequence=2, assignee="h-test", status="failed"
     )
     assert p.dal.post_conversation_events.call_args.kwargs["request_sequence"] == 2
 
 
-def test_fail_row_ignores_rows_without_an_identity():
+def test_fail_unparsed_row_ignores_rows_without_an_identity():
     p = _processor()
-    p.fail_row({"conversation_id": "c9"}, "bad row")
-    p.fail_row({"request_sequence": 1}, "bad row")
+    p.fail_unparsed_row({"request_sequence": 1}, "bad row")
+    p.fail_unparsed_row({"conversation_id": "c9", "request_sequence": "x"}, "bad row")
     p.dal.update_conversation_status.assert_not_called()
 
 
-def test_timeout_writes_timeout_only():
+def test_mark_timed_out_writes_timeout_only():
     p = _processor()
     p.dal.update_conversation_status = MagicMock(return_value=False)
-    p.timeout(_task())
+    p.mark_timed_out(_task())
     statuses = [
         c.kwargs["status"] for c in p.dal.update_conversation_status.call_args_list
     ]
     assert statuses == ["timeout"]
 
 
-def test_timeout_stops_when_row_was_reassigned():
+def test_mark_timed_out_stops_when_row_was_reassigned():
     p = _processor()
     p.dal.update_conversation_status = MagicMock(
         side_effect=ConversationReassignedError("MISMATCH")
     )
-    p.timeout(_task())
+    p.mark_timed_out(_task())
     assert p.dal.update_conversation_status.call_count == 1
 
 

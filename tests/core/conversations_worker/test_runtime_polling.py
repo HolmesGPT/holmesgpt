@@ -2,7 +2,7 @@
 from unittest.mock import MagicMock
 
 from holmes.common.env_vars import CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
-from holmes.core.conversations_worker.worker import ConversationRuntime
+from holmes.core.conversations_worker.runtime import ConversationRuntime
 
 
 def _make_worker_with_rt(connected: bool):

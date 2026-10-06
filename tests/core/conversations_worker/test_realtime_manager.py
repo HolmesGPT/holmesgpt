@@ -655,14 +655,14 @@ def test_broadcast_with_executor_routes_the_name_to_the_worker():
     assert wakes == [None, "auto", None]
 
 
-def test_broadcast_without_executor_keeps_working_with_zero_arg_callback():
-    """Legacy publishers omit ``executor``; a plain no-arg callback (as the
-    low-level test override) must still be invoked."""
+def test_broadcast_without_executor_passes_none():
+    """Legacy publishers omit ``executor``; the callback is still invoked, with
+    None (the registry then runs discovery)."""
     calls = []
     dal = MagicMock()
     dal.account_id = "acc"
     dal.cluster = "cl"
-    rw = RealtimeWorker(dal=dal, holmes_id="h", on_new_pending=lambda: calls.append(1))
+    rw = RealtimeWorker(dal=dal, holmes_id="h", on_new_pending=calls.append)
     callbacks = _broadcast_callbacks(rw)
     callbacks["pending_conversations"]({"event": "pending_conversations", "payload": {}})
-    assert len(calls) == 2
+    assert calls == [None, None]

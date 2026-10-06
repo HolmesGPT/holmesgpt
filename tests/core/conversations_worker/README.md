@@ -6,15 +6,16 @@ unit tests directly under that folder, integration tests under
 
 ## Unit tests (no external services)
 
-These cover the worker's internal logic using mocks, one file per module:
-`test_sizing.py` (pool sizes, the executor-name rule, `ConversationTask.from_row`),
-`test_executors.py` (one pool's claim loop, dispatch, slots, saturation logging),
-`test_registry.py` (pools on demand, the cap, live resizing, discovery),
-`test_processor.py` plus `test_worker_hydration.py` / `test_worker_edge_cases.py` /
-`test_worker_frontend_tools.py` / `test_worker_usage_recorder.py` (one row → one
-turn, and the outcome writes), `test_worker_lifecycle.py` (the runtime: Realtime
-verification, start/stop, the shutdown sweep), the DAL contract, the event
-publisher and the realtime manager. They need no running server, no Supabase,
+These cover the runtime's internal logic using mocks, one file per module:
+`test_models.py` (the executor-name rule, `ConversationTask.from_row`, row identity),
+`test_sizing.py` (executor sizes: the account setting validated once, built-ins, ceiling),
+`test_executor.py` (one executor's claim loop, dispatch, slots, saturation logging),
+`test_registry.py` (executors on demand, the cap, live resizing, discovery),
+`test_processor.py` plus `test_processor_hydration.py` / `test_processor_edge_cases.py` /
+`test_processor_frontend_tools.py` / `test_processor_usage_recorder.py` (one row → one
+turn, and the outcome writes), `test_runtime_lifecycle.py` / `test_runtime_polling.py`
+(the runtime: Realtime verification, start/stop, the shutdown sweep), the DAL contract,
+the event publisher and the realtime manager. They need no running server, no Supabase,
 and no environment variables.
 
 ```bash
@@ -30,7 +31,7 @@ and status transitions.
 
 ### Prerequisites
 
-1. A running Holmes server with the conversation worker enabled.
+1. A running Holmes server with the conversation runtime enabled (`ENABLE_CONVERSATION_WORKER`).
 2. Two environment variables:
    - `ROBUSTA_UI_TOKEN` — base64-encoded JSON containing:
      ```json
@@ -56,7 +57,7 @@ CLUSTER_NAME="<your-cluster>" \
 poetry run python server.py
 ```
 
-Wait until the server is fully up and the conversation worker has started its
+Wait until the server is fully up and the conversation runtime has started its
 claim loop.
 
 ### Step 2: Run the integration tests

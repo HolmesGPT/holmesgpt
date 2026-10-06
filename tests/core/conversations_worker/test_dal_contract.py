@@ -174,7 +174,7 @@ def test_get_conversation_events_returns_empty_list_when_disabled():
 
 def test_claim_n_pending_conversations_forwards_limit():
     dal = _build_dal(rpc_data=[])
-    dal.claim_n_pending_conversations(holmes_id="my-pod-1", limit=3)
+    dal.claim_n_pending_conversations(holmes_id="my-pod-1", limit=3, executor="auto")
     args, _ = dal.client.rpc.call_args
     assert args[0] == "claim_n_pending_conversations"
     params = args[1]
@@ -182,13 +182,20 @@ def test_claim_n_pending_conversations_forwards_limit():
     assert params["_account_id"] == "acc-1"
     assert params["_cluster_id"] == "cluster-1"
     assert params["_limit"] == 3
+    assert params["_executor"] == "auto"
 
 
 def test_claim_n_pending_conversations_skips_rpc_when_limit_not_positive():
     """A zero/negative limit means no free capacity — don't even hit the RPC."""
     dal = _build_dal(rpc_data=[])
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=0) == []
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=-1) == []
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=0, executor="manual")
+        == []
+    )
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=-1, executor="manual")
+        == []
+    )
     dal.client.rpc.assert_not_called()
 
 
@@ -203,7 +210,10 @@ def test_claim_n_pending_conversations_retries_transient_error_then_succeeds():
             ]
         )
     )
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=5) == claimed
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=5, executor="manual")
+        == claimed
+    )
     assert dal.client.rpc.return_value.execute.call_count == 2
 
 
@@ -212,7 +222,10 @@ def test_claim_n_pending_conversations_returns_empty_after_exhausting_retries():
     dal.client.rpc.return_value = MagicMock(
         execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
     )
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=5) == []
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=5, executor="manual")
+        == []
+    )
     assert dal.client.rpc.return_value.execute.call_count == 3
 
 
@@ -461,13 +474,6 @@ def _pgrst202():
     )
 
 
-def test_claim_n_pending_conversations_omits_executor_param_by_default():
-    dal = _build_dal(rpc_data=[])
-    dal.claim_n_pending_conversations(holmes_id="h", limit=3)
-    params = dal.client.rpc.call_args[0][1]
-    assert "_executor" not in params
-
-
 def test_claim_n_pending_conversations_forwards_executor():
     dal = _build_dal(rpc_data=[])
     dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="auto")
@@ -482,15 +488,6 @@ def test_claim_with_executor_raises_unsupported_on_missing_rpc_without_retry():
     with pytest.raises(ExecutorRpcUnsupportedError):
         dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="manual")
     assert dal.client.rpc.return_value.execute.call_count == 1
-
-
-def test_claim_without_executor_treats_missing_rpc_as_transient():
-    """The legacy signature has existed for a long time; a PGRST202 there is an
-    ordinary failure — retried and swallowed like any other transport error."""
-    dal = _build_dal()
-    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=_pgrst202()))
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=3) == []
-    assert dal.client.rpc.return_value.execute.call_count == 3
 
 
 def test_claim_with_executor_still_retries_other_errors():
@@ -564,29 +561,18 @@ def _settings_dal(settings_rows):
     return dal, execute
 
 
-def test_executor_sizes_parses_valid_entries_and_drops_junk():
-    dal, _ = _settings_dal(
-        [
-            {
-                "settings": {
-                    "conversation_executors": {
-                        "manual": 12,
-                        "auto": "3",
-                        "bad": 0,
-                        "x": "y",
-                        "b": True,
-                    }
-                }
-            }
-        ]
-    )
-    assert dal.get_conversation_executor_sizes() == {"manual": 12, "auto": 3}
-
-
-def test_executor_sizes_empty_when_missing_or_malformed():
-    dal, _ = _settings_dal([])
-    assert dal.get_conversation_executor_sizes() == {}
+def test_executor_sizes_returns_the_raw_setting():
+    """Validation is ExecutorSizing's job: the DAL hands back the jsonb value as
+    stored, junk included, so there is exactly one place that judges it."""
+    raw = {"manual": 12, "auto": "3", "bad": 0, "x": "y", "b": True}
+    dal, _ = _settings_dal([{"settings": {"conversation_executors": raw}}])
+    assert dal.get_conversation_executor_sizes() == raw
     dal, _ = _settings_dal([{"settings": {"conversation_executors": [1, 2]}}])
+    assert dal.get_conversation_executor_sizes() == [1, 2]
+
+
+def test_executor_sizes_empty_when_missing():
+    dal, _ = _settings_dal([])
     assert dal.get_conversation_executor_sizes() == {}
     dal, _ = _settings_dal([{"settings": {}}])
     assert dal.get_conversation_executor_sizes() == {}

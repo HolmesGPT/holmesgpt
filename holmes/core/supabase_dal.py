@@ -8,7 +8,7 @@ import ssl
 import threading
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import getproxies, proxy_bypass
 from uuid import uuid4
@@ -160,8 +160,8 @@ def _is_missing_rpc_error(exc: Exception) -> bool:
     return code == "PGRST202" or "could not find the function" in message
 
 
-# How long the per-account executor pool sizes read from AccountSettings are
-# cached; a UI change takes at most this long to reach the worker.
+# How long the per-account executor sizes read from AccountSettings are
+# cached; a UI change takes at most this long to reach the executors.
 EXECUTOR_SIZES_CACHE_TTL_SEC = 60
 
 
@@ -170,7 +170,7 @@ class ExecutorRpcUnsupportedError(Exception):
 
     robusta-storage migration 20260916073349 is deployed before Holmes, so
     this is a deploy error: raised instead of retried, and surfaced by the
-    worker loops' error logging.
+    claim loops' error logging.
     """
 
 class SupabaseConnectionException(Exception):
@@ -217,7 +217,7 @@ class SupabaseRetryTransport(httpx.HTTPTransport):
     than just postgrest table queries:
 
     1. ``http2=False`` — httpcore's *sync* HTTP/2 connection is not thread-safe,
-       and one ``SupabaseDal`` client is shared across the conversation worker,
+       and one ``SupabaseDal`` client is shared across the conversation runtime,
        realtime callbacks and request threads. HTTP/1.1 gives each concurrent
        request its own pooled, thread-safe connection.
     2. Retry on ``RemoteProtocolError`` — even on HTTP/1.1, Supabase's edge
@@ -879,11 +879,12 @@ class SupabaseDal:
             )
             return None
 
-    def get_conversation_executor_sizes(self) -> Dict[str, int]:
-        """Per-account executor pool sizes (ROB-1369):
-        ``AccountSettings.settings.conversation_executors`` — ``{name: size}``
-        written from the UI. Invalid entries are dropped; any read failure
-        returns {} so the worker falls back to the built-in sizes. Cached.
+    def get_conversation_executor_sizes(self) -> Any:
+        """The raw ``AccountSettings.settings.conversation_executors`` value
+        (``{name: size}`` written from the UI; ROB-1369), cached for
+        ``EXECUTOR_SIZES_CACHE_TTL_SEC``. Validated by ``ExecutorSizing``, not
+        here. ``{}`` when unset, disabled, or the read fails (the failure is
+        cached too so an outage is not re-queried every discovery tick).
         """
         if not self.enabled:
             return {}
@@ -891,7 +892,7 @@ class SupabaseDal:
             cached = self.executor_sizes_cache.get("sizes")
         if cached is not None:
             return cached
-        sizes: Dict[str, int] = {}
+        sizes: Any = {}
         try:
             res = (
                 self.client.table(ACCOUNT_SETTINGS_TABLE)
@@ -900,37 +901,11 @@ class SupabaseDal:
                 .execute()
             )
             settings = (res.data[0].get("settings") or {}) if res.data else {}
-            raw = settings.get("conversation_executors") or {}
-            if not isinstance(raw, dict):
-                logging.warning(
-                    "Ignoring malformed conversation_executors account setting: %r",
-                    raw,
-                )
-                raw = {}
-            for name, value in raw.items():
-                if isinstance(value, bool) or (
-                    isinstance(value, float) and not value.is_integer()
-                ):
-                    value = None
-                try:
-                    size = int(value)  # type: ignore[arg-type]
-                except (TypeError, ValueError):
-                    size = 0
-                if isinstance(name, str) and size > 0:
-                    sizes[name] = size
-                else:
-                    logging.warning(
-                        "Ignoring invalid conversation_executors entry %r=%r",
-                        name,
-                        value,
-                    )
+            sizes = settings.get("conversation_executors") or {}
         except Exception:
-            # Cache the failure too: the discovery loop and every new executor
-            # ask for sizes, and a Supabase outage should not turn that into a
-            # request per tick.
             logging.warning(
                 "Failed to read conversation_executors from AccountSettings; "
-                "using env/built-in executor sizes",
+                "using built-in executor sizes",
                 exc_info=True,
             )
         with self.lock:
@@ -1375,7 +1350,7 @@ class SupabaseDal:
                        NOT take destructive action in this case.
 
         We deliberately distinguish "definitive answer from server" from
-        "couldn't reach the server" so the conversation worker only disables
+        "couldn't reach the server" so the conversation runtime only disables
         itself when Supabase has actually told us realtime is off.
         """
         if not self.enabled:
@@ -1438,17 +1413,17 @@ class SupabaseDal:
         return None
 
     def claim_n_pending_conversations(
-        self, holmes_id: str, limit: int, executor: Optional[str] = None
+        self, holmes_id: str, limit: int, executor: str
     ) -> List[Dict]:
         """
-        Claim up to ``limit`` pending conversations (oldest first), landing them
-        directly in 'running' ('queued' is deprecated). ``limit`` <= 0 claims
-        nothing. Returns the claimed rows (assignee=holmes_id).
+        Claim up to ``limit`` pending conversations of ``executor`` (oldest
+        first), landing them directly in 'running' ('queued' is deprecated).
+        ``limit`` <= 0 claims nothing. Returns the claimed rows
+        (assignee=holmes_id).
 
-        ``executor`` restricts the claim to rows whose ``executor`` column
-        matches (ROB-1369); ``None`` claims any pending row. Raises
-        ``ExecutorRpcUnsupportedError`` when ``executor`` is given but the
-        database predates the executor-aware RPC signature (a deploy error).
+        Always filtered by executor (ROB-1369): nothing claims across
+        executors. Raises ``ExecutorRpcUnsupportedError`` when the database
+        predates the executor-aware RPC signature (a deploy error).
         """
         if not self.enabled:
             return []
@@ -1460,9 +1435,8 @@ class SupabaseDal:
             "_cluster_id": self.cluster,
             "_assignee": holmes_id,
             "_limit": limit,
+            "_executor": executor,
         }
-        if executor is not None:
-            params["_executor"] = executor
 
         # Retry transient infra errors (DNS/5xx) so a hiccup doesn't skip a poll.
         @retry(
@@ -1477,7 +1451,7 @@ class SupabaseDal:
                     "claim_n_pending_conversations", params
                 ).execute()
             except Exception as exc:
-                if executor is not None and _is_missing_rpc_error(exc):
+                if _is_missing_rpc_error(exc):
                     raise ExecutorRpcUnsupportedError(str(exc)) from exc
                 raise
             if not res.data:
