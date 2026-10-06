@@ -317,7 +317,7 @@ def test_args_supported(model):
     llm = create_llm_or_fail(model)
     info = get_model_info_or_fail(llm.model)
     supported = set(info.get("supported_openai_params") or [])
-    allowed = set(llm.args.get("allowed_openai_params") or [])
+    allowed = set(llm.allowed_openai_params or [])
     failures = [
         f"{model}: arg '{arg}' is not supported by litellm for {llm.model}"
         for arg in llm.args

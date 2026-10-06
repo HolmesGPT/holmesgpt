@@ -367,6 +367,7 @@ class DefaultLLM(LLM):
     api_version: Optional[str]
     args: Dict
     is_robusta_model: bool
+    allowed_openai_params: Optional[List[str]] = None
 
     def __init__(
         self,
@@ -395,6 +396,7 @@ class DefaultLLM(LLM):
     def update_custom_args(self):
         self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
         self.args.pop("custom_args", None)
+        self.allowed_openai_params = self.args.pop("allowed_openai_params", None)
 
     def check_llm(
         self,
@@ -710,7 +712,8 @@ class DefaultLLM(LLM):
                 "reasoning_effort"
             ]  # can be removed after next litelm version
 
-        existing_allowed = self.args.pop("allowed_openai_params", None)
+        # Popped once at init so later calls keep it
+        existing_allowed = self.allowed_openai_params
         if existing_allowed:
             if allowed_openai_params is None:
                 allowed_openai_params = []

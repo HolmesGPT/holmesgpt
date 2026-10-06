@@ -233,7 +233,7 @@ jobs:
           fi
 
       - name: Notify Slack on success
-        if: steps.run-benchmarks.outcome == 'success'
+        if: steps.run-benchmarks.outcome == 'success' && (github.ref_name == 'master' || github.ref_name == 'main')
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
         run: |
@@ -249,7 +249,7 @@ jobs:
             -d "{\"channel\": \"#backend\", \"text\": \"${TEXT}\"}"
 
       - name: Notify Slack on failure or cancellation
-        if: steps.run-benchmarks.outcome != 'success'
+        if: steps.run-benchmarks.outcome != 'success' && (github.ref_name == 'master' || github.ref_name == 'main')
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
         run: |
