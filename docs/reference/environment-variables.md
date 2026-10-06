@@ -11,6 +11,10 @@ This page documents all environment variables that can be used to configure Holm
 ### Anthropic
 - `ANTHROPIC_API_KEY` - API key for Anthropic Claude models
 
+### OrcaRouter
+- `ORCAROUTER_API_KEY` - API key for OrcaRouter (an OpenAI-compatible AI gateway). Models use the `orcarouter/` prefix and default to `https://api.orcarouter.ai/v1`. See [OrcaRouter](../ai-providers/orcarouter.md) for details.
+- `ORCAROUTER_API_BASE` - Custom base URL for OrcaRouter (defaults to `https://api.orcarouter.ai/v1`)
+
 ### Google
 - `GEMINI_API_KEY` - API key for Google Gemini models
 - `GOOGLE_API_KEY` - Alternative API key for Google services
