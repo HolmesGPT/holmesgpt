@@ -526,6 +526,11 @@ def with_tool(**fields) -> dict:
             r"custom_toolset\.yaml `toolsets\.coralogix/logs`: a deprecated name, which Holmes reads as `coralogix`$",
         ),
         (
+            # Holmes keeps the MCP server and drops the toolset, whose misspelled tool field nothing reads.
+            {"toolsets": {"grafana": with_tool(nmae="x")}, "mcp_servers": {"grafana": {"description": "Grafana", "config": {"url": "http://grafana-mcp:8000/mcp", "mode": "streamable-http"}}}},
+            r"custom_toolset\.yaml `toolsets\.grafana`: Holmes drops it for `mcp_servers\.grafana`, of the same name$",
+        ),
+        (
             {"mcp_servers": {"grafana": {"description": "Grafana", "config": {"url": "http://grafana-mcp:8000/mcp", "mode": "streamable-http", "verify_sssl": False}}}},
             r"custom_toolset\.yaml `mcp_servers\.grafana\.config`: no config class of the toolset takes it: `verify_sssl` is not a field of MCPConfig; StdioMCPConfig: ",
         ),
@@ -544,7 +549,7 @@ def with_tool(**fields) -> dict:
     ids=[
         "built-in-toolset-key", "yaml-tool-key", "yaml-toolset-prerequisite", "config-key-kept-as-extra",
         "subtype", "instance-config-key", "instances-not-a-list", "block-not-a-mapping", "removed-toolset",
-        "deprecated-toolset-name", "mcp-server-config-key", "mcp-addon-oauth-key", "model-entry-without-model",
+        "deprecated-toolset-name", "toolset-and-mcp-server-of-one-name", "mcp-server-config-key", "mcp-addon-oauth-key", "model-entry-without-model",
     ],
 )
 def test_a_value_holmes_refuses_is_an_error(values, error):

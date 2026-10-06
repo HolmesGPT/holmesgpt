@@ -263,6 +263,9 @@ def _toolset_errors(path: Path, written: dict) -> List[str]:
     for part in ("toolsets", "mcp_servers"):
         for name, block in (written.get(part) or {}).items():
             where = f"{part}.{name}"
+            if part == "toolsets" and name in (written.get("mcp_servers") or {}):
+                errors.append(f"custom_toolset.yaml `{where}`: Holmes drops it for `mcp_servers.{name}`, of the same name")
+                continue
             read_as = handle_deprecated_toolset_name(name, list(_builtin_toolsets()))
             if read_as != name:
                 errors.append(f"custom_toolset.yaml `{where}`: a deprecated name, which Holmes reads as `{read_as}`")
