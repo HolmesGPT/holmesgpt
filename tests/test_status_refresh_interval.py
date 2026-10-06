@@ -171,27 +171,46 @@ def test_reload_checks_the_server_inside_its_interval(tmp_path):
     assert _sessions_opened(sessions) == 2
 
 
+def _write_custom_toolsets(toolsets_file: Path, sessions: Path, **server_fields) -> None:
+    server_entry = _stdio_server(sessions, WORKING_SERVER, status_refresh_interval_seconds=3600, **server_fields)
+    toolsets_file.write_text(yaml.dump({"mcp_servers": {"example": server_entry}}))
+
+
 def test_toolset_re_enabled_inside_its_interval_is_checked(tmp_path, clock):
     sessions = tmp_path / "sessions"
     toolsets_file = tmp_path / "toolsets.yaml"
 
-    def write_toolsets(enabled: bool) -> None:
-        server_entry = _stdio_server(sessions, WORKING_SERVER, status_refresh_interval_seconds=3600)
-        toolsets_file.write_text(yaml.dump({"mcp_servers": {"example": {**server_entry, "enabled": enabled}}}))
-
-    write_toolsets(enabled=True)
+    _write_custom_toolsets(toolsets_file, sessions, enabled=True)
     config = Config(custom_toolsets=[toolsets_file])
     _refresh(config)
     assert _sessions_opened(sessions) == 1
 
-    write_toolsets(enabled=False)
+    _write_custom_toolsets(toolsets_file, sessions, enabled=False)
     clock(300)
     _refresh(config)
     assert _example(config).status == ToolsetStatusEnum.DISABLED
 
-    write_toolsets(enabled=True)
+    _write_custom_toolsets(toolsets_file, sessions, enabled=True)
     clock(300)
     _refresh(config)
     assert _sessions_opened(sessions) == 2
     assert _example(config).status == ToolsetStatusEnum.ENABLED
     assert "greet" in config.cached_tool_executor.tools_by_name
+
+
+def test_toolset_edited_inside_its_interval_is_checked(tmp_path, clock):
+    sessions = tmp_path / "sessions"
+    toolsets_file = tmp_path / "toolsets.yaml"
+
+    _write_custom_toolsets(toolsets_file, sessions)
+    config = Config(custom_toolsets=[toolsets_file])
+    _refresh(config)
+
+    _write_custom_toolsets(toolsets_file, sessions, approval_required_tools=["greet"])
+    clock(300)
+    _refresh(config)
+    assert _sessions_opened(sessions) == 2
+
+    clock(300)
+    _refresh(config)
+    assert _sessions_opened(sessions) == 2
