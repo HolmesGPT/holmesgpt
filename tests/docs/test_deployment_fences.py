@@ -552,17 +552,32 @@ def fence_of(text: str) -> custom_fences.DeploymentFence:
     return fence
 
 
-def test_holmes_reads_a_config_value_after_substituting_the_fence_environment():
+@pytest.mark.parametrize(
+    "timeout, errors",
+    [
+        ("45", []),
+        (
+            "forty-five",
+            [
+                "custom_toolset.yaml `toolsets.newrelic.config`: no config class of the toolset takes it: "
+                "NewrelicConfig: 1 validation error for NewrelicConfig\ntimeout_seconds\n  Input should be a valid integer, "
+                "unable to parse string as an integer [type=int_parsing, input_value='forty-five', input_type=str]"
+            ],
+        ),
+    ],
+    ids=["integer", "not-an-integer"],
+)
+def test_holmes_reads_a_config_value_after_substituting_the_fence_environment(timeout, errors):
     """`timeout_seconds` is an int, which `{{ env.NR_TIMEOUT }}` is only once substituted."""
     fence = fence_of(
         "```yaml-toolset-config\n"
-        "additionalEnvVars:\n  - name: NR_TIMEOUT\n    value: \"45\"\n"
+        f"additionalEnvVars:\n  - name: NR_TIMEOUT\n    value: \"{timeout}\"\n"
         "toolsets:\n  newrelic:\n    enabled: true\n    config:\n"
         "      api_key: \"{{ env.NR_API_KEY }}\"\n      account_id: \"1\"\n"
         "      timeout_seconds: \"{{ env.NR_TIMEOUT }}\"\n```\n"
     )
-    assert fence.environment == {"NR_API_KEY": "value", "NR_TIMEOUT": "45"}
-    assert fence_checks.check_fence(fence.values, fence.environment, CHART) == []
+    assert fence.environment == {"NR_API_KEY": "value", "NR_TIMEOUT": timeout}
+    assert [error.split("\n    For further information")[0] for error in fence_checks.check_fence(fence.values, fence.environment, CHART)] == errors
 
 
 def test_holmes_runs_with_only_the_fence_environment_which_is_then_restored(monkeypatch):
