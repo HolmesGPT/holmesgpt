@@ -12,6 +12,7 @@ import boto3
 import litellm
 import sentry_sdk
 from botocore.exceptions import BotoCoreError
+from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.litellm_core_utils.token_counter import get_image_dimensions
 from litellm.types.utils import ModelResponse, TextCompletionResponse
@@ -27,6 +28,7 @@ from holmes.common.env_vars import (
     AZURE_AD_TOKEN_AUTH,
     EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS,
     LLM_EXTRA_STRIP_MESSAGE_FIELDS,
     LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
@@ -55,6 +57,17 @@ OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
 _warned_missing_model_lookups: set[tuple[str, str]] = set()
+_last_cost_map_refresh = time.monotonic()
+
+
+def refresh_model_cost_map_if_stale() -> bool:
+    global _last_cost_map_refresh
+    if time.monotonic() - _last_cost_map_refresh < LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS:
+        return False
+    _last_cost_map_refresh = time.monotonic()
+    for name, entry in get_model_cost_map(litellm.model_cost_map_url).items():
+        litellm.model_cost.setdefault(name, entry)
+    return True
 
 # Names we've already warned operators about for missing cost-map entries.
 # Prevents spam when _init_models re-runs (e.g. Robusta resync path).
@@ -149,6 +162,8 @@ def _bundled_pricing_for_underlying_model(
     else:
         bundled = None
 
+    if not bundled and refresh_model_cost_map_if_stale():
+        return _bundled_pricing_for_underlying_model(raw_model_name)
     if not bundled:
         return None
     return _pricing_dict_from_bundled(bundled)
@@ -541,6 +556,9 @@ class DefaultLLM(LLM):
             if max_input_tokens:
                 return max_input_tokens
 
+        if refresh_model_cost_map_if_stale():
+            return self.get_context_window_size()
+
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_input_tokens")
         if warn_key not in _warned_missing_model_lookups:
@@ -823,6 +841,9 @@ class DefaultLLM(LLM):
             if litellm_max_output_tokens < max_output_tokens:
                 max_output_tokens = litellm_max_output_tokens
             return max_output_tokens
+
+        if refresh_model_cost_map_if_stale():
+            return self.get_maximum_output_token()
 
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_output_tokens")

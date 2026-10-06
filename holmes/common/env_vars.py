@@ -164,6 +164,9 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 )
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
+LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS = int(
+    os.environ.get("LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS", str(24 * 60 * 60))
+)
 
 # Extra message fields to strip before sending messages to the provider API.
 # Comma-separated. Set this if a provider rejects a field with an error like:
