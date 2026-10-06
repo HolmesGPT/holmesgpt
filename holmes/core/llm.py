@@ -61,15 +61,22 @@ _warned_missing_model_lookups: set[tuple[str, str]] = set()
 _warned_unknown_cost_models: set[str] = set()
 
 
-def _litellm_name_for_entry(entry: "ModelEntry") -> str:
-    """Return the model-name string that will be passed to litellm.completion.
+def _robusta_litellm_name(upstream_model: str) -> str:
+    """The `openai/<id>` name a Robusta model is completed (and priced) under.
 
-    Mirrors OpenAI_LLM.get_litellm_corrected_name_for_robusta_ai so that
-    pricing registered here resolves at completion time.
+    <id> is the last path segment: route segments (`bedrock/converse/...`) and
+    nested providers (`novita/openai/...`) must not become the id, or unrelated
+    models share one unpriced name, and litellm cannot price `openai/openai/...`.
     """
+    if "/" not in upstream_model:
+        return upstream_model
+    return f"openai/{upstream_model.rsplit('/', 1)[1]}"
+
+
+def _litellm_name_for_entry(entry: "ModelEntry") -> str:
+    """Return the model-name string that will be passed to litellm.completion."""
     if entry.is_robusta_model:
-        split = entry.model.split("/")
-        return split[0] if len(split) == 1 else f"openai/{split[1]}"
+        return _robusta_litellm_name(entry.model)
     return entry.model
 
 
@@ -134,24 +141,22 @@ def _bundled_pricing_for_underlying_model(
     ``get_litellm_corrected_name_for_robusta_ai`` rewrites it to
     ``openai/...``. The bundled litellm cost map keys Bedrock entries
     *without* the ``bedrock/`` provider prefix, so we try the raw name
-    first then strip the provider prefix once.
+    first then strip leading segments one at a time (provider, then any
+    route segment such as ``converse/``).
 
     Regional variants (``us.``/``eu.``/``au.``) are kept as-is on purpose:
     they carry the AWS-Bedrock regional premium, and that is the price we
     report. Stripping the regional prefix would silently switch us to a
     different price tier.
     """
-    if raw_model_name in litellm.model_cost:
-        bundled = litellm.model_cost[raw_model_name]
-    elif "/" in raw_model_name:
-        bare = raw_model_name.split("/", 1)[1]
-        bundled = litellm.model_cost.get(bare)
-    else:
-        bundled = None
-
-    if not bundled:
-        return None
-    return _pricing_dict_from_bundled(bundled)
+    segments = raw_model_name.split("/")
+    for i in range(len(segments)):
+        pricing = _pricing_dict_from_bundled(
+            litellm.model_cost.get("/".join(segments[i:])) or {}
+        )
+        if pricing is not None:
+            return pricing
+    return None
 
 
 def get_context_window_compaction_threshold_pct() -> int:
@@ -652,12 +657,7 @@ class DefaultLLM(LLM):
             # To avoid litellm modifying the API URL according to the provider, the provider name
             # is replaced with 'openai/' just before doing a completion() call
             # Cf. https://docs.litellm.ai/docs/providers/openai_compatible
-            split_model_name = self.model.split("/")
-            return (
-                split_model_name[0]
-                if len(split_model_name) == 1
-                else f"openai/{split_model_name[1]}"
-            )
+            return _robusta_litellm_name(self.model)
         else:
             return self.model
 
@@ -923,11 +923,7 @@ class LLMModelRegistry:
 
             # 2. For Robusta entries, auto-discover pricing from the bundled
             # cost map under the *real* upstream model name.
-            if (
-                entry.is_robusta_model
-                and entry.model != litellm_name
-                and litellm_name not in litellm.model_cost
-            ):
+            if entry.is_robusta_model and litellm_name not in litellm.model_cost:
                 auto_pricing = _bundled_pricing_for_underlying_model(entry.model)
                 if auto_pricing is not None:
                     _register_custom_pricing(litellm_name, auto_pricing)
