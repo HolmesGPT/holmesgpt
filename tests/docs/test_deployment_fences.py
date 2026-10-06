@@ -521,6 +521,11 @@ def with_tool(**fields) -> dict:
             r"custom_toolset\.yaml `toolsets\.kubectl-run`: Holmes loads no toolset of this name$",
         ),
         (
+            # Holmes renames it with a warning.
+            {"toolsets": {"coralogix/logs": {"enabled": True}}},
+            r"custom_toolset\.yaml `toolsets\.coralogix/logs`: a deprecated name, which Holmes reads as `coralogix`$",
+        ),
+        (
             {"mcp_servers": {"grafana": {"description": "Grafana", "config": {"url": "http://grafana-mcp:8000/mcp", "mode": "streamable-http", "verify_sssl": False}}}},
             r"custom_toolset\.yaml `mcp_servers\.grafana\.config`: no config class of the toolset takes it: `verify_sssl` is not a field of MCPConfig; StdioMCPConfig: ",
         ),
@@ -539,7 +544,7 @@ def with_tool(**fields) -> dict:
     ids=[
         "built-in-toolset-key", "yaml-tool-key", "yaml-toolset-prerequisite", "config-key-kept-as-extra",
         "subtype", "instance-config-key", "instances-not-a-list", "block-not-a-mapping", "removed-toolset",
-        "mcp-server-config-key", "mcp-addon-oauth-key", "model-entry-without-model",
+        "deprecated-toolset-name", "mcp-server-config-key", "mcp-addon-oauth-key", "model-entry-without-model",
     ],
 )
 def test_a_value_holmes_refuses_is_an_error(values, error):

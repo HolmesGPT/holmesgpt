@@ -28,7 +28,7 @@ from pydantic import BaseModel, ValidationError
 from docs.custom_fences import key_path
 from holmes.core.llm import ModelEntry
 from holmes.core.tools import Toolset, ToolsetStatusEnum
-from holmes.core.toolset_manager import ToolsetManager
+from holmes.core.toolset_manager import ToolsetManager, handle_deprecated_toolset_name
 from holmes.plugins.toolsets import load_builtin_toolsets
 from holmes.plugins.toolsets.multi_instance import MultiInstanceToolset, _parse_instances
 from holmes.utils.env import replace_env_vars_values
@@ -251,8 +251,9 @@ def _config_errors(toolset: Toolset, where: str) -> List[str]:
 
 def _toolset_errors(path: Path, written: dict) -> List[str]:
     """What Holmes refuses in `written`, the `custom_toolset.yaml` at `path`, loaded as Holmes
-    loads the file the chart mounts: a block it loads as a FAILED placeholder or not at all, a
-    key of a block or of its config that the model it validates has no field for."""
+    loads the file the chart mounts: a block it loads as a FAILED placeholder, under another
+    name or not at all, a key of a block or of its config that the model it validates has no
+    field for."""
     try:
         loaded = ToolsetManager()._load_toolsets_from_paths([str(path)], list(_builtin_toolsets()))
     except Exception as e:  # Holmes fails to load the file at all, whatever it raises.
@@ -262,7 +263,10 @@ def _toolset_errors(path: Path, written: dict) -> List[str]:
     for part in ("toolsets", "mcp_servers"):
         for name, block in (written.get(part) or {}).items():
             where = f"{part}.{name}"
-            toolset = toolsets.get(name)
+            read_as = handle_deprecated_toolset_name(name, list(_builtin_toolsets()))
+            if read_as != name:
+                errors.append(f"custom_toolset.yaml `{where}`: a deprecated name, which Holmes reads as `{read_as}`")
+            toolset = toolsets.get(read_as)
             if toolset is None:
                 errors.append(f"custom_toolset.yaml `{where}`: Holmes loads no toolset of this name")
             elif toolset.status == ToolsetStatusEnum.FAILED:
