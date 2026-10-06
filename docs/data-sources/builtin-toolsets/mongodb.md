@@ -29,160 +29,54 @@ mongodb://[username]:[password]@[host]:[port]/[database]
 mongodb+srv://[username]:[password]@[cluster].mongodb.net/[database]
 ```
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  prod-mongo:
+    type: mongodb
+    config:
+      connection_url: "{{ env.MONGO_URL }}"
+    llm_instructions: "Production MongoDB database"
+---
+secret:
+  - --from-literal=MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    prod-mongo:
+      type: mongodb
+      config:
+        connection_url: "{{ env.PROD_MONGO_URL }}"
+      llm_instructions: "Production MongoDB with customer and order data"
 
-    ```yaml
-    toolsets:
-      prod-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.PROD_MONGO_URL }}"
-        llm_instructions: "Production MongoDB with customer and order data"
+    analytics-mongo:
+      type: mongodb
+      config:
+        connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
+      llm_instructions: "Analytics MongoDB for reporting"
+  ```
 
-      analytics-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-        llm_instructions: "Analytics MongoDB for reporting"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-mongodb \
-      --from-literal=MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-mongodb
-
-    toolsets:
-      prod-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.MONGO_URL }}"
-        llm_instructions: "Production MongoDB database"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-mongodb \
-      --from-literal=MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-mongodb
-
-      toolsets:
-        prod-mongo:
-          type: mongodb
-          config:
-            connection_url: "{{ env.MONGO_URL }}"
-          llm_instructions: "Production MongoDB database"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ### Multiple instances
 
-=== "Holmes Helm Chart"
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  prod-mongo:
+    type: mongodb
+    config:
+      connection_url: "{{ env.PROD_MONGO_URL }}"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-mongodb-instances \
-      --from-literal=PROD_MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb' \
-      --from-literal=ANALYTICS_MONGO_URL=your-analytics-mongo-url \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-mongodb-instances
-
-    toolsets:
-      prod-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.PROD_MONGO_URL }}"
-
-      analytics-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-mongodb-instances \
-      --from-literal=PROD_MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb' \
-      --from-literal=ANALYTICS_MONGO_URL=your-analytics-mongo-url \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-mongodb-instances
-
-      toolsets:
-        prod-mongo:
-          type: mongodb
-          config:
-            connection_url: "{{ env.PROD_MONGO_URL }}"
-
-        analytics-mongo:
-          type: mongodb
-          config:
-            connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  analytics-mongo:
+    type: mongodb
+    config:
+      connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
+---
+secret:
+  - --from-literal=PROD_MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb'
+```
 
 ## Configuration Options
 
