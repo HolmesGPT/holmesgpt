@@ -97,6 +97,102 @@ def _run_rendered(rendered, workdir):
     )
 
 
+def _run_with_recording_kubectl(rendered, workdir):
+    bin_dir = os.path.join(workdir, "bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    kubectl_path = os.path.join(bin_dir, "kubectl")
+    with open(kubectl_path, "w") as f:
+        f.write(
+            "#!/bin/bash\n"
+            'printf \'%s\\n\' "$*" >> "$KUBECTL_ARGS_LOG"\n'
+            'if [ "$1" = "api-resources" ]; then\n'
+            '  echo "pods po v1 true Pod"\n'
+            "elif [ \"$1\" = \"get\" ] && [ \"$2\" = \"--raw\" ]; then\n"
+            '  echo \'{"items": [], "metadata": {}}\'\n'
+            "else\n"
+            '  echo "NAME NAMESPACE STATUS"\n'
+            '  echo "example team-a Running"\n'
+            "fi\n"
+        )
+    os.chmod(kubectl_path, 0o755)
+    env = dict(os.environ)
+    env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+    args_log = os.path.join(workdir, "kubectl-args.log")
+    env["KUBECTL_ARGS_LOG"] = args_log
+    subprocess.run(
+        rendered,
+        shell=True,
+        executable="/bin/bash",
+        cwd=workdir,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=30,
+        check=True,
+    )
+    with open(args_log) as f:
+        return f.read().splitlines()
+
+
+def _core_tool(name):
+    return next(tool for tool in TARGET_TOOLS if tool.name == name)
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "params", "namespaced_args", "clusterwide_args"),
+    [
+        (
+            "kubernetes_jq_query",
+            {"kind": "pods", "jq_expr": ".items[]", "namespace": "team-a"},
+            "get --raw /api/v1/namespaces/team-a/pods?limit=500",
+            "get --raw /api/v1/pods?limit=500",
+        ),
+        (
+            "kubernetes_count",
+            {"kind": "pods", "jq_expr": ".items[]", "namespace": "team-a"},
+            "get --raw /api/v1/namespaces/team-a/pods?limit=500",
+            "get --raw /api/v1/pods?limit=500",
+        ),
+    ],
+)
+def test_raw_kubernetes_queries_filter_by_namespace(
+    tool_name, params, namespaced_args, clusterwide_args
+):
+    tool = _core_tool(tool_name)
+    with tempfile.TemporaryDirectory() as workdir:
+        namespaced_log = _run_with_recording_kubectl(
+            _render_tool(tool, params), workdir
+        )
+        assert namespaced_args in namespaced_log
+
+        clusterwide_params = dict(params, namespace="")
+        clusterwide_log = _run_with_recording_kubectl(
+            _render_tool(tool, clusterwide_params), workdir
+        )
+        assert clusterwide_args in clusterwide_log
+
+
+def test_kubernetes_tabular_query_filters_by_namespace():
+    tool = _core_tool("kubernetes_tabular_query")
+    params = {
+        "kind": "pods",
+        "columns": "NAME:.metadata.name",
+        "namespace": "team-a",
+    }
+    with tempfile.TemporaryDirectory() as workdir:
+        namespaced_log = _run_with_recording_kubectl(_render_tool(tool, params), workdir)
+        assert 'get pods -n team-a -o custom-columns=NAME:.metadata.name' in namespaced_log
+
+        clusterwide_log = _run_with_recording_kubectl(
+            _render_tool(tool, dict(params, namespace="")), workdir
+        )
+        assert (
+            "get pods --all-namespaces -o custom-columns=NAME:.metadata.name"
+            in clusterwide_log
+        )
+
+
 # Payloads an LLM (steered by attacker-controlled observability text) could emit
 # as a tool parameter value. MARKER is filled in per-run.
 def _payloads(marker):
