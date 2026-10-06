@@ -2,7 +2,7 @@
 The checks of a deployment fence's Helm values against what reads them: the Holmes chart, the
 Kubernetes API for what its templates pass through into an object, and Holmes for what the chart
 passes on to it. tests/docs runs `check_fence` on the values of every Holmes Helm Chart tab; the
-MkDocs build does not run it, and needs neither Helm, Holmes nor this module.
+MkDocs build does not run it, and needs none of Helm, Holmes or this module.
 
 The chart passes `toolsets`, `mcp_servers` (with the servers of the enabled `mcpAddons`) and
 `modelList` on to Holmes in the `custom-toolsets-configmap` ConfigMap, so their contents change
@@ -160,7 +160,8 @@ def _schema_errors(render: str) -> List[str]:
 
 @contextmanager
 def _environment(variables: Dict[str, str]):
-    """Run with only these environment variables set."""
+    """Run with only these environment variables set. `os.environ` is the process's, so nothing
+    else may run in the process meanwhile."""
     saved = dict(os.environ)
     os.environ.clear()
     os.environ.update(variables)
@@ -173,6 +174,7 @@ def _environment(variables: Dict[str, str]):
 
 @functools.cache
 def _builtin_toolsets() -> Dict[str, Toolset]:
+    # Cached for every fence, so loaded with no fence's variables, nor the process's.
     with _environment({}):
         return {toolset.name: toolset for toolset in load_builtin_toolsets()}
 
