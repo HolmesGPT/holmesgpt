@@ -11,6 +11,7 @@ from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.truncation.compaction import (
     COMPACTION_TRUNCATION_NOTE,
     TRUNCATED_INPUT_INSTRUCTION,
+    SHORT_TRUNCATION_MARKER,
     TRUNCATION_MARKER,
     _count_image_tokens_in_messages,
     _fit_history_to_token_budget,
@@ -739,9 +740,10 @@ def test_fit_history_handles_block_content_and_keeps_images():
         {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": "a" * 16_000}, image, {"type": "text", "text": "b" * 8_000}]},
         {"role": "assistant", "content": None},
     ]
-    fitted, truncated = _fit_history_to_token_budget(messages, llm, None, 6_000)
+    fitted, truncated, fits = _fit_history_to_token_budget(messages, llm, None, 6_000)
 
     assert truncated is True
+    assert fits is True
     assert fitted[0] == messages[0]
     blocks = fitted[1]["content"]
     assert blocks[1] == image
@@ -751,7 +753,7 @@ def test_fit_history_handles_block_content_and_keeps_images():
 
     short = {"type": "text", "text": "[1 image(s) were present but stripped from compaction]"}
     message = {"role": "tool", "content": [{"type": "text", "text": "a" * 20_000}, short]}
-    fitted, _ = _fit_history_to_token_budget([message], llm, None, 1_000)
+    fitted, _, _ = _fit_history_to_token_budget([message], llm, None, 1_000)
     assert fitted[0]["content"][1] == short
 
 
@@ -759,9 +761,10 @@ def test_fit_history_best_effort_when_only_untruncatable_content():
     """With nothing truncatable the history is returned as-is (best effort)."""
     llm = CharCountingFakeLLM([])
     messages = [{"role": "system", "content": "s" * 40_000}]
-    fitted, truncated = _fit_history_to_token_budget(messages, llm, None, 100)
+    fitted, truncated, fits = _fit_history_to_token_budget(messages, llm, None, 100)
     assert fitted == messages
     assert truncated is True
+    assert fits is False
 
 
 @pytest.mark.parametrize(
@@ -794,8 +797,18 @@ def test_truncate_text_keeps_head_and_tail():
     assert removed == len(text) - (len(out) - len(TRUNCATION_MARKER.format(removed=removed)))
     # Trimming a few characters must shrink the text, not grow it with the marker.
     assert len(_truncate_text(text, len(text) - 3)) <= len(text) - 3
-    # Too small to keep any content: the marker alone still records the cut.
-    assert _truncate_text("abcdef" * 10, 1) == TRUNCATION_MARKER.format(removed=60)
+    # Below the full marker's length a short marker is used, and none below that.
+    assert _truncate_text("abcdef" * 10, 5) == "a" + SHORT_TRUNCATION_MARKER + "f"
+    assert _truncate_text("abcdef" * 10, 2) == "af"
+    assert _truncate_text("abcdef" * 10, 0) == ""
+
+
+@pytest.mark.parametrize("length", [1, 3, 50, 120, 5_000])
+def test_truncate_text_never_exceeds_keep(length):
+    """The output, marker included, never exceeds ``keep``."""
+    text = "y" * length
+    for keep in range(0, length):
+        assert len(_truncate_text(text, keep)) <= keep
 
 
 def test_compaction_without_tools_strips_images_then_truncates():
@@ -865,3 +878,44 @@ def test_compaction_budget_never_exceeds_remaining_capacity(monkeypatch, spare):
     compact_conversation_history(original_conversation_history=_oversized_history(), llm=llm, tools=_TOOLS)  # type: ignore
 
     assert budgets[0] == spare
+
+
+def test_fit_history_converges_with_many_short_messages():
+    """Many messages shorter than the full marker can still be cut to the budget."""
+    llm = CharCountingFakeLLM([])
+    messages = [{"role": "user", "content": "z" * 60} for _ in range(400)]
+    fitted, truncated, fits = _fit_history_to_token_budget(messages, llm, None, 1_000)
+
+    assert truncated is True
+    assert fits is True
+    assert llm.count_tokens(fitted).total_tokens <= 1_000
+
+
+def test_compaction_never_sends_a_history_over_budget():
+    """An attempt whose history cannot be cut to its budget is skipped, not sent."""
+    llm = CharCountingFakeLLM([_make_response(content="FALLBACK SUMMARY")], context_window=10_000)
+    llm.max_output = 10_000 - _instruction_tokens(llm, truncated=True) - 2_000
+    history = _oversized_history()
+    # The system prompt alone exceeds the primary budget; the fallback drops it.
+    history[0]["content"] = "s" * 12_000
+
+    result = compact_conversation_history(original_conversation_history=history, llm=llm, tools=_TOOLS)  # type: ignore
+
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["tools"] is None
+    assert _request_tokens(llm, llm.calls[0]) <= llm.context_window - llm.max_output
+    assert result.summary == "FALLBACK SUMMARY"
+    assert "could not be cut" in (result.fallback_reason or "")
+
+
+def test_compaction_makes_no_call_when_nothing_can_fit():
+    """With only uncuttable content over budget, no request is sent at all."""
+    llm = CharCountingFakeLLM([], context_window=10_000)
+    llm.max_output = 10_000 - _instruction_tokens(llm, truncated=True) - 200
+    history = [{"role": "user", "content": "why?"}] + [{"role": "assistant", "content": None} for _ in range(1_000)]
+
+    result = compact_conversation_history(original_conversation_history=history, llm=llm)  # type: ignore
+
+    assert llm.calls == []
+    assert result.messages_after_compaction == history
+    assert result.summary is None

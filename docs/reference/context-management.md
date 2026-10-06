@@ -33,7 +33,8 @@ They run at different points in the pipeline and serve different purposes.
 - Checks if `(total_tokens + max_output_tokens) > (context_window_size * threshold_pct / 100)`.
 - If so, sends the conversation history to the LLM with a compaction prompt, asking it to produce a concise summary.
 - Fits that summarization request into the context window first: when the history exceeds `context_window - max_output_tokens - prompt tokens`, the longest message texts are cut (head and tail kept) until it fits. Each fallback retry halves that budget, because the local token count can undercount the provider's tokenizer.
-- When anything was cut, the summarizer is told which outputs it only partially saw, and the summary ends with a note telling the agent to re-run narrower queries instead of assuming the cut content is absent.
+- A request that still exceeds its budget after cutting (for example, a system prompt larger than the window) is not sent; the next, smaller attempt is tried instead.
+- When anything was cut, the summarizer is told which messages it only partially saw, and the summary ends with a note telling the agent not to assume the cut content is absent and to re-run narrower tool queries when it matters.
 - Replaces the old messages with: system prompt + compacted summary + last user message.
 - Tracks compaction cost in `RequestStats`.
 

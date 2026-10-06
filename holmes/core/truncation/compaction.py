@@ -37,16 +37,16 @@ COMPACTION_SUMMARY_SUFFIX = (
     "established context."
 )
 TRUNCATED_INPUT_INSTRUCTION = (
-    "Some tool outputs above were cut to fit this request; each cut is marked "
-    "'characters truncated to fit the compaction request'. For each such "
-    "output, say in the summary that it was only partially seen, and never state that "
-    "something is absent from it."
+    "Some conversation text above was cut to fit this request; each cut is marked "
+    "'characters truncated to fit the compaction request' (or '[…]' when short). For "
+    "each such message, say in the summary that it was only partially seen, and never "
+    "state that something is absent from its original text."
 )
 COMPACTION_TRUNCATION_NOTE = (
-    "Some tool outputs were too large and were cut before this summary was written, "
-    "so the summary does not cover their omitted parts. Do not conclude that "
-    "something is absent from those outputs; if it matters, re-run the tool with a "
-    "narrower query (for example, filtering with grep) instead of fetching the full "
+    "Some conversation text was cut before this summary was written, so the summary "
+    "may omit parts of the affected messages. Do not conclude that information is "
+    "absent from those messages. If omitted tool output matters, re-run the tool with "
+    "a narrower query (for example, filtering with grep) instead of fetching the full "
     "output again."
 )
 
@@ -213,6 +213,7 @@ def _extract_text_content(message: Any) -> str:
 # history that "fits" locally can still be rejected as too long.
 FALLBACK_BUDGET_FRACTIONS = (0.5, 0.25)
 TRUNCATION_MARKER = "\n[... {removed} characters truncated to fit the compaction request; not shown to the summarizer ...]\n"
+SHORT_TRUNCATION_MARKER = "[…]"
 _MAX_TRUNCATION_PASSES = 5
 
 
@@ -231,14 +232,19 @@ def _text_length(message: dict) -> int:
 
 
 def _truncate_text(text: str, keep: int) -> str:
-    """Keep the head and tail of ``text`` in at most ``keep`` characters, marker included
-    (a marker longer than ``keep`` is still added, so a cut is never silent)."""
+    """Keep the head and tail of ``text`` in at most ``keep`` characters, marker included.
+    Below the full marker's length a short one is used, and none below that."""
     if len(text) <= keep:
         return text
-    body = max(keep - len(TRUNCATION_MARKER.format(removed=len(text))), 0)
+    if len(TRUNCATION_MARKER.format(removed=len(text))) <= keep:
+        body = keep - len(TRUNCATION_MARKER.format(removed=len(text)))
+        marker = TRUNCATION_MARKER.format(removed=len(text) - body)
+    else:
+        marker = SHORT_TRUNCATION_MARKER if len(SHORT_TRUNCATION_MARKER) <= keep else ""
+        body = keep - len(marker)
     head = body - body // 2
     tail = body // 2
-    return text[:head] + TRUNCATION_MARKER.format(removed=len(text) - body) + (text[-tail:] if tail else "")
+    return text[:head] + marker + (text[-tail:] if tail else "")
 
 
 def _truncate_message_text(message: dict, keep: int) -> dict:
@@ -283,15 +289,15 @@ def _fit_history_to_token_budget(
     llm: LLM,
     tools: Optional[list[dict[str, Any]]],
     budget_tokens: int,
-) -> tuple[list[dict], bool]:
+) -> tuple[list[dict], bool, bool]:
     """Truncate the longest message texts until the history fits ``budget_tokens``.
 
-    A leading system message is never truncated. Returns (messages, truncated);
-    the result is best-effort when non-text content alone exceeds the budget.
+    A leading system message is never truncated. Returns (messages, truncated,
+    fits); ``fits`` is False when non-text content alone exceeds the budget.
     """
     total = llm.count_tokens(messages=messages, tools=tools).total_tokens  # type: ignore
     if total <= budget_tokens:
-        return messages, False
+        return messages, False, True
 
     has_system = bool(messages) and messages[0].get("role") == "system"
     truncatable_from = 1 if has_system else 0
@@ -321,7 +327,7 @@ def _fit_history_to_token_budget(
         f"Compaction: truncated the longest messages to fit the summarization request "
         f"({original_total} -> {total} tokens, budget {budget_tokens})"
     )
-    return messages, True
+    return messages, True, total <= budget_tokens
 
 
 def compact_conversation_history(
@@ -399,35 +405,39 @@ def compact_conversation_history(
     input_budget = max(
         0, context_window - maximum_output_token - max(instruction_tokens, truncated_instruction_tokens)
     )
-    primary_history, input_truncated = _fit_history_to_token_budget(
+    primary_history, input_truncated, primary_fits = _fit_history_to_token_budget(
         conversation_history, llm, tools, input_budget
     )
     primary_instructions = truncated_instructions_message if input_truncated else instructions_message
 
     response_message = None
     fallback_reason: Optional[str] = None
-    try:
-        if tools:
-            response: Optional[ModelResponse] = llm.completion(
-                messages=[*primary_history, primary_instructions],
-                tools=tools,
-                tool_choice="auto",
-                drop_params=True,
-            )  # type: ignore
-        else:
-            response = llm.completion(
-                messages=[*primary_history, primary_instructions], drop_params=True
-            )  # type: ignore
-        compaction_usage += RequestStats.from_response(response)
-        response_message = _get_response_message(response)
-        if response_message is None:
-            fallback_reason = "no message in summarization response"
-        elif getattr(response_message, "tool_calls", None):
-            fallback_reason = "model responded with a tool call instead of a summary"
-        elif not _extract_text_content(response_message).strip():
-            fallback_reason = "summarization response contains no text"
-    except Exception as e:
-        fallback_reason = f"summarization request failed: {e}"
+    if not primary_fits:
+        # A request still over budget would only be rejected by the provider.
+        fallback_reason = f"history could not be cut to the {input_budget}-token budget"
+    else:
+        try:
+            if tools:
+                response: Optional[ModelResponse] = llm.completion(
+                    messages=[*primary_history, primary_instructions],
+                    tools=tools,
+                    tool_choice="auto",
+                    drop_params=True,
+                )  # type: ignore
+            else:
+                response = llm.completion(
+                    messages=[*primary_history, primary_instructions], drop_params=True
+                )  # type: ignore
+            compaction_usage += RequestStats.from_response(response)
+            response_message = _get_response_message(response)
+            if response_message is None:
+                fallback_reason = "no message in summarization response"
+            elif getattr(response_message, "tool_calls", None):
+                fallback_reason = "model responded with a tool call instead of a summary"
+            elif not _extract_text_content(response_message).strip():
+                fallback_reason = "summarization response contains no text"
+        except Exception as e:
+            fallback_reason = f"summarization request failed: {e}"
 
     if fallback_reason:
         # Compatibility fallback: some gateways mis-translate tool blocks / tools
@@ -442,9 +452,12 @@ def compact_conversation_history(
         flattened_history = _flatten_tool_messages_for_compaction(flattened_history)
         previous_attempt: Optional[list[dict]] = None
         for budget_fraction in FALLBACK_BUDGET_FRACTIONS:
-            fallback_history, truncated = _fit_history_to_token_budget(
+            fallback_history, truncated, fits = _fit_history_to_token_budget(
                 flattened_history, llm, None, int(input_budget * budget_fraction)
             )
+            if not fits:
+                fallback_reason = f"{fallback_reason}; flattened history could not be cut to the {budget_fraction:.0%} budget"
+                break  # a smaller budget cannot fit either
             if fallback_history is previous_attempt:
                 break  # a smaller budget no longer changes the request
             previous_attempt = fallback_history
