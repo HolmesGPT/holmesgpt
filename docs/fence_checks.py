@@ -17,7 +17,7 @@ from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 import yaml  # type: ignore
 
-from docs.custom_fences import key_path
+from docs.custom_fences import empty_value, key_path
 
 try:
     import kubernetes_validate.utils
@@ -61,7 +61,7 @@ def _differing(lines: List[str], other: List[str]) -> Set[int]:
 
 def _leaves(node, path: tuple = ()) -> Iterator[Tuple[tuple, object]]:
     """(key path, value) of every scalar under the mapping or list `node`, at any depth, list
-    items included. The page-text check refuses an empty mapping, list or null in the values."""
+    items included. `check_fence` refuses an empty mapping, list or null before this runs."""
     for key, value in node.items() if isinstance(node, dict) else enumerate(node):
         if isinstance(value, (dict, list)):
             yield from _leaves(value, path + (key,))
@@ -146,10 +146,14 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
     as the Holmes Helm Chart tab shows them; `environment` is the variables the group gives
     Holmes, its secret's keys and its `additionalEnvVars`.
 
-    The values must render with `helm template`, every leaf must change the render when it
-    changes (else the render does not depend on its value), and every rendered object must
-    match its Kubernetes schema. A line that differs between two renders of `values`, such as
-    a random token or the time, is not counted as a change."""
+    No value may be empty, as on the pages. The values must render with `helm template`,
+    every leaf must change the render when it changes (else the render does not depend on its
+    value), and every rendered object must match its Kubernetes schema. A line that differs
+    between two renders of `values`, such as a random token or the time, is not counted as a
+    change."""
+    empty = empty_value(values)
+    if empty:
+        return [f"`{key_path(empty)}` has no value"]
     result = _render(values, chart_dir)
     if result.returncode != 0:
         return [f"helm template fails: {result.stderr.strip()}"]

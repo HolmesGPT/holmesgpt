@@ -372,7 +372,7 @@ def key_path(path: tuple) -> str:
     return "".join(f"[{key}]" if isinstance(key, int) else f".{key}" for key in path).lstrip(".")
 
 
-def _empty_value(node, path: tuple = ()) -> Optional[tuple]:
+def empty_value(node, path: tuple = ()) -> Optional[tuple]:
     """The first key path under the mapping or list `node` whose value is empty, a list
     entry `""` excepted."""
     for key, value in node.items() if isinstance(node, dict) else enumerate(node):
@@ -381,7 +381,7 @@ def _empty_value(node, path: tuple = ()) -> Optional[tuple]:
         if _is_empty(value) and not (isinstance(node, list) and value == ""):
             return here
         if isinstance(value, (dict, list)):
-            empty = _empty_value(value, here)
+            empty = empty_value(value, here)
             if empty:
                 return empty
     return None
@@ -590,7 +590,7 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
         return None
     if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
         return None
-    empty = _empty_value(values)
+    empty = empty_value(values)
     if empty:
         raise FenceBodyError(f"`{key_path(empty)}` has no value")
 
