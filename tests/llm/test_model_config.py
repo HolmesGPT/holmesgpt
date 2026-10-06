@@ -9,6 +9,7 @@ from typing import Any, Callable, FrozenSet, List, Optional
 import boto3
 import litellm
 import pytest
+from botocore.config import Config as BotoConfig
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from pydantic import BaseModel, ValidationError
@@ -236,6 +237,7 @@ def list_bedrock_profiles(
         region_name=region,
         aws_access_key_id=access_key_id,
         aws_secret_access_key=secret_access_key,
+        config=BotoConfig(auth_scheme_preference="sigv4"),
     )
     pages = client.get_paginator("list_inference_profiles").paginate()
     return frozenset(
