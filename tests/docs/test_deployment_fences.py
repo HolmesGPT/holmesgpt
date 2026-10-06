@@ -498,19 +498,19 @@ def with_tool(**fields) -> dict:
         (
             # NewrelicConfig keeps a key it does not declare.
             {"toolsets": {"newrelic": {"enabled": True, "config": {"api_key": "k", "account_id": "1", "is_eu_datacentre": True}}}},
-            r"custom_toolset\.yaml `toolsets\.newrelic`\.config: no config class of the toolset takes it: `is_eu_datacentre` is not a field of NewrelicConfig$",
+            r"custom_toolset\.yaml `toolsets\.newrelic\.config`: no config class of the toolset takes it: `is_eu_datacentre` is not a field of NewrelicConfig$",
         ),
         (
             {"toolsets": {"prometheus/metrics": {"enabled": True, "subtype": "prometheuss", "config": {"prometheus_url": "http://p:9090"}}}},
-            r"custom_toolset\.yaml `toolsets\.prometheus/metrics`\.subtype: no config class of the toolset has subtype 'prometheuss'$",
+            r"custom_toolset\.yaml `toolsets\.prometheus/metrics\.subtype`: no config class of the toolset has subtype 'prometheuss'$",
         ),
         (
             {"toolsets": {"prometheus/metrics": {"enabled": True, "config": {"instances": [{"name": "prod", "prometheus_url": "http://p:9090", "timout": 30}]}}}},
-            r"custom_toolset\.yaml `toolsets\.prometheus/metrics`\.config \(instance `prod`\): no config class of the toolset takes it: .*`timout` is not a field of PrometheusConfig",
+            r"custom_toolset\.yaml `toolsets\.prometheus/metrics\.config` \(instance `prod`\): no config class of the toolset takes it: .*`timout` is not a field of PrometheusConfig",
         ),
         (
             {"toolsets": {"newrelic": {"enabled": True, "config": {"instances": "prod"}}}},
-            r"custom_toolset\.yaml `toolsets\.newrelic`\.config: Holmes refuses its instances: `instances` must be a list$",
+            r"custom_toolset\.yaml `toolsets\.newrelic\.config`: Holmes refuses its instances: `instances` must be a list$",
         ),
         (
             {"toolsets": {"newrelic": True}},
@@ -522,13 +522,13 @@ def with_tool(**fields) -> dict:
         ),
         (
             {"mcp_servers": {"grafana": {"description": "Grafana", "config": {"url": "http://grafana-mcp:8000/mcp", "mode": "streamable-http", "verify_sssl": False}}}},
-            r"custom_toolset\.yaml `mcp_servers\.grafana`\.config: no config class of the toolset takes it: `verify_sssl` is not a field of MCPConfig; StdioMCPConfig: ",
+            r"custom_toolset\.yaml `mcp_servers\.grafana\.config`: no config class of the toolset takes it: `verify_sssl` is not a field of MCPConfig; StdioMCPConfig: ",
         ),
         (
             # The chart writes the addon's server into custom_toolset.yaml, its oauth
             # passed through; MCPOAuthConfig ignores a key it does not declare.
             {"mcpAddons": {"kubernetes": {**KUBERNETES_MCP, "config": {"oauth": {"enabled": True, "client-id": "c"}}}}},
-            r"custom_toolset\.yaml `mcp_servers\.kubernetes`\.config: no config class of the toolset takes it: `oauth\.client-id` is not a field of MCPOAuthConfig; StdioMCPConfig: ",
+            r"custom_toolset\.yaml `mcp_servers\.kubernetes\.config`: no config class of the toolset takes it: `oauth\.client-id` is not a field of MCPOAuthConfig; StdioMCPConfig: ",
         ),
         (
             {"modelList": {"gpt": {"modle": "openai/gpt-4.1"}}},

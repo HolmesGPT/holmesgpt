@@ -216,7 +216,7 @@ def _config_errors(toolset: Toolset, where: str) -> List[str]:
         try:
             instances = _parse_instances(toolset.config)
         except ValueError as e:
-            return [f"{where}.config: Holmes refuses its instances: {e}"]
+            return [f"custom_toolset.yaml `{where}.config`: Holmes refuses its instances: {e}"]
     else:
         classes = type(owner).config_classes
         instances = [("default", toolset.config)]
@@ -225,7 +225,7 @@ def _config_errors(toolset: Toolset, where: str) -> List[str]:
     if toolset.subtype and any(cls._subtype for cls in classes):
         classes = [cls for cls in classes if cls._subtype == toolset.subtype]
         if not classes:
-            return [f"{where}.subtype: no config class of the toolset has subtype {toolset.subtype!r}"]
+            return [f"custom_toolset.yaml `{where}.subtype`: no config class of the toolset has subtype {toolset.subtype!r}"]
     errors = []
     for name, config in instances:
         refusals = []
@@ -241,7 +241,9 @@ def _config_errors(toolset: Toolset, where: str) -> List[str]:
             refusals.append(_not_fields(undeclared))
         else:
             instance = f" (instance `{name}`)" if "instances" in toolset.config else ""
-            errors.append(f"{where}.config{instance}: no config class of the toolset takes it: " + "; ".join(refusals))
+            errors.append(
+                f"custom_toolset.yaml `{where}.config`{instance}: no config class of the toolset takes it: " + "; ".join(refusals)
+            )
     return errors
 
 
@@ -257,16 +259,16 @@ def _toolset_errors(path: Path, written: dict) -> List[str]:
     errors = []
     for part in ("toolsets", "mcp_servers"):
         for name, block in (written.get(part) or {}).items():
-            where = f"custom_toolset.yaml `{part}.{name}`"
+            where = f"{part}.{name}"
             toolset = toolsets.get(name)
             if toolset is None:
-                errors.append(f"{where}: Holmes loads no toolset of this name")
+                errors.append(f"custom_toolset.yaml `{where}`: Holmes loads no toolset of this name")
             elif toolset.status == ToolsetStatusEnum.FAILED:
-                errors.append(f"{where}: Holmes refuses it: {toolset.error}")
+                errors.append(f"custom_toolset.yaml `{where}`: Holmes refuses it: {toolset.error}")
             else:
                 undeclared = list(_undeclared(block, toolset))
                 if undeclared:
-                    errors.append(f"{where}: {_not_fields(undeclared)}")
+                    errors.append(f"custom_toolset.yaml `{where}`: {_not_fields(undeclared)}")
                 errors += _config_errors(toolset, where)
     return errors
 
