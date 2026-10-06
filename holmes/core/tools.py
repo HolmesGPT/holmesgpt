@@ -257,6 +257,11 @@ class ToolParameter(BaseModel):
         # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
         if self.additional_properties is not None and self.additional_properties is not False:
             return False
+        # A free-form object (no properties, additionalProperties unspecified) would be
+        # closed with additionalProperties: false, leaving `{}` as its only valid value.
+        types = self.type if isinstance(self.type, list) else [self.type]
+        if "object" in types and not self.properties and self.additional_properties is None:
+            return False
         # Recursively check nested properties
         if self.properties:
             for prop in self.properties.values():
