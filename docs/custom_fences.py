@@ -82,7 +82,8 @@ Above a yaml-helm-values fence, which has no CLI tab, it reads "Reuses the ...".
 Fields, declared in `ToolsetConfigFields` and `HelmValuesFields`. Each is optional, and a field
 that is written has a value.
 
-- `secret`: `--from-literal=X=<value>` and `--from-file=X=<path>` arguments of the group's secret.
+- `secret`: `--from-literal=X=<value>` and `--from-file=X=<path>` arguments of the group's secret,
+  each value or path one shell word.
   One for a derived key sets the value the page shows; one for a key the values never reference as
   `{{ env.X }}` (a variable the tool reads from the environment) adds it, after the derived keys.
 - `named-secrets`: secrets the values name themselves, which are not listed in
@@ -118,6 +119,7 @@ the build.
 import html
 import posixpath
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Dict, Iterator, List, NamedTuple, Optional, Tuple
@@ -428,16 +430,23 @@ def _multi_instance_section(body: str, page: str):
 
 def _secret_keys(arguments) -> Dict[str, Tuple[str, str]]:
     """{key: (kind, value)} for a list of `--from-literal=K=V` / `--from-file=K=PATH`
-    arguments, in their order."""
+    arguments, in their order, each V or PATH one shell word as written."""
     if not isinstance(arguments, list) or not arguments:
         raise ValueError("a secret's keys are a list of --from-literal / --from-file arguments")
     keys: Dict[str, Tuple[str, str]] = {}
     for argument in arguments:
         match = SECRET_ARGUMENT_RE.fullmatch(argument) if isinstance(argument, str) else None
-        if match is None or match["key"] in keys:
+        if match is None or match["key"] in keys or not _one_shell_word(match["value"]):
             raise ValueError(f"not a --from-literal=KEY=VALUE or --from-file=KEY=PATH argument of a new key: {argument!r}")
         keys[match["key"]] = (match["kind"], match["value"])
     return keys
+
+
+def _one_shell_word(value: str) -> bool:
+    try:
+        return len(shlex.split(value)) == 1
+    except ValueError:  # an unclosed quote
+        return False
 
 
 SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)]
@@ -608,7 +617,9 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
             secret += f"-{opening['qualifier']}"
     elif opening["option"]:
         return None
-    environment = {key: "value" for key in keys}
+    # Each secret key holds what the pod gets: a literal as the shell passes it, and a file's content,
+    # which the page does not show, as `value`.
+    environment = {key: shlex.split(value)[0] if kind == "literal" else "value" for key, (kind, value) in keys.items()}
     environment.update({entry["name"]: entry.get("value", "") for entry in _env_vars(values)})
     return DeploymentBody(values_text, values, fields, secret, keys, environment)
 

@@ -576,8 +576,45 @@ def test_holmes_reads_a_config_value_after_substituting_the_fence_environment(ti
         "      api_key: \"{{ env.NR_API_KEY }}\"\n      account_id: \"1\"\n"
         "      timeout_seconds: \"{{ env.NR_TIMEOUT }}\"\n```\n"
     )
-    assert fence.environment == {"NR_API_KEY": "value", "NR_TIMEOUT": timeout}
+    assert fence.environment == {"NR_API_KEY": "your-nr-api-key", "NR_TIMEOUT": timeout}
     assert [error.split("\n    For further information")[0] for error in fence_checks.check_fence(fence.values, fence.environment, CHART)] == errors
+
+
+NEWRELIC_TIMEOUT = (
+    "toolsets:\n  newrelic:\n    enabled: true\n    config:\n"
+    "      api_key: \"{{ env.NR_API_KEY }}\"\n      account_id: \"1\"\n"
+    "      timeout_seconds: \"{{ env.NR_TIMEOUT }}\"\n"
+)
+MCP_URL = "mcp_servers:\n  grafana:\n    description: Grafana\n    config:\n      url: \"{{ env.MCP_URL }}\"\n      mode: streamable-http\n"
+
+
+@pytest.mark.parametrize(
+    "values, argument, environment",
+    [
+        (NEWRELIC_TIMEOUT, "--from-literal=NR_TIMEOUT=45", {"NR_API_KEY": "your-nr-api-key", "NR_TIMEOUT": "45"}),
+        (NEWRELIC_TIMEOUT, '--from-literal=NR_TIMEOUT="45"', {"NR_API_KEY": "your-nr-api-key", "NR_TIMEOUT": "45"}),
+        (NEWRELIC_TIMEOUT, "--from-literal=NR_TIMEOUT='45'", {"NR_API_KEY": "your-nr-api-key", "NR_TIMEOUT": "45"}),
+        (
+            # A URL field, valid once the reader replaces the placeholder.
+            MCP_URL,
+            '--from-literal=MCP_URL="http://grafana-mcp.<namespace>.svc:8000/mcp"',
+            {"MCP_URL": "http://grafana-mcp.<namespace>.svc:8000/mcp"},
+        ),
+    ],
+    ids=["integer", "integer-double-quoted", "integer-single-quoted", "url-with-placeholder"],
+)
+def test_holmes_reads_a_secret_key_as_the_value_the_page_gives_it(values, argument, environment):
+    fence = fence_of(f"```yaml-toolset-config\n{values}---\nsecret:\n  - {argument}\n```\n")
+    assert fence.environment == environment
+    assert fence_checks.check_fence(fence.values, fence.environment, CHART) == []
+
+
+@pytest.mark.parametrize("argument", ['--from-literal=X="unclosed', "--from-literal=X=two words"])
+def test_a_secret_argument_that_is_not_one_shell_word_fails_the_build(tmp_path, monkeypatch, argument):
+    """`kubectl` would get a broken value or a second argument."""
+    monkeypatch.chdir(REPO)
+    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{TOOLSET}---\nsecret:\n  - {argument}\n```\n")
 
 
 def test_holmes_runs_with_only_the_fence_environment_which_is_then_restored(monkeypatch):
