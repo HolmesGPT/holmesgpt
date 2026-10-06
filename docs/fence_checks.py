@@ -146,11 +146,11 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
     as the Holmes Helm Chart tab shows them; `environment` is the variables the group gives
     Holmes, its secret's keys and its `additionalEnvVars`.
 
-    No value may be empty, as on the pages. The values must render with `helm template`,
-    every leaf must change the render when it changes (else the render does not depend on its
-    value), and every rendered object must match its Kubernetes schema. A line that differs
-    between two renders of `values`, such as a random token or the time, is not counted as a
-    change."""
+    No value may be empty (a list entry `""` excepted), as on the pages. The values must
+    render with `helm template`, every leaf must change the render when it changes (else the
+    render does not depend on its value), and every rendered object must match its Kubernetes
+    schema. A line that differs between two renders of `values`, such as a random token or the
+    time, is not counted as a change."""
     empty = empty_value(values)
     if empty:
         return [f"`{key_path(empty)}` has no value"]
