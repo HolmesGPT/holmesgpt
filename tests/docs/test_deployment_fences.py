@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import markdown
 import pytest
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
+from pydantic import BaseModel, ConfigDict, Field
 
 from docs import custom_fences, fence_checks
 from docs.custom_fences import SUPPORTED_OPENING_RE, TabFenceError
@@ -323,7 +325,7 @@ CHART = REPO / "helm" / "holmes"
     PAGES_WITH_FENCES,
     ids=[str(path.relative_to(DOCS)) for path in PAGES_WITH_FENCES],
 )
-def test_the_chart_and_the_kubernetes_schemas_take_every_helm_tab_of_a_page(path):
+def test_the_chart_the_kubernetes_schemas_and_holmes_take_every_helm_tab_of_a_page(path):
     page = path.relative_to(DOCS).as_posix()
     errors = [
         f"{page}:{fence.line}: {error}"
@@ -456,3 +458,144 @@ def test_the_fence_checks_without_kubernetes_validate_fail_saying_what_to_instal
     result = subprocess.run([sys.executable, "-c", hidden], cwd=REPO, capture_output=True, text=True)
     assert result.returncode != 0
     assert "the fence checks need kubernetes-validate, a dev dependency: run `poetry install --with dev`" in result.stderr
+
+
+# A custom YAML toolset, as docs/data-sources/custom-toolsets.md writes one.
+YAML_TOOLSET = {
+    "description": "View Grafana dashboards",
+    "prerequisites": [{"env": ["GRAFANA_URL"]}],
+    "tools": [{"name": "view_dashboard", "description": "View a dashboard", "command": "curl -s ${GRAFANA_URL}"}],
+}
+KUBERNETES_MCP = {"enabled": True, "serviceAccount": {"create": True, "name": "k8s-mcp-sa"}}
+
+
+def with_tool(**fields) -> dict:
+    return {**YAML_TOOLSET, "tools": [{**YAML_TOOLSET["tools"][0], **fields}]}
+
+
+@pytest.mark.parametrize(
+    "values, error",
+    [
+        (
+            {"toolsets": {"kubernetes/core": {"enabeld": True}}},
+            r"custom_toolset\.yaml `toolsets\.kubernetes/core`: Holmes refuses it: 1 validation error for ToolsetYamlFromConfig\nenabeld\n  Extra inputs are not permitted",
+        ),
+        (
+            # The class of a YAML tool ignores a key it does not declare.
+            {"toolsets": {"grafana": with_tool(timeout=30)}},
+            r"custom_toolset\.yaml `toolsets\.grafana`: `tools\[0\]\.timeout` is not a field of YAMLTool$",
+        ),
+        (
+            # Of the prerequisite classes, the one validated from this entry ignores the key.
+            {"toolsets": {"grafana": {**YAML_TOOLSET, "prerequisites": [{"enf": ["GRAFANA_URL"]}]}}},
+            r"custom_toolset\.yaml `toolsets\.grafana`: `prerequisites\[0\]\.enf` is not a field of ToolsetEnvironmentPrerequisite$",
+        ),
+        (
+            # NewrelicConfig keeps a key it does not declare.
+            {"toolsets": {"newrelic": {"enabled": True, "config": {"api_key": "k", "account_id": "1", "is_eu_datacentre": True}}}},
+            r"custom_toolset\.yaml `toolsets\.newrelic`\.config: no config class of the toolset takes it: `is_eu_datacentre` is not a field of NewrelicConfig$",
+        ),
+        (
+            {"toolsets": {"prometheus/metrics": {"enabled": True, "subtype": "prometheuss", "config": {"prometheus_url": "http://p:9090"}}}},
+            r"custom_toolset\.yaml `toolsets\.prometheus/metrics`\.subtype: no config class of the toolset has subtype 'prometheuss'$",
+        ),
+        (
+            {"toolsets": {"prometheus/metrics": {"enabled": True, "config": {"instances": [{"name": "prod", "prometheus_url": "http://p:9090", "timout": 30}]}}}},
+            r"custom_toolset\.yaml `toolsets\.prometheus/metrics`\.config \(instance `prod`\): no config class of the toolset takes it: .*`timout` is not a field of PrometheusConfig",
+        ),
+        (
+            {"toolsets": {"newrelic": {"enabled": True, "config": {"instances": "prod"}}}},
+            r"custom_toolset\.yaml `toolsets\.newrelic`\.config: Holmes refuses its instances: `instances` must be a list$",
+        ),
+        (
+            {"toolsets": {"newrelic": True}},
+            r"Holmes fails to load custom_toolset\.yaml: TypeError: 'bool' object does not support item assignment$",
+        ),
+        (
+            {"toolsets": {"kubectl-run": {"enabled": True}}},
+            r"custom_toolset\.yaml `toolsets\.kubectl-run`: Holmes loads no toolset of this name$",
+        ),
+        (
+            {"mcp_servers": {"grafana": {"description": "Grafana", "config": {"url": "http://grafana-mcp:8000/mcp", "mode": "streamable-http", "verify_sssl": False}}}},
+            r"custom_toolset\.yaml `mcp_servers\.grafana`\.config: no config class of the toolset takes it: `verify_sssl` is not a field of MCPConfig; StdioMCPConfig: ",
+        ),
+        (
+            # The chart writes the addon's server into custom_toolset.yaml, its oauth
+            # passed through; MCPOAuthConfig ignores a key it does not declare.
+            {"mcpAddons": {"kubernetes": {**KUBERNETES_MCP, "config": {"oauth": {"enabled": True, "client-id": "c"}}}}},
+            r"custom_toolset\.yaml `mcp_servers\.kubernetes`\.config: no config class of the toolset takes it: `oauth\.client-id` is not a field of MCPOAuthConfig; StdioMCPConfig: ",
+        ),
+        (
+            {"modelList": {"gpt": {"modle": "openai/gpt-4.1"}}},
+            r"model_list\.yaml `gpt`: Holmes refuses it: 1 validation error for ModelEntry\nmodel\n  Field required",
+        ),
+
+    ],
+    ids=[
+        "built-in-toolset-key", "yaml-tool-key", "yaml-toolset-prerequisite", "config-key-kept-as-extra",
+        "subtype", "instance-config-key", "instances-not-a-list", "block-not-a-mapping", "removed-toolset",
+        "mcp-server-config-key", "mcp-addon-oauth-key", "model-entry-without-model",
+    ],
+)
+def test_a_value_holmes_refuses_is_an_error(values, error):
+    errors = fence_checks.check_fence(values, {}, CHART)
+    assert len(errors) == 1 and re.match(error, errors[0], re.DOTALL), errors
+
+
+def fence_of(text: str) -> custom_fences.DeploymentFence:
+    (fence,) = custom_fences.deployment_fences(f"# Page\n\n{text}", "index.md")
+    return fence
+
+
+def test_holmes_reads_a_config_value_after_substituting_the_fence_environment():
+    """`timeout_seconds` is an int, which `{{ env.NR_TIMEOUT }}` is only once substituted."""
+    fence = fence_of(
+        "```yaml-toolset-config\n"
+        "additionalEnvVars:\n  - name: NR_TIMEOUT\n    value: \"45\"\n"
+        "toolsets:\n  newrelic:\n    enabled: true\n    config:\n"
+        "      api_key: \"{{ env.NR_API_KEY }}\"\n      account_id: \"1\"\n"
+        "      timeout_seconds: \"{{ env.NR_TIMEOUT }}\"\n```\n"
+    )
+    assert fence.environment == {"NR_API_KEY": "value", "NR_TIMEOUT": "45"}
+    assert fence_checks.check_fence(fence.values, fence.environment, CHART) == []
+
+
+def test_holmes_runs_with_only_the_fence_environment_which_is_then_restored(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "from the test process")
+    environ = dict(os.environ)
+    values = {"modelList": {"gpt": {"model": "openai/gpt-4.1", "api_key": "{{ env.OPENAI_API_KEY }}"}}}
+    errors = fence_checks.check_fence(values, {}, CHART)
+    assert len(errors) == 1 and re.match(
+        r"model_list\.yaml `gpt`: Holmes refuses it: ENV var replacement OPENAI_API_KEY does not exist$", errors[0]
+    ), errors
+    assert fence_checks.check_fence(values, {"OPENAI_API_KEY": "value"}, CHART) == []
+    assert dict(os.environ) == environ
+
+
+class Tool(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    name: str
+    timeout: int = Field(default=10, alias="timeoutSeconds")
+
+
+class Server(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    tools: list[Tool]
+    headers: dict[str, Tool]
+    single: Tool | str
+
+
+def test_the_undeclared_key_walk_pairs_what_was_written_with_what_was_validated():
+    """Through lists and mappings of models and a union, an alias taken as the field's name."""
+    written = {
+        "tools": [{"name": "a", "timeoutSeconds": 5}, {"name": "b", "nmae": "c"}],
+        "headers": {"x": {"name": "d", "extra": 1}},
+        "single": {"name": "e", "timout": 1},
+        "toolz": [],
+    }
+    assert list(fence_checks._undeclared(written, Server.model_validate(written))) == [
+        (("tools", 1, "nmae"), "Tool"),
+        (("headers", "x", "extra"), "Tool"),
+        (("single", "timout"), "Tool"),
+        (("toolz",), "Server"),
+    ]
