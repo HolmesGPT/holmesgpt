@@ -116,6 +116,8 @@ TOKEN_LIMIT_KEYS = (
 RESPONSES_ROUTE = "/responses/"
 EFFORT_KEYS = ("effort", "reasoning_effort", "thinkingLevel")
 ON_OFF_REASONING_MODELS = {"openrouter/moonshotai/kimi-k2.5"}
+# Effort forces tools onto /v1/responses, which our key lacks
+UNPINNED_REASONING_MODELS = {"openai/gpt-5.5-2026-04-23"}
 EMULATED_STRUCTURED_OUTPUT_TOOL = "json_tool_call"
 # litellm 1.89.0 hardcodes native structured output models up to 4.7
 KNOWN_EMULATED_NATIVE_MODELS = {("1.89.0", "anthropic/claude-fable-5")}
@@ -343,6 +345,8 @@ def test_reasoning_pinned(model):
     # OpenRouter Kimi K2.5 only toggles reasoning, no effort
     if llm.model in ON_OFF_REASONING_MODELS:
         pytest.skip(f"{model}: reasoning is on/off only, no effort levels")
+    if llm.model in UNPINNED_REASONING_MODELS:
+        pytest.skip(f"{model}: effort left unpinned so tools stay on chat completions")
 
     effort = llm.args.get("reasoning_effort")
     thinking = llm.args.get("thinking") or {}
