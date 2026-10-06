@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from docs import custom_fences, fence_checks
 from docs.custom_fences import SUPPORTED_OPENING_RE, TabFenceError
+from holmes.config import Config
 
 REPO = Path(__file__).resolve().parents[2]
 DOCS = REPO / "docs"
@@ -458,6 +459,10 @@ def test_the_fence_checks_without_kubernetes_validate_fail_saying_what_to_instal
     result = subprocess.run([sys.executable, "-c", hidden], cwd=REPO, capture_output=True, text=True)
     assert result.returncode != 0
     assert "the fence checks need kubernetes-validate, a dev dependency: run `poetry install --with dev`" in result.stderr
+
+
+def test_the_keys_a_derived_cli_tab_shows_are_holmes_config_keys():
+    assert custom_fences.CLI_CONFIG_KEYS <= set(Config.model_fields)
 
 
 # A custom YAML toolset, as docs/data-sources/custom-toolsets.md writes one.
