@@ -596,6 +596,10 @@ NEWRELIC_TIMEOUT = (
     "      timeout_seconds: \"{{ env.NR_TIMEOUT }}\"\n"
 )
 MCP_URL = "mcp_servers:\n  grafana:\n    description: Grafana\n    config:\n      url: \"{{ env.MCP_URL }}\"\n      mode: streamable-http\n"
+NEWRELIC_API_KEY = (
+    "toolsets:\n  newrelic:\n    enabled: true\n    config:\n"
+    "      api_key: \"{{ env.NR_API_KEY }}\"\n      account_id: \"1\"\n"
+)
 
 
 @pytest.mark.parametrize(
@@ -610,8 +614,14 @@ MCP_URL = "mcp_servers:\n  grafana:\n    description: Grafana\n    config:\n    
             '--from-literal=MCP_URL="http://grafana-mcp.<namespace>.svc:8000/mcp"',
             {"MCP_URL": "http://grafana-mcp.<namespace>.svc:8000/mcp"},
         ),
+        (
+            # The shell computes it, so the page does not show the value; inner quotes nest in `$(...)`.
+            NEWRELIC_API_KEY,
+            "--from-literal=NR_API_KEY=\"$(echo -n \"user name:api_token\" | base64 | tr -d '\\n')\"",
+            {"NR_API_KEY": "value"},
+        ),
     ],
-    ids=["integer", "integer-double-quoted", "integer-single-quoted", "url-with-placeholder"],
+    ids=["integer", "integer-double-quoted", "integer-single-quoted", "url-with-placeholder", "command-substitution"],
 )
 def test_holmes_reads_a_secret_key_as_the_value_the_page_gives_it(values, argument, environment):
     fence = fence_of(f"```yaml-toolset-config\n{values}---\nsecret:\n  - {argument}\n```\n")
@@ -620,8 +630,8 @@ def test_holmes_reads_a_secret_key_as_the_value_the_page_gives_it(values, argume
 
 
 @pytest.mark.parametrize("argument", ['--from-literal=X="unclosed', "--from-literal=X=two words"])
-def test_a_secret_argument_that_is_not_one_shell_word_fails_the_build(tmp_path, monkeypatch, argument):
-    """`kubectl` would get a broken value or a second argument."""
+def test_a_secret_value_of_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, argument):
+    """Such as one that gives `kubectl` a broken value or a second argument."""
     monkeypatch.chdir(REPO)
     with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
         build_page(tmp_path, f"```yaml-toolset-config\n{TOOLSET}---\nsecret:\n  - {argument}\n```\n")
