@@ -406,6 +406,7 @@ def test_max_output_tokens(model, request_capture):
         api_key=llm.api_key,
         base_url=llm.api_base,
         api_version=llm.api_version,
+        allowed_openai_params=llm.allowed_openai_params,
         **args_without_limit,
     )
     default_sent = find_values(request_capture.bodies[-1], TOKEN_LIMIT_KEYS)
