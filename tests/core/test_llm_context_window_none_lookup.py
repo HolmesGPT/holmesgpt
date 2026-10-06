@@ -67,3 +67,13 @@ def test_real_max_tokens_still_honored():
         llm = _make_llm(model)
         assert llm.get_context_window_size() == 128000
         assert llm.get_maximum_output_token() == 16000
+
+
+def test_responses_route_uses_underlying_model_limits():
+    entry = dict(_NORMALIZED_PRICED_ENTRY)
+    entry["max_input_tokens"] = 922000
+    entry["max_output_tokens"] = 128000
+    with patch.dict("litellm.model_cost", {"azure/sol-test": entry}, clear=False):
+        llm = _make_llm("azure/responses/sol-test")
+        assert llm.get_context_window_size() == 922000
+        assert llm.get_maximum_output_token() == 110640

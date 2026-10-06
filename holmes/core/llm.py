@@ -522,11 +522,13 @@ class DefaultLLM(LLM):
         Generate model name variants to try when looking up in litellm.model_cost.
         Returns a list of names to try in order: exact, lowercase, without prefix, etc.
         """
-        names_to_try = [self.model, self.model.lower()]
+        # litellm's "provider/responses/model" route isn't a cost map key
+        model = self.model.replace("/responses/", "/")
+        names_to_try = [self.model, self.model.lower(), model, model.lower()]
 
         # If there's a prefix, also try without it
-        if "/" in self.model:
-            base_model = self.model.split("/", 1)[1]
+        if "/" in model:
+            base_model = model.split("/", 1)[1]
             names_to_try.extend([base_model, base_model.lower()])
 
         # Remove duplicates while preserving order (dict.fromkeys maintains insertion order in Python 3.7+)

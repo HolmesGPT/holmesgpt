@@ -10,6 +10,7 @@ import boto3
 import litellm
 import pytest
 from litellm.integrations.custom_logger import CustomLogger
+from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from pydantic import BaseModel, ValidationError
 
 from holmes.core.llm import DefaultLLM
@@ -137,6 +138,11 @@ GET_PODS_TOOL = {
         "description": "List pods in the cluster",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
+}
+BUNDLED_PRICED_MODELS = {
+    name
+    for name, entry in get_model_cost_map(litellm.model_cost_map_url).items()
+    if entry.get("input_cost_per_token") and entry.get("output_cost_per_token")
 }
 VERIFY_MODELS = [
     m.strip() for m in os.environ.get("VERIFY_MODELS", "").split(",") if m.strip()
@@ -469,3 +475,24 @@ def test_tool_calling(model):
     print(f"\n{model}: tool calls {[call.function.name for call in tool_calls]}")
     if not tool_calls:
         warnings.warn(f"{model}: accepted tools but did not call get_pods")
+
+
+@pytest.mark.llm
+@pytest.mark.parametrize("model", MODELS)
+def test_litellm_has_pricing(model):
+    llm = create_llm_or_fail(model)
+    lookup_name = llm.model.replace(RESPONSES_ROUTE, "/")
+    try:
+        key = litellm.get_model_info(lookup_name)["key"]
+    except Exception:
+        key = lookup_name
+    if key in BUNDLED_PRICED_MODELS:
+        return
+    message = f"{model}: litellm {importlib.metadata.version('litellm')} has no pricing for '{key}'"
+    if "input_cost_per_token" in llm.args:
+        warnings.warn(f"{message}, using the model list's explicit pricing")
+        return
+    pytest.fail(
+        f"{message} - set input_cost_per_token/output_cost_per_token in the model list",
+        pytrace=False,
+    )
