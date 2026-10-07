@@ -33,6 +33,7 @@ def _make_llm(model: str) -> DefaultLLM:
     llm.name = None
     llm.is_robusta_model = False
     llm.max_context_size = None
+    llm.cache_control = None
     return llm
 
 
@@ -73,6 +74,24 @@ class TestCacheControlInjectionPoints:
     @pytest.mark.parametrize(
         "model",
         [
+            "bedrock/us.amazon.nova-pro-v1:0",
+            "bedrock/us.amazon.nova-lite-v1:0",
+            "bedrock/us.amazon.nova-micro-v1:0",
+            "bedrock/eu-west-1.amazon.nova-pro-v1:0",
+        ],
+    )
+    def test_bedrock_nova_models_skip_cache_control(self, mock_completion, model):
+        llm = _make_llm(model)
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        kwargs = mock_completion.call_args.kwargs
+        assert "cache_control_injection_points" not in kwargs, (
+            f"cache_control_injection_points must not be sent to {model}; "
+            "Bedrock Nova rejects the cachePoint field it translates into."
+        )
+
+    @pytest.mark.parametrize(
+        "model",
+        [
             "anthropic/claude-sonnet-4-5",
             "gpt-5.4",
             "openai/gpt-4o",
@@ -98,3 +117,54 @@ class TestCacheControlInjectionPoints:
         assert kwargs["model"] == "gemini/gemini-3.1-pro-preview"
         assert kwargs["messages"] == messages
         assert kwargs["temperature"] == 0.3
+
+
+class TestCacheControlOverride:
+    """A per-model `cache_control` field in model_list.yaml must override the
+    automatic per-route default: False suppresses the cache hint even for
+    models that normally support it (e.g. Bedrock Claude), True forces it for
+    models that normally skip it (e.g. Gemini and Bedrock Nova).
+    """
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gemini/gemini-3.1-pro-preview",
+            "bedrock/us.amazon.nova-pro-v1:0",
+        ],
+    )
+    def test_cache_control_override_force_on(self, mock_completion, model):
+        llm = _make_llm(model)
+        llm.cache_control = True
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs.get("cache_control_injection_points") == [
+            {"location": "message", "index": -1}
+        ], f"cache_control: true must force the cache hint for {model}"
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "openai/gpt-4o",
+            "anthropic/claude-sonnet-4-5",
+            "bedrock/anthropic.claude-sonnet-4-20250514-v1:0",
+        ],
+    )
+    def test_cache_control_override_force_off(self, mock_completion, model):
+        llm = _make_llm(model)
+        llm.cache_control = False
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+        kwargs = mock_completion.call_args.kwargs
+        assert "cache_control_injection_points" not in kwargs, (
+            f"cache_control: false must suppress the cache hint for {model}"
+        )
+
+    def test_cache_control_popped_from_args(self):
+        """The override flows into DefaultLLM.args from model_list.yaml and must
+        be consumed by update_custom_args, never leaking into the litellm call."""
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.args = {"cache_control": False, "temperature": 0.1}
+        llm.update_custom_args()
+        assert llm.cache_control is False
+        assert "cache_control" not in llm.args
+        assert llm.args == {"temperature": 0.1}
