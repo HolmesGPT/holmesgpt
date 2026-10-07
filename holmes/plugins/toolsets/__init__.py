@@ -53,7 +53,6 @@ from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
 )
 from holmes.plugins.toolsets.kafka import KafkaToolset
-from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
 from holmes.plugins.toolsets.multi_instance import multi_instance
@@ -120,7 +119,6 @@ def load_python_toolsets(
         multi_instance(CoralogixToolset),
         RabbitMQToolset(),
         BashExecutorToolset(),
-        KubectlRunToolset(),
         multi_instance(ConfluenceToolset),
         multi_instance(MongoDBAtlasToolset),
         SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),

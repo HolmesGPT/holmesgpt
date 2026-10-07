@@ -149,6 +149,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.mypy]
 ignore_missing_imports = true
 scripts_are_modules = true
+# Name files from the repo root, so docs/custom_fences.py (docs/ has no __init__.py) is docs.custom_fences, the module mkdocs.yml and the fence tests import.
+explicit_package_bases = true
 exclude = [
     "tests/llm/fixtures/.*",
     "dist/.*",
