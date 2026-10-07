@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
 import tempfile
 import threading
@@ -27,6 +28,10 @@ from typing import (
 
 from jinja2 import Template
 
+from holmes.common.env_vars import (
+    YAML_TOOL_MAX_TIMEOUT_SECONDS,
+    YAML_TOOL_TIMEOUT_SECONDS,
+)
 from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
 from pydantic import (
@@ -105,6 +110,7 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    timed_out: Optional[bool] = None
     # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
     oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 
@@ -564,9 +570,54 @@ class Tool(ABC, BaseModel):
         return ""
 
 
+YAML_TOOL_TERMINATE_GRACE_SECONDS = 5
+
+YAML_TOOL_TIMEOUT_HINT = (
+    "Narrow the query and retry: target one namespace (-n) or resource, add a "
+    "label selector (-l), limit logs with --since / --tail, or shorten the time range."
+)
+
+
+def _signal_process_group(process: subprocess.Popen, sig: int) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _decode_partial(output: Any) -> str:
+    if isinstance(output, bytes):
+        return output.decode("utf-8", errors="replace")
+    return output or ""
+
+
+def _terminate_process_group(process: subprocess.Popen) -> str:
+    """SIGTERM the tool's process group, SIGKILL it after a grace period, and
+    return whatever output was produced. With shell=True, killing only bash
+    would leave kubectl (or any child) running and holding the pipe."""
+    _signal_process_group(process, signal.SIGTERM)
+    try:
+        stdout, _ = process.communicate(timeout=YAML_TOOL_TERMINATE_GRACE_SECONDS)
+        return stdout or ""
+    except subprocess.TimeoutExpired:
+        pass
+    _signal_process_group(process, signal.SIGKILL)
+    try:
+        stdout, _ = process.communicate(timeout=YAML_TOOL_TERMINATE_GRACE_SECONDS)
+        return stdout or ""
+    except subprocess.TimeoutExpired as e:
+        # A grandchild that left the group (setsid) still holds the pipe;
+        # stop reading rather than wait on it.
+        if process.stdout:
+            process.stdout.close()
+        process.wait()
+        return _decode_partial(e.output)
+
+
 class YAMLTool(Tool, BaseModel):
     command: Optional[str] = None
     script: Optional[str] = None
+    timeout_seconds: Optional[int] = Field(default=None, gt=0)
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -632,6 +683,22 @@ class YAMLTool(Tool, BaseModel):
             context["request_context"] = {"headers": CaseInsensitiveDict()}
         return context
 
+    @property
+    def effective_timeout_seconds(self) -> int:
+        requested = (
+            self.timeout_seconds
+            if self.timeout_seconds is not None
+            else YAML_TOOL_TIMEOUT_SECONDS
+        )
+        if requested > YAML_TOOL_MAX_TIMEOUT_SECONDS:
+            logger.warning(
+                f"Tool '{self.name}' timeout {requested}s exceeds "
+                f"YAML_TOOL_MAX_TIMEOUT_SECONDS, clamping to "
+                f"{YAML_TOOL_MAX_TIMEOUT_SECONDS}s"
+            )
+            return YAML_TOOL_MAX_TIMEOUT_SECONDS
+        return requested
+
     def _get_status(
         self, return_code: int, raw_output: str
     ) -> StructuredToolResultStatus:
@@ -646,20 +713,39 @@ class YAMLTool(Tool, BaseModel):
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
+        timeout = self.effective_timeout_seconds
         try:
             if self.command is not None:
                 raw_output, return_code, invocation = self.__invoke_command(
-                    params, context.request_context
+                    params, timeout, context.request_context
                 )
             else:
                 raw_output, return_code, invocation = self.__invoke_script(
-                    params, context.request_context
+                    params, timeout, context.request_context
                 )
         except ShellInjectionError as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=str(e),
                 params=params,
+            )
+
+        if return_code is None:
+            logger.warning(
+                f"Tool '{self.name}' timed out after {timeout}s and was killed"
+            )
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"Command `{invocation}` timed out after {timeout}s and was "
+                    f"killed. Output before the timeout, if any, follows. "
+                    f"{YAML_TOOL_TIMEOUT_HINT}"
+                ),
+                return_code=None,
+                data=raw_output,
+                params=params,
+                invocation=invocation,
+                timed_out=True,
             )
 
         error = (
@@ -681,20 +767,22 @@ class YAMLTool(Tool, BaseModel):
     def __invoke_command(
         self,
         params: dict,
+        timeout: int,
         request_context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, int, str]:
+    ) -> Tuple[str, Optional[int], str]:
         context = self._build_context(params, request_context)
         command = os.path.expandvars(self.command)  # type: ignore
         template = Template(command)  # type: ignore
         rendered_command = template.render(context)
-        output, return_code = self.__execute_subprocess(rendered_command)
+        output, return_code = self.__execute_subprocess(rendered_command, timeout)
         return output, return_code, rendered_command
 
     def __invoke_script(
         self,
         params: dict,
+        timeout: int,
         request_context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, int, str]:
+    ) -> Tuple[str, Optional[int], str]:
         context = self._build_context(params, request_context)
         script = os.path.expandvars(self.script)  # type: ignore
         template = Template(script)  # type: ignore
@@ -705,10 +793,10 @@ class YAMLTool(Tool, BaseModel):
         ) as temp_script:
             temp_script.write(rendered_script)
             temp_script_path = temp_script.name
-        subprocess.run(["chmod", "+x", temp_script_path], check=True)
+        os.chmod(temp_script_path, 0o700)
 
         try:
-            output, return_code = self.__execute_subprocess(temp_script_path)
+            output, return_code = self.__execute_subprocess(temp_script_path, timeout)
         finally:
             try:
                 os.remove(temp_script_path)
@@ -716,25 +804,30 @@ class YAMLTool(Tool, BaseModel):
                 pass
         return output, return_code, rendered_script
 
-    def __execute_subprocess(self, cmd: str) -> Tuple[str, int]:
+    def __execute_subprocess(self, cmd: str, timeout: int) -> Tuple[str, Optional[int]]:
+        """Returns (output, return_code); return_code is None on timeout."""
         try:
-            logger.debug(f"Running `{cmd}`")
+            logger.debug(f"Running `{cmd}` with timeout {timeout}s")
             protected_cmd = get_ulimit_prefix() + cmd
 
-            result = subprocess.run(
+            process = subprocess.Popen(
                 protected_cmd,
                 shell=True,
                 executable="/bin/bash",
                 text=True,
-                check=False,  # do not throw error, we just return the error code
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
+            try:
+                stdout, _ = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return _terminate_process_group(process).strip(), None
 
-            output = result.stdout.strip()
-            output = check_oom_and_append_hint(output, result.returncode)
-            return output, result.returncode
+            output = (stdout or "").strip()
+            output = check_oom_and_append_hint(output, process.returncode)
+            return output, process.returncode
         except Exception as e:
             logger.error(
                 f"An unexpected error occurred while running '{cmd}': {e}",

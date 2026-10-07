@@ -47,7 +47,7 @@ toolsets:
           # Match the resource name (first column) as an EXACT string, not a
           # grep regex - otherwise a kind like '.*' or 'a|b' would match the
           # wrong resource. awk compares $1 literally and stops at the first hit.
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
+          API_INFO=$(kubectl api-resources --request-timeout=50s --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
@@ -115,7 +115,7 @@ toolsets:
               QUERY="${API_PATH}?limit=${LIMIT}&continue=${CONTINUE}"
             fi
 
-            OUTPUT=$(kubectl get --raw "$QUERY" 2>>"$err_file")
+            OUTPUT=$(kubectl get --request-timeout=50s --raw "$QUERY" 2>>"$err_file")
             exit_code=$?
 
             if [ $exit_code -ne 0 ]; then
@@ -216,7 +216,7 @@ toolsets:
           KIND={{ kind }}
           CUSTOM_COLUMNS={{ columns }}
           err_file=$(mktemp)
-          output=$(kubectl get "$KIND" --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
+          output=$(kubectl get "$KIND" --request-timeout=50s --all-namespaces -o custom-columns="$CUSTOM_COLUMNS" 2>"$err_file")
           kubectl_exit=$?
           err_content=$(cat "$err_file" 2>/dev/null)
           rm -f "$err_file"
@@ -309,7 +309,7 @@ toolsets:
           # Match the resource name (first column) as an EXACT string, not a
           # grep regex - otherwise a kind like '.*' or 'a|b' would match the
           # wrong resource. awk compares $1 literally and stops at the first hit.
-          API_INFO=$(kubectl api-resources --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
+          API_INFO=$(kubectl api-resources --request-timeout=50s --no-headers 2>>"$err_file" | awk -v kind="$KIND" '$1 == kind {print; exit}')
 
           if [ -z "$API_INFO" ]; then
             err_content=$(cat "$err_file" 2>/dev/null)
@@ -374,7 +374,7 @@ toolsets:
               QUERY="${API_PATH}?limit=${LIMIT}&continue=${CONTINUE}"
             fi
 
-            OUTPUT=$(kubectl get --raw "$QUERY" 2>>"$err_file")
+            OUTPUT=$(kubectl get --request-timeout=50s --raw "$QUERY" 2>>"$err_file")
             exit_code=$?
 
             if [ $exit_code -ne 0 ]; then
@@ -467,11 +467,11 @@ toolsets:
       - name: "kubectl_top_pods"
         description: "Retrieves real-time CPU and memory usage for each pod in the cluster."
         command: >
-          kubectl top pods -A
+          kubectl top pods -A --request-timeout=50s
       - name: "kubectl_top_nodes"
         description: "Retrieves real-time CPU and memory usage for each node in the cluster."
         command: >
-          kubectl top nodes
+          kubectl top nodes --request-timeout=50s
 
   kubernetes/kube-prometheus-stack:
     description: "Fetches prometheus definition"
@@ -490,5 +490,5 @@ toolsets:
           PROM_NAMESPACE={{ prometheus_namespace }}
           PROM_SERVICE={{ prometheus_service_name }}
           TARGET_NAME={{ target_name }}
-          kubectl get --raw "/api/v1/namespaces/${PROM_NAMESPACE}/services/${PROM_SERVICE}:9090/proxy/api/v1/targets" \
+          kubectl get --request-timeout=50s --raw "/api/v1/namespaces/${PROM_NAMESPACE}/services/${PROM_SERVICE}:9090/proxy/api/v1/targets" \
             | jq --arg target "$TARGET_NAME" '.data.activeTargets[] | select(.labels.job == $target)'

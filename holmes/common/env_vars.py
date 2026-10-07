@@ -106,6 +106,12 @@ USE_LEGACY_KUBERNETES_LOGS = load_bool("USE_LEGACY_KUBERNETES_LOGS", False)
 KUBERNETES_LOGS_TIMEOUT_SECONDS = int(
     os.environ.get("KUBERNETES_LOGS_TIMEOUT_SECONDS", 60)
 )
+# Defaults and hard ceiling for YAML-defined (command/script) tools; a per-tool
+# `timeout_seconds:` is clamped to the ceiling.
+YAML_TOOL_TIMEOUT_SECONDS = int(os.environ.get("YAML_TOOL_TIMEOUT_SECONDS", 60))
+YAML_TOOL_MAX_TIMEOUT_SECONDS = int(
+    os.environ.get("YAML_TOOL_MAX_TIMEOUT_SECONDS", 600)
+)
 
 TOOL_CALL_SAFEGUARDS_ENABLED = load_bool("TOOL_CALL_SAFEGUARDS_ENABLED", True)
 IS_OPENSHIFT = load_bool("IS_OPENSHIFT", False)

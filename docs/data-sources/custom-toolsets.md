@@ -476,6 +476,7 @@ Each tool within a toolset can be configured with:
 - **description**: What the tool does (visible to the AI)
 - **command**: Shell command or script to execute
 - **parameters**: Optional parameter definitions (usually inferred)
+- **timeout_seconds**: Optional. Kill the command after this many seconds (default `60`, capped at `600`; see [YAML_TOOL_TIMEOUT_SECONDS](../reference/environment-variables.md#yaml_tool_timeout_seconds))
 
 ### Variable Syntax
 

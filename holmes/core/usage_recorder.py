@@ -184,6 +184,9 @@ class RequestStatus(str, Enum):
     ABORTED = "aborted"  # stream ended without any terminal event
 
 
+TOOL_TIMEOUT_NAMES_LIMIT = 5
+
+
 @dataclass
 class UsageRecorderState:
     """All the data needed to write one HolmesUsageEvents row.
@@ -427,6 +430,17 @@ class UsageRecorderState:
             metadata.get("finish_reason") or self.finish_reason
         )
 
+    def _capture_tool_result(self, tool_name: Optional[str], timed_out: Any) -> None:
+        """Count timed-out tools in ``meta.tool_timeouts`` and keep the first
+        few distinct names in ``meta.tool_timeout_names``."""
+        if not timed_out:
+            return
+        self.meta["tool_timeouts"] = self.meta.get("tool_timeouts", 0) + 1
+        names = self.meta.setdefault("tool_timeout_names", [])
+        name = tool_name or "unknown"
+        if name not in names and len(names) < TOOL_TIMEOUT_NAMES_LIMIT:
+            names.append(name)
+
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.
 
@@ -478,6 +492,11 @@ def stream_with_usage_recording(
         for msg in stream:
             if msg.event == StreamEvents.TOOL_RESULT:
                 state.tool_call_count += 1
+                result = (msg.data or {}).get("result") or {}
+                if isinstance(result, dict):
+                    state._capture_tool_result(
+                        msg.data.get("tool_name"), result.get("timed_out")
+                    )
             elif msg.event == StreamEvents.TOKEN_COUNT:
                 # Cumulative cost broadcast after each successful LLM iteration
                 # (and after compaction). Capturing it here is the only way to
@@ -560,7 +579,13 @@ def record_from_llm_result(
         state.stats = RequestStats()
 
     state.iterations = getattr(llm_result, "num_llm_calls", None) or 1
-    state.tool_call_count = len(getattr(llm_result, "tool_calls", None) or [])
+    tool_calls = getattr(llm_result, "tool_calls", None) or []
+    state.tool_call_count = len(tool_calls)
+    for tool_call in tool_calls:
+        state._capture_tool_result(
+            getattr(tool_call, "tool_name", None),
+            getattr(getattr(tool_call, "result", None), "timed_out", None),
+        )
     state.finish_reason = getattr(llm_result, "finish_reason", None)
     state.status = RequestStatus.SUCCESS
     state._fire()

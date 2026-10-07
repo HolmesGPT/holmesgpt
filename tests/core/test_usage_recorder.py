@@ -576,3 +576,111 @@ class TestFireAndForgetThreadMode:
 
         # Should NOT raise — _fire's `except RuntimeError` accepts the loss.
         record_error(state, RuntimeError("x"))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Tool timeout metrics (ROB-1551)
+# ──────────────────────────────────────────────────────────────────
+
+
+def _tool_result_event(name: str, timed_out) -> StreamMessage:
+    result = {"status": "error" if timed_out else "success", "data": ""}
+    if timed_out is not None:
+        result["timed_out"] = timed_out
+    return StreamMessage(
+        event=StreamEvents.TOOL_RESULT,
+        data={"tool_name": name, "name": name, "result": result},
+    )
+
+
+class TestToolTimeoutMeta:
+    def test_stream_counts_timeouts_and_caps_names(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state(meta={"from_fe": 1})
+        events = [_tool_result_event("ok_tool", None), _tool_result_event("ok2", False)]
+        events += [_tool_result_event(f"slow_{i}", True) for i in range(7)]
+        events.append(_tool_result_event("slow_0", True))
+        events.append(
+            StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({}))
+        )
+        list(stream_with_usage_recording(_stream(*events), state))
+
+        recorded = state.dal.record_usage_event.call_args.args[0]
+        assert recorded.tool_call_count == 10
+        assert recorded.meta["tool_timeouts"] == 8
+        assert recorded.meta["tool_timeout_names"] == [f"slow_{i}" for i in range(5)]
+        assert recorded.meta["from_fe"] == 1
+
+    def test_stream_without_timeouts_leaves_meta_untouched(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        events = [
+            _tool_result_event("ok_tool", None),
+            StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "x"}),
+            StreamMessage(
+                event=StreamEvents.TOOL_RESULT,
+                data={"tool_name": "y", "result": "not-a-dict"},
+            ),
+            StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({})),
+        ]
+        list(stream_with_usage_recording(_stream(*events), state))
+        recorded = state.dal.record_usage_event.call_args.args[0]
+        assert recorded.tool_call_count == 3
+        assert "tool_timeouts" not in recorded.meta
+        assert "tool_timeout_names" not in recorded.meta
+
+    def test_stream_with_real_yaml_tool_timeout(self, monkeypatch):
+        import holmes.core.tools as tools_module
+        from holmes.core.models import ToolCallResult
+        from holmes.core.tools import YAMLTool
+        from tests.conftest import create_mock_tool_invoke_context
+
+        monkeypatch.setattr(tools_module, "YAML_TOOL_TERMINATE_GRACE_SECONDS", 1)
+        _patch_inline_thread(monkeypatch)
+        tool = YAMLTool(
+            name="kubectl_hang", description="d", command="sleep 30", timeout_seconds=1
+        )
+        result = tool.invoke({}, create_mock_tool_invoke_context())
+        event = StreamMessage(
+            event=StreamEvents.TOOL_RESULT,
+            data=ToolCallResult(
+                tool_call_id="1",
+                tool_name="kubectl_hang",
+                description="d",
+                result=result,
+            ).to_client_dict(),
+        )
+        state = _make_state()
+        list(stream_with_usage_recording(_stream(event), state))
+        recorded = state.dal.record_usage_event.call_args.args[0]
+        assert recorded.meta["tool_timeouts"] == 1
+        assert recorded.meta["tool_timeout_names"] == ["kubectl_hang"]
+
+    def test_non_streaming_counts_timeouts(self, monkeypatch):
+        from holmes.core.models import ToolCallResult
+        from holmes.core.tool_calling_llm import LLMResult
+        from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+
+        _patch_inline_thread(monkeypatch)
+
+        def tc(name, timed_out):
+            return ToolCallResult(
+                tool_call_id=name,
+                tool_name=name,
+                description="d",
+                result=StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    timed_out=timed_out,
+                ),
+            )
+
+        state = _make_state(is_streaming=False)
+        llm_result = LLMResult(
+            tool_calls=[tc("a", True), tc("b", None), tc("c", True)],
+            num_llm_calls=2,
+        )
+        record_from_llm_result(state, llm_result)
+        recorded = state.dal.record_usage_event.call_args.args[0]
+        assert recorded.tool_call_count == 3
+        assert recorded.meta["tool_timeouts"] == 2
+        assert recorded.meta["tool_timeout_names"] == ["a", "c"]
