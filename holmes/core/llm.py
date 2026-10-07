@@ -38,6 +38,7 @@ from holmes.common.env_vars import (
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS,
 )
 from holmes.core.azure_token import get_azure_ad_token
+from holmes.core.llm_rate_limit import call_with_rate_limit_retry
 from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
@@ -771,21 +772,26 @@ class DefaultLLM(LLM):
                 }
             ]
 
-        result = litellm_to_use.completion(
+        # With stream=True only opening the stream is retried; an error while
+        # reading chunks propagates, so a partial answer is never replayed.
+        result = call_with_rate_limit_retry(
+            lambda: litellm_to_use.completion(
+                model=litellm_model_name,
+                api_key=self.api_key,
+                base_url=self.api_base,
+                api_version=self.api_version,
+                messages=sanitized_messages,
+                response_format=response_format,
+                drop_params=drop_params,
+                allowed_openai_params=allowed_openai_params,
+                stream=stream,
+                timeout=LLM_REQUEST_TIMEOUT,
+                **azure_ad_kwargs,
+                **tools_args,
+                **self.args,
+                **cache_kwargs,
+            ),
             model=litellm_model_name,
-            api_key=self.api_key,
-            base_url=self.api_base,
-            api_version=self.api_version,
-            messages=sanitized_messages,
-            response_format=response_format,
-            drop_params=drop_params,
-            allowed_openai_params=allowed_openai_params,
-            stream=stream,
-            timeout=LLM_REQUEST_TIMEOUT,
-            **azure_ad_kwargs,
-            **tools_args,
-            **self.args,
-            **cache_kwargs,
         )
 
         if isinstance(result, ModelResponse):

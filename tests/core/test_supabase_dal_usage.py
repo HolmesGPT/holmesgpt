@@ -147,7 +147,11 @@ class TestRecordUsageEvent:
         assert payload["duration_ms"] >= 0
         assert payload["is_streaming"] is True
         assert payload["finish_reason"] == "stop"
-        assert payload["meta"] == {"experiment_id": "abc"}
+        assert payload["meta"] == {
+            "experiment_id": "abc",
+            "llm_rate_limit_retries": 0,
+            "llm_rate_limit_wait_ms": 0,
+        }
 
     def test_falls_back_to_dal_cluster_when_cluster_id_not_supplied(self, mock_dal):
         mock_dal.record_usage_event(_make_state())   # cluster_id left None
@@ -159,11 +163,32 @@ class TestRecordUsageEvent:
         payload = mock_dal.client.table.return_value.insert.call_args.args[0]
         assert payload["cluster_id"] == "other-cluster"
 
+    def test_rate_limit_retry_counters_written_to_meta(self, mock_dal):
+        state = _make_state(meta={"error_class": "RateLimitError"})
+        state.stats.llm_rate_limit_retries = 2
+        state.stats.llm_rate_limit_wait_ms = 6500
+        mock_dal.record_usage_event(state)
+        payload = mock_dal.client.table.return_value.insert.call_args.args[0]
+        assert payload["meta"] == {
+            "error_class": "RateLimitError",
+            "llm_rate_limit_retries": 2,
+            "llm_rate_limit_wait_ms": 6500,
+        }
+
+    def test_retry_counters_zero_when_no_stats(self, mock_dal):
+        mock_dal.record_usage_event(_make_state(stats=None))
+        payload = mock_dal.client.table.return_value.insert.call_args.args[0]
+        assert payload["meta"]["llm_rate_limit_retries"] == 0
+        assert payload["meta"]["llm_rate_limit_wait_ms"] == 0
+
     def test_meta_defaults_to_empty_dict_when_none(self, mock_dal):
-        # The state defaults meta to {}, so the column should be {} too.
+        # The state defaults meta to {}; only the retry counters are added.
         mock_dal.record_usage_event(_make_state())
         payload = mock_dal.client.table.return_value.insert.call_args.args[0]
-        assert payload["meta"] == {}
+        assert payload["meta"] == {
+            "llm_rate_limit_retries": 0,
+            "llm_rate_limit_wait_ms": 0,
+        }
 
     def test_swallows_supabase_errors(self, mock_dal):
         # Supabase client raises — record_usage_event must not bubble up.

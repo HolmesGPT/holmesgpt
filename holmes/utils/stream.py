@@ -4,13 +4,13 @@ from enum import Enum
 from functools import partial
 from typing import Generator, List, Optional, Union
 
-import litellm
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import ModelResponse, TextCompletionResponse
 from pydantic import BaseModel, Field
 
 from holmes.common.env_vars import TRACE_TOKEN_USAGE
 from holmes.core.llm import ContextWindowUsage, build_usage_metadata
+from holmes.core.llm_rate_limit import is_rate_limit_error
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 
 
@@ -54,16 +54,6 @@ create_rate_limit_error_message = partial(
     error_code=5204,
     msg="Rate limit exceeded",
 )
-
-
-def _is_rate_limit_error(e: Exception) -> bool:
-    """Check if an exception is a rate limit error.
-
-    Bedrock raises a generic Exception with 'Model is getting throttled'
-    instead of litellm.exceptions.RateLimitError, so we need a string check
-    as a fallback.
-    """
-    return isinstance(e, litellm.exceptions.RateLimitError) or "Model is getting throttled" in str(e)
 
 
 def stream_chat_formatter(
@@ -121,7 +111,7 @@ def stream_chat_formatter(
         )
     except Exception as e:
         logging.error(f"Error during streaming chat: {e}", exc_info=True)
-        if _is_rate_limit_error(e):
+        if is_rate_limit_error(e):
             yield create_rate_limit_error_message(str(e))
         else:
             yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))

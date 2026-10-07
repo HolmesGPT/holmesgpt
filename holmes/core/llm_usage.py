@@ -6,6 +6,8 @@ from typing import Optional
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
+from holmes.core.llm_rate_limit import retry_counts
+
 
 def _extract_detail_field(details: object, field: str) -> Optional[int]:
     """Extract an optional int field from a token-details object or dict.
@@ -100,15 +102,18 @@ class RequestStats(BaseModel):
     max_completion_tokens_per_call: int = 0
     max_prompt_tokens_per_call: int = 0
     num_compactions: int = 0
+    llm_rate_limit_retries: int = 0
+    llm_rate_limit_wait_ms: int = 0
 
     @classmethod
     def from_response(cls, response) -> "RequestStats":
         """Build a single-response RequestStats from a litellm ModelResponse."""
+        retries = retry_counts(response)
         try:
             raw = extract_usage_from_response(response)
         except (AttributeError, TypeError, KeyError) as e:
             logging.debug(f"Could not extract cost information: {e}")
-            return cls()
+            return cls(**retries)
 
         return cls(
             total_cost=raw["cost"],
@@ -120,9 +125,12 @@ class RequestStats(BaseModel):
             reasoning_tokens=raw["reasoning_tokens"],
             max_completion_tokens_per_call=raw["completion_tokens"],
             max_prompt_tokens_per_call=raw["prompt_tokens"],
+            **retries,
         )
 
     def __iadd__(self, other: "RequestStats") -> "RequestStats":
+        self.llm_rate_limit_retries += other.llm_rate_limit_retries
+        self.llm_rate_limit_wait_ms += other.llm_rate_limit_wait_ms
         if other.total_tokens == 0 and other.total_cost == 0:
             return self
         self.total_cost += other.total_cost

@@ -56,6 +56,32 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## LLM Rate Limits
+
+### LLM_RATE_LIMIT_MAX_WAIT_SECONDS
+**Default:** `180`
+
+Total time a single LLM call may spend waiting out provider rate-limit errors (HTTP 429, Bedrock throttling) and Anthropic overloaded errors (HTTP 529) before the error is returned. HolmesGPT waits for the provider's `Retry-After` header when present, otherwise backs off exponentially with jitter from 2 to 60 seconds. Only the failing LLM call is retried, so tool calls already made during an investigation are kept. A retry never starts if its wait would exceed the budget. Set to `0` to disable these retries.
+
+When the budget runs out, `/api/chat` returns HTTP 429 (or a streamed error with code `5204`), as before.
+
+Some providers' SDKs (OpenAI, Azure) also retry rate limits briefly on their own; that happens inside each attempt and counts towards the budget.
+
+**Example:**
+```bash
+export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=300
+```
+
+### LLM_MAX_CONCURRENT_CALLS_PER_MODEL
+**Default:** `0` (no limit)
+
+Maximum number of LLM calls in flight at once per model in one HolmesGPT process. Extra calls wait for a free slot. A call backing off from a rate limit does not hold a slot. Use this to keep many concurrent investigations from bursting one model deployment past its rate limit.
+
+**Example:**
+```bash
+export LLM_MAX_CONCURRENT_CALLS_PER_MODEL=8
+```
+
 ## Server Security
 
 ### HOLMES_API_KEY
