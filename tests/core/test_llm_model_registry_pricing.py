@@ -510,6 +510,84 @@ class TestRobustaUpstreamNameShapes:
         registered = litellm.model_cost["openai/us.fake.no-price"]
         assert registered["input_cost_per_token"] == pytest.approx(2e-06)
 
+    def test_upstream_price_overrides_unpriced_corrected_name(
+        self, mock_config, mock_dal, monkeypatch, caplog, _snapshot_litellm_model_cost
+    ):
+        litellm.model_cost["openai/us.fake.stub"] = {
+            "litellm_provider": "openai",
+            "mode": "chat",
+        }
+        _fake_bundled("us.fake.stub", 3e-06, 9e-06)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/s": ModelEntry(
+                    model="bedrock/us.fake.stub", is_robusta_model=True
+                )
+            },
+        )
+
+        with caplog.at_level("INFO", logger="root"):
+            LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/us.fake.stub"]
+        assert registered["input_cost_per_token"] == pytest.approx(3e-06)
+        assert not any(
+            "no entry in litellm's cost map" in r.getMessage() for r in caplog.records
+        )
+
+    def test_upstream_price_overrides_generic_corrected_name_price(
+        self, mock_config, mock_dal, monkeypatch, _snapshot_litellm_model_cost
+    ):
+        """`novita/openai/<id>` is completed as `openai/<id>`; Novita's price
+        must win over a generic price already registered under that name."""
+        litellm.model_cost["openai/fake-generic-oss"] = {
+            "input_cost_per_token": 9e-07,
+            "output_cost_per_token": 9e-07,
+            "litellm_provider": "openai",
+            "mode": "chat",
+        }
+        _fake_bundled("novita/openai/fake-generic-oss", 1e-07, 2e-07)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/oss": ModelEntry(
+                    model="novita/openai/fake-generic-oss", is_robusta_model=True
+                )
+            },
+        )
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/fake-generic-oss"]
+        assert registered["input_cost_per_token"] == pytest.approx(1e-07)
+        assert registered["output_cost_per_token"] == pytest.approx(2e-07)
+
+    def test_unpriced_corrected_name_entry_still_warns(
+        self, mock_config, mock_dal, monkeypatch, caplog, _snapshot_litellm_model_cost
+    ):
+        litellm.model_cost["openai/fake-priceless"] = {
+            "litellm_provider": "openai",
+            "mode": "chat",
+        }
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/p": ModelEntry(
+                    model="azure/fake-priceless", is_robusta_model=True
+                )
+            },
+        )
+
+        with caplog.at_level("INFO", logger="root"):
+            LLMModelRegistry(mock_config, mock_dal)
+
+        assert any(
+            "openai/fake-priceless" in r.getMessage()
+            and "no entry in litellm's cost map" in r.getMessage()
+            for r in caplog.records
+        )
+
     def test_unpriced_upstream_still_warns(
         self, mock_config, mock_dal, monkeypatch, caplog, _snapshot_litellm_model_cost
     ):
@@ -625,3 +703,22 @@ class TestRobustaCostEndToEnd:
         assert stats.total_tokens == 1500
         assert stats.total_cost == pytest.approx(1000 * 1e-06 + 500 * 2e-06)
         assert requests_seen[0]["model"] == model_id
+
+
+class TestTokenLimitLookupVariants:
+    def test_route_segment_model_matches_limit_stored_under_bare_id(
+        self, _snapshot_litellm_model_cost
+    ):
+        from holmes.core.llm import DefaultLLM
+
+        litellm.model_cost["us.fake.limits"] = {
+            "max_input_tokens": 123456,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.model = "bedrock/converse/us.fake.limits"
+        llm.max_context_size = None
+
+        assert "us.fake.limits" in llm._get_model_name_variants_for_lookup()
+        assert llm.get_context_window_size() == 123456

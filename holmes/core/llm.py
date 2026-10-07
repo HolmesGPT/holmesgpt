@@ -520,6 +520,8 @@ class DefaultLLM(LLM):
         if "/" in self.model:
             base_model = self.model.split("/", 1)[1]
             names_to_try.extend([base_model, base_model.lower()])
+            final_model = self.model.rsplit("/", 1)[1]
+            names_to_try.extend([final_model, final_model.lower()])
 
         # Remove duplicates while preserving order (dict.fromkeys maintains insertion order in Python 3.7+)
         return list(dict.fromkeys(names_to_try))
@@ -921,18 +923,23 @@ class LLMModelRegistry:
                 _register_custom_pricing(litellm_name, user_pricing)
                 continue
 
-            # 2. For Robusta entries, auto-discover pricing from the bundled
-            # cost map under the *real* upstream model name.
-            if entry.is_robusta_model and litellm_name not in litellm.model_cost:
+            existing_pricing = _pricing_dict_from_bundled(
+                litellm.model_cost.get(litellm_name) or {}
+            )
+
+            # 2. For Robusta entries, the upstream model's price wins over
+            # whatever the corrected openai/<id> name already maps to.
+            if entry.is_robusta_model:
                 auto_pricing = _bundled_pricing_for_underlying_model(entry.model)
                 if auto_pricing is not None:
-                    _register_custom_pricing(litellm_name, auto_pricing)
+                    if auto_pricing != existing_pricing:
+                        _register_custom_pricing(litellm_name, auto_pricing)
                     continue
 
             # 3. Warn once per unknown un-priced model so the operator knows
             # why usage-event costs will be 0.
             if (
-                litellm_name not in litellm.model_cost
+                existing_pricing is None
                 and litellm_name not in _warned_unknown_cost_models
             ):
                 _warned_unknown_cost_models.add(litellm_name)
