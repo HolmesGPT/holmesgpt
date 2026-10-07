@@ -15,6 +15,9 @@ spec:
       labels:
         app: meme-app
     spec:
+      # Image is amd64-only
+      nodeSelector:
+        kubernetes.io/arch: amd64
       containers:
         - name: meme-app
         # meme-generator source code available here: https://github.com/robusta-dev/Hello-DevOps-Project/tree/demo/code/meme-generator
