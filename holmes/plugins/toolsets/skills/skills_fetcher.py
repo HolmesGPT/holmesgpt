@@ -195,6 +195,7 @@ class SkillsFetcher(Tool):
             # consumers (e.g. relay's skills-used Slack footer) can display it
             # instead of the opaque runbook UUID remote skills are fetched by.
             params = {**params, "skill_title": skill.title}
+        # No answer shape is mandated here: the request's response_format decides it.
         wrapped_content = textwrap.dedent(f"""\
             <skill>
             {skill.content}
@@ -204,30 +205,6 @@ class SkillsFetcher(Tool):
             Now follow those steps and report back what you find.
             You must follow them by CALLING TOOLS YOURSELF.
             If you are missing tools, follow your general instructions on how to enable them as present in your system prompt.
-
-            Assuming the above skill is relevant, you MUST start your response (after calling tools to investigate) with:
-            "I found a skill named [skill name/description] and used it to troubleshoot:"
-
-            Then list each step with ✅ for completed steps and ❌ for steps you couldn't complete.
-
-            <example>
-                I found a skill named **Troubleshooting Erlang Issues** and used it to troubleshoot:
-
-                1. ✅ *Check BEAM VM memory usage* - 87% allocated (3.2GB used of 4GB limit)
-                2. ✅ *Review GC logs* - 15 full GC cycles in last 30 minutes, avg pause time 2.3s
-                3. ✅ *Verify Erlang application logs* - `** exception error: out of memory in process <0.139.0> called by gen_server:handle_msg/6`
-                4. ❌ *Could not analyze process mailbox sizes* - Observer tool not enabled in container. Enable remote shell or observer_cli for process introspection.
-                5. ✅ *Check pod memory limits* - container limit 4Gi, requests 2Gi
-                6. ✅ *Verify BEAM startup arguments* - `+S 4:4 +P 1048576`, no memory instrumentation flags enabled
-                7. ❌ *Could not retrieve APM traces* - Datadog traces toolset is disabled. You can enable it by following https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/
-                8. ❌ *Could not query Erlang metrics* - Prometheus integration is not connected. Enable it via https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/
-                9. ✅ *Examine recent deployments* - app version 2.1.3 deployed 4 hours ago, coincides with memory spike
-                10. ❌ *Could not check Stripe API status* - No toolset for Stripe integration exists. To monitor Stripe or similar third-party APIs, add a [custom toolset](https://holmesgpt.dev/data-sources/custom-toolsets/) or use a [remote MCP server](https://holmesgpt.dev/data-sources/remote-mcp-servers/)
-
-                **Root cause:** Memory leak in `gen_server` logic introduced in v2.1.3. BEAM VM hitting memory limit, causing out-of-memory crashes.
-
-                **Fix:** Roll back to v2.1.2 or increase memory limit to 6GB as a temporary workaround.
-            </example>
         """)
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,

@@ -52,6 +52,33 @@ def test_SkillsFetcher_with_skill_catalog():
     assert "Do something" in result.data
 
 
+def test_SkillsFetcher_leaves_the_answer_shape_to_the_request():
+    """A fetched skill directs the investigation; it must not dictate how the
+    answer opens. The old "I found a skill named ... and used it to
+    troubleshoot:" preamble and its step-list example overrode the caller's
+    response_format after tool calls."""
+    catalog = SkillCatalog(
+        skills=[
+            Skill(
+                name="test-skill",
+                description="A test skill",
+                content="## Steps\n1. Do something",
+                source=SkillSource.USER,
+            )
+        ]
+    )
+    skills_fetch_tool = SkillsFetcher(SkillsToolset(), skill_catalog=catalog)
+    result = skills_fetch_tool._invoke(
+        {"skill_id": "test-skill"},
+        context=create_mock_tool_invoke_context(),
+    )
+
+    assert result.data is not None
+    assert "DIRECTIONS not ACTUAL RESULTS" in result.data
+    assert "I found a skill named" not in result.data
+    assert "<example>" not in result.data
+
+
 def test_SkillsFetcher_empty_id():
     skills_fetch_tool = SkillsFetcher(SkillsToolset())
     result = skills_fetch_tool._invoke(
