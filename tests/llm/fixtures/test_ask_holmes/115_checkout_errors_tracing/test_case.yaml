@@ -7,7 +7,7 @@ expected_output:
   - Including a query that mentions promo code is not sufficient.
 
 tags:
-  - model-gap
+  - advanced
   - kubernetes
   - hard
   - chain-of-causation

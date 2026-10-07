@@ -35,7 +35,7 @@ description: |
   so the agent must rule out several near-misses before answering.
 
 tags:
-  - model-gap
+  - advanced
   - prometheus
   - kubernetes
   - kafka

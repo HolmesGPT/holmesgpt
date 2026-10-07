@@ -209,7 +209,7 @@ markers = [
     # - Fast execution to avoid slowing CI/CD pipelines
     "regression: Critical regression tests that must always pass",
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
-    "model-gap: Evals that separate stronger from weaker models (failed by haiku or opus)",
+    "advanced: Evals that separate stronger from weaker models (failed by haiku or opus)",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",

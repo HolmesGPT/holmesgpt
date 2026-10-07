@@ -5,13 +5,13 @@ on:
   workflow_dispatch:
     inputs:
       benchmark_type:
-        description: 'Benchmark type (fast-benchmark, full-benchmark or model-gap-benchmark). Cannot be combined with custom test_markers.'
+        description: 'Benchmark type (fast-benchmark, full-benchmark or advanced-benchmark). Cannot be combined with custom test_markers.'
         required: false
         type: choice
         options:
           - 'fast-benchmark'
           - 'full-benchmark'
-          - 'model-gap-benchmark'
+          - 'advanced-benchmark'
         default: 'fast-benchmark'
       models:
         description: 'Comma-separated list of models to test'

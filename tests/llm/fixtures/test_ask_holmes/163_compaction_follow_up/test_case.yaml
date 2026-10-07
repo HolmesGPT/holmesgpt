@@ -21,7 +21,7 @@ test_env_vars:
 test_type: server
 
 tags:
-  - model-gap
+  - advanced
   - kubernetes
   - compaction
   - counting
