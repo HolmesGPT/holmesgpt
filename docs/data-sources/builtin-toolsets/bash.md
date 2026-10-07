@@ -9,82 +9,46 @@ The bash toolset allows Holmes to execute shell commands for troubleshooting and
 
 In Kubernetes, `extended` is recommended, since Holmes runs in a container with a minimal filesystem.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  bash:
+    enabled: true
+    config:
+      builtin_allowlist: "extended"
+      # allow:
+      #   - "helm list"
+      #   - "kubectl rollout history"
+      #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
+      deny:
+        - "kubectl get secret"
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+    bash:
+      enabled: true
+      config:
+        builtin_allowlist: "core"  # "none", "core", or "extended"
+        # allow:
+        #   - "helm list"
+        #   - "kubectl rollout history"
+        #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
+        deny:
+          - "kubectl get secret"
+          - "kubectl describe secret"
+  ```
 
-    ```yaml
-    toolsets:
-      bash:
-        enabled: true
-        config:
-          builtin_allowlist: "core"  # "none", "core", or "extended"
-          # allow:
-          #   - "helm list"
-          #   - "kubectl rollout history"
-          #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
-          deny:
-            - "kubectl get secret"
-            - "kubectl describe secret"
-    ```
+  Approved commands are saved to `~/.holmes/bash_approved_prefixes.yaml` and persist across sessions.
 
-    Approved commands are saved to `~/.holmes/bash_approved_prefixes.yaml` and persist across sessions.
+  **CLI Flags:**
 
-    **CLI Flags:**
-
-    | Flag | Description |
-    |------|-------------|
-    | `--bash-always-deny` | Automatically deny commands not in the allow list |
-    | `--bash-always-allow` | Automatically approve all commands (use with caution) |
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    toolsets:
-      bash:
-        enabled: true
-        config:
-          builtin_allowlist: "extended"
-          # allow:
-          #   - "helm list"
-          #   - "kubectl rollout history"
-          #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
-          deny:
-            - "kubectl get secret"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      toolsets:
-        bash:
-          enabled: true
-          config:
-            builtin_allowlist: "extended"
-            # allow:
-            #   - "helm list"
-            #   - "kubectl rollout history"
-            #   - "curl https://prometheus.monitoring.svc:9090/api/v1"
-            deny:
-              - "kubectl get secret"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  | Flag | Description |
+  |------|-------------|
+  | `--bash-always-deny` | Automatically deny commands not in the allow list |
+  | `--bash-always-allow` | Automatically approve all commands (use with caution) |
+```
 
 ## Builtin Allowlist Levels
 

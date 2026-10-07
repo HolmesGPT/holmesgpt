@@ -65,111 +65,25 @@ Replace:
 - `your-splunk-instance:8089` with your Splunk instance hostname and management port
 - `<YOUR_TOKEN>` with the token generated in Prerequisites Step 4
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export SPLUNK_MCP_TOKEN=<YOUR_TOKEN>
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    mcp_servers:
-      splunk:
-        description: "Splunk MCP server for log analysis and investigation"
-        config:
-          url: "https://your-splunk-instance:8089/services/mcp/"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
-          # verify_ssl: false # Uncomment if using self-signed certificates:
-        # You can modify the llm_instructions according to the data stored in Splunk in your organization 
-        llm_instructions: |
-          Use SPL (Search Processing Language) for queries.
-          Always specify a time range to limit results. Always limit large result sets.
-          Use Splunk to fetch logs and traces. Splunk contains historical data as well
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-splunk-mcp \
-      --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-splunk-mcp
-
-    mcp_servers:
-      splunk:
-        description: "Splunk MCP server for log analysis and investigation"
-        config:
-          url: "https://your-splunk-instance:8089/services/mcp/"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
-          # verify_ssl: false # Uncomment if using self-signed certificates:
-        # You can modify the llm_instructions according to the data stored in Splunk in your organization 
-        llm_instructions: |
-          Use SPL (Search Processing Language) for queries.
-          Always specify a time range to limit results. Always limit large result sets.
-          Use Splunk to fetch logs and traces. Splunk contains historical data as well
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-splunk-mcp \
-      --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-splunk-mcp
-
-      mcp_servers:
-        splunk:
-          description: "Splunk MCP server for log analysis and investigation"
-          config:
-            url: "https://your-splunk-instance:8089/services/mcp/"
-            mode: streamable-http
-            headers:
-              Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
-            # verify_ssl: false # Uncomment if using self-signed certificates:
-          # You can modify the llm_instructions according to the data stored in Splunk in your organization 
-          llm_instructions: |
-            Use SPL (Search Processing Language) for queries.
-            Always specify a time range to limit results. Always limit large result sets.
-            Use Splunk to fetch logs and traces. Splunk contains historical data as well
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  splunk:
+    description: "Splunk MCP server for log analysis and investigation"
+    config:
+      url: "https://your-splunk-instance:8089/services/mcp/"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
+      # verify_ssl: false # Uncomment if using self-signed certificates:
+    # You can modify the llm_instructions according to the data stored in Splunk in your organization 
+    llm_instructions: |
+      Use SPL (Search Processing Language) for queries.
+      Always specify a time range to limit results. Always limit large result sets.
+      Use Splunk to fetch logs and traces. Splunk contains historical data as well
+---
+secret:
+  - --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN>
+```
 
 ## Available Tools
 

@@ -8,112 +8,44 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
+    value: "true"  # Required for Gemini - see Environment Variables Reference
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "gemini-pro"  # This refers to the key name in modelList below
 
-    ```bash
-    export GEMINI_API_KEY="your-gemini-api-key"
-    export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
-    export MODEL="gemini/<your-gemini-model>"
-    holmes ask "what pods are failing?"
+# Configure at least one model using modelList
+modelList:
+  gemini-pro:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-pro
+    temperature: 1
 
-    # Or specify the model explicitly per command:
-    holmes ask "what pods are failing?" --model="gemini/<your-gemini-model>"
-    ```
+  gemini-flash:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-1.5-flash
+    temperature: 1
 
-=== "Holmes Helm Chart"
+  gemini-pro-exp:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-exp-1206
+    temperature: 1
+---
+secret:
+  - --from-literal=GEMINI_API_KEY="your-gemini-api-key"
+cli: |
+  ```bash
+  export GEMINI_API_KEY="your-gemini-api-key"
+  export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
+  export MODEL="gemini/<your-gemini-model>"
+  holmes ask "what pods are failing?"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-gemini \
-      --from-literal=GEMINI_API_KEY="your-gemini-api-key" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-gemini
-
-    additionalEnvVars:
-      - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
-        value: "true"  # Required for Gemini - see Environment Variables Reference
-      # Optional: Set default model (use modelList key name)
-      - name: MODEL
-        value: "gemini-pro"  # This refers to the key name in modelList below
-
-    # Configure at least one model using modelList
-    modelList:
-      gemini-pro:
-        api_key: "{{ env.GEMINI_API_KEY }}"
-        model: gemini/gemini-pro
-        temperature: 1
-
-      gemini-flash:
-        api_key: "{{ env.GEMINI_API_KEY }}"
-        model: gemini/gemini-1.5-flash
-        temperature: 1
-
-      gemini-pro-exp:
-        api_key: "{{ env.GEMINI_API_KEY }}"
-        model: gemini/gemini-exp-1206
-        temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-gemini \
-      --from-literal=GEMINI_API_KEY="your-gemini-api-key" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-gemini
-
-      additionalEnvVars:
-        - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
-          value: "true"  # Required for Gemini - see Environment Variables Reference
-        # Optional: Set default model (use modelList key name)
-        - name: MODEL
-          value: "gemini-pro"  # This refers to the key name in modelList below
-
-      # Configure at least one model using modelList
-      modelList:
-        gemini-pro:
-          api_key: "{{ env.GEMINI_API_KEY }}"
-          model: gemini/gemini-pro
-          temperature: 1
-
-        gemini-flash:
-          api_key: "{{ env.GEMINI_API_KEY }}"
-          model: gemini/gemini-1.5-flash
-          temperature: 1
-
-        gemini-pro-exp:
-          api_key: "{{ env.GEMINI_API_KEY }}"
-          model: gemini/gemini-exp-1206
-          temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  # Or specify the model explicitly per command:
+  holmes ask "what pods are failing?" --model="gemini/<your-gemini-model>"
+  ```
+```
 
 ## Using CLI Parameters
 
