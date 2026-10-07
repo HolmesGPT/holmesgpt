@@ -1,7 +1,9 @@
 import json
 import logging
+import random
 import re
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar, Dict, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse
@@ -9,9 +11,17 @@ from urllib.parse import urlparse, urlunparse
 import requests  # type: ignore
 from pydantic import AnyUrl, Field
 from requests.structures import CaseInsensitiveDict  # type: ignore
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_incrementing
+from tenacity import (
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_incrementing,
+    wait_random,
+)
 from tenacity.wait import wait_base
 
+from holmes.common.env_vars import DATADOG_MAX_CONCURRENT_REQUESTS
+from holmes.core import request_counters
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 START_RETRY_DELAY = (
@@ -21,12 +31,18 @@ INCREMENT_RETRY_DELAY = 5.0  # Delay increment after each rate limit, if datadog
 MAX_RETRY_COUNT_ON_RATE_LIMIT = 5
 
 RATE_LIMIT_REMAINING_SECONDS_HEADER = "X-RateLimit-Reset"
+RATE_LIMIT_REMAINING_HEADER = "X-RateLimit-Remaining"
+RATE_LIMIT_NAME_HEADER = "X-RateLimit-Name"
+RETRY_JITTER_SECONDS = 2.0
 
 # Cache for OpenAPI spec
 _openapi_spec_cache: Dict[str, Any] = {}
 
-# Global lock for Datadog API requests to prevent concurrent calls
-_datadog_request_lock = threading.Lock()
+_datadog_request_semaphore = threading.BoundedSemaphore(
+    max(1, DATADOG_MAX_CONCURRENT_REQUESTS)
+)
+
+_API_FAMILY_PATTERN = re.compile(r"/api/v\d+/+([^/]+)")
 
 # Relative time pattern (m = minutes, mo = months)
 RELATIVE_TIME_PATTERN = re.compile(r"^-?(\d+)([hdwsy]|min|m|mo)$|^now$", re.IGNORECASE)
@@ -199,6 +215,19 @@ class retry_if_http_429_error(retry_if_exception):
         super().__init__(predicate=is_http_429_error)
 
 
+def _parse_reset_seconds(headers: CaseInsensitiveDict) -> Optional[float]:
+    value = headers.get(RATE_LIMIT_REMAINING_SECONDS_HEADER)
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        logging.warning(
+            f"Received invalid {RATE_LIMIT_REMAINING_SECONDS_HEADER} header value from datadog: {value}"
+        )
+        return None
+
+
 class wait_for_retry_after_header(wait_base):
     def __init__(self, fallback):
         self.fallback = fallback
@@ -206,40 +235,84 @@ class wait_for_retry_after_header(wait_base):
     def __call__(self, retry_state):
         if retry_state.outcome:
             exc = retry_state.outcome.exception()
-
-            if isinstance(exc, DataDogRequestError) and exc.response_headers.get(
-                RATE_LIMIT_REMAINING_SECONDS_HEADER
-            ):
-                reset_time_header = exc.response_headers.get(
-                    RATE_LIMIT_REMAINING_SECONDS_HEADER
-                )
-                if reset_time_header:
-                    try:
-                        reset_time = int(reset_time_header)
-                        wait_time = max(0, reset_time) + 0.1
-                        return wait_time
-                    except ValueError:
-                        logging.warning(
-                            f"Received invalid {RATE_LIMIT_REMAINING_SECONDS_HEADER} header value from datadog: {reset_time_header}"
-                        )
+            if isinstance(exc, DataDogRequestError):
+                reset_seconds = _parse_reset_seconds(exc.response_headers)
+                if reset_seconds is not None:
+                    return reset_seconds + 0.1
 
         return self.fallback(retry_state)
 
 
-@retry(
-    retry=retry_if_http_429_error(),
-    wait=wait_for_retry_after_header(
-        fallback=wait_incrementing(
-            start=START_RETRY_DELAY, increment=INCREMENT_RETRY_DELAY
+def _rate_limit_key(url: str) -> Tuple[str, str]:
+    """(site, API family): Datadog rate limits are per endpoint family."""
+    parsed = urlparse(url)
+    # Base URLs carry a trailing slash (and may carry a proxy prefix), so
+    # paths look like "//api/v2/logs/..." or "/dd/api/v1/query".
+    match = _API_FAMILY_PATTERN.search(parsed.path)
+    family = match.group(1) if match else parsed.path.strip("/").split("/")[0]
+    return parsed.netloc, family
+
+
+class _RateLimitGate:
+    """Process-wide "throttled until" time per rate-limit key.
+
+    Callers wait here before taking a concurrency slot, so a throttled API
+    family never holds slots that other families could use.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._reset_at: Dict[Tuple[str, str], float] = {}
+
+    def close(self, key: Tuple[str, str], seconds: float) -> bool:
+        """Returns True when this closes an open gate (a new activation)."""
+        now = time.monotonic()
+        with self._lock:
+            current = self._reset_at.get(key, 0.0)
+            self._reset_at[key] = max(current, now + seconds)
+            return current <= now
+
+    def wait(self, key: Tuple[str, str]) -> float:
+        waited = 0.0
+        while True:
+            with self._lock:
+                reset_at = self._reset_at.get(key)
+            remaining = (reset_at - time.monotonic()) if reset_at else 0.0
+            if remaining <= 0:
+                return waited
+            # Jitter so callers (and pods sharing an org) don't all fire at reset.
+            delay = remaining + random.uniform(0, RETRY_JITTER_SECONDS)
+            time.sleep(delay)
+            waited += delay
+
+
+_rate_limit_gate = _RateLimitGate()
+
+
+def _record_rate_limit(key: Tuple[str, str], response: requests.Response) -> None:
+    throttled = response.status_code == 429
+    if throttled:
+        request_counters.increment("datadog_429s")
+    elif response.headers.get(RATE_LIMIT_REMAINING_HEADER, "").strip() != "0":
+        return
+    reset_seconds = _parse_reset_seconds(response.headers)
+    if reset_seconds is None:
+        return
+    if _rate_limit_gate.close(key, reset_seconds):
+        host, family = key
+        limit_name = response.headers.get(RATE_LIMIT_NAME_HEADER, "unknown")
+        logging.warning(
+            f"Datadog rate limit reached for the '{family}' API on {host} "
+            f"(limit: {limit_name}, status: {response.status_code}); "
+            f"holding '{family}' requests for {reset_seconds:g}s until reset"
         )
-    ),
-    stop=stop_after_attempt(MAX_RETRY_COUNT_ON_RATE_LIMIT),
-    before_sleep=lambda retry_state: logging.warning(
-        f"DataDog API rate limited. Retrying... "
-        f"(attempt {retry_state.attempt_number}/{MAX_RETRY_COUNT_ON_RATE_LIMIT})"
-    ),
-    reraise=True,
-)
+
+
+def _sleep_between_retries(seconds: float) -> None:
+    request_counters.increment("datadog_wait_ms_total", int(seconds * 1000))
+    time.sleep(seconds)
+
+
 def execute_paginated_datadog_http_request(
     url: str,
     headers: dict,
@@ -279,35 +352,70 @@ def execute_datadog_http_request(
     timeout: int,
     method: str = "POST",
 ) -> Any:
-    # from my limited testing doing 1 just request at a time is faster because the RATE_LIMIT_REMAINING_SECONDS_HEADER is shorter
-    # Serialize all Datadog API requests to avoid rate limits
-    with _datadog_request_lock:
-        return execute_datadog_http_request_with_retries(
-            url, headers, payload_or_params, timeout, method
+    retrying = Retrying(
+        retry=retry_if_http_429_error(),
+        wait=wait_for_retry_after_header(
+            fallback=wait_incrementing(
+                start=START_RETRY_DELAY, increment=INCREMENT_RETRY_DELAY
+            )
         )
+        + wait_random(0, RETRY_JITTER_SECONDS),
+        stop=stop_after_attempt(MAX_RETRY_COUNT_ON_RATE_LIMIT),
+        sleep=_sleep_between_retries,
+        before_sleep=lambda retry_state: logging.warning(
+            f"DataDog API rate limited. Retrying... "
+            f"(attempt {retry_state.attempt_number}/{MAX_RETRY_COUNT_ON_RATE_LIMIT})"
+        ),
+        reraise=True,
+    )
+    return retrying(
+        _execute_datadog_http_request_once,
+        url,
+        headers,
+        payload_or_params,
+        timeout,
+        method,
+    )
 
 
-@retry(
-    retry=retry_if_http_429_error(),
-    wait=wait_for_retry_after_header(
-        fallback=wait_incrementing(
-            start=START_RETRY_DELAY, increment=INCREMENT_RETRY_DELAY
-        )
-    ),
-    stop=stop_after_attempt(MAX_RETRY_COUNT_ON_RATE_LIMIT),
-    before_sleep=lambda retry_state: logging.warning(
-        f"DataDog API rate limited. Retrying... "
-        f"(attempt {retry_state.attempt_number}/{MAX_RETRY_COUNT_ON_RATE_LIMIT})"
-    ),
-    reraise=True,
-)
-def execute_datadog_http_request_with_retries(
+def _execute_datadog_http_request_once(
     url: str,
     headers: dict,
     payload_or_params: dict,
     timeout: int,
     method: str,
 ) -> Any:
+    key = _rate_limit_key(url)
+    waited = _rate_limit_gate.wait(key)
+    acquire_started = time.monotonic()
+    with _datadog_request_semaphore:
+        waited += time.monotonic() - acquire_started
+        request_counters.increment("datadog_calls")
+        request_counters.increment("datadog_wait_ms_total", int(waited * 1000))
+        response = _send_datadog_request(
+            url, headers, payload_or_params, timeout, method
+        )
+    _record_rate_limit(key, response)
+
+    if response.status_code == 200:
+        return response.json()
+
+    logging.debug(f"Error Response Body: {response.text}")
+    raise DataDogRequestError(
+        payload=payload_or_params,
+        status_code=response.status_code,
+        response_text=response.text,
+        response_headers=response.headers,
+    )
+
+
+def _send_datadog_request(
+    url: str,
+    headers: dict,
+    payload_or_params: dict,
+    timeout: int,
+    method: str,
+) -> requests.Response:
     logging.debug(
         f"Datadog API Request: Method: {method} URL: {url} Headers: {json.dumps(sanitize_headers(headers), indent=2)} {'Params' if method == 'GET' else 'Payload'}: {json.dumps(payload_or_params, indent=2)} Timeout: {timeout}s"
     )
@@ -321,23 +429,10 @@ def execute_datadog_http_request_with_retries(
             url, headers=headers, json=payload_or_params, timeout=timeout
         )
 
-    # Log the response details
     logging.debug(
         f"Datadog API Response: Status Code: {response.status_code} Response Headers: {dict(sanitize_headers(response.headers))}"
     )
-
-    if response.status_code == 200:
-        response_data = response.json()
-        return response_data
-
-    else:
-        logging.debug(f"Error Response Body: {response.text}")
-        raise DataDogRequestError(
-            payload=payload_or_params,
-            status_code=response.status_code,
-            response_text=response.text,
-            response_headers=response.headers,
-        )
+    return response
 
 
 def fetch_openapi_spec(

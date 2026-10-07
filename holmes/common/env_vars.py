@@ -293,3 +293,9 @@ CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS = float(
 CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS", 120.0)
 )
+
+# Max in-flight Datadog API requests per process. Datadog rate limits are
+# org-wide and shared across a customer's clusters, so keep this low.
+DATADOG_MAX_CONCURRENT_REQUESTS = int(
+    os.environ.get("DATADOG_MAX_CONCURRENT_REQUESTS", 4)
+)
