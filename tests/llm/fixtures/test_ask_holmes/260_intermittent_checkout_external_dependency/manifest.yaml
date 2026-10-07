@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-260
+---
+# This manifest defines only the running application (config + code). It is kept
+# intentionally free of any comment describing the scenario or its conclusion.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-api-app
+  namespace: app-260
+stringData:
+  app.py: |
+    import os, sys, time, random, datetime
+
+    HOST = "pay-gw-7k3m9x.acme-ext.io"
+    VERSION = os.environ.get("APP_VERSION", "unknown")
+
+    def log(level, msg):
+        ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        print(f"{ts} {level} {msg}", flush=True)
+
+    log("INFO", f"checkout-api starting version={VERSION} listen=:8080")
+    log("INFO", f"payment provider endpoint configured: https://{HOST}/v2/charge timeout_ms=8000 pool=16")
+    log("INFO", "readiness probe ok, accepting traffic")
+
+    txn = 41000
+    while True:
+        txn += 1
+        roll = random.random()
+        if roll < 0.16:
+            log("WARN", f"outbound call to payment provider {HOST} timed out after 8000ms (attempt 1/2) txn=TXN-{txn}")
+            if random.random() < 0.6:
+                log("WARN", f"outbound call to payment provider {HOST} timed out after 8000ms (attempt 2/2) txn=TXN-{txn}")
+                log("ERROR", f"checkout aborted: payment authorization unavailable txn=TXN-{txn} downstream={HOST} code=UPSTREAM_TIMEOUT")
+            else:
+                log("INFO", f"payment authorized on retry txn=TXN-{txn} provider_latency_ms=8211")
+        else:
+            log("INFO", f"checkout completed txn=TXN-{txn} provider_latency_ms={random.randint(70,340)}")
+        time.sleep(0.6)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-api
+  namespace: app-260
+  labels:
+    app: checkout-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: checkout-api
+  template:
+    metadata:
+      labels:
+        app: checkout-api
+    spec:
+      containers:
+        - name: checkout-api
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          env:
+            - name: APP_VERSION
+              value: "1.8.1"
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 96Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: checkout-api-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metrics-agent-app
+  namespace: app-260
+stringData:
+  app.py: |
+    import time
+    blocks = []
+    while True:
+        blocks.append(bytearray(2 * 1024 * 1024))
+        time.sleep(0.1)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-agent
+  namespace: app-260
+  labels:
+    app: metrics-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-agent
+  template:
+    metadata:
+      labels:
+        app: metrics-agent
+    spec:
+      containers:
+        - name: metrics-agent
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: metrics-agent-app
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cache-warmer-app
+  namespace: app-260
+stringData:
+  app.py: |
+    import sys, time, datetime
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    print(f"{ts} INFO cache-warmer starting", flush=True)
+    time.sleep(1)
+    ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    print(f"{ts} ERROR unable to connect to cache cache-store.app-260.svc:6379: connection refused", flush=True)
+    sys.exit(1)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cache-warmer
+  namespace: app-260
+  labels:
+    app: cache-warmer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cache-warmer
+  template:
+    metadata:
+      labels:
+        app: cache-warmer
+    spec:
+      containers:
+        - name: cache-warmer
+          image: python:3.11-slim
+          command: ["python", "/app/app.py"]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      volumes:
+        - name: app
+          secret:
+            secretName: cache-warmer-app
