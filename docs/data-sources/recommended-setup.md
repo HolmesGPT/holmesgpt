@@ -60,7 +60,7 @@ Cloud provider access lets Holmes investigate infrastructure-level causes — mi
 
 | Platform | Setup Guide | Notes |
 |----------|-------------|-------|
-| **AWS** | [Setup](builtin-toolsets/aws.md) | Read-only access to EC2, RDS, ELB, CloudWatch, CloudTrail, and more via MCP server |
+| **AWS** | [Setup](builtin-toolsets/aws.md) | Read-only access to EC2, RDS, ELB, CloudWatch, CloudTrail, and more via the hosted AWS MCP Server |
 | **GCP** | [Setup](builtin-toolsets/gcp.md) | Logging, monitoring, traces, gcloud CLI, and storage via MCP server |
 | **Azure** | [Setup](builtin-toolsets/azure-mcp.md) | Azure resource management via MCP server |
 

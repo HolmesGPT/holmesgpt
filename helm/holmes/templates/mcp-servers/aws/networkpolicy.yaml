@@ -1,4 +1,4 @@
-{{- if and .Values.mcpAddons.aws.enabled .Values.mcpAddons.aws.networkPolicy.enabled }}
+{{- if and .Values.mcpAddons.aws.enabled .Values.mcpAddons.aws.networkPolicy.enabled (not .Values.mcpAddons.aws.hosted.enabled) }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
