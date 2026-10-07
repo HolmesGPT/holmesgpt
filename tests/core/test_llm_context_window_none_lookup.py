@@ -100,3 +100,12 @@ def test_missing_pricing_refreshes_stale_cost_map():
     ):
         pricing = _bundled_pricing_for_underlying_model("bedrock/new-priced-model-test")
         assert pricing["input_cost_per_token"] == 2.34e-06
+
+
+def test_failed_cost_map_refresh_keeps_fallback():
+    with (
+        patch("holmes.core.llm._last_cost_map_refresh", 0.0),
+        patch("holmes.core.llm.get_model_cost_map", side_effect=RuntimeError("boom")),
+    ):
+        llm = _make_llm("bedrock/unreachable-model-test")
+        assert llm.get_context_window_size() == FALLBACK_CONTEXT_WINDOW_SIZE

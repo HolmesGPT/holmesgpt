@@ -68,7 +68,12 @@ def refresh_model_cost_map_if_stale() -> bool:
     ):
         return False
     _last_cost_map_refresh = time.monotonic()
-    for name, entry in get_model_cost_map(litellm.model_cost_map_url).items():
+    try:
+        fresh_cost_map = get_model_cost_map(litellm.model_cost_map_url)
+    except Exception as e:
+        logging.warning(f"Failed to refresh litellm model cost map: {e}")
+        return False
+    for name, entry in fresh_cost_map.items():
         litellm.model_cost.setdefault(name, entry)
     return True
 
