@@ -32,6 +32,7 @@ expected_output:
   - "The SuggestSkills tool call arguments must NOT contain the specific failure reason value upstream_timeout_gw-qz81x (mentioning the failure_reason label NAME is fine), must NOT state the root cause or findings of this specific incident, and must NOT contain specific counter values or timestamps. Skills must capture reusable data-source knowledge, not incident memories. (This applies only to the SuggestSkills tool call arguments — the failure reason value appearing in other tool outputs or in the final answer is expected.)"
 
 tags:
+  - model-gap
   - kubernetes
   - prometheus
   - metrics

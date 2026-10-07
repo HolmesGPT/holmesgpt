@@ -23,6 +23,7 @@ expected_output:
   - Must disclose the scope of logs examined, in either form the transparency mandate allows — the time period/window covered (e.g. "logs from the last hour", an explicit time range) or the amount fetched (e.g. "last 42 lines", "showing N of M lines"). A bare mention that logs were checked, with no window or amount, does not count.
 
 tags:
+  - model-gap
   - kubernetes
   - logs
   - transparency

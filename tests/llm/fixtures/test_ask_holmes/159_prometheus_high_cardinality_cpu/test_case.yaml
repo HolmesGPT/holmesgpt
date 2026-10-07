@@ -10,6 +10,7 @@ expected_output:
   - "Should include a prometheus graph visualization"
 
 tags:
+  - model-gap
   - kubernetes
   - context_window
   - medium

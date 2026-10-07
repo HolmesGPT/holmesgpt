@@ -43,6 +43,7 @@ description: |
   must list available labels before it can find any logs.
 
 tags:
+  - model-gap
   - loki
   - kubernetes
   - medium

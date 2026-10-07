@@ -6,5 +6,6 @@ expected_output:
 evaluation:
   correctness: 0
 tags:
+  - model-gap
   - medium
   - transparency

@@ -168,6 +168,7 @@ port_forwards:
     remote_port: 3000
 
 tags:
+  - model-gap
   - hard
   - grafana
   - images

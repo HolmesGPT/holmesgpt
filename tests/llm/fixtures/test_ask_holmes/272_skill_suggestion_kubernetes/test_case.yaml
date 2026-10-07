@@ -40,6 +40,7 @@ expected_output:
   - "The SuggestSkills tool call arguments must NOT contain the error code ORD-ERR-4Q8Z2F, must NOT state the root cause or findings of this specific incident (e.g. inventory reservation failures), and must NOT contain timestamps of specific events. Skills must capture reusable environment knowledge, not incident memories. (This applies only to the SuggestSkills tool call arguments — the error code appearing in other tool outputs or in the final answer is expected.)"
 
 tags:
+  - model-gap
   - kubernetes
   - logs
   - skills
