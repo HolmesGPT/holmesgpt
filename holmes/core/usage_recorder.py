@@ -15,11 +15,13 @@ import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
+from typing import TYPE_CHECKING, Any, Dict, Generator, Iterator, Optional
 
 from holmes.core.llm_usage import RequestStats
+from holmes.core.request_counters import RequestCounters, bind_request_counters
 from holmes.utils.stream import StreamEvents, StreamMessage
 
 if TYPE_CHECKING:
@@ -369,6 +371,15 @@ class UsageRecorderState:
     # terminal event was ever observed.
     status: RequestStatus = RequestStatus.SUCCESS
 
+    # Counters bumped by tool code during the request (e.g. datadog_calls);
+    # merged into ``meta`` when the row is fired.
+    counters: RequestCounters = field(default_factory=RequestCounters)
+
+    @contextmanager
+    def track(self) -> Iterator[None]:
+        with bind_request_counters(self.counters):
+            yield
+
     @property
     def duration_ms(self) -> int:
         """Wall-clock milliseconds since ``t_start``.
@@ -442,6 +453,9 @@ class UsageRecorderState:
         """
         if self.dal is None or not getattr(self.dal, "enabled", False):
             return
+        counter_values = self.counters.snapshot()
+        if counter_values:
+            self.meta = {**self.meta, **counter_values}
         try:
             _RECORDER_EXECUTOR.submit(self.dal.record_usage_event, self)
         except RuntimeError:
@@ -475,7 +489,14 @@ def stream_with_usage_recording(
     """
     saw_terminal = False
     try:
-        for msg in stream:
+        while True:
+            # Bound per step: a streaming response may advance the generator
+            # from a different thread/context each time.
+            with state.track():
+                try:
+                    msg = next(stream)
+                except StopIteration:
+                    break
             if msg.event == StreamEvents.TOOL_RESULT:
                 state.tool_call_count += 1
             elif msg.event == StreamEvents.TOKEN_COUNT:
