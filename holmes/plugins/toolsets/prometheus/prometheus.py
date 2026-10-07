@@ -619,15 +619,6 @@ class AzurePrometheusConfig(PrometheusConfig):
 class BasePrometheusTool(Tool):
     toolset: "PrometheusToolset"
 
-    def _get_headers(self, params: dict) -> Dict[str, str]:
-        """HTTP headers for this call's request. Overridable seam for variants
-        that pick the backend/tenant per call (e.g. a tenant header from a
-        param value). Must be computed fresh from `params` each call: never
-        mutate `self.toolset.config` here, since one toolset instance can be
-        invoked concurrently with different params."""
-        assert self.toolset.config is not None
-        return self.toolset.config.additional_headers
-
 
 def do_request(
     config,  # PrometheusConfig | AMPConfig | AzurePrometheusConfig
@@ -976,7 +967,7 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
                 params=query_params,
                 timeout=40,
                 verify=self.toolset.config.verify_ssl,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             rules_response.raise_for_status()
@@ -1118,7 +1109,7 @@ class GetMetricNames(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1236,7 +1227,7 @@ class GetLabelValues(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1340,7 +1331,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1454,7 +1445,7 @@ class GetSeries(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1533,7 +1524,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 method="GET",
             )
             response.raise_for_status()
@@ -1632,7 +1623,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1886,7 +1877,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self._get_headers(params),
+                headers=self.toolset.config.additional_headers,
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -2024,9 +2015,6 @@ class PrometheusToolset(Toolset):
         list[Type[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]]]
     ] = [PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]
     config: Optional[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]] = None
-    # Prefix of this toolset's tool names, used to render tool references in
-    # prometheus_instructions.jinja2 (subclasses with renamed tools override it).
-    _llm_tool_prefix: ClassVar[str] = ""
 
     def __init__(self):
         super().__init__(
@@ -2094,7 +2082,6 @@ class PrometheusToolset(Toolset):
             prompt=f"file://{template_file_path}",
             context={
                 "tool_names": tool_names,
-                "tool_prefix": self._llm_tool_prefix,
                 "config": self.config,
                 "default_max_points": int(MAX_GRAPH_POINTS),
                 "hard_max_points": int(MAX_GRAPH_POINTS_HARD_LIMIT),

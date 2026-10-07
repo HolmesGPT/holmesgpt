@@ -14,6 +14,7 @@ from holmes.plugins.toolsets.prometheus.label_routed_prometheus import (
     LabelRoutedPrometheusConfig,
     LabelRoutedPrometheusToolset,
 )
+from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 from tests.conftest import create_mock_tool_invoke_context
 
 BASE_URL = "http://mimir.monitoring.svc/prometheus"
@@ -21,56 +22,56 @@ BASE_URL = "http://mimir.monitoring.svc/prometheus"
 # (tool name, HTTP method, API path, extra params, mocked response JSON)
 TOOL_CASES = [
     (
-        "label_routed_execute_prometheus_range_query",
+        "execute_prometheus_range_query",
         responses.POST,
         "api/v1/query_range",
         {"query": "up", "description": "d", "output_type": "Plain"},
         {"status": "success", "data": {"result": [{"values": [[1, "1"]]}]}},
     ),
     (
-        "label_routed_execute_prometheus_instant_query",
+        "execute_prometheus_instant_query",
         responses.POST,
         "api/v1/query",
         {"query": "up", "description": "d"},
         {"status": "success", "data": {"result": [{"value": [1, "1"]}]}},
     ),
     (
-        "label_routed_list_prometheus_rules",
+        "list_prometheus_rules",
         responses.GET,
         "api/v1/rules",
         {},
         {"status": "success", "data": {"groups": []}},
     ),
     (
-        "label_routed_get_series",
+        "get_series",
         responses.GET,
         "api/v1/series",
         {"match": "up"},
         {"status": "success", "data": []},
     ),
     (
-        "label_routed_get_label_values",
+        "get_label_values",
         responses.GET,
         "api/v1/label/pod/values",
         {"label": "pod"},
         {"status": "success", "data": ["pod-1"]},
     ),
     (
-        "label_routed_get_all_labels",
+        "get_all_labels",
         responses.GET,
         "api/v1/labels",
         {},
         {"status": "success", "data": ["pod", "namespace"]},
     ),
     (
-        "label_routed_get_metric_names",
+        "get_metric_names",
         responses.GET,
         "api/v1/label/__name__/values",
         {"match": "up"},
         {"status": "success", "data": ["up"]},
     ),
     (
-        "label_routed_get_metric_metadata",
+        "get_metric_metadata",
         responses.GET,
         "api/v1/metadata",
         {},
@@ -145,7 +146,7 @@ class TestMissingLabelValue:
     def test_blank_label_value(self, value):
         ts = _toolset()
         with responses.RequestsMock() as rsps:
-            result = _tool(ts, "label_routed_get_all_labels").invoke(
+            result = _tool(ts, "get_all_labels").invoke(
                 {"label_value": value}, create_mock_tool_invoke_context()
             )
             assert len(rsps.calls) == 0
@@ -161,7 +162,7 @@ class TestMissingLabelValue:
                 json={"status": "success", "data": []},
                 status=200,
             )
-            result = _tool(ts, "label_routed_get_all_labels").invoke(
+            result = _tool(ts, "get_all_labels").invoke(
                 {"label_value": " corporate "}, create_mock_tool_invoke_context()
             )
             header = rsps.calls[0].request.headers["X-Scope-OrgID"]
@@ -170,7 +171,7 @@ class TestMissingLabelValue:
 
     def test_uses_configured_label_key_in_error(self):
         ts = _toolset(label_key="tenant")
-        result = _tool(ts, "label_routed_execute_prometheus_instant_query").invoke(
+        result = _tool(ts, "execute_prometheus_instant_query").invoke(
             {"query": "up", "description": "d"}, create_mock_tool_invoke_context()
         )
         assert "tenant" in result.error
@@ -214,7 +215,7 @@ class TestHeaderRouting:
                 json={"status": "success", "data": []},
                 status=200,
             )
-            tool = _tool(ts, "label_routed_get_all_labels")
+            tool = _tool(ts, "get_all_labels")
             tool.invoke({"label_value": "client-a"}, create_mock_tool_invoke_context())
             tool.invoke({"label_value": "client-b"}, create_mock_tool_invoke_context())
             header_a = rsps.calls[0].request.headers["X-Scope-OrgID"]
@@ -233,7 +234,7 @@ class TestHeaderRouting:
                 json={"status": "success", "data": []},
                 status=200,
             )
-            _tool(ts, "label_routed_get_all_labels").invoke(
+            _tool(ts, "get_all_labels").invoke(
                 {"label_value": "acme"}, create_mock_tool_invoke_context()
             )
             headers = rsps.calls[0].request.headers
@@ -249,7 +250,7 @@ class TestHeaderRouting:
                 json={"status": "success", "data": []},
                 status=200,
             )
-            _tool(ts, "label_routed_get_all_labels").invoke(
+            _tool(ts, "get_all_labels").invoke(
                 {"label_value": "acme"}, create_mock_tool_invoke_context()
             )
             headers = rsps.calls[0].request.headers
@@ -265,7 +266,7 @@ class TestHeaderRouting:
                 json={"status": "success", "data": []},
                 status=200,
             )
-            _tool(ts, "label_routed_get_all_labels").invoke(
+            _tool(ts, "get_all_labels").invoke(
                 {"label_value": "acme"}, create_mock_tool_invoke_context()
             )
             headers = rsps.calls[0].request.headers
@@ -275,7 +276,7 @@ class TestHeaderRouting:
         """A label value must not be able to inject an extra header."""
         ts = _toolset()
         with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
-            result = _tool(ts, "label_routed_get_all_labels").invoke(
+            result = _tool(ts, "get_all_labels").invoke(
                 {"label_value": "acme\r\nX-Injected: 1"},
                 create_mock_tool_invoke_context(),
             )
@@ -291,23 +292,15 @@ class TestInstructions:
             "# Prometheus/PromQL queries"
         )
 
-    def test_stock_tool_names_are_prefixed(self):
-        text = _toolset().llm_instructions
-        assert '"tool_name": "label_routed_execute_prometheus_range_query"' in text
-        for name in (
-            "get_metric_names",
-            "get_label_values",
-            "get_series",
-            "execute_prometheus_instant_query",
-            "list_prometheus_rules",
-        ):
-            assert f"label_routed_{name}" in text
-            assert f"`{name}" not in text
+    def test_tool_names_match_stock_toolset(self):
+        """UI and Slack graph rendering match the stock tool names exactly."""
+        stock_names = [t.name for t in PrometheusToolset().tools]
+        assert [t.name for t in _toolset().tools] == stock_names
 
     def test_additional_labels_rendered_in_instructions(self):
         ts = _toolset(additional_labels={"k8s_cluster_name": "gb03prod2"})
         assert 'k8s_cluster_name="gb03prod2"' in ts.llm_instructions
-        assert "`label_routed_get_metric_names`" in ts.llm_instructions
+        assert "`get_metric_names`" in ts.llm_instructions
 
     def test_no_additional_labels_block_without_config(self):
         ts = _toolset()
@@ -324,7 +317,7 @@ class TestNoResultReportedAsFailed:
                 json={"status": "success", "data": {"result": []}},
                 status=200,
             )
-            result = _tool(ts, "label_routed_execute_prometheus_range_query").invoke(
+            result = _tool(ts, "execute_prometheus_range_query").invoke(
                 {
                     "label_value": "acme",
                     "query": "up",

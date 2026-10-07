@@ -18,13 +18,15 @@ tenant to fall back to.
 
 Implementation note: this subclasses the real `prometheus/metrics` tools
 (query building, timeouts, token-based truncation, SSL error handling all
-stay inherited and unmodified) and only overrides the request headers, via
-the `BasePrometheusTool._get_headers()` seam in `prometheus.py`. Bug
-fixes/improvements to the underlying tools apply here automatically.
+stay inherited and unmodified), keeping their names so UI/Slack graph
+rendering still recognises them, and only adds the routing header to each
+request. Bug fixes/improvements to the underlying tools apply here
+automatically. Don't enable it alongside `prometheus/metrics`: the tool names
+collide.
 """
 
 import os
-from typing import Any, ClassVar, Dict, Optional, Tuple, Type
+from typing import Any, ClassVar, Optional, Tuple, Type
 
 from pydantic import Field
 
@@ -132,28 +134,36 @@ class LabelRoutedHeaderMixin:
     def __init__(self, toolset):
         super().__init__(toolset)  # type: ignore[call-arg]
         self.parameters["label_value"] = _label_value_param()  # type: ignore[attr-defined]
-        # Prefix the name so this can never collide with the stock
-        # prometheus/metrics tools if both toolsets were accidentally enabled
-        # in the same deployment.
-        self.name = f"label_routed_{self.name}"  # type: ignore[attr-defined]
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        config = self.toolset.config  # type: ignore[attr-defined]
+        config: Optional[LabelRoutedPrometheusConfig] = self.toolset.config  # type: ignore[attr-defined]
+        if config is None:
+            return super()._invoke(params, context)  # type: ignore[misc]
         label_value = str(params.get("label_value") or "").strip()
-        if config is not None and not label_value:
+        if not label_value:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=_missing_label_value_error(config),
                 params=params,
             )
-        return super()._invoke({**params, "label_value": label_value}, context)  # type: ignore[misc]
-
-    def _get_headers(self, params: dict) -> Dict[str, str]:
-        config: LabelRoutedPrometheusConfig = self.toolset.config  # type: ignore[attr-defined]
-        return {
-            **config.additional_headers,
-            config.routing_header: str(params["label_value"]),
-        }
+        # The stock tools send `config.additional_headers`, so run them against a
+        # per-call copy of the config that carries the routing header. Copies,
+        # not mutation: one toolset instance serves concurrent calls for
+        # different tenants.
+        routed_config = config.model_copy(
+            update={
+                "additional_headers": {
+                    **config.additional_headers,
+                    config.routing_header: label_value,
+                }
+            }
+        )
+        routed_tool = self.model_copy(  # type: ignore[attr-defined]
+            update={"toolset": self.toolset.model_copy(update={"config": routed_config})}  # type: ignore[attr-defined]
+        )
+        return super(LabelRoutedHeaderMixin, routed_tool)._invoke(  # type: ignore[misc]
+            {**params, "label_value": label_value}, context
+        )
 
 
 class LabelRoutedListPrometheusRules(LabelRoutedHeaderMixin, ListPrometheusRules):
@@ -188,23 +198,6 @@ class LabelRoutedExecuteRangeQuery(LabelRoutedHeaderMixin, ExecuteRangeQuery):
     pass
 
 
-# `BasePrometheusTool.toolset: "PrometheusToolset"` is a forward reference that
-# pydantic resolves lazily. Cross-module subclassing needs an explicit rebuild
-# with that name in scope, or instantiating any of the classes above raises
-# "class not fully defined".
-for _cls in (
-    LabelRoutedListPrometheusRules,
-    LabelRoutedGetMetricNames,
-    LabelRoutedGetLabelValues,
-    LabelRoutedGetAllLabels,
-    LabelRoutedGetSeries,
-    LabelRoutedGetMetricMetadata,
-    LabelRoutedExecuteInstantQuery,
-    LabelRoutedExecuteRangeQuery,
-):
-    _cls.model_rebuild(_types_namespace={"PrometheusToolset": PrometheusToolset})
-
-
 class LabelRoutedPrometheusToolset(PrometheusToolset):
     """Subclasses `PrometheusToolset` only so this toolset type-checks against
     the `toolset: "PrometheusToolset"` field declared on `BasePrometheusTool`
@@ -217,7 +210,6 @@ class LabelRoutedPrometheusToolset(PrometheusToolset):
         LabelRoutedPrometheusConfig
     ]
     config: Optional[LabelRoutedPrometheusConfig] = None
-    _llm_tool_prefix: ClassVar[str] = "label_routed_"
 
     def __init__(self):
         Toolset.__init__(
@@ -247,8 +239,7 @@ class LabelRoutedPrometheusToolset(PrometheusToolset):
         self._reload_llm_instructions()
 
     def _reload_llm_instructions(self):
-        # Tenant-routing rules first, then the stock Prometheus instructions
-        # rendered with this toolset's `label_routed_` tool names.
+        # Tenant-routing rules first, then the stock Prometheus instructions.
         super()._reload_llm_instructions()
         routing = load_and_render_prompt(
             prompt=f"file://{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'label_routed_prometheus_instructions.jinja2')}",

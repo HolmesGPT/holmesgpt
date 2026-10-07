@@ -419,7 +419,13 @@ toolsets:
 
 **How it works:** every tool in this toolset requires a `label_value` parameter. Before calling any tool, the LLM is instructed to look up the `label_key` label (e.g. `productline`) on the Kubernetes resource being investigated using a kubernetes tool, and pass the value as `label_value`. Each call goes to the same `{prometheus_url}api/v1/...` with the header `{routing_header}: {label_value}`. There is no default tenant: if the resource has no value for the configured label, the tool returns an error instead of guessing.
 
-This toolset is meant to run standalone for this use case. Don't enable it alongside `prometheus/metrics` in the same deployment, since the two overlap in purpose and would confuse the LLM about which to use.
+This toolset replaces `prometheus/metrics` for this use case and exposes tools with the same names. Disable `prometheus/metrics` in the same deployment (it is enabled by default in the Helm chart), or one toolset's tools will replace the other's:
+
+```yaml
+toolsets:
+    prometheus/metrics:
+        enabled: false
+```
 
 | Option | Default | Description |
 |--------|---------|-------------|
