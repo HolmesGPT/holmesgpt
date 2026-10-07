@@ -5,6 +5,8 @@
 * NEVER guess, assume, or reuse a `{{ config.label_key }}` value from a different resource or an earlier unrelated conversation. If the resource has no `{{ config.label_key }}` label, tell the user this query cannot be routed instead of fabricating a value.
 * Each `label_value` selects a separate tenant — metrics, labels, series, and rules for one value tell you nothing about another. Don't mix data across different `label_value`s in one analysis.
 {%- endif %}
+
+{{ prometheus_instructions }}
 {%- if config and config.additional_labels %}
-* The label matchers listed under the Prometheus instructions below are fixed by configuration and are correct even if they differ from the cluster or context name you see in kubectl output.
+* Those label matchers are fixed by configuration and are correct even if they differ from the cluster or context name you see in kubectl output. Also add them to every series selector you pass as `match` to `get_metric_names`, `get_label_values`, `get_all_labels` and `get_series`, and to every metric selector in a query, including inside sub-expressions and both sides of binary operations. Keep them even when a query returns no data; report the empty result instead of dropping them.
 {%- endif %}

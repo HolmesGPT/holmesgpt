@@ -239,13 +239,17 @@ class LabelRoutedPrometheusToolset(PrometheusToolset):
         self._reload_llm_instructions()
 
     def _reload_llm_instructions(self):
-        # Tenant-routing rules first, then the stock Prometheus instructions.
+        # Render the stock prometheus_instructions.jinja2 unchanged, then embed it
+        # in this toolset's template (jinja `include` can't reach it: the prompt
+        # loader is rooted at holmes/plugins/prompts).
         super()._reload_llm_instructions()
-        routing = load_and_render_prompt(
+        self.llm_instructions = load_and_render_prompt(
             prompt=f"file://{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'label_routed_prometheus_instructions.jinja2')}",
-            context={"config": self.config},
+            context={
+                "config": self.config,
+                "prometheus_instructions": self.llm_instructions,
+            },
         )
-        self.llm_instructions = f"{routing}\n{self.llm_instructions}"
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         config = config or {}

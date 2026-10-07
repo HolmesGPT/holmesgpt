@@ -36,7 +36,7 @@ You are using Coralogix Prometheus.
 * Do not answer about metric values you haven't seen: the existence of a label value says nothing about the metric's value (and the label may belong to an old series), and "typically the case" domain knowledge is not evidence. State your limitations instead.
 
 {%- if config and config.additional_labels and config.additional_labels.keys()|list|length > 0 %}
-* ALWAYS add the following label matchers to EVERY PromQL query and to every series selector you pass as `match` to `get_metric_names`, `get_label_values`, `get_all_labels` and `get_series`. Put them on every metric selector in the query, including inside sub-expressions and both sides of binary operations. Keep them even when a query returns no data; report the empty result instead of dropping them:
+* ALWAYS add the following additional labels to ALL PromQL queries:
 {%- for key, value in config.additional_labels.items() %}
   * {{ key }}="{{ value }}"
 {%- endfor -%}

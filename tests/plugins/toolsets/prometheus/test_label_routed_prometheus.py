@@ -14,7 +14,10 @@ from holmes.plugins.toolsets.prometheus.label_routed_prometheus import (
     LabelRoutedPrometheusConfig,
     LabelRoutedPrometheusToolset,
 )
-from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
+from holmes.plugins.toolsets.prometheus.prometheus import (
+    PrometheusConfig,
+    PrometheusToolset,
+)
 from tests.conftest import create_mock_tool_invoke_context
 
 BASE_URL = "http://mimir.monitoring.svc/prometheus"
@@ -297,14 +300,23 @@ class TestInstructions:
         stock_names = [t.name for t in PrometheusToolset().tools]
         assert [t.name for t in _toolset().tools] == stock_names
 
-    def test_additional_labels_rendered_in_instructions(self):
-        ts = _toolset(additional_labels={"k8s_cluster_name": "gb03prod2"})
-        assert 'k8s_cluster_name="gb03prod2"' in ts.llm_instructions
-        assert "`get_metric_names`" in ts.llm_instructions
+    def test_embeds_stock_instructions_unchanged(self):
+        config = {"prometheus_url": BASE_URL, "additional_labels": {"k8s_cluster_name": "gb03prod2"}}
+        stock = PrometheusToolset()
+        stock.config = PrometheusConfig(**config)
+        stock._reload_llm_instructions()
+        assert stock.llm_instructions in _toolset(**config).llm_instructions
 
-    def test_no_additional_labels_block_without_config(self):
-        ts = _toolset()
-        assert "ALWAYS add the following label matchers" not in ts.llm_instructions
+    def test_additional_labels_rule_follows_stock_label_list(self):
+        text = _toolset(additional_labels={"k8s_cluster_name": "gb03prod2"}).llm_instructions
+        assert text.index('k8s_cluster_name="gb03prod2"') < text.index(
+            "Also add them to every series selector you pass as `match`"
+        )
+
+    def test_no_additional_labels_rule_without_config(self):
+        text = _toolset().llm_instructions
+        assert "Also add them to every series selector" not in text
+        assert "fixed by configuration" not in text
 
 
 class TestNoResultReportedAsFailed:
