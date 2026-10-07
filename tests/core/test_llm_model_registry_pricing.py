@@ -722,3 +722,46 @@ class TestTokenLimitLookupVariants:
 
         assert "us.fake.limits" in llm._get_model_name_variants_for_lookup()
         assert llm.get_context_window_size() == 123456
+
+
+class TestRobustaSharedIdPricing:
+    def test_entries_sharing_an_id_each_record_their_own_price(
+        self,
+        fake_relay,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        """`bedrock/converse/<id>` and `novita/<id>` are both completed as
+        `openai/<id>`; each call must still be priced as its own upstream."""
+        from holmes.core.llm_usage import RequestStats
+
+        base_url, _ = fake_relay
+        _fake_bundled("bedrock/converse/fake-shared", 1e-06, 2e-06)
+        _fake_bundled("novita/fake-shared", 3e-06, 4e-06)
+        _patch_models_file(
+            monkeypatch,
+            {
+                name: ModelEntry(
+                    model=upstream, base_url=base_url, is_robusta_model=True
+                )
+                for name, upstream in (
+                    ("Robusta/a", "bedrock/converse/fake-shared"),
+                    ("Robusta/b", "novita/fake-shared"),
+                )
+            },
+        )
+        registry = LLMModelRegistry(mock_config, mock_dal)
+        mock_config.llm_model_registry = registry
+        mock_config.dal.get_ai_credentials.return_value = ("acct", "token")
+        mock_config._model_source = None
+
+        costs = {}
+        for name in ("Robusta/a", "Robusta/b"):
+            llm = Config._get_llm(mock_config, name)
+            response = llm.completion(messages=[{"role": "user", "content": "hi"}])
+            costs[name] = RequestStats.from_response(response).total_cost
+
+        assert costs["Robusta/a"] == pytest.approx(1000 * 1e-06 + 500 * 2e-06)
+        assert costs["Robusta/b"] == pytest.approx(1000 * 3e-06 + 500 * 4e-06)

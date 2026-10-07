@@ -908,7 +908,8 @@ class LLMModelRegistry:
           2. Auto-lookup against ``litellm.model_cost`` for Robusta entries
              using the real upstream model name (e.g. a Robusta entry with
              ``model="bedrock/us.anthropic.claude-opus-4-6-v1"`` pulls the
-             bundled Bedrock pricing and registers it under the corrected
+             bundled Bedrock pricing, keeps it on the entry so every call
+             is priced with it, and registers it under the corrected
              ``openai/...`` name).
 
         Models with no pricing match log one INFO line so operators know
@@ -928,10 +929,14 @@ class LLMModelRegistry:
             )
 
             # 2. For Robusta entries, the upstream model's price wins over
-            # whatever the corrected openai/<id> name already maps to.
+            # whatever the corrected openai/<id> name already maps to. It is
+            # also kept on the entry, which passes it to litellm on every call:
+            # entries whose upstream names share an <id> share the global key.
             if entry.is_robusta_model:
                 auto_pricing = _bundled_pricing_for_underlying_model(entry.model)
                 if auto_pricing is not None:
+                    for field, value in auto_pricing.items():
+                        setattr(entry, field, value)
                     if auto_pricing != existing_pricing:
                         _register_custom_pricing(litellm_name, auto_pricing)
                     continue
