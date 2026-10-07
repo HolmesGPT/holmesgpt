@@ -14,7 +14,7 @@ from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetTag, ToolsetType
 from holmes.plugins.toolsets import load_builtin_toolsets, load_toolsets_from_config
-from holmes.utils.config_hash import check_and_update_config_hashes
+from holmes.utils.config_hash import check_and_update_config_hashes, compute_file_hash
 from holmes.utils.definitions import CUSTOM_TOOLSET_LOCATION
 
 if TYPE_CHECKING:
@@ -118,6 +118,11 @@ class ToolsetManager:
 
         self.custom_toolsets_from_cli = custom_toolsets_from_cli
         self.toolset_status_location = toolset_status_location
+        # time.monotonic() of each toolset's last prerequisite check, by name, with
+        # the custom toolset files' hashes at that time. Kept here rather than on the
+        # toolset because a refresh whose results are unchanged keeps the previous
+        # executor and discards the instances it checked.
+        self._last_status_check: dict[str, tuple[float, tuple[Optional[str], ...]]] = {}
 
     @property
     def cli_tool_tags(self) -> List[ToolsetTag]:
@@ -141,6 +146,7 @@ class ToolsetManager:
         toolset_tags: Optional[List[ToolsetTag]] = None,
         silent: bool = False,
         on_event: EventCallback = None,
+        previous_toolsets: Optional[List[Toolset]] = None,
     ) -> List[Toolset]:
         """
         List all built-in and custom toolsets.
@@ -222,21 +228,47 @@ class ToolsetManager:
                     )
             toolsets_by_name = filtered_toolsets_by_name
 
-        final_toolsets = list(toolsets_by_name.values())
-
         # check_prerequisites against each enabled toolset
         if not check_prerequisites:
-            return final_toolsets
+            return list(toolsets_by_name.values())
 
+        # A toolset still inside its own status refresh interval keeps the
+        # previous instance, with the status and tools its last check produced.
+        # Custom toolset files are re-read on every refresh, so an edit to one
+        # reaches the server without a reload and must not wait out the interval.
+        previous_by_name = {t.name: t for t in previous_toolsets or []}
+        now = time.monotonic()
+        files_fingerprint = self._custom_toolsets_fingerprint()
+        final_toolsets = []
         enabled_toolsets: List[Toolset] = []
-        for _, toolset in toolsets_by_name.items():
+        for name, toolset in toolsets_by_name.items():
+            previous = previous_by_name.get(name)
+            interval = toolset.status_refresh_interval_seconds
+            last_check = self._last_status_check.get(name)
+            if (
+                toolset.enabled
+                and previous is not None
+                and previous.enabled
+                and interval is not None
+                and last_check is not None
+                and now - last_check[0] < interval
+                and last_check[1] == files_fingerprint
+            ):
+                final_toolsets.append(previous)
+                continue
+            final_toolsets.append(toolset)
             if toolset.enabled:
                 enabled_toolsets.append(toolset)
+                self._last_status_check[name] = (now, files_fingerprint)
             else:
                 toolset.status = ToolsetStatusEnum.DISABLED
         self.check_toolset_prerequisites(enabled_toolsets, silent=silent, on_event=on_event)
 
         return final_toolsets
+
+    def _custom_toolsets_fingerprint(self) -> tuple[Optional[str], ...]:
+        paths = list(self.custom_toolsets or []) + list(self.custom_toolsets_from_cli or [])
+        return tuple(compute_file_hash(str(path)) for path in paths)
 
     @classmethod
     def check_toolset_prerequisites(
@@ -728,6 +760,7 @@ class ToolsetManager:
             enable_all_toolsets=enable_all_toolsets_possible,
             toolset_tags=tags,
             silent=True,
+            previous_toolsets=current_toolsets,
         )
 
         changes: List[tuple[str, ToolsetStatusEnum, ToolsetStatusEnum]] = []
