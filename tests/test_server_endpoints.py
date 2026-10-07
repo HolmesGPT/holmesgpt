@@ -6,6 +6,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 
 from holmes.core.tool_calling_llm import RelayRefusal
+from holmes.utils.single_flight_cache import record_cache_lookup
 from server import app, extract_passthrough_headers
 
 
@@ -663,3 +664,75 @@ class TestExtractPassthroughHeaders:
         assert "authorization" in result["headers"]
         assert "cookie" in result["headers"]
         assert "x-tenant-id" in result["headers"]
+
+
+def _setup_reads_that_record_cache_lookups():
+    """get_skill_catalog misses and get_global_instructions hits, as the real caches would."""
+
+    def skills(*args, **kwargs):
+        record_cache_lookup(hit=False)
+        return None
+
+    def instructions(*args, **kwargs):
+        record_cache_lookup(hit=True)
+        return None
+
+    return skills, instructions
+
+
+@patch("server.record_from_llm_result")
+@patch("holmes.config.Config.get_skill_catalog")
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_records_setup_metrics(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    mock_get_skill_catalog,
+    mock_record,
+    client,
+):
+    """meta.setup_ms / setup_cache_hits / setup_cache_misses land on the usage row (ROB-1554)."""
+    skills, instructions = _setup_reads_that_record_cache_lookups()
+    mock_get_skill_catalog.side_effect = skills
+    mock_get_global_instructions.side_effect = instructions
+    mock_ai = MagicMock()
+    mock_ai.llm.is_robusta_model = False
+    mock_ai.call.return_value = MagicMock(
+        result="ok", tool_calls=[], messages=[], metadata={}, num_llm_calls=1
+    )
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "hi", "meta": {"fe": 1}})
+
+    assert response.status_code == 200
+    meta = mock_record.call_args.args[0].meta
+    assert meta["setup_cache_hits"] == 1
+    assert meta["setup_cache_misses"] == 1
+    assert isinstance(meta["setup_ms"], int) and meta["setup_ms"] >= 0
+    assert meta["fe"] == 1
+
+
+@patch("server.stream_with_usage_recording")
+@patch("holmes.config.Config.get_skill_catalog")
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_stream_records_setup_metrics(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    mock_get_skill_catalog,
+    mock_wrap,
+    client,
+):
+    skills, instructions = _setup_reads_that_record_cache_lookups()
+    mock_get_skill_catalog.side_effect = skills
+    mock_get_global_instructions.side_effect = instructions
+    mock_ai = MagicMock()
+    mock_ai.llm.is_robusta_model = False
+    mock_create_toolcalling_llm.return_value = mock_ai
+    mock_wrap.return_value = iter([])
+
+    client.post("/api/chat", json={"ask": "hi", "stream": True})
+
+    meta = mock_wrap.call_args.args[1].meta
+    assert (meta["setup_cache_hits"], meta["setup_cache_misses"]) == (1, 1)
+    assert "setup_ms" in meta

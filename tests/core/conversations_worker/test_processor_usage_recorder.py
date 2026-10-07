@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.models import ChatRequest
+from holmes.utils.single_flight_cache import record_cache_lookup
 
 
 def _bare_worker():
@@ -619,3 +620,28 @@ def test_a_relay_refusal_fails_the_conversation_with_its_own_code():
     w.dal.update_conversation_status.assert_called_once_with(
         conversation_id="c1", request_sequence=1, assignee="h-test", status="failed"
     )
+
+
+
+def test_setup_metrics_are_written_to_recorder_meta():
+    """ROB-1554: the worker writes setup_ms and the setup cache hits/misses of this turn."""
+    worker, ai = _bare_worker()
+
+    def skills(**kwargs):
+        record_cache_lookup(hit=False)
+        return []
+
+    def instructions():
+        record_cache_lookup(hit=True)
+        return None
+
+    worker.config.get_skill_catalog = MagicMock(side_effect=skills)
+    worker.dal.get_global_instructions_for_account = MagicMock(side_effect=instructions)
+
+    captured = _run(worker, ai)
+
+    # _run hands the worker a MagicMock recorder state, so read what was merged into meta.
+    meta = captured["recorder_state"].meta.update.call_args.args[0]
+    assert meta["setup_cache_hits"] == 1
+    assert meta["setup_cache_misses"] == 1
+    assert isinstance(meta["setup_ms"], int) and meta["setup_ms"] >= 0

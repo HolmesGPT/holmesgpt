@@ -58,6 +58,7 @@ from holmes.plugins.skills.skill_loader import (
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.env import get_env_replacement
 from holmes.utils.global_instructions import Instructions
+from holmes.utils.single_flight_cache import SingleFlightTTLCache
 
 if TYPE_CHECKING:
     # Forward reference only — `usage_recorder` already TYPE_CHECKING-imports
@@ -163,6 +164,28 @@ def _is_missing_rpc_error(exc: Exception) -> bool:
 # How long the per-account executor sizes read from AccountSettings are
 # cached; a UI change takes at most this long to reach the executors.
 EXECUTOR_SIZES_CACHE_TTL_SEC = 60
+DEFAULT_SETUP_CACHE_TTL_SEC = 60
+PERSONAL_SKILLS_CACHE_MAX_USERS = 1024
+
+
+def _ttl_from_env(name: str, allow_zero: bool) -> int:
+    """Parsed defensively: this runs in SupabaseDal.__init__, so a bad env var must not stop
+    Holmes from starting."""
+    raw = os.environ.get(name, str(DEFAULT_SETUP_CACHE_TTL_SEC))
+    try:
+        ttl = int(raw)
+        if ttl < 0 or (ttl == 0 and not allow_zero):
+            raise ValueError(f"out of range: {ttl}")
+        return ttl
+    except ValueError as e:
+        logging.warning(
+            "Invalid %s=%r (%s); falling back to %ss",
+            name,
+            raw,
+            e,
+            DEFAULT_SETUP_CACHE_TTL_SEC,
+        )
+        return DEFAULT_SETUP_CACHE_TTL_SEC
 
 
 class ExecutorRpcUnsupportedError(Exception):
@@ -306,21 +329,17 @@ class SupabaseDal:
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
         # Read on every chat request but per-account and rarely changed, so cache it briefly
-        # instead of adding an AccountSettings round trip per turn. Parsed defensively: this
-        # runs in __init__, so a bad env var must not stop Holmes from starting.
-        raw_ttl = os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")
-        try:
-            hierarchy_ttl = int(raw_ttl)
-            if hierarchy_ttl <= 0:
-                raise ValueError(f"must be positive, got {hierarchy_ttl}")
-        except ValueError as e:
-            logging.warning(
-                "Invalid SKILL_HIERARCHY_CACHE_TTL_SEC=%r (%s); falling back to 60s",
-                raw_ttl,
-                e,
-            )
-            hierarchy_ttl = 60
+        # instead of adding an AccountSettings round trip per turn.
+        hierarchy_ttl = _ttl_from_env("SKILL_HIERARCHY_CACHE_TTL_SEC", allow_zero=False)
         self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
+        # Global instructions and global/personal skills are read before every turn's first
+        # LLM call. Single-flight so concurrent turns share one query when an entry expires.
+        skills_ttl = _ttl_from_env("SKILLS_CACHE_TTL_SEC", allow_zero=True)
+        self.global_instructions_cache = SingleFlightTTLCache(maxsize=1, ttl=skills_ttl)
+        self.global_skills_cache = SingleFlightTTLCache(maxsize=1, ttl=skills_ttl)
+        self.personal_skills_cache = SingleFlightTTLCache(
+            maxsize=PERSONAL_SKILLS_CACHE_MAX_USERS, ttl=skills_ttl
+        )
         self.executor_sizes_cache: TTLCache = TTLCache(
             maxsize=1, ttl=EXECUTOR_SIZES_CACHE_TTL_SEC
         )
@@ -628,55 +647,66 @@ class SupabaseDal:
 
         return issue_data
 
+    def invalidate_setup_caches(self) -> None:
+        # A disabled DAL returns from __init__ before the caches exist.
+        if not self.enabled:
+            return
+        self.global_instructions_cache.clear()
+        self.global_skills_cache.clear()
+        self.personal_skills_cache.clear()
+        self.skill_hierarchy_cache.clear()
+
     def get_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
         if not self.enabled:
             return None
-
         try:
-            res = (
-                self.client.table(RUNBOOKS_TABLE)
-                .select("*")
-                .eq("account_id", self.account_id)
-                .eq("subject_type", "RunbookCatalog")
-                .eq("enabled", True)
-                .execute()
+            return self.global_skills_cache.get_or_load(
+                "global", self._fetch_skill_catalog
             )
-            if not res.data:
-                return None
-
-            instructions = []
-            for row in res.data:
-                id = row.get("runbook_id")
-                symptom = row.get("symptoms")
-                title = row.get("subject_name")
-                clusters = row.get("clusters")
-                alerts = row.get("alerts") or []
-                # Alerts are a valid alternative to symptoms (the UI enforces "either"), so
-                # requiring symptoms here discarded every alert-only skill.
-                if not symptom and not alerts:
-                    logging.warning(
-                        "Skipping skill with neither symptom nor alerts: %s", id
-                    )
-                    continue
-                # Filter by cluster: null means all clusters, otherwise check membership
-                if clusters is not None and self.cluster not in clusters:
-                    continue
-                # Per row, so one malformed row costs that skill rather than the whole
-                # catalog. ValidationError only -- a broader catch would hide real bugs.
-                try:
-                    instructions.append(
-                        RobustaSkillInstruction(
-                            id=id, symptom=symptom or "", title=title, alerts=alerts
-                        )
-                    )
-                except ValidationError:
-                    logging.warning(
-                        "Skipping malformed skill row: runbook_id=%s", id
-                    )
-            return instructions
         except Exception:
             logging.exception("Failed to fetch skill catalog", exc_info=True)
             return None
+
+    def _fetch_skill_catalog(self) -> Optional[List[RobustaSkillInstruction]]:
+        res = (
+            self.client.table(RUNBOOKS_TABLE)
+            .select("*")
+            .eq("account_id", self.account_id)
+            .eq("subject_type", "RunbookCatalog")
+            .eq("enabled", True)
+            .execute()
+        )
+        if not res.data:
+            return None
+
+        instructions = []
+        for row in res.data:
+            id = row.get("runbook_id")
+            symptom = row.get("symptoms")
+            title = row.get("subject_name")
+            clusters = row.get("clusters")
+            alerts = row.get("alerts") or []
+            # Alerts are a valid alternative to symptoms (the UI enforces "either"), so
+            # requiring symptoms here discarded every alert-only skill.
+            if not symptom and not alerts:
+                logging.warning(
+                    "Skipping skill with neither symptom nor alerts: %s", id
+                )
+                continue
+            # Filter by cluster: null means all clusters, otherwise check membership
+            if clusters is not None and self.cluster not in clusters:
+                continue
+            # Per row, so one malformed row costs that skill rather than the whole
+            # catalog. ValidationError only -- a broader catch would hide real bugs.
+            try:
+                instructions.append(
+                    RobustaSkillInstruction(
+                        id=id, symptom=symptom or "", title=title, alerts=alerts
+                    )
+                )
+            except ValidationError:
+                logging.warning("Skipping malformed skill row: runbook_id=%s", id)
+        return instructions
 
     def get_skill_content(self, skill_id: str) -> Optional[RobustaSkillInstruction]:
         if not self.enabled:
@@ -778,61 +808,67 @@ class SupabaseDal:
         """
         if not self.enabled or not user_id:
             return None
-
         try:
-            res = (
-                self.client.table(RUNBOOKS_TABLE)
-                # Must name every column the loop below reads. `alerts` is load-bearing:
-                # without it the "neither symptom nor alerts" guard drops alert-only skills
-                # outright, and every surviving skill loads as "applies to all alerts".
-                .select("runbook_id, subject_name, symptoms, alerts, clusters, enabled")
-                .eq("account_id", self.account_id)
-                .eq("user_id", user_id)
-                .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
-                .execute()
+            return self.personal_skills_cache.get_or_load(
+                user_id, lambda: self._fetch_personal_skill_catalog(user_id)
             )
-            if not res.data:
-                return None
-
-            instructions = []
-            for row in res.data:
-                id = row.get("runbook_id")
-                symptom = row.get("symptoms")
-                title = row.get("subject_name")
-                clusters = row.get("clusters")
-                alerts = row.get("alerts") or []
-                if not row.get("enabled", True):
-                    continue
-                # See get_skill_catalog: alerts are a valid alternative to symptoms.
-                if not symptom and not alerts:
-                    logging.warning(
-                        "Skipping personal skill with neither symptom nor alerts: %s", id
-                    )
-                    continue
-                # Cluster filter (null = all). Must precede hierarchy dedup, so a skill
-                # scoped to another cluster cannot suppress an applicable one.
-                if clusters is not None and self.cluster not in clusters:
-                    continue
-                # Validate per row. id and title are required on the model, so a row with a
-                # null runbook_id or subject_name raises -- and if that reached the outer
-                # handler the user would silently lose EVERY personal skill, not just the
-                # malformed one. Skip the bad row instead.
-                try:
-                    instructions.append(
-                        RobustaSkillInstruction(
-                            id=id, symptom=symptom or "", title=title, alerts=alerts
-                        )
-                    )
-                # See get_skill_catalog: only ValidationError, so a real bug in this loop
-                # surfaces instead of being logged as malformed data.
-                except ValidationError:
-                    logging.warning(
-                        "Skipping malformed personal skill row: runbook_id=%s", id
-                    )
-            return instructions
         except Exception:
             logging.exception("Failed to fetch personal skill catalog", exc_info=True)
             return None
+
+    def _fetch_personal_skill_catalog(
+        self, user_id: str
+    ) -> Optional[List[RobustaSkillInstruction]]:
+        res = (
+            self.client.table(RUNBOOKS_TABLE)
+            # Must name every column the loop below reads. `alerts` is load-bearing:
+            # without it the "neither symptom nor alerts" guard drops alert-only skills
+            # outright, and every surviving skill loads as "applies to all alerts".
+            .select("runbook_id, subject_name, symptoms, alerts, clusters, enabled")
+            .eq("account_id", self.account_id)
+            .eq("user_id", user_id)
+            .eq("subject_type", PERSONAL_RUNBOOK_CATALOG)
+            .execute()
+        )
+        if not res.data:
+            return None
+
+        instructions = []
+        for row in res.data:
+            id = row.get("runbook_id")
+            symptom = row.get("symptoms")
+            title = row.get("subject_name")
+            clusters = row.get("clusters")
+            alerts = row.get("alerts") or []
+            if not row.get("enabled", True):
+                continue
+            # See get_skill_catalog: alerts are a valid alternative to symptoms.
+            if not symptom and not alerts:
+                logging.warning(
+                    "Skipping personal skill with neither symptom nor alerts: %s", id
+                )
+                continue
+            # Cluster filter (null = all). Must precede hierarchy dedup, so a skill
+            # scoped to another cluster cannot suppress an applicable one.
+            if clusters is not None and self.cluster not in clusters:
+                continue
+            # Validate per row. id and title are required on the model, so a row with a
+            # null runbook_id or subject_name raises -- and if that reached the outer
+            # handler the user would silently lose EVERY personal skill, not just the
+            # malformed one. Skip the bad row instead.
+            try:
+                instructions.append(
+                    RobustaSkillInstruction(
+                        id=id, symptom=symptom or "", title=title, alerts=alerts
+                    )
+                )
+            # See get_skill_catalog: only ValidationError, so a real bug in this loop
+            # surfaces instead of being logged as malformed data.
+            except ValidationError:
+                logging.warning(
+                    "Skipping malformed personal skill row: runbook_id=%s", id
+                )
+        return instructions
 
     def get_personal_skill_content(
         self, skill_id: str, user_id: str
@@ -1006,22 +1042,25 @@ class SupabaseDal:
     def get_global_instructions_for_account(self) -> Optional[Instructions]:
         if not self.enabled:
             return None
-
         try:
-            res = (
-                self.client.table(RUNBOOKS_TABLE)
-                .select("runbook")
-                .eq("account_id", self.account_id)
-                .eq("subject_type", "Account")
-                .execute()
+            return self.global_instructions_cache.get_or_load(
+                "account", self._fetch_global_instructions
             )
-
-            if res.data:
-                instructions = res.data[0].get("runbook").get("instructions")
-                return Instructions(instructions=instructions)
         except Exception:
             logging.exception("Failed to fetch global instructions", exc_info=True)
+            return None
 
+    def _fetch_global_instructions(self) -> Optional[Instructions]:
+        res = (
+            self.client.table(RUNBOOKS_TABLE)
+            .select("runbook")
+            .eq("account_id", self.account_id)
+            .eq("subject_type", "Account")
+            .execute()
+        )
+        if res.data:
+            instructions = res.data[0].get("runbook").get("instructions")
+            return Instructions(instructions=instructions)
         return None
 
     def create_session_token(self) -> str:
