@@ -1,10 +1,15 @@
-
 # Label-routed Prometheus queries
 
 {%- if config and config.label_key %}
 * Every tool here requires a `label_value` parameter. Before calling ANY of these tools, determine the value of the Kubernetes label `{{ config.label_key }}` on the resource you are investigating (check the resource itself, e.g. Pod/Deployment, and fall back to its Namespace if the label isn't present there) using a kubernetes tool (e.g. kubectl get/describe, or a `kubernetes_*` tool). Pass that exact discovered value as `label_value` on every call.
 * NEVER guess, assume, or reuse a `{{ config.label_key }}` value from a different resource or an earlier unrelated conversation. If the resource has no `{{ config.label_key }}` label, tell the user this query cannot be routed instead of fabricating a value.
-* Each `label_value` routes to a completely separate Prometheus instance — metrics, labels, series, and rules for one value tell you nothing about another. Don't mix data across different `label_value`s in one analysis.
+* Each `label_value` selects a separate tenant — metrics, labels, series, and rules for one value tell you nothing about another. Don't mix data across different `label_value`s in one analysis.
+{%- endif %}
+{%- if config and config.additional_labels and config.additional_labels.keys()|list|length > 0 %}
+* ALWAYS add the following label matchers to EVERY PromQL query and to every series selector you pass as `match` to the discovery tools (`label_routed_get_metric_names`, `label_routed_get_label_values`, `label_routed_get_all_labels`, `label_routed_get_series`). Put them on every metric selector in the query, including inside sub-expressions and both sides of binary operations:
+{%- for key, value in config.additional_labels.items() %}
+  * {{ key }}="{{ value }}"
+{%- endfor %}
 {%- endif %}
 
 ## Metric discovery

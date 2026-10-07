@@ -403,25 +403,30 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
 
 ## Label-Routed Prometheus (Multi-Tenant Gateway)
 
-For deployments behind a gateway that fronts a **separate Prometheus instance per client**, keyed by a URL path segment (e.g. `http://gateway:80/prometheus/<client>/api/v1/query`), use the dedicated `prometheus/label-routed-metrics` toolset instead of `prometheus/metrics`. It does not take a single static `prometheus_url` to query — every call is routed dynamically based on a Kubernetes resource label.
+For multi-tenant Prometheus-compatible backends such as Grafana Mimir, where one URL serves many tenants and the tenant is chosen per request by a header (e.g. `X-Scope-OrgID`), and the tenant to query is the value of a Kubernetes label on the investigated resource, use the dedicated `prometheus/label-routed-metrics` toolset instead of `prometheus/metrics`.
 
 ```yaml
 toolsets:
     prometheus/label-routed-metrics:
         enabled: true
         config:
-            prometheus_url: http://prometheus-gateway.monitoring.svc.cluster.local:80
-            label_key: productline  # Kubernetes label whose value selects the per-client path (default: productline)
+            prometheus_url: http://mimir.monitoring.svc.cluster.local/prometheus
+            label_key: productline          # Kubernetes label whose value is the tenant
+            routing_header: X-Scope-OrgID   # default
+            additional_labels:              # optional: matchers the LLM adds to every query
+                k8s_cluster_name: prod-eu-1
 ```
 
-**How it works:** every tool in this toolset requires a `label_value` parameter. Before calling any tool, the LLM is instructed (via this toolset's built-in guidance) to first look up the `label_key` label (e.g. `productline`) on the Kubernetes resource being investigated using a kubernetes tool, then pass the discovered value as `label_value`. Each call is then routed to `{prometheus_url}/prometheus/{label_value}/api/v1/...` — a completely separate Prometheus instance per label value. There is no default/fallback backend: if the resource has no value for the configured label, the tool returns an error instead of guessing.
+**How it works:** every tool in this toolset requires a `label_value` parameter. Before calling any tool, the LLM is instructed to look up the `label_key` label (e.g. `productline`) on the Kubernetes resource being investigated using a kubernetes tool, and pass the value as `label_value`. Each call goes to the same `{prometheus_url}api/v1/...` with the header `{routing_header}: {label_value}`. There is no default tenant: if the resource has no value for the configured label, the tool returns an error instead of guessing.
 
-This toolset is meant to run standalone for this use case — don't enable it alongside `prometheus/metrics` in the same deployment, since their tool names overlap in purpose (though not in name) and would confuse the LLM about which to use.
+This toolset is meant to run standalone for this use case. Don't enable it alongside `prometheus/metrics` in the same deployment, since the two overlap in purpose and would confuse the LLM about which to use.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `prometheus_url` | (required) | Base URL of the Prometheus gateway, **without** the per-client path segment |
+| `prometheus_url` | (required) | Base URL of the Prometheus-compatible API, the same for every tenant |
 | `label_key` | `productline` | Kubernetes label name used to generate the LLM instructions telling it which label to look up first |
+| `routing_header` | `X-Scope-OrgID` | HTTP header that carries `label_value` on every request. Overrides a header of the same name in `additional_headers` |
+| `additional_labels` | (none) | Label matchers the LLM is instructed to add to every PromQL query and discovery selector (e.g. `k8s_cluster_name: prod-eu-1`). Enforced through the prompt, not by rewriting queries |
 | `additional_headers` | `{}` | HTTP headers sent with every request (e.g. `Authorization: Bearer <token>`) |
 | `verify_ssl` | `true` | Enable SSL certificate verification |
 

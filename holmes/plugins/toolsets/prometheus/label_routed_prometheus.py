@@ -1,33 +1,42 @@
 """
 Label-routed Prometheus toolset.
 
-For deployments where a gateway fronts a *separate* Prometheus instance per
-client, keyed by a URL path segment derived from a Kubernetes resource label
-(e.g. a `productline` label). Every API call is routed as:
+For multi-tenant Prometheus-compatible backends (e.g. Grafana Mimir) where a
+single base URL serves many tenants and the tenant is selected per request by
+an HTTP header, and the tenant to query is the value of a Kubernetes resource
+label (e.g. a `productline` label). Every API call is sent as:
 
-    {prometheus_url}/prometheus/{label_value}/api/v1/...
+    {prometheus_url}api/v1/...    with header    {routing_header}: {label_value}
+
+e.g. `X-Scope-OrgID: corporate` for Mimir.
 
 This is NOT a general-purpose Prometheus toolset. For a single, static
 Prometheus instance, use `prometheus/metrics` instead. This toolset requires
 the LLM to determine the routing label's value (e.g. from a kubernetes tool)
-and pass it explicitly as `label_value` on every call — there is no default
-backend to fall back to.
+and pass it explicitly as `label_value` on every call. There is no default
+tenant to fall back to.
 
 Implementation note: this subclasses the real `prometheus/metrics` tools
 (query building, timeouts, token-based truncation, SSL error handling all
-stay inherited and unmodified) and only overrides how the request's base URL
-is computed, via the `BasePrometheusTool._get_base_url()` seam in
-`prometheus.py`. Bug fixes/improvements to the underlying tools apply here
-automatically.
+stay inherited and unmodified) and only overrides the request headers, via
+the `BasePrometheusTool._get_headers()` seam in `prometheus.py`. Bug
+fixes/improvements to the underlying tools apply here automatically.
 """
 
 import os
-from typing import Any, ClassVar, Optional, Tuple, Type
-from urllib.parse import quote, urljoin
+from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
 from pydantic import Field
 
-from holmes.core.tools import CallablePrerequisite, ToolParameter, Toolset, ToolsetTag
+from holmes.core.tools import (
+    CallablePrerequisite,
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    ToolInvokeContext,
+    ToolParameter,
+    Toolset,
+    ToolsetTag,
+)
 from holmes.plugins.toolsets.prometheus.prometheus import (
     ExecuteInstantQuery,
     ExecuteRangeQuery,
@@ -43,13 +52,14 @@ from holmes.plugins.toolsets.prometheus.prometheus import (
 
 
 class LabelRoutedPrometheusConfig(PrometheusConfig):
-    """Configuration for a Prometheus gateway that routes each request to a
-    per-client backend based on a Kubernetes resource label value."""
+    """Configuration for a multi-tenant Prometheus-compatible backend whose
+    tenant is selected per request by a header, from a Kubernetes resource
+    label value."""
 
     _name: ClassVar[Optional[str]] = "Prometheus (label-routed)"
     _description: ClassVar[Optional[str]] = (
-        "Connect to a Prometheus gateway that routes each request to a "
-        "per-client backend selected by a Kubernetes resource label value."
+        "Connect to a multi-tenant Prometheus-compatible backend (e.g. Mimir) that "
+        "selects the tenant per request from a Kubernetes resource label value."
     )
     _docs_anchor: ClassVar[Optional[str]] = (
         "label-routed-prometheus-multi-tenant-gateway"
@@ -58,21 +68,30 @@ class LabelRoutedPrometheusConfig(PrometheusConfig):
     prometheus_url: str = Field(  # type: ignore[assignment]
         title="URL",
         description=(
-            "Base URL of the Prometheus gateway, WITHOUT the per-client path segment "
-            "(that segment is built dynamically from `label_value` on every call)."
+            "Base URL of the Prometheus-compatible API, the same for every tenant. "
+            "The tenant is sent in the routing header, not in the URL."
         ),
-        examples=["http://prometheus-gateway.monitoring.svc.cluster.local:80"],
+        examples=["http://mimir.monitoring.svc.cluster.local/prometheus"],
     )
     label_key: str = Field(
         default="productline",
         title="Routing Label",
         description=(
-            "Name of the Kubernetes label whose value selects the per-client Prometheus path. "
+            "Name of the Kubernetes label whose value selects the tenant. "
             "Used only to generate LLM-facing instructions telling it which label to look up "
-            "before calling this toolset's tools — it does not change any tool parameter name "
+            "before calling this toolset's tools. It does not change any tool parameter name "
             "(the tool parameter is always `label_value`)."
         ),
         examples=["productline"],
+    )
+    routing_header: str = Field(
+        default="X-Scope-OrgID",
+        title="Routing Header",
+        description=(
+            "HTTP header that carries `label_value` on every request. Overrides a header "
+            "of the same name in `additional_headers`."
+        ),
+        examples=["X-Scope-OrgID"],
     )
 
 
@@ -81,7 +100,7 @@ def _label_value_param() -> ToolParameter:
         description=(
             "Value of the Kubernetes routing label for the resource being investigated "
             "(see this toolset's instructions for which label to look up first, e.g. via a "
-            "kubernetes tool). Selects which per-client Prometheus backend this call is routed to. "
+            "kubernetes tool). Selects which tenant's metrics this call reads. "
             "Do not guess or fabricate this value."
         ),
         type="string",
@@ -89,28 +108,23 @@ def _label_value_param() -> ToolParameter:
     )
 
 
-def _resolve_label_routed_url(config: LabelRoutedPrometheusConfig, params: dict) -> str:
-    label_value = params.get("label_value")
-    if not label_value:
-        raise ValueError(
-            "'label_value' parameter is required and was missing or empty. Before calling "
-            f"this tool, determine the value of the Kubernetes label '{config.label_key}' on the "
-            "resource being investigated (check the resource itself, e.g. Pod/Deployment, "
-            "falling back to its Namespace if not present there) using a kubernetes tool, "
-            "then retry this call passing that value as 'label_value'. If the resource has "
-            f"no '{config.label_key}' label at all, report to the user that this query cannot be "
-            "routed rather than guessing a value."
-        )
-    return urljoin(
-        config.prometheus_url, f"prometheus/{quote(str(label_value), safe='')}/"
+def _missing_label_value_error(config: LabelRoutedPrometheusConfig) -> str:
+    return (
+        "'label_value' parameter is required and was missing or empty. Before calling "
+        f"this tool, determine the value of the Kubernetes label '{config.label_key}' on the "
+        "resource being investigated (check the resource itself, e.g. Pod/Deployment, "
+        "falling back to its Namespace if not present there) using a kubernetes tool, "
+        "then retry this call passing that value as 'label_value'. If the resource has "
+        f"no '{config.label_key}' label at all, report to the user that this query cannot be "
+        "routed rather than guessing a value."
     )
 
 
-class LabelRoutedURLMixin:
+class LabelRoutedHeaderMixin:
     """Adds a required `label_value` parameter to a `prometheus/metrics` tool
-    and routes its base URL through `{prometheus_url}/prometheus/{label_value}/`
-    instead of the toolset's static `prometheus_url`. Everything else (query
-    building, response formatting, error handling) stays inherited."""
+    and sends it in the configured routing header on every request.
+    Everything else (URL, query building, response formatting, error
+    handling) stays inherited."""
 
     def __init__(self, toolset):
         super().__init__(toolset)  # type: ignore[call-arg]
@@ -120,39 +134,53 @@ class LabelRoutedURLMixin:
         # in the same deployment.
         self.name = f"label_routed_{self.name}"  # type: ignore[attr-defined]
 
-    def _get_base_url(self, params: dict) -> str:
-        return _resolve_label_routed_url(self.toolset.config, params)  # type: ignore[attr-defined]
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        config = self.toolset.config  # type: ignore[attr-defined]
+        if config is not None and not params.get("label_value"):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=_missing_label_value_error(config),
+                params=params,
+            )
+        return super()._invoke(params, context)  # type: ignore[misc]
+
+    def _get_headers(self, params: dict) -> Dict[str, str]:
+        config: LabelRoutedPrometheusConfig = self.toolset.config  # type: ignore[attr-defined]
+        return {
+            **config.additional_headers,
+            config.routing_header: str(params["label_value"]),
+        }
 
 
-class LabelRoutedListPrometheusRules(LabelRoutedURLMixin, ListPrometheusRules):
+class LabelRoutedListPrometheusRules(LabelRoutedHeaderMixin, ListPrometheusRules):
     pass
 
 
-class LabelRoutedGetMetricNames(LabelRoutedURLMixin, GetMetricNames):
+class LabelRoutedGetMetricNames(LabelRoutedHeaderMixin, GetMetricNames):
     pass
 
 
-class LabelRoutedGetLabelValues(LabelRoutedURLMixin, GetLabelValues):
+class LabelRoutedGetLabelValues(LabelRoutedHeaderMixin, GetLabelValues):
     pass
 
 
-class LabelRoutedGetAllLabels(LabelRoutedURLMixin, GetAllLabels):
+class LabelRoutedGetAllLabels(LabelRoutedHeaderMixin, GetAllLabels):
     pass
 
 
-class LabelRoutedGetSeries(LabelRoutedURLMixin, GetSeries):
+class LabelRoutedGetSeries(LabelRoutedHeaderMixin, GetSeries):
     pass
 
 
-class LabelRoutedGetMetricMetadata(LabelRoutedURLMixin, GetMetricMetadata):
+class LabelRoutedGetMetricMetadata(LabelRoutedHeaderMixin, GetMetricMetadata):
     pass
 
 
-class LabelRoutedExecuteInstantQuery(LabelRoutedURLMixin, ExecuteInstantQuery):
+class LabelRoutedExecuteInstantQuery(LabelRoutedHeaderMixin, ExecuteInstantQuery):
     pass
 
 
-class LabelRoutedExecuteRangeQuery(LabelRoutedURLMixin, ExecuteRangeQuery):
+class LabelRoutedExecuteRangeQuery(LabelRoutedHeaderMixin, ExecuteRangeQuery):
     pass
 
 
@@ -191,8 +219,8 @@ class LabelRoutedPrometheusToolset(PrometheusToolset):
             self,
             name="prometheus/label-routed-metrics",
             description=(
-                "Prometheus integration that routes each request to a per-client backend "
-                "selected by a Kubernetes resource label value"
+                "Prometheus integration for multi-tenant backends that selects the tenant "
+                "per request from a Kubernetes resource label value"
             ),
             docs_url="https://holmesgpt.dev/data-sources/builtin-toolsets/prometheus/",
             icon_url="https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/prometheus.svg",

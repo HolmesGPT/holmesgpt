@@ -619,16 +619,14 @@ class AzurePrometheusConfig(PrometheusConfig):
 class BasePrometheusTool(Tool):
     toolset: "PrometheusToolset"
 
-    def _get_base_url(self, params: dict) -> str:
-        """Base URL to build this call's request against. Overridable seam for
-        variants that route to a different backend per call (e.g. based on a
-        param value) without touching the shared query/response logic below.
-        Must be computed fresh from `params` each call — never cache/mutate
-        `self.toolset.config` here, since a toolset instance can be invoked
-        concurrently with different params."""
+    def _get_headers(self, params: dict) -> Dict[str, str]:
+        """HTTP headers for this call's request. Overridable seam for variants
+        that pick the backend/tenant per call (e.g. a tenant header from a
+        param value). Must be computed fresh from `params` each call: never
+        mutate `self.toolset.config` here, since one toolset instance can be
+        invoked concurrently with different params."""
         assert self.toolset.config is not None
-        assert self.toolset.config.prometheus_url is not None
-        return self.toolset.config.prometheus_url
+        return self.toolset.config.additional_headers
 
 
 def do_request(
@@ -968,7 +966,9 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
             if params.get("match"):
                 query_params["match[]"] = params["match"]
 
-            rules_url = urljoin(self._get_base_url(params), "api/v1/rules")
+            prometheus_url = self.toolset.config.prometheus_url
+
+            rules_url = urljoin(prometheus_url, "api/v1/rules")
 
             rules_response = do_request(
                 config=self.toolset.config,
@@ -976,7 +976,7 @@ class ListPrometheusRules(JsonFilterMixin, BasePrometheusTool):
                 params=query_params,
                 timeout=40,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 method="GET",
             )
             rules_response.raise_for_status()
@@ -1089,7 +1089,9 @@ class GetMetricNames(BasePrometheusTool):
                     params=params,
                 )
 
-            url = urljoin(self._get_base_url(params), "api/v1/label/__name__/values")
+            url = urljoin(
+                self.toolset.config.prometheus_url, "api/v1/label/__name__/values"
+            )
             query_params = {
                 "limit": str(PROMETHEUS_METADATA_API_LIMIT),
                 "match[]": match_param,
@@ -1116,7 +1118,7 @@ class GetMetricNames(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 method="GET",
             )
             response.raise_for_status()
@@ -1206,7 +1208,9 @@ class GetLabelValues(BasePrometheusTool):
                     params=params,
                 )
 
-            url = urljoin(self._get_base_url(params), f"api/v1/label/{label}/values")
+            url = urljoin(
+                self.toolset.config.prometheus_url, f"api/v1/label/{label}/values"
+            )
             query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
             if params.get("match"):
                 query_params["match[]"] = params["match"]
@@ -1232,7 +1236,7 @@ class GetLabelValues(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 method="GET",
             )
             response.raise_for_status()
@@ -1310,7 +1314,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=params,
             )
         try:
-            url = urljoin(self._get_base_url(params), "api/v1/labels")
+            url = urljoin(self.toolset.config.prometheus_url, "api/v1/labels")
             query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
             if params.get("match"):
                 query_params["match[]"] = params["match"]
@@ -1336,7 +1340,7 @@ class GetAllLabels(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 method="GET",
             )
             response.raise_for_status()
@@ -1423,7 +1427,7 @@ class GetSeries(BasePrometheusTool):
                     params=params,
                 )
 
-            url = urljoin(self._get_base_url(params), "api/v1/series")
+            url = urljoin(self.toolset.config.prometheus_url, "api/v1/series")
             query_params = {
                 "match[]": match,
                 "limit": str(PROMETHEUS_METADATA_API_LIMIT),
@@ -1450,7 +1454,7 @@ class GetSeries(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 method="GET",
             )
             response.raise_for_status()
@@ -1517,7 +1521,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=params,
             )
         try:
-            url = urljoin(self._get_base_url(params), "api/v1/metadata")
+            url = urljoin(self.toolset.config.prometheus_url, "api/v1/metadata")
             query_params = {"limit": str(PROMETHEUS_METADATA_API_LIMIT)}
 
             if params.get("metric"):
@@ -1529,7 +1533,7 @@ class GetMetricMetadata(BasePrometheusTool):
                 params=query_params,
                 timeout=self.toolset.config.metadata_timeout_seconds_default,
                 verify=self.toolset.config.verify_ssl,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 method="GET",
             )
             response.raise_for_status()
@@ -1609,7 +1613,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             query = params.get("query", "")
             description = params.get("description", "")
 
-            url = urljoin(self._get_base_url(params), "api/v1/query")
+            url = urljoin(self.toolset.config.prometheus_url, "api/v1/query")
 
             payload = {"query": query}
 
@@ -1628,7 +1632,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
@@ -1837,7 +1841,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             )
 
         try:
-            url = urljoin(self._get_base_url(params), "api/v1/query_range")
+            url = urljoin(self.toolset.config.prometheus_url, "api/v1/query_range")
 
             query = get_param_or_raise(params, "query")
             (start, end) = process_timestamps_to_rfc3339(
@@ -1882,7 +1886,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
             response = do_request(
                 config=self.toolset.config,
                 url=url,
-                headers=self.toolset.config.additional_headers,
+                headers=self._get_headers(params),
                 data=payload,
                 timeout=timeout,
                 verify=self.toolset.config.verify_ssl,
