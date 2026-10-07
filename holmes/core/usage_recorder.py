@@ -1,7 +1,7 @@
 """Shared helper for recording AI usage events to HolmesUsageEvents.
 
 Used by every LLM-consuming entry point (server.py /api/chat, the
-ConversationWorker, scheduled prompts, the AG-UI server, and
+the conversation runtime, scheduled prompts, the AG-UI server, and
 holmes/checks/checks_api.py) so usage tracking is consistent and there's
 exactly one place to update if the recording shape changes.
 
@@ -48,7 +48,7 @@ _RECORDER_EXECUTOR = ThreadPoolExecutor(
 # a fixed prefix to the user's message before POSTing /api/chat. Example:
 #   "**@user_U0AKMP2CZ97** • 2026-05-04T05:10:04Z\n\nhigh cpu in pod alert"
 # Extracted into a shared regex so both the direct /api/chat path (server.py)
-# and the worker path (conversations_worker/worker.py) can run the same
+# and the worker path (conversations_worker/processor.py) can run the same
 # detection. Heuristic — fragile if the runner format changes.
 _SLACK_ASK_PREFIX_RE = re.compile(
     r"^\*\*@user_(?P<slack_user_id>U[A-Z0-9]+)\*\*\s*•\s*"
@@ -98,7 +98,7 @@ def build_chat_recorder_state(
     """Construct a UsageRecorderState from a ChatRequest.
 
     Used by every code path that consumes a ChatRequest and wraps a stream:
-    server.py:chat() (direct /api/chat) and ConversationWorker._run_chat_and_publish
+    server.py:chat() (direct /api/chat) and ConversationProcessor._run_chat_and_publish
     (worker path). Centralizes the request_type / request_source / is_internal
     / Slack auto-detection logic so all entry points get identical behavior.
     """

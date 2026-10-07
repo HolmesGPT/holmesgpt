@@ -19,7 +19,8 @@ include_tool_calls: true
 
 tags:
   - logs
-  - easy
+  # Unreliable: needs a local docker daemon
+  # - easy
   - loki
   - fast
 
