@@ -51,6 +51,7 @@ def _dal() -> MagicMock:
     dal = MagicMock()
     dal.account_id = "account-id"
     dal.enabled = True
+    dal.relogin_count = 0
     dal.get_ai_credentials.return_value = ("account-id", "token")
     return dal
 

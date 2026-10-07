@@ -18,12 +18,15 @@ import sentry_sdk
 import yaml  # type: ignore
 from cachetools import TTLCache  # type: ignore
 from postgrest._sync import request_builder as supabase_request_builder
-from postgrest._sync.request_builder import SyncQueryRequestBuilder
+from postgrest._sync.request_builder import (
+    SyncQueryRequestBuilder,
+    SyncSingleRequestBuilder,
+)
 from postgrest.base_request_builder import QueryArgs
 from postgrest.exceptions import APIError as PGAPIError
 from postgrest.types import ReturnMethod
 from pydantic import BaseModel, ValidationError
-from supabase import create_client
+from supabase import Client, create_client
 from supabase.lib.client_options import SyncClientOptions as ClientOptions
 from tenacity import (
     RetryCallState,
@@ -107,6 +110,14 @@ def pre_select_patched(*args, **kwargs):
 
 
 supabase_request_builder.pre_select = pre_select_patched
+
+# Captured once so re-patching (a second SupabaseDal) never wraps a wrapper.
+# Table queries run through SyncQueryRequestBuilder, rpc() through
+# SyncSingleRequestBuilder.
+_ORIGINAL_EXECUTES = {
+    SyncQueryRequestBuilder: SyncQueryRequestBuilder.execute,
+    SyncSingleRequestBuilder: SyncSingleRequestBuilder.execute,
+}
 
 
 class RunStatus(str, Enum):
@@ -248,6 +259,24 @@ class SupabaseRetryTransport(httpx.HTTPTransport):
 KEY_CACHE: TTLCache = TTLCache(maxsize=64, ttl=24 * 60 * 60)
 
 
+def _is_jwt_error(exc: PGAPIError) -> bool:
+    return exc.code == "PGRST301" or "expired" in (exc.message or "").lower()
+
+
+def _stop_auto_refresh(client: Client) -> None:
+    # A superseded client's auth refresh timer would otherwise keep it alive and
+    # refreshing its token forever.
+    try:
+        timer = client.auth._refresh_token_timer
+        if timer is not None:
+            timer.cancel()
+            client.auth._refresh_token_timer = None
+    except Exception:
+        logging.debug(
+            "Could not stop the old Supabase client's refresh timer", exc_info=True
+        )
+
+
 class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
@@ -301,6 +330,10 @@ class SupabaseDal:
             httpx_client=httpx_client,
         )
         sentry_sdk.set_tag("db_url", self.url)
+        self._reconnect_lock = threading.Lock()
+        # Successful re-logins since startup; reported in the heartbeat.
+        self._client_generation = 0
+        self._relogin_attempts = 0
         self.__connect(options)
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
@@ -346,32 +379,73 @@ class SupabaseDal:
         self.__login(self.api_key, options)
 
     def __login(self, api_key: str, options: ClientOptions):
-        self.client = create_client(self.url, api_key, options)  # type: ignore
-        self.user_id = self.sign_in()
+        # Other threads keep using the old client until the new one is signed in.
+        client = create_client(self.url, api_key, options)
+        user_id = self.sign_in(client)
+        old_client = getattr(self, "client", None)
+        self.client = client
+        self.user_id = user_id
+        if old_client is not None:
+            _stop_auto_refresh(old_client)
+
+    @property
+    def relogin_count(self) -> int:
+        return getattr(self, "_client_generation", 0)
+
+    def _current_authorization(self) -> Optional[str]:
+        return self.client.postgrest.headers.get("Authorization")
+
+    def _relogin_after_jwt_error(self, used_authorization: Optional[str]) -> bool:
+        """Single-flight re-login. Returns False when a concurrent attempt for
+        the same token just failed, so the caller fails fast instead of queueing
+        another sign-in against an auth service that is already failing."""
+        seen_attempts = self._relogin_attempts
+        with self._reconnect_lock:
+            if self._current_authorization() != used_authorization:
+                return True
+            if self._relogin_attempts != seen_attempts:
+                return False
+            try:
+                self.__connect(self.options)
+            finally:
+                self._relogin_attempts += 1
+            self._client_generation += 1
+            logging.info(
+                "Re-logged in to Supabase after a JWT error (generation %d)",
+                self._client_generation,
+            )
+            return True
 
     def patch_postgrest_execute(self):
         logging.info("Patching postgres execute")
 
-        # This is somewhat hacky.
-        def execute_with_retry(_self):
-            try:
-                return self._original_execute(_self)
-            except PGAPIError as exc:
-                message = exc.message or ""
-                if exc.code == "PGRST301" or "expired" in message.lower():
-                    # JWT expired. Sign in again and retry the query
-                    logging.error(
-                        "JWT token expired/invalid, signing in to Supabase again"
+        def with_relogin(original_execute):
+            def execute_with_retry(_self):
+                try:
+                    return original_execute(_self)
+                except PGAPIError as exc:
+                    if not _is_jwt_error(exc):
+                        raise
+                    logging.warning(
+                        "Supabase JWT expired/invalid (%s), signing in again", exc.code
                     )
-                    self.__connect(self.options)
-                    # update the session to the new one, after re-sign in
-                    _self.session = self.client.postgrest.session
-                    return self._original_execute(_self)
-                else:
-                    raise
+                    request = _self.request
+                    if not self._relogin_after_jwt_error(
+                        request.headers.get("Authorization")
+                    ):
+                        raise
+                    # The request carries the headers of the client it was built on.
+                    postgrest = self.client.postgrest
+                    request.session = postgrest.session
+                    for header in ("apikey", "Authorization"):
+                        if header in postgrest.headers:
+                            request.headers[header] = postgrest.headers[header]
+                    return original_execute(_self)
 
-        self._original_execute = SyncQueryRequestBuilder.execute
-        SyncQueryRequestBuilder.execute = execute_with_retry
+            return execute_with_retry
+
+        for builder, original_execute in _ORIGINAL_EXECUTES.items():
+            setattr(builder, "execute", with_relogin(original_execute))
 
     @staticmethod
     def __load_robusta_config() -> Optional[RobustaToken]:
@@ -453,20 +527,19 @@ class SupabaseDal:
         # valid only if all store parameters are provided
         return all([self.account_id, self.url, self.api_key, self.email, self.password])
 
-    def sign_in(self) -> str:
+    def sign_in(self, client: Optional[Client] = None) -> str:
         logging.info("Supabase dal login")
+        client = client or self.client
         try:
-            res = self.client.auth.sign_in_with_password(
+            res = client.auth.sign_in_with_password(
                 {"email": self.email, "password": self.password}
             )
             if not res.session:
                 raise ValueError("Authentication failed: no session returned")
             if not res.user:
                 raise ValueError("Authentication failed: no user returned")
-            self.client.auth.set_session(
-                res.session.access_token, res.session.refresh_token
-            )
-            self.client.postgrest.auth(res.session.access_token)
+            client.auth.set_session(res.session.access_token, res.session.refresh_token)
+            client.postgrest.auth(res.session.access_token)
             return res.user.id
         except Exception as e:
             error_msg = str(e).lower()
