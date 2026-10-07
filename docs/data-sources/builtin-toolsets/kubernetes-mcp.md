@@ -694,7 +694,7 @@ kubectl create secret generic holmes-kubernetes-mcp \
 
 ### Step 5: Deploy
 
-Replace `<DEX_ISSUER_URL>` in the values. The `offline_access` scope lets Dex issue refresh tokens, so users don't have to sign in again every time their token expires.
+Replace `<DEX_ISSUER_URL>` in the values. The `offline_access` scope lets Dex issue refresh tokens, so users don't have to sign in again every time their token expires. Some connectors ignore it, notably the SAML connector, so their users sign in again when the token expires.
 
 === "Holmes Helm Chart"
 
