@@ -120,6 +120,9 @@ class TestConfig:
         assert ts.status == ToolsetStatusEnum.ENABLED
         assert ts.error is None
 
+    def test_no_prometheus_subtype(self):
+        assert LabelRoutedPrometheusConfig.build_schema_entry()["subtype"] is None
+
 
 class TestMissingLabelValue:
     """Every tool must refuse to run without label_value, before any HTTP
@@ -138,13 +141,32 @@ class TestMissingLabelValue:
         assert "label_value" in result.error
         assert "productline" in result.error
 
-    def test_empty_label_value(self):
+    @pytest.mark.parametrize("value", ["", "   ", "\t"])
+    def test_blank_label_value(self, value):
         ts = _toolset()
-        result = _tool(ts, "label_routed_get_all_labels").invoke(
-            {"label_value": ""}, create_mock_tool_invoke_context()
-        )
+        with responses.RequestsMock() as rsps:
+            result = _tool(ts, "label_routed_get_all_labels").invoke(
+                {"label_value": value}, create_mock_tool_invoke_context()
+            )
+            assert len(rsps.calls) == 0
         assert result.status == StructuredToolResultStatus.ERROR
-        assert "label_value" in result.error
+        assert "productline" in result.error
+
+    def test_padded_label_value_is_stripped(self):
+        ts = _toolset()
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                f"{BASE_URL}/api/v1/labels",
+                json={"status": "success", "data": []},
+                status=200,
+            )
+            result = _tool(ts, "label_routed_get_all_labels").invoke(
+                {"label_value": " corporate "}, create_mock_tool_invoke_context()
+            )
+            header = rsps.calls[0].request.headers["X-Scope-OrgID"]
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert header == "corporate"
 
     def test_uses_configured_label_key_in_error(self):
         ts = _toolset(label_key="tenant")
@@ -262,10 +284,30 @@ class TestHeaderRouting:
 
 
 class TestInstructions:
+    def test_routing_rules_then_stock_instructions(self):
+        ts = _toolset(label_key="tenant")
+        text = ts.llm_instructions
+        assert text.index("Kubernetes label `tenant`") < text.index(
+            "# Prometheus/PromQL queries"
+        )
+
+    def test_stock_tool_names_are_prefixed(self):
+        text = _toolset().llm_instructions
+        assert '"tool_name": "label_routed_execute_prometheus_range_query"' in text
+        for name in (
+            "get_metric_names",
+            "get_label_values",
+            "get_series",
+            "execute_prometheus_instant_query",
+            "list_prometheus_rules",
+        ):
+            assert f"label_routed_{name}" in text
+            assert f"`{name}" not in text
+
     def test_additional_labels_rendered_in_instructions(self):
         ts = _toolset(additional_labels={"k8s_cluster_name": "gb03prod2"})
         assert 'k8s_cluster_name="gb03prod2"' in ts.llm_instructions
-        assert "label_routed_get_metric_names" in ts.llm_instructions
+        assert "`label_routed_get_metric_names`" in ts.llm_instructions
 
     def test_no_additional_labels_block_without_config(self):
         ts = _toolset()

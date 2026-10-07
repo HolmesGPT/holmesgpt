@@ -49,6 +49,7 @@ from holmes.plugins.toolsets.prometheus.prometheus import (
     PrometheusConfig,
     PrometheusToolset,
 )
+from holmes.plugins.prompts import load_and_render_prompt
 
 
 class LabelRoutedPrometheusConfig(PrometheusConfig):
@@ -64,6 +65,8 @@ class LabelRoutedPrometheusConfig(PrometheusConfig):
     _docs_anchor: ClassVar[Optional[str]] = (
         "label-routed-prometheus-multi-tenant-gateway"
     )
+    # Not a `prometheus/metrics` variant: don't inherit its "prometheus" subtype.
+    _subtype: ClassVar[Optional[str]] = None
 
     prometheus_url: str = Field(  # type: ignore[assignment]
         title="URL",
@@ -136,13 +139,14 @@ class LabelRoutedHeaderMixin:
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
         config = self.toolset.config  # type: ignore[attr-defined]
-        if config is not None and not params.get("label_value"):
+        label_value = str(params.get("label_value") or "").strip()
+        if config is not None and not label_value:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=_missing_label_value_error(config),
                 params=params,
             )
-        return super()._invoke(params, context)  # type: ignore[misc]
+        return super()._invoke({**params, "label_value": label_value}, context)  # type: ignore[misc]
 
     def _get_headers(self, params: dict) -> Dict[str, str]:
         config: LabelRoutedPrometheusConfig = self.toolset.config  # type: ignore[attr-defined]
@@ -213,6 +217,7 @@ class LabelRoutedPrometheusToolset(PrometheusToolset):
         LabelRoutedPrometheusConfig
     ]
     config: Optional[LabelRoutedPrometheusConfig] = None
+    _llm_tool_prefix: ClassVar[str] = "label_routed_"
 
     def __init__(self):
         Toolset.__init__(
@@ -242,15 +247,22 @@ class LabelRoutedPrometheusToolset(PrometheusToolset):
         self._reload_llm_instructions()
 
     def _reload_llm_instructions(self):
-        self._load_llm_instructions_from_file(
-            os.path.dirname(__file__), "label_routed_prometheus_instructions.jinja2"
+        # Tenant-routing rules first, then the stock Prometheus instructions
+        # rendered with this toolset's `label_routed_` tool names.
+        super()._reload_llm_instructions()
+        routing = load_and_render_prompt(
+            prompt=f"file://{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'label_routed_prometheus_instructions.jinja2')}",
+            context={"config": self.config},
         )
+        self.llm_instructions = f"{routing}\n{self.llm_instructions}"
 
     def prerequisites_callable(self, config: dict[str, Any]) -> Tuple[bool, str]:
         config = config or {}
         try:
             self.config = LabelRoutedPrometheusConfig(**config)
             self._reload_llm_instructions()
-            return True, ""
         except Exception as e:
             return False, f"Invalid label-routed Prometheus configuration: {e}"
+        # No connectivity check: there is no tenant at startup, and Mimir
+        # rejects tenant-less queries.
+        return True, ""

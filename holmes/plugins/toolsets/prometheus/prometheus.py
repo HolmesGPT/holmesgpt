@@ -2024,6 +2024,9 @@ class PrometheusToolset(Toolset):
         list[Type[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]]]
     ] = [PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]
     config: Optional[Union[PrometheusConfig, CoralogixPrometheusConfig, GooglePrometheusConfig, GrafanaCloudPrometheusConfig, VictoriaMetricsConfig, AMPConfig, AzurePrometheusConfig]] = None
+    # Prefix of this toolset's tool names, used to render tool references in
+    # prometheus_instructions.jinja2 (subclasses with renamed tools override it).
+    _llm_tool_prefix: ClassVar[str] = ""
 
     def __init__(self):
         super().__init__(
@@ -2091,6 +2094,7 @@ class PrometheusToolset(Toolset):
             prompt=f"file://{template_file_path}",
             context={
                 "tool_names": tool_names,
+                "tool_prefix": self._llm_tool_prefix,
                 "config": self.config,
                 "default_max_points": int(MAX_GRAPH_POINTS),
                 "hard_max_points": int(MAX_GRAPH_POINTS_HARD_LIMIT),
