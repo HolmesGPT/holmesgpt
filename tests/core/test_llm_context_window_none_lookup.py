@@ -78,7 +78,7 @@ def test_missing_model_refreshes_stale_cost_map_once():
     entry["max_input_tokens"] = 1000000
     fresh_map = {"bedrock/new-model-test": entry}
     with (
-        patch("holmes.core.llm._last_cost_map_refresh", 0.0),
+        patch("holmes.core.llm._last_cost_map_refresh", float("-inf")),
         patch("holmes.core.llm.get_model_cost_map", return_value=fresh_map) as fetch,
         patch.dict("litellm.model_cost", {}, clear=False),
     ):
@@ -94,7 +94,7 @@ def test_missing_model_refreshes_stale_cost_map_once():
 def test_missing_pricing_refreshes_stale_cost_map():
     fresh_map = {"bedrock/new-priced-model-test": dict(_NORMALIZED_PRICED_ENTRY)}
     with (
-        patch("holmes.core.llm._last_cost_map_refresh", 0.0),
+        patch("holmes.core.llm._last_cost_map_refresh", float("-inf")),
         patch("holmes.core.llm.get_model_cost_map", return_value=fresh_map),
         patch.dict("litellm.model_cost", {}, clear=False),
     ):
@@ -104,7 +104,7 @@ def test_missing_pricing_refreshes_stale_cost_map():
 
 def test_failed_cost_map_refresh_keeps_fallback():
     with (
-        patch("holmes.core.llm._last_cost_map_refresh", 0.0),
+        patch("holmes.core.llm._last_cost_map_refresh", float("-inf")),
         patch("holmes.core.llm.get_model_cost_map", side_effect=RuntimeError("boom")),
     ):
         llm = _make_llm("bedrock/unreachable-model-test")
