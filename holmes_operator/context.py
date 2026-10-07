@@ -1,11 +1,13 @@
 """Global operator context for sharing state across handlers."""
 
+import asyncio
 import logging
 from typing import Optional
 
 from kubernetes import client
 from kubernetes import config as k8s_config
 
+from holmes_operator import reaper
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
 from holmes_operator.scheduler.manager import SchedulerManager
@@ -17,6 +19,7 @@ config: Optional[OperatorConfig] = None
 api_client: Optional[HolmesAPIClient] = None
 k8s_api: Optional[client.CustomObjectsApi] = None
 scheduler_manager: Optional[SchedulerManager] = None
+reaper_task: Optional[asyncio.Task] = None
 
 
 async def initialize() -> OperatorConfig:
@@ -33,7 +36,7 @@ async def initialize() -> OperatorConfig:
     Side Effects:
         Sets global variables: config, api_client, k8s_api, and scheduler_manager
     """
-    global config, api_client, k8s_api, scheduler_manager
+    global config, api_client, k8s_api, scheduler_manager, reaper_task
 
     # Load operator configuration
     config = OperatorConfig.load()
@@ -70,6 +73,9 @@ async def initialize() -> OperatorConfig:
     )
     await scheduler_manager.start()
 
+    # Start the completed HealthCheck reaper (no-op task=None when disabled)
+    reaper_task = reaper.start_reaper(k8s_api, config)
+
     return config
 
 
@@ -77,7 +83,14 @@ async def cleanup() -> None:
     """
     Cleanup global operator context.
     """
-    global api_client, k8s_api, scheduler_manager
+    global api_client, k8s_api, scheduler_manager, reaper_task
+    if reaper_task is not None:
+        reaper_task.cancel()
+        try:
+            await reaper_task
+        except asyncio.CancelledError:
+            pass
+        reaper_task = None
     if api_client is not None:
         await api_client.close()
     if k8s_api is not None:
