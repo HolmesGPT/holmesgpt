@@ -820,6 +820,17 @@ class Toolset(BaseModel):
             "this cluster (kubectl, in-cluster prometheus, ...)."
         ),
     )
+    status_refresh_interval_seconds: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Re-check this toolset at most once per this many seconds during the "
+            "server's periodic status refresh, keeping its last status and tools in "
+            "between. Unset, it is re-checked on every refresh "
+            "(TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS)."
+        ),
+    )
+
     def remote_exposure_default(
         self, instance_config: Optional[Dict[str, Any]] = None
     ) -> Optional[bool]:

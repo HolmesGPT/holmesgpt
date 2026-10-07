@@ -263,12 +263,16 @@ def sync_before_server_start():
 
 
 def _has_failed_mcp_toolsets() -> bool:
-    """Check if any MCP toolsets are in FAILED state."""
+    """Check if any MCP toolsets that the shortened backoff cycles would
+    re-check are in FAILED state. A toolset with its own status refresh
+    interval is re-checked on that interval, not on backoff cycles."""
     executor = config.cached_tool_executor  # thread-safe property
     if not executor:
         return False
     return any(
-        t.type == ToolsetType.MCP and t.status == ToolsetStatusEnum.FAILED
+        t.type == ToolsetType.MCP
+        and t.status == ToolsetStatusEnum.FAILED
+        and t.status_refresh_interval_seconds is None
         for t in executor.toolsets
     )
 
