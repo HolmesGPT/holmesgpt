@@ -78,6 +78,19 @@ Usage: {{- include "holmes.commonLabels" . | nindent 4 }}
 {{- end }}
 
 {{/*
+Release-scoped selector labels for the holmes server. Required for multiple
+releases per namespace: a bare `app: holmes` selector makes every release's
+Service load-balance across ALL holmes pods (and Deployments fight over each
+other's ReplicaSets). NOTE: adding the instance label to the Deployment
+selector changes an immutable field — upgrading an existing release requires
+deleting the Deployment once (pods are recreated by the new one).
+*/ -}}
+{{- define "holmes.selectorLabels" -}}
+app: holmes
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{/*
 Checksum of the Secret DATA behind every skillRepos credential, for the
 pod-template annotation: env comes from these Secrets via secretKeyRef, which
 does not restart pods when the data rotates, so the rollout must be triggered
