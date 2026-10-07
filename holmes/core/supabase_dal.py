@@ -1831,6 +1831,7 @@ class SupabaseDal:
         conversation_id: str,
         include_compacted: bool = False,
         min_seq: int = 1,
+        raise_on_error: bool = False,
     ) -> List[Dict]:
         """
         Fetch conversation events as a flat chronological list.
@@ -1878,6 +1879,12 @@ class SupabaseDal:
                 "Supabase error while fetching conversation events (after retries)",
                 exc_info=True,
             )
+            # The mid-turn completion guard must tell a failed read from a
+            # genuinely empty one: after a PENDING_FOLLOWUP refusal, an empty []
+            # from a failed read would otherwise look like "nothing to deliver"
+            # and force an unguarded completion past the unread message.
+            if raise_on_error:
+                raise
             return []
 
     def finish_scheduled_prompt_run(

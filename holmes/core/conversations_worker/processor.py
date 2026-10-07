@@ -716,10 +716,22 @@ class ConversationProcessor:
                 status=status,
                 consumed_seq=consumed,
             )
-        except PendingFollowupError:
+        except PendingFollowupError as err:
             extra = followups.fetch_new()
             if extra and rounds < MAX_FOLLOWUP_CONTINUATIONS and capture.messages:
                 raise _CompletionRefused(extra)
+            if followups.last_fetch_failed:
+                # The DB refused completion because an unread message exists, but
+                # we could not read it. An empty `extra` here is "read failed",
+                # not "nothing to deliver" — forcing an unguarded completion
+                # would drop the message. Let the turn fail and be reclaimed so
+                # the message is still delivered on the retry.
+                logging.warning(
+                    "Conversation %s: completion refused for a pending follow-up "
+                    "and the follow-up read failed; deferring completion for retry",
+                    task.conversation_id,
+                )
+                raise
             logging.warning(
                 "Conversation %s: completion refused for a pending follow-up but "
                 "cannot continue (messages=%d, rounds=%d); completing anyway",

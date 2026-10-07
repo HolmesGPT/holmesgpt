@@ -311,7 +311,7 @@ def test_followups_fetch_on_signal_and_advance_consumed_seq():
     assert f.consumed_seq == 4
     assert not signal.is_set()
     dal.get_conversation_events.assert_called_once_with(
-        "c1", include_compacted=True, min_seq=2
+        "c1", include_compacted=True, min_seq=2, raise_on_error=True
     )
 
 
@@ -584,11 +584,12 @@ def _finish(w, terminal, followups, rounds=0, messages=None):
     )
 
 
-def _followups(enabled=True, consumed=4, new=None):
+def _followups(enabled=True, consumed=4, new=None, fetch_failed=False):
     f = MagicMock(spec=MidTurnFollowups)
     f.enabled = enabled
     f.consumed_seq = consumed
     f.fetch_new.return_value = new or []
+    f.last_fetch_failed = fetch_failed
     return f
 
 
@@ -625,6 +626,23 @@ def test_finish_turn_refused_but_nothing_to_feed_completes_unguarded():
     assert _finish(w, StreamEvents.ANSWER_END, _followups(new=[]), messages=[{"role": "user", "content": "q"}]) is True
     second = w.dal.update_conversation_status.call_args_list[1].kwargs
     assert "consumed_seq" not in second
+
+
+def test_finish_turn_defers_completion_when_the_followup_read_fails():
+    """A PENDING_FOLLOWUP means an unread message exists; if the follow-up read
+    then fails, an empty fetch is a failed read, not 'nothing to deliver', so the
+    turn must not force an unguarded completion past the message."""
+    w, _ = _bare_worker()
+    w.dal.update_conversation_status.side_effect = PendingFollowupError("x")
+    with pytest.raises(PendingFollowupError):
+        _finish(
+            w,
+            StreamEvents.ANSWER_END,
+            _followups(new=[], fetch_failed=True),
+            messages=[{"role": "user", "content": "q"}],
+        )
+    # Only the guarded attempt ran — no unguarded completion was sent.
+    assert w.dal.update_conversation_status.call_count == 1
 
 
 def test_finish_turn_refused_past_the_round_limit_completes_unguarded():

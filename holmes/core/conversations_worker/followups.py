@@ -81,6 +81,10 @@ class MidTurnFollowups:
         self._poll_interval = poll_interval_seconds or 0
         self._clock = clock
         self._last_fetch = clock()
+        # Set when the last fetch_new() read failed (vs. genuinely returned no
+        # messages). The completion guard reads it to avoid force-completing a
+        # turn past an unread message it simply could not read.
+        self.last_fetch_failed = False
 
     # ---- hooks ----
 
@@ -117,6 +121,7 @@ class MidTurnFollowups:
         included.
         """
         if not self.enabled or self.consumed_seq is None:
+            self.last_fetch_failed = False
             return []
         self._last_fetch = self._clock()
         try:
@@ -124,13 +129,16 @@ class MidTurnFollowups:
                 self.conversation_id,
                 include_compacted=True,
                 min_seq=self.consumed_seq + 1,
+                raise_on_error=True,
             )
         except Exception:
             logging.exception(
                 "Conversation %s: failed to read mid-turn follow-ups",
                 self.conversation_id,
             )
+            self.last_fetch_failed = True
             return []
+        self.last_fetch_failed = False
         out: List[Dict[str, Any]] = []
         for ev in events:
             seq = ev.get("seq")
