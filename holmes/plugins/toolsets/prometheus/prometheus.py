@@ -1611,7 +1611,9 @@ class ExecuteInstantQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            timeout = params.get("timeout")
+            if timeout is None:
+                timeout = default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
@@ -1865,7 +1867,9 @@ class ExecuteRangeQuery(BasePrometheusTool):
             # Get timeout parameter and enforce limits
             default_timeout = self.toolset.config.query_timeout_seconds_default
             max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
+            timeout = params.get("timeout")
+            if timeout is None:
+                timeout = default_timeout
             if timeout > max_timeout:
                 timeout = max_timeout
                 logging.warning(
