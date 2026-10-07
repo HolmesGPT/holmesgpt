@@ -1464,7 +1464,7 @@ def main():
         report_lines.append("")
     elif benchmark_type == "advanced-benchmark":
         report_lines.append('!!! info "Advanced Benchmark"')
-        report_lines.append("    **Markers**: `advanced`<br>")
+        report_lines.append("    **Markers**: `regression or benchmark or advanced`<br>")
         report_lines.append("    **Schedule**: Manual / On-demand<br>")
         report_lines.append(
             "    **Purpose**: Evals that separate stronger from weaker models"
