@@ -33,9 +33,9 @@ from holmes.core.conversations_worker.models import (
     PendingFollowupError,
 )
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
-from holmes.core.conversations_worker.worker import (
+from holmes.core.conversations_worker.processor import (
     MAX_FOLLOWUP_CONTINUATIONS,
-    ConversationWorker,
+    ConversationProcessor,
     _CompletionRefused,
 )
 from holmes.core.models import ChatRequest
@@ -61,7 +61,7 @@ def _task(**kwargs):
 
 
 def _bare_worker():
-    w = ConversationWorker.__new__(ConversationWorker)
+    w = ConversationProcessor.__new__(ConversationProcessor)
     w.dal = MagicMock()
     w.dal.enabled = True
     w.dal.update_conversation_status = MagicMock(return_value=True)
@@ -89,7 +89,7 @@ def _bare_worker():
     w._realtime_manager = None
     w._followup_signals = {}
     w._followup_lock = threading.Lock()
-    w._mid_turn_followup_supported = True
+    w.mid_turn_followup_supported = True
     return w, ai
 
 
@@ -229,7 +229,7 @@ def test_notify_followup_wakes_all_concurrent_turns_of_a_conversation():
 
 
 def test_notify_followup_ignores_empty_ids_and_missing_registry():
-    w = ConversationWorker.__new__(ConversationWorker)
+    w = ConversationProcessor.__new__(ConversationProcessor)
     assert w.notify_followup(None) is False
     assert w.notify_followup("c1") is False
 
@@ -240,7 +240,12 @@ def test_realtime_worker_routes_conversation_followup_to_the_worker():
     dal.account_id = "acc-1"
     dal.cluster = "cluster-1"
     worker = MagicMock()
-    rt = RealtimeWorker(dal=dal, holmes_id="h", conversation_worker=worker)
+    rt = RealtimeWorker(
+        dal=dal,
+        holmes_id="h",
+        on_new_pending=MagicMock(),
+        on_followup=worker.notify_followup,
+    )
     assert rt.on_followup is worker.notify_followup
 
     rt._on_followup_broadcast(
@@ -654,17 +659,17 @@ def _drive(worker, ai, call_stream_results, update_side_effects, fetch_new_resul
 
     fetches = iter(fetch_new_results)
     with patch(
-        "holmes.core.conversations_worker.worker.stream_with_usage_recording",
+        "holmes.core.conversations_worker.processor.stream_with_usage_recording",
         side_effect=lambda stream, _state: stream,
     ), patch(
-        "holmes.core.conversations_worker.worker.build_chat_recorder_state"
+        "holmes.core.conversations_worker.processor.build_chat_recorder_state"
     ), patch(
-        "holmes.core.conversations_worker.worker.build_chat_messages",
+        "holmes.core.conversations_worker.processor.build_chat_messages",
         return_value=[{"role": "user", "content": "q"}],
     ), patch(
-        "holmes.core.conversations_worker.worker.tool_result_storage"
+        "holmes.core.conversations_worker.processor.tool_result_storage"
     ) as storage, patch(
-        "holmes.core.conversations_worker.worker.TracingFactory"
+        "holmes.core.conversations_worker.processor.TracingFactory"
     ) as tracing, patch.object(
         MidTurnFollowups, "fetch_new", lambda self: next(fetches)
     ):

@@ -194,9 +194,6 @@ SCHEDULED_PROMPTS_INACTIVE_POLL_INTERVAL_SECONDS = int(
 SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS = int(
     os.environ.get("SCHEDULED_PROMPTS_HEARTBEAT_INTERVAL_SECONDS", 60)
 )
-# Disables TodoWrite for scheduled prompts so the report ends up in ChatResponse.analysis
-# rather than being buried in conversation_history behind a trailing TodoWrite call.
-ENABLE_SCHEDULED_PROMPTS_FAST_MODE = load_bool("ENABLE_SCHEDULED_PROMPTS_FAST_MODE", True)
 # for embedds
 ROBUSTA_UI_DOMAIN = os.environ.get(
     "ROBUSTA_UI_DOMAIN",
@@ -218,6 +215,9 @@ HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
 
 # Conversation Worker (M2)
 ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
+# Size of a conversation executor whose name has no built-in default; 'manual'
+# and 'auto' are sized from account settings / their built-ins instead (see
+# holmes/core/conversations_worker/sizing.py).
 CONVERSATION_WORKER_MAX_CONCURRENT = int(
     os.environ.get("CONVERSATION_WORKER_MAX_CONCURRENT", 5)
 )
