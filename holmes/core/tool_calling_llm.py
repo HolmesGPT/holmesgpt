@@ -137,6 +137,7 @@ def _merge_choices(response: Any) -> None:
     if tool_calls:
         merged.message.tool_calls = tool_calls
         merged.finish_reason = "tool_calls"
+    logging.info("Merged %d LLM choices into one (tool_calls=%d)", len(choices), len(tool_calls))
     response.choices = [merged]
 
 
