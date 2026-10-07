@@ -1,4 +1,4 @@
-"""Edge-case tests for ConversationWorker input handling.
+"""Edge-case tests for ConversationProcessor input handling.
 
 These tests compare the worker's behavior to the /api/chat endpoint's
 Pydantic gating: malformed/missing inputs must result in a clean failure
@@ -12,33 +12,17 @@ Covered scenarios:
      but no new user_message for this turn — the prior user_message is
      "already answered" and must not be re-processed.
 """
-import threading
 from unittest.mock import MagicMock, patch
 
 from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.processor import ConversationProcessor
 
 
 def _bare_worker():
-    w = ConversationWorker.__new__(ConversationWorker)
-    w.dal = MagicMock()
-    w.dal.enabled = True
-    w.dal.update_conversation_status = MagicMock(return_value=True)
-    w.config = MagicMock()
-    w.chat_function = MagicMock()
-    w.holmes_id = "h-test"
-    w._running = True
-    w._claim_thread = None
-    w._notify_event = threading.Event()
-    w._saturated_since = None
-    w._saturation_logged = False
-    w._last_stuck_warn = None
-    w._executor = MagicMock()
-    w._active_conversation_ids = {}
-    w._active_lock = threading.Lock()
-    w._dispatch_lock = threading.Lock()
-    w._realtime_manager = None
-    return w
+    dal = MagicMock()
+    dal.enabled = True
+    dal.update_conversation_status = MagicMock(return_value=True)
+    return ConversationProcessor(dal=dal, config=MagicMock(), holmes_id="h-test")
 
 
 def _task():
@@ -78,7 +62,7 @@ def _run_process(worker, task, events):
     is invoked (which would mean the guard didn't fire)."""
     worker.dal.get_conversation_events = MagicMock(return_value=events)
     with patch.object(
-        ConversationWorker, "_run_chat_and_publish"
+        ConversationProcessor, "_run_chat_and_publish"
     ) as run_chat:
         worker._process_conversation(task)
     return run_chat
