@@ -1,6 +1,8 @@
 import asyncio
+import atexit
 import base64
 import binascii
+import contextvars
 import json
 import logging
 import os
@@ -21,7 +23,12 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, BaseModel, Field, model_validator
 
-from holmes.common.env_vars import MCP_TOOL_CALL_TIMEOUT_SEC, SSE_READ_TIMEOUT
+from holmes.common.env_vars import (
+    MCP_MAX_CONCURRENT_CALLS_PER_SERVER,
+    MCP_POOL_HTTP_CONNECTIONS,
+    MCP_TOOL_CALL_TIMEOUT_SEC,
+    SSE_READ_TIMEOUT,
+)
 from holmes.core.oauth_config import (
     MCPOAuthConfig,
     OAuthEndpoints,
@@ -78,12 +85,126 @@ def _extract_root_error_message(exc: Exception) -> str:
     return str(current)
 
 
-# Lock per MCP server URL to serialize calls to the same server
-_server_locks: Dict[str, threading.Lock] = {}
+# Bounds concurrent calls per MCP server, since some servers (stdio,
+# customer-built) can't handle many at once. Keyed by size too, so a changed
+# max_concurrent_calls takes effect on toolset reload.
+_server_semaphores: Dict[Tuple[str, int], threading.BoundedSemaphore] = {}
 _locks_lock = threading.Lock()
 
 
-def create_mcp_http_client_factory(verify_ssl: bool = True):
+def get_server_semaphore(lock_key: str, size: int) -> threading.BoundedSemaphore:
+    with _locks_lock:
+        key = (lock_key, size)
+        if key not in _server_semaphores:
+            _server_semaphores[key] = threading.BoundedSemaphore(size)
+        return _server_semaphores[key]
+
+
+class _PooledTransport(httpx.AsyncBaseTransport):
+    """Sends a per-call client's requests through a long-lived pooled client.
+
+    Per-call clients keep their own headers, auth and cookies, so nothing
+    user-specific is shared; only connections are. Delegating to the pooled
+    client's transport (rather than passing a shared transport directly) keeps
+    its HTTPS_PROXY/NO_PROXY handling, which httpx disables for clients built
+    with `transport=`.
+    """
+
+    def __init__(self, pool: httpx.AsyncClient):
+        self._pool = pool
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return await self._pool._transport_for_url(request.url).handle_async_request(
+            request
+        )
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _LoopThread:
+    """One background event loop running all HTTP MCP calls in the process.
+
+    httpx connection pools are bound to the loop that opened them, so pooling
+    across calls needs every call on the same loop instead of asyncio.run.
+    Nothing blocking may run on it: it would stall every MCP call in the pod.
+    """
+
+    _instance: Optional["_LoopThread"] = None
+    _instance_lock = threading.Lock()
+
+    def __init__(self) -> None:
+        self.pid = os.getpid()
+        self.loop = asyncio.new_event_loop()
+        self.pools: Dict[Tuple[str, bool], httpx.AsyncClient] = {}
+        self.thread = threading.Thread(
+            target=self._run, name="mcp-event-loop", daemon=True
+        )
+        self.thread.start()
+
+    def _run(self) -> None:
+        try:
+            self.loop.run_forever()
+        finally:
+            self.loop.close()
+
+    @classmethod
+    def get(cls) -> "_LoopThread":
+        with cls._instance_lock:
+            # A forked child inherits the object but not the thread.
+            inst = cls._instance
+            if inst is None or inst.pid != os.getpid() or not inst.thread.is_alive():
+                cls._instance = cls()
+            return cls._instance
+
+    @classmethod
+    def current_pool(cls, url: str, verify_ssl: bool) -> Optional[httpx.AsyncClient]:
+        """The pooled client for this server, or None off the loop thread."""
+        inst = cls._instance
+        if inst is None or threading.current_thread() is not inst.thread:
+            return None
+        key = (url, verify_ssl)
+        if key not in inst.pools:
+            # Unlimited like the per-call clients it replaces; the server
+            # semaphore is the bound.
+            inst.pools[key] = httpx.AsyncClient(
+                verify=verify_ssl, limits=httpx.Limits(max_connections=None)
+            )
+        return inst.pools[key]
+
+    def run(self, coro):
+        # Run in the caller's contextvars, as asyncio.run would.
+        ctx = contextvars.copy_context()
+
+        async def in_caller_context():
+            return await ctx.run(asyncio.ensure_future, coro)
+
+        return asyncio.run_coroutine_threadsafe(in_caller_context(), self.loop).result()
+
+    def close(self) -> None:
+        async def _close_pools():
+            for pool in self.pools.values():
+                await pool.aclose()
+            self.pools.clear()
+
+        if self.thread.is_alive():
+            try:
+                asyncio.run_coroutine_threadsafe(_close_pools(), self.loop).result(5)
+            except Exception:
+                logger.debug("Failed to close MCP connection pools", exc_info=True)
+            self.loop.call_soon_threadsafe(self.loop.stop)
+
+
+@atexit.register
+def _close_loop_thread() -> None:
+    inst = _LoopThread._instance
+    if inst is not None and inst.pid == os.getpid():
+        inst.close()
+
+
+def create_mcp_http_client_factory(
+    verify_ssl: bool = True, pool: Optional[httpx.AsyncClient] = None
+):
     """Create a factory function for httpx clients with configurable SSL verification."""
 
     def factory(
@@ -95,6 +216,8 @@ def create_mcp_http_client_factory(verify_ssl: bool = True):
             "follow_redirects": True,
             "verify": verify_ssl,
         }
+        if pool is not None:
+            kwargs["transport"] = _PooledTransport(pool)
         if timeout is None:
             kwargs["timeout"] = httpx.Timeout(SSE_READ_TIMEOUT)
         else:
@@ -106,14 +229,6 @@ def create_mcp_http_client_factory(verify_ssl: bool = True):
         return httpx.AsyncClient(**kwargs)
 
     return factory
-
-
-def get_server_lock(url: str) -> threading.Lock:
-    """Get or create a lock for a specific MCP server URL."""
-    with _locks_lock:
-        if url not in _server_locks:
-            _server_locks[url] = threading.Lock()
-        return _server_locks[url]
 
 
 class MCPMode(str, Enum):
@@ -195,6 +310,15 @@ class MCPConfig(ToolsetConfig):
         "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
         examples=["get_me", "get_current_user"],
     )
+    max_concurrent_calls: Optional[int] = Field(
+        default=None,
+        ge=1,
+        title="Max Concurrent Calls",
+        description="Maximum concurrent tool calls to this server from one Holmes instance. "
+        "Defaults to MCP_MAX_CONCURRENT_CALLS_PER_SERVER (16). Set to 1 for servers that "
+        "can only handle one request at a time.",
+        examples=[1],
+    )
 
     @model_validator(mode="after")
     def default_oauth_resource(self) -> "MCPConfig":
@@ -251,6 +375,15 @@ class StdioMCPConfig(ToolsetConfig):
         "connection is fully functional (e.g., API token is valid). Example: 'get_me' for GitHub MCP.",
         examples=["get_me", "get_current_user"],
     )
+    max_concurrent_calls: Optional[int] = Field(
+        default=None,
+        ge=1,
+        title="Max Concurrent Calls",
+        description="Maximum concurrent tool calls to this server from one Holmes instance. "
+        "Defaults to MCP_MAX_CONCURRENT_CALLS_PER_SERVER (16). Set to 1 for servers that "
+        "can only handle one request at a time.",
+        examples=[1],
+    )
 
     def get_lock_string(self) -> str:
         return str(self.command)
@@ -296,8 +429,14 @@ async def get_initialized_mcp_session(
             errlog.close()
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
-        rendered_headers = toolset._render_headers(request_context)
+        verify_ssl = toolset._mcp_config.verify_ssl
+        httpx_factory = create_mcp_http_client_factory(
+            verify_ssl, _LoopThread.current_pool(url, verify_ssl)
+        )
+        # Header rendering can mint tokens over the network; keep it off the loop.
+        rendered_headers = await asyncio.to_thread(
+            toolset._render_headers, request_context
+        )
         async with sse_client(
             url,
             rendered_headers,
@@ -316,8 +455,13 @@ async def get_initialized_mcp_session(
                 yield session
     else:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
-        rendered_headers = toolset._render_headers(request_context)
+        verify_ssl = toolset._mcp_config.verify_ssl
+        httpx_factory = create_mcp_http_client_factory(
+            verify_ssl, _LoopThread.current_pool(url, verify_ssl)
+        )
+        rendered_headers = await asyncio.to_thread(
+            toolset._render_headers, request_context
+        )
         async with streamablehttp_client(
             url,
             headers=rendered_headers,
@@ -434,21 +578,31 @@ class RemoteMCPTool(Tool):
             if self._is_placeholder_connect_tool():
                 return self._invoke_oauth_connect(params, context)
 
-            # Serialize calls to the same MCP server to prevent SSE conflicts
-            # Different servers can still run in parallel
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
-            with lock:
-                return asyncio.run(
-                    self._invoke_async(
-                        params,
-                        context.request_context,
-                        context.user_approved,
-                        context.session_approved_prefixes,
+            requested = time.monotonic()
+            with self.toolset.server_semaphore():
+                started = time.monotonic()
+                try:
+                    result = self.toolset.run_async(
+                        self._invoke_async(
+                            params,
+                            context.request_context,
+                            context.user_approved,
+                            context.session_approved_prefixes,
+                        )
                     )
-                )
+                except Exception as e:
+                    result = StructuredToolResult(
+                        status=StructuredToolResultStatus.ERROR,
+                        error=_extract_root_error_message(e),
+                        params=params,
+                        invocation=f"MCPtool {self.name} with params {params}",
+                    )
+            result.mcp_wait_ms = int((started - requested) * 1000)
+            result.mcp_call_ms = int((time.monotonic() - started) * 1000)
+            return result
         except Exception as e:
             error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
@@ -464,9 +618,10 @@ class RemoteMCPTool(Tool):
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
-            with lock:
-                tools_result = asyncio.run(self.toolset._get_server_tools_with_context(context.request_context))
+            with self.toolset.server_semaphore():
+                tools_result = self.toolset.run_async(
+                    self.toolset._get_server_tools_with_context(context.request_context)
+                )
 
             real_tools = [
                 RemoteMCPTool.create(
@@ -979,12 +1134,30 @@ class RemoteMCPToolset(Toolset):
             return None
         return self._mcp_config.oauth.model_dump(exclude_none=True)
 
+    def server_semaphore(self) -> threading.BoundedSemaphore:
+        assert self._mcp_config is not None
+        return get_server_semaphore(
+            self._mcp_config.get_lock_string(),
+            self._mcp_config.max_concurrent_calls
+            or MCP_MAX_CONCURRENT_CALLS_PER_SERVER,
+        )
+
+    def run_async(self, coro):
+        """Run an MCP coroutine to completion from a sync thread.
+
+        HTTP servers run on the shared loop to reuse connections; stdio
+        servers start a subprocess per call, so there is nothing to pool.
+        """
+        if MCP_POOL_HTTP_CONNECTIONS and isinstance(self._mcp_config, MCPConfig):
+            return _LoopThread.get().run(coro)
+        return asyncio.run(coro)
+
     def _load_remote_tools(self, request_context: Optional[Dict[str, Any]] = None) -> List["RemoteMCPTool"]:
         """Load tools from the MCP server and return as RemoteMCPTool instances."""
         if request_context:
-            tools_result = asyncio.run(self._get_server_tools_with_context(request_context))
+            tools_result = self.run_async(self._get_server_tools_with_context(request_context))
         else:
-            tools_result = asyncio.run(self._get_server_tools())
+            tools_result = self.run_async(self._get_server_tools())
         return [
             RemoteMCPTool.create(
                 tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
@@ -1200,7 +1373,7 @@ class RemoteMCPToolset(Toolset):
             )
 
         try:
-            result = asyncio.run(self._call_health_check_tool_async(tool_name))
+            result = self.run_async(self._call_health_check_tool_async(tool_name))
             if result.isError:
                 error_chunks = [
                     RemoteMCPTool._extract_text_from_content_block(c)

@@ -385,6 +385,23 @@ class UsageRecorderState:
     # — the stream wrapper in particular has the stream as its primary
     # input, so a "method on state" shape would invert its natural reading.
 
+    def _capture_mcp_timing(
+        self, wait_ms: Optional[int], call_ms: Optional[int]
+    ) -> None:
+        """Accumulate MCP semaphore-wait and call timings into ``meta``.
+
+        Lets semaphore pressure be queried fleet-wide from HolmesUsageEvents
+        without a schema change. Non-MCP tool results carry no timings.
+        """
+        if call_ms is None:
+            return
+        wait_ms = wait_ms or 0
+        meta = self.meta
+        meta["mcp_calls"] = meta.get("mcp_calls", 0) + 1
+        meta["mcp_wait_ms_total"] = meta.get("mcp_wait_ms_total", 0) + wait_ms
+        meta["mcp_call_ms_total"] = meta.get("mcp_call_ms_total", 0) + call_ms
+        meta["mcp_max_wait_ms"] = max(meta.get("mcp_max_wait_ms", 0), wait_ms)
+
     def _capture_costs(self, data: Dict[str, Any]) -> None:
         """Replace ``self.stats`` from an event's ``metadata.costs``.
 
@@ -478,6 +495,11 @@ def stream_with_usage_recording(
         for msg in stream:
             if msg.event == StreamEvents.TOOL_RESULT:
                 state.tool_call_count += 1
+                result = (msg.data or {}).get("result")
+                if isinstance(result, dict):
+                    state._capture_mcp_timing(
+                        result.get("mcp_wait_ms"), result.get("mcp_call_ms")
+                    )
             elif msg.event == StreamEvents.TOKEN_COUNT:
                 # Cumulative cost broadcast after each successful LLM iteration
                 # (and after compaction). Capturing it here is the only way to
@@ -560,7 +582,13 @@ def record_from_llm_result(
         state.stats = RequestStats()
 
     state.iterations = getattr(llm_result, "num_llm_calls", None) or 1
-    state.tool_call_count = len(getattr(llm_result, "tool_calls", None) or [])
+    tool_calls = getattr(llm_result, "tool_calls", None) or []
+    state.tool_call_count = len(tool_calls)
+    for tool_call in tool_calls:
+        result = getattr(tool_call, "result", None)
+        state._capture_mcp_timing(
+            getattr(result, "mcp_wait_ms", None), getattr(result, "mcp_call_ms", None)
+        )
     state.finish_reason = getattr(llm_result, "finish_reason", None)
     state.status = RequestStatus.SUCCESS
     state._fire()

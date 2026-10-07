@@ -434,6 +434,21 @@ On expiry the SDK raises `McpError(code=REQUEST_TIMEOUT)`, which Holmes surfaces
 export MCP_TOOL_CALL_TIMEOUT_SEC=60
 ```
 
+### MCP_MAX_CONCURRENT_CALLS_PER_SERVER
+**Default:** `16`
+
+Maximum concurrent tool calls from one Holmes instance to a single MCP server (keyed by URL, or by command for stdio servers). Calls beyond the limit wait for a free slot. A server's `max_concurrent_calls` config overrides it. See [Limiting Concurrent Calls to a Server](../data-sources/remote-mcp-servers.md#advanced-configuration).
+
+**Example:**
+```bash
+export MCP_MAX_CONCURRENT_CALLS_PER_SERVER=8
+```
+
+### MCP_POOL_HTTP_CONNECTIONS
+**Default:** `true`
+
+Reuse TCP and TLS connections to HTTP MCP servers across tool calls. Each call still opens its own MCP session with its own headers. Set to `false` to open a new connection for every call.
+
 ## Testing and Development
 
 ### RUN_LIVE

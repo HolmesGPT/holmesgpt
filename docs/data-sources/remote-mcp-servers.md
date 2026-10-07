@@ -430,6 +430,23 @@ mcp_servers:
 
 The setting works on any toolset, not only MCP servers.
 
+**Limiting Concurrent Calls to a Server**
+
+Conversations, investigations and scheduled prompts running at the same time in one Holmes instance can call the same MCP server in parallel, up to 16 calls per server by default. Change the default for every server with the `MCP_MAX_CONCURRENT_CALLS_PER_SERVER` environment variable. Calls beyond the limit wait for a free slot.
+
+Set `max_concurrent_calls` on a server that can't handle concurrent requests, such as some stdio servers. Use `1` to send one call at a time.
+
+```yaml
+mcp_servers:
+  legacy_tool:
+    description: "Single-threaded stdio server"
+    config:
+      mode: stdio
+      command: "python3"
+      args: ["/app/server.py"]
+      max_concurrent_calls: 1
+```
+
 ## Configuration Format Migration
 
 The MCP server configuration format has been updated. The `url` field must now be inside the `config` section.
