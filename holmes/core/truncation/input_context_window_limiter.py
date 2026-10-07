@@ -76,6 +76,7 @@ class ContextWindowLimiterOutput(BaseModel):
     tokens: ContextWindowUsage
     conversation_history_compacted: bool
     compaction_usage: Optional["RequestStats"] = None
+    compaction_input_truncated: bool = False
 
 
 @sentry_sdk.trace
@@ -90,6 +91,7 @@ def compact_if_necessary(
     max_context_size = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
     conversation_history_compacted = False
+    compaction_input_truncated = False
     compaction_usage = RequestStats()
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
@@ -109,6 +111,7 @@ def compact_if_necessary(
             compaction_message = f"The conversation history has been compacted from {initial_tokens.total_tokens} to {compacted_total_tokens} tokens"
             logging.info(compaction_message)
             conversation_history_compacted = True
+            compaction_input_truncated = compaction_result.input_truncated
 
             compaction_summary = compaction_result.summary
 
@@ -198,4 +201,5 @@ def compact_if_necessary(
         tokens=tokens,
         conversation_history_compacted=conversation_history_compacted,
         compaction_usage=compaction_usage,
+        compaction_input_truncated=compaction_input_truncated,
     )

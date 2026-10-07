@@ -1260,9 +1260,14 @@ class ToolCallingLLM:
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
                 )
 
+            # When compaction had to cut tool output, fetching the same output
+            # again only overflows the window and compacts again, in a loop
+            # until max_steps (ROB-1519). Keep the history so an identical call
+            # is refused and the agent narrows its query instead.
             if (
                 limit_result.conversation_history_compacted
                 and RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION
+                and not limit_result.compaction_input_truncated
             ):
                 tool_calls = []
 

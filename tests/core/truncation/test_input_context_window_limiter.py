@@ -34,6 +34,7 @@ def test_oversized_conversation_is_compacted_instead_of_failing():
     compacted = next(e for e in result.events if e.event == StreamEvents.CONVERSATION_HISTORY_COMPACTED)
     assert compacted.data["metadata"]["input_truncated"] is True
     assert compacted.data["metadata"]["fallback_used"] is False
+    assert result.compaction_input_truncated is True
 
 
 def test_oversized_conversation_recovers_via_fallback_budget():

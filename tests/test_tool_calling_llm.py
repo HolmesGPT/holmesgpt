@@ -1759,3 +1759,56 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Repeated tool calls after a compaction that cut tool output (ROB-1519)
+# ---------------------------------------------------------------------------
+
+
+class TestRepeatedCallsAfterTruncatedCompaction:
+    """After a compaction that had to cut tool output, re-fetching the identical
+    output is refused; after an ordinary compaction it is allowed again."""
+
+    @staticmethod
+    def _compacted(input_truncated):
+        return ContextWindowLimiterOutput(
+            metadata={},
+            messages=[{"role": "user", "content": "analyze"}],
+            events=[],
+            max_context_size=128000,
+            maximum_output_token=4096,
+            tokens=DEFAULT_TOKEN_COUNT,
+            conversation_history_compacted=True,
+            compaction_usage=RequestStats(),
+            compaction_input_truncated=input_truncated,
+        )
+
+    def _run(self, make_ai, mock_llm, input_truncated):
+        same_call = {"command": "cat /tmp/huge.log"}
+        mock_llm.completion.side_effect = [
+            _make_llm_response(content="", tool_calls=[_make_mock_tool_call("tc_1", arguments=same_call)]),
+            _make_llm_response(content="", tool_calls=[_make_mock_tool_call("tc_2", arguments=same_call)]),
+            _make_llm_response(content="done", tool_calls=None),
+        ]
+        ai = make_ai()
+        ai._directly_invoke_tool_call = MagicMock(
+            return_value=StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data="log", params=same_call)
+        )
+        limiter = [
+            _make_context_limiter_passthrough([{"role": "user", "content": "analyze"}]),
+            self._compacted(input_truncated),
+            _make_context_limiter_passthrough([{"role": "user", "content": "analyze"}]),
+        ]
+        with patch(LIMIT_PATCH, side_effect=limiter):
+            events = _collect_stream_events(ai.call_stream(msgs=[{"role": "user", "content": "analyze"}]))
+        return ai._directly_invoke_tool_call.call_count, _events_of_type(events, StreamEvents.TOOL_RESULT)
+
+    def test_identical_call_refused_after_truncated_compaction(self, make_ai, mock_llm):
+        runs, results = self._run(make_ai, mock_llm, input_truncated=True)
+        assert runs == 1
+        assert "already been called" in json.dumps(results[-1].data)
+
+    def test_identical_call_allowed_after_ordinary_compaction(self, make_ai, mock_llm):
+        runs, _ = self._run(make_ai, mock_llm, input_truncated=False)
+        assert runs == 2

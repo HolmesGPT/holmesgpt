@@ -32,10 +32,11 @@ They run at different points in the pipeline and serve different purposes.
 
 - Checks if `(total_tokens + max_output_tokens) > (context_window_size * threshold_pct / 100)`.
 - If so, sends the conversation history to the LLM with a compaction prompt, asking it to produce a concise summary.
-- Fits that summarization request into the context window first: when the history exceeds `context_window - max_output_tokens - prompt tokens`, the longest message texts are cut (head and tail kept) until it fits. Each fallback retry halves that budget, because the local token count can undercount the provider's tokenizer.
-- A request that still exceeds its budget after cutting (for example, a system prompt larger than the window) is not sent; the next, smaller attempt is tried instead.
+- Fits that summarization request into the context window first: when the history exceeds `context_window - max_output_tokens - prompt tokens`, the longest message texts are cut (head and tail kept, with a marker counting the removed characters) until it fits.
+- If that request fails, it falls back to tool messages flattened to text and no tools attached. The fallback starts at the full budget, or at half when the provider rejected the first request as too long, and halves again only after another too-long rejection (the local token count can undercount the provider's tokenizer). Any other failure ends the retries, and so does a history that cannot be cut to the budget (for example, when uncuttable content alone exceeds it): such a request is never sent.
 - When anything was cut, the summarizer is told which messages it only partially saw, and the summary ends with a note telling the agent not to assume the cut content is absent and to re-run narrower tool queries when it matters.
 - Replaces the old messages with: system prompt + compacted summary + last user message.
+- After a compaction the repeated-tool-call check normally starts over (`RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION`), except when the compaction had to cut message text: then an identical call is refused, since fetching the same output again would only overflow the window and compact again.
 - Tracks compaction cost in `RequestStats`.
 
 **Guard:** Controlled by `ENABLE_CONVERSATION_HISTORY_COMPACTION` env var (defaults to true).
