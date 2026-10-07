@@ -3,13 +3,17 @@
 Verifies the RPC contract: parameter names, default values, and that the DAL
 just forwards the response from the RPC.
 """
+
+import threading
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
+from cachetools import TTLCache
+from postgrest.exceptions import APIError as PGAPIError
 
 from holmes.core.conversations_worker.models import ConversationReassignedError
-from holmes.core.supabase_dal import SupabaseDal
+from holmes.core.supabase_dal import ExecutorRpcUnsupportedError, SupabaseDal
 
 
 def _build_dal(rpc_data: Any = None) -> SupabaseDal:
@@ -170,7 +174,7 @@ def test_get_conversation_events_returns_empty_list_when_disabled():
 
 def test_claim_n_pending_conversations_forwards_limit():
     dal = _build_dal(rpc_data=[])
-    dal.claim_n_pending_conversations(holmes_id="my-pod-1", limit=3)
+    dal.claim_n_pending_conversations(holmes_id="my-pod-1", limit=3, executor="auto")
     args, _ = dal.client.rpc.call_args
     assert args[0] == "claim_n_pending_conversations"
     params = args[1]
@@ -178,13 +182,20 @@ def test_claim_n_pending_conversations_forwards_limit():
     assert params["_account_id"] == "acc-1"
     assert params["_cluster_id"] == "cluster-1"
     assert params["_limit"] == 3
+    assert params["_executor"] == "auto"
 
 
 def test_claim_n_pending_conversations_skips_rpc_when_limit_not_positive():
     """A zero/negative limit means no free capacity — don't even hit the RPC."""
     dal = _build_dal(rpc_data=[])
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=0) == []
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=-1) == []
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=0, executor="manual")
+        == []
+    )
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=-1, executor="manual")
+        == []
+    )
     dal.client.rpc.assert_not_called()
 
 
@@ -199,7 +210,10 @@ def test_claim_n_pending_conversations_retries_transient_error_then_succeeds():
             ]
         )
     )
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=5) == claimed
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=5, executor="manual")
+        == claimed
+    )
     assert dal.client.rpc.return_value.execute.call_count == 2
 
 
@@ -208,7 +222,10 @@ def test_claim_n_pending_conversations_returns_empty_after_exhausting_retries():
     dal.client.rpc.return_value = MagicMock(
         execute=MagicMock(side_effect=Exception("502 Bad Gateway"))
     )
-    assert dal.claim_n_pending_conversations(holmes_id="h", limit=5) == []
+    assert (
+        dal.claim_n_pending_conversations(holmes_id="h", limit=5, executor="manual")
+        == []
+    )
     assert dal.client.rpc.return_value.execute.call_count == 3
 
 
@@ -441,3 +458,151 @@ def test_post_remote_tool_call_result_does_not_retry_mismatch():
     )
     assert _post_result(dal) is False
     assert dal.client.rpc.return_value.execute.call_count == 1
+
+
+# ---- ROB-1369: executor-aware claim + discovery ----
+
+
+def _pgrst202():
+    return PGAPIError(
+        {
+            "code": "PGRST202",
+            "message": "Could not find the function public.claim_n_pending_conversations(_account_id, _assignee, _cluster_id, _executor, _limit) in the schema cache",
+            "hint": None,
+            "details": None,
+        }
+    )
+
+
+def test_claim_n_pending_conversations_forwards_executor():
+    dal = _build_dal(rpc_data=[])
+    dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="auto")
+    params = dal.client.rpc.call_args[0][1]
+    assert params["_executor"] == "auto"
+    assert params["_limit"] == 3
+
+
+def test_claim_with_executor_raises_unsupported_on_missing_rpc_without_retry():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=_pgrst202()))
+    with pytest.raises(ExecutorRpcUnsupportedError):
+        dal.claim_n_pending_conversations(holmes_id="h", limit=3, executor="manual")
+    assert dal.client.rpc.return_value.execute.call_count == 1
+
+
+def test_claim_with_executor_still_retries_other_errors():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(
+            side_effect=[
+                Exception("502 Bad Gateway"),
+                MagicMock(data=[{"conversation_id": "c1"}]),
+            ]
+        )
+    )
+    assert dal.claim_n_pending_conversations(
+        holmes_id="h", limit=3, executor="auto"
+    ) == [{"conversation_id": "c1"}]
+    assert dal.client.rpc.return_value.execute.call_count == 2
+
+
+def test_list_pending_conversation_executors_contract():
+    dal = _build_dal(rpc_data=["auto", "manual"])
+    assert dal.list_pending_conversation_executors() == ["auto", "manual"]
+    args, _ = dal.client.rpc.call_args
+    assert args[0] == "pending_conversation_executors"
+    assert args[1] == {"_account_id": "acc-1", "_cluster_id": "cluster-1"}
+
+
+def test_list_pending_conversation_executors_accepts_row_dicts_and_drops_junk():
+    dal = _build_dal(
+        rpc_data=[{"executor": "auto"}, {"executor": ""}, 5, None, "manual"]
+    )
+    assert dal.list_pending_conversation_executors() == ["auto", "manual"]
+
+
+def test_list_pending_conversation_executors_empty_and_disabled():
+    dal = _build_dal(rpc_data=[])
+    assert dal.list_pending_conversation_executors() == []
+    dal.enabled = False
+    assert dal.list_pending_conversation_executors() == []
+
+
+def test_list_pending_conversation_executors_raises_unsupported_on_missing_rpc():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(execute=MagicMock(side_effect=_pgrst202()))
+    with pytest.raises(ExecutorRpcUnsupportedError):
+        dal.list_pending_conversation_executors()
+    assert dal.client.rpc.return_value.execute.call_count == 1
+
+
+def test_list_pending_conversation_executors_swallows_transient_errors():
+    dal = _build_dal()
+    dal.client.rpc.return_value = MagicMock(
+        execute=MagicMock(side_effect=Exception("502"))
+    )
+    assert dal.list_pending_conversation_executors() == []
+    assert dal.client.rpc.return_value.execute.call_count == 3
+
+
+# ---- get_conversation_executor_sizes (AccountSettings.settings.conversation_executors) ----
+
+
+def _settings_dal(settings_rows):
+    dal = SupabaseDal.__new__(SupabaseDal)
+    dal.enabled = True
+    dal.account_id = "acc-1"
+    dal.cluster = "cluster-1"
+    dal.executor_sizes_cache = TTLCache(maxsize=1, ttl=60)
+    dal.lock = threading.Lock()
+    dal.client = MagicMock()
+    execute = dal.client.table.return_value.select.return_value.eq.return_value.execute
+    execute.return_value = MagicMock(data=settings_rows)
+    return dal, execute
+
+
+def test_executor_sizes_returns_the_raw_setting():
+    """Validation is ExecutorSizing's job: the DAL hands back the jsonb value as
+    stored, junk included, so there is exactly one place that judges it."""
+    raw = {"manual": 12, "auto": "3", "bad": 0, "x": "y", "b": True}
+    dal, _ = _settings_dal([{"settings": {"conversation_executors": raw}}])
+    assert dal.get_conversation_executor_sizes() == raw
+    dal, _ = _settings_dal([{"settings": {"conversation_executors": [1, 2]}}])
+    assert dal.get_conversation_executor_sizes() == [1, 2]
+
+
+def test_executor_sizes_empty_when_missing():
+    dal, _ = _settings_dal([])
+    assert dal.get_conversation_executor_sizes() == {}
+    dal, _ = _settings_dal([{"settings": {}}])
+    assert dal.get_conversation_executor_sizes() == {}
+
+
+def test_executor_sizes_are_cached():
+    dal, execute = _settings_dal(
+        [{"settings": {"conversation_executors": {"auto": 4}}}]
+    )
+    assert dal.get_conversation_executor_sizes() == {"auto": 4}
+    assert dal.get_conversation_executor_sizes() == {"auto": 4}
+    assert execute.call_count == 1
+
+
+def test_executor_sizes_read_failure_returns_empty_and_is_cached_for_the_ttl():
+    dal, execute = _settings_dal([])
+    execute.side_effect = Exception("502")
+    assert dal.get_conversation_executor_sizes() == {}
+    assert dal.get_conversation_executor_sizes() == {}
+    assert execute.call_count == 1  # an outage is not re-queried every tick
+    dal.executor_sizes_cache.clear()  # TTL expiry
+    execute.side_effect = None
+    execute.return_value = MagicMock(
+        data=[{"settings": {"conversation_executors": {"manual": 2}}}]
+    )
+    assert dal.get_conversation_executor_sizes() == {"manual": 2}
+
+
+def test_executor_sizes_disabled_dal():
+    dal, execute = _settings_dal([])
+    dal.enabled = False
+    assert dal.get_conversation_executor_sizes() == {}
+    execute.assert_not_called()
