@@ -84,7 +84,10 @@ def test_missing_model_refreshes_stale_cost_map_once():
     ):
         llm = _make_llm("bedrock/new-model-test")
         assert llm.get_context_window_size() == 1000000
-        assert _make_llm("bedrock/other-missing-test").get_context_window_size() == FALLBACK_CONTEXT_WINDOW_SIZE
+        assert (
+            _make_llm("bedrock/other-missing-test").get_context_window_size()
+            == FALLBACK_CONTEXT_WINDOW_SIZE
+        )
         assert fetch.call_count == 1
 
 

@@ -62,12 +62,16 @@ _last_cost_map_refresh = time.monotonic()
 
 def refresh_model_cost_map_if_stale() -> bool:
     global _last_cost_map_refresh
-    if time.monotonic() - _last_cost_map_refresh < LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS:
+    if (
+        time.monotonic() - _last_cost_map_refresh
+        < LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS
+    ):
         return False
     _last_cost_map_refresh = time.monotonic()
     for name, entry in get_model_cost_map(litellm.model_cost_map_url).items():
         litellm.model_cost.setdefault(name, entry)
     return True
+
 
 # Names we've already warned operators about for missing cost-map entries.
 # Prevents spam when _init_models re-runs (e.g. Robusta resync path).
