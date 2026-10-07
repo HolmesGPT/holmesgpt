@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
+from litellm import ModelResponse
 
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
@@ -710,6 +711,33 @@ class TestNoToolsPath:
         tool_results = _events_of_type(events, StreamEvents.TOOL_RESULT)
         assert len(start_tools) == 0
         assert len(tool_results) == 0
+
+
+class TestMultiChoiceResponse:
+    """Responses API may split preamble and tool call into two choices."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_tool_call_in_second_choice_is_executed(self, _mock_limit, make_ai, mock_llm):
+        split_resp = ModelResponse(choices=[
+            {"finish_reason": "stop", "index": 0,
+             "message": {"role": "assistant", "content": "I'll check the logs.\n"}},
+            {"finish_reason": "tool_calls", "index": 1,
+             "message": {"role": "assistant", "content": None, "tool_calls": [
+                 {"id": "tc_1", "type": "function", "index": 0,
+                  "function": {"name": "kubectl_get", "arguments": "{}"}}]}},
+        ])
+        resp_final = _make_llm_response(content="All pods are running", tool_calls=None)
+        mock_llm.completion.side_effect = [split_resp, resp_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+        result = ai.call([{"role": "user", "content": "What pods are running?"}])
+
+        assert result.result == "All pods are running"
+        assert result.num_llm_calls == 2
+        assert result.tool_calls[0].tool_name == "kubectl_get"
+        assert result.messages[1]["content"] == "I'll check the logs.\n"
+        assert result.messages[1]["tool_calls"][0]["id"] == "tc_1"
 
 
 # ---------------------------------------------------------------------------
