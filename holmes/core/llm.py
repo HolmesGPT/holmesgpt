@@ -12,6 +12,7 @@ import boto3
 import litellm
 import sentry_sdk
 from botocore.exceptions import BotoCoreError
+from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.litellm_core_utils.token_counter import get_image_dimensions
 from litellm.types.utils import ModelResponse, TextCompletionResponse
@@ -27,6 +28,7 @@ from holmes.common.env_vars import (
     AZURE_AD_TOKEN_AUTH,
     EXTRA_HEADERS,
     FALLBACK_CONTEXT_WINDOW_SIZE,
+    LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS,
     LLM_EXTRA_STRIP_MESSAGE_FIELDS,
     LLM_REQUEST_TIMEOUT,
     LOAD_ALL_ROBUSTA_MODELS,
@@ -55,6 +57,17 @@ OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
 _warned_missing_model_lookups: set[tuple[str, str]] = set()
+_last_cost_map_refresh = time.monotonic()
+
+
+def refresh_model_cost_map_if_stale() -> bool:
+    global _last_cost_map_refresh
+    if time.monotonic() - _last_cost_map_refresh < LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS:
+        return False
+    _last_cost_map_refresh = time.monotonic()
+    for name, entry in get_model_cost_map(litellm.model_cost_map_url).items():
+        litellm.model_cost.setdefault(name, entry)
+    return True
 
 # Names we've already warned operators about for missing cost-map entries.
 # Prevents spam when _init_models re-runs (e.g. Robusta resync path).
@@ -104,9 +117,7 @@ def _register_custom_pricing(litellm_name: str, pricing: Dict[str, float]) -> No
             f"input={entry['input_cost_per_token']}, output={entry['output_cost_per_token']}"
         )
     except Exception as e:
-        logging.warning(
-            f"Failed to register custom pricing for '{litellm_name}': {e}"
-        )
+        logging.warning(f"Failed to register custom pricing for '{litellm_name}': {e}")
 
 
 def _pricing_dict_from_bundled(bundled: Dict[str, Any]) -> Optional[Dict[str, float]]:
@@ -149,6 +160,8 @@ def _bundled_pricing_for_underlying_model(
     else:
         bundled = None
 
+    if not bundled and refresh_model_cost_map_if_stale():
+        return _bundled_pricing_for_underlying_model(raw_model_name)
     if not bundled:
         return None
     return _pricing_dict_from_bundled(bundled)
@@ -369,6 +382,7 @@ class DefaultLLM(LLM):
     api_version: Optional[str]
     args: Dict
     is_robusta_model: bool
+    allowed_openai_params: Optional[List[str]] = None
 
     def __init__(
         self,
@@ -397,6 +411,7 @@ class DefaultLLM(LLM):
     def update_custom_args(self):
         self.max_context_size = self.args.get("custom_args", {}).get("max_context_size")
         self.args.pop("custom_args", None)
+        self.allowed_openai_params = self.args.pop("allowed_openai_params", None)
 
     def check_llm(
         self,
@@ -451,7 +466,10 @@ class DefaultLLM(LLM):
             if (
                 os.environ.get("AWS_PROFILE")
                 or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-                or (os.environ.get("AWS_ROLE_ARN") and os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE"))
+                or (
+                    os.environ.get("AWS_ROLE_ARN")
+                    and os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+                )
             ):
                 model_requirements = {"keys_in_environment": True, "missing_keys": []}
             elif args.get("aws_access_key_id") and args.get("aws_secret_access_key"):
@@ -463,7 +481,10 @@ class DefaultLLM(LLM):
                     session = boto3.Session()
                     credentials = session.get_credentials()
                     if credentials is not None:
-                        model_requirements = {"keys_in_environment": True, "missing_keys": []}
+                        model_requirements = {
+                            "keys_in_environment": True,
+                            "missing_keys": [],
+                        }
                     else:
                         model_requirements = litellm.validate_environment(
                             model=model, api_key=api_key, api_base=api_base
@@ -472,6 +493,12 @@ class DefaultLLM(LLM):
                     model_requirements = litellm.validate_environment(
                         model=model, api_key=api_key, api_base=api_base
                     )
+        elif (
+            provider == "vertex_ai"
+            and args.get("vertex_project")
+            and args.get("vertex_location")
+        ):
+            return
         elif provider == "github_copilot":
             # GitHub Copilot uses OAuth device flow for authentication, not
             # traditional API keys.  LiteLLM handles the token lifecycle
@@ -488,7 +515,10 @@ class DefaultLLM(LLM):
                 if key in os.environ and key in model_requirements["missing_keys"]:
                     model_requirements["missing_keys"].remove(key)  # type: ignore
             # When using Azure AD token auth, AZURE_API_KEY is not required
-            if AZURE_AD_TOKEN_AUTH and "AZURE_API_KEY" in model_requirements["missing_keys"]:
+            if (
+                AZURE_AD_TOKEN_AUTH
+                and "AZURE_API_KEY" in model_requirements["missing_keys"]
+            ):
                 model_requirements["missing_keys"].remove("AZURE_API_KEY")  # type: ignore
 
             if not model_requirements["missing_keys"]:
@@ -509,11 +539,13 @@ class DefaultLLM(LLM):
         Generate model name variants to try when looking up in litellm.model_cost.
         Returns a list of names to try in order: exact, lowercase, without prefix, etc.
         """
-        names_to_try = [self.model, self.model.lower()]
+        # litellm's "provider/responses/model" route isn't a cost map key
+        model = self.model.replace("/responses/", "/")
+        names_to_try = [self.model, self.model.lower(), model, model.lower()]
 
         # If there's a prefix, also try without it
-        if "/" in self.model:
-            base_model = self.model.split("/", 1)[1]
+        if "/" in model:
+            base_model = model.split("/", 1)[1]
             names_to_try.extend([base_model, base_model.lower()])
 
         # Remove duplicates while preserving order (dict.fromkeys maintains insertion order in Python 3.7+)
@@ -540,6 +572,9 @@ class DefaultLLM(LLM):
                 continue
             if max_input_tokens:
                 return max_input_tokens
+
+        if refresh_model_cost_map_if_stale():
+            return self.get_context_window_size()
 
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_input_tokens")
@@ -614,7 +649,9 @@ class DefaultLLM(LLM):
         # wrong 85-per-image estimate. We add back the correct image tokens
         # (already computed in the per-message loop) after.
         if is_anthropic:
-            bulk_messages = [_strip_images(m) if _has_images(m) else m for m in messages]
+            bulk_messages = [
+                _strip_images(m) if _has_images(m) else m for m in messages
+            ]
         else:
             bulk_messages = messages
 
@@ -693,7 +730,8 @@ class DefaultLLM(LLM):
                 "reasoning_effort"
             ]  # can be removed after next litelm version
 
-        existing_allowed = self.args.pop("allowed_openai_params", None)
+        # Popped once at init so later calls keep it
+        existing_allowed = self.allowed_openai_params
         if existing_allowed:
             if allowed_openai_params is None:
                 allowed_openai_params = []
@@ -823,6 +861,9 @@ class DefaultLLM(LLM):
             if litellm_max_output_tokens < max_output_tokens:
                 max_output_tokens = litellm_max_output_tokens
             return max_output_tokens
+
+        if refresh_model_cost_map_if_stale():
+            return self.get_maximum_output_token()
 
         # Log which lookups we tried (once per model to avoid log spam)
         warn_key = (self.model, "max_output_tokens")
