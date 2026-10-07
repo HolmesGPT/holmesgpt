@@ -354,7 +354,7 @@ spec:
           command:
             - sh
             - -c
-            - pip install --target=/app/deps "mcp[cli]>=1.25.0" httpx uvicorn pydantic
+            - pip install --target=/app/deps "mcp[cli]>=1.25.0,<2" httpx uvicorn pydantic
           volumeMounts:
             - name: python-deps
               mountPath: /app/deps
