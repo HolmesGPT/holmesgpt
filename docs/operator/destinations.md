@@ -15,10 +15,11 @@ Destinations are used when a HealthCheck or ScheduledHealthCheck has `mode: aler
 
 ## Supported Destinations
 
-Holmes Operator currently supports two alert destination types:
+Holmes Operator currently supports three alert destination types:
 
 - **Slack** - Send formatted messages to Slack channels
 - **PagerDuty** - Create incidents in PagerDuty
+- **Webhook** - POST a JSON payload to any HTTP endpoint (WeCom, DingTalk, Feishu, custom systems)
 
 ## Slack Destination
 
@@ -220,6 +221,106 @@ PagerDuty incidents created by Holmes include:
 **Links:**
 - If the check has an associated URL, it's included as a link in the incident
 
+
+## Webhook Destination
+
+Send the check result as a JSON payload to any HTTP endpoint when a health check fails. Use this for chat tools without a dedicated destination (WeCom, DingTalk, Feishu, Mattermost) or any custom HTTPS endpoint.
+
+The Operator (not the LLM) sends the request after the check finishes, so delivery does not depend on the model choosing to call a tool.
+
+### Configuration
+
+Example: notify a [Feishu custom robot](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot) endpoint:
+
+```yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: production-check
+spec:
+  query: "Is production healthy? Check pod status, error rates, resource pressure, and logs for anomalies."
+  mode: alert
+  destinations:
+    - type: webhook
+      config:
+        url: "https://open.feishu.cn/open-apis/bot/v2/hook/your-hook-token"
+        method: POST            # optional, default POST
+        timeout: 10             # optional, seconds, default 10
+        headers:
+          Authorization: "Bearer {{ env.WEBHOOK_TOKEN }}"  # optional, from env
+```
+
+Store secrets in a Kubernetes secret and inject them as environment variables on Holmes, then reference them in header values with `{{ env.VAR }}` (the same templating convention used by `modelList` and toolset headers):
+
+```yaml
+# values.yaml
+additionalEnvVars:
+  - name: WEBHOOK_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: holmes-secrets
+        key: webhook-token
+```
+
+!!! warning "Security Best Practice"
+
+    Webhook URLs often embed a secret token in the path (Feishu, DingTalk and WeCom robot URLs all do). Check resources are stored unencrypted in etcd — prefer endpoints protected by an `Authorization` header templated from a secret over URLs with embedded tokens.
+
+### Configuration Fields
+
+**url** (string, required)
+
+HTTP endpoint to send the check result to.
+
+**method** (string, optional)
+
+HTTP method for the request.
+
+- Default: `POST`
+
+**headers** (object, optional)
+
+Additional HTTP headers. Values support `{{ env.VAR }}` templating for secrets. `Content-Type: application/json` is always set and can be overridden here.
+
+**timeout** (integer, optional)
+
+Request timeout in seconds.
+
+- Default: `10`
+
+### Payload
+
+The request body is a JSON object with a stable schema (`version: 1`):
+
+```json
+{
+  "version": 1,
+  "name": "production-check",
+  "namespace": "default",
+  "status": "fail",
+  "message": "Check failed. 3 pods in crash-loop ...",
+  "query": "Is production healthy? ...",
+  "rationale": "3 pods in crash-loop ...",
+  "model_used": "gpt-4o",
+  "duration": 42.5,
+  "timestamp": "2026-10-07T12:34:56.789012+00:00"
+}
+```
+
+| Field | Description |
+|---|---|
+| `version` | Payload schema version (currently `1`) |
+| `name` | Check name |
+| `namespace` | Check namespace (`null` when the check has no namespace prefix) |
+| `status` | Check result: `fail` |
+| `message` | Human-readable check outcome |
+| `query` | The check's natural-language query |
+| `rationale` | Full LLM analysis of why the check failed |
+| `model_used` | Model that evaluated the check |
+| `duration` | Check execution time in seconds |
+| `timestamp` | ISO 8601 send time (UTC) |
+
+Like Slack and PagerDuty, webhooks fire only when a check in `alert` mode fails; passing checks send nothing. Non-2xx responses and connection errors are reported as `failed` in the check's notification status (see below) and in the operator logs. Failed deliveries are not retried.
 
 ## Notification Status
 

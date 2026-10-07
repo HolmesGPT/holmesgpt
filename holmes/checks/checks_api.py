@@ -15,6 +15,10 @@ from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
+from holmes.plugins.destinations.webhook.plugin import (
+    DEFAULT_TIMEOUT_SECONDS as WEBHOOK_DEFAULT_TIMEOUT_SECONDS,
+    WebhookDestination,
+)
 
 checks_app = FastAPI()
 
@@ -143,7 +147,11 @@ def execute_health_check(
         notifications = []
 
         # Send alerts if check failed and has destinations configured
-        if result.status == CheckStatus.FAIL and request.mode == CheckMode.ALERT and request.destinations:
+        if (
+            result.status == CheckStatus.FAIL
+            and request.mode == CheckMode.ALERT
+            and request.destinations
+        ):
             try:
                 # Create an Issue object for the failed check
                 check_name = result.check_name
@@ -155,6 +163,17 @@ def execute_health_check(
                     presentation_status=IssueStatus.OPEN,
                     presentation_key_metadata=f"*Check:* `{check_name}`\n*Query:* {request.query}",
                     show_status_in_title=False,  # Don't append " - open" to the title
+                    # Check details consumed by destinations with JSON payloads
+                    # (e.g. webhook); pagerduty-style plugins read issue.raw too.
+                    raw={
+                        "check_name": check_name,
+                        "status": result.status.value,
+                        "message": result.message,
+                        "query": request.query,
+                        "rationale": result.rationale,
+                        "model_used": ai.llm.model,
+                        "duration": result.duration,
+                    },
                 )
 
                 # Create LLM result for the destination
@@ -211,6 +230,44 @@ def execute_health_check(
                             notification.error = str(e)
                             logging.error(
                                 f"Failed to send Slack notification: {e}", exc_info=True
+                            )
+
+                        notifications.append(notification)
+                    elif dest_type == "webhook":
+                        notification = NotificationStatus(
+                            type="webhook", status="pending"
+                        )
+
+                        try:
+                            url = dest_config.get("url")
+                            if not url:
+                                notification.status = "skipped"
+                                notification.error = (
+                                    "Missing 'url' in webhook destination config"
+                                )
+                                logging.warning(
+                                    f"Webhook destination for check {check_name} has no 'url' configured, skipping"
+                                )
+                            else:
+                                webhook_dest = WebhookDestination(
+                                    url=url,
+                                    method=dest_config.get("method", "POST"),
+                                    headers=dest_config.get("headers"),
+                                    timeout=dest_config.get(
+                                        "timeout", WEBHOOK_DEFAULT_TIMEOUT_SECONDS
+                                    ),
+                                )
+                                webhook_dest.send_issue(issue, llm_result)
+                                notification.status = "sent"
+                                logging.info(
+                                    f"Sent webhook notification for check {check_name}"
+                                )
+                        except Exception as e:
+                            notification.status = "failed"
+                            notification.error = str(e)
+                            logging.error(
+                                f"Failed to send webhook notification: {e}",
+                                exc_info=True,
                             )
 
                         notifications.append(notification)
