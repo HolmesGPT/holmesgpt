@@ -83,6 +83,9 @@ spec:
         phase: v2
     spec:
       restartPolicy: Never
+      # Image is amd64-only
+      nodeSelector:
+        kubernetes.io/arch: amd64
       containers:
       - name: k6
         image: loadimpact/k6:0.47.0
