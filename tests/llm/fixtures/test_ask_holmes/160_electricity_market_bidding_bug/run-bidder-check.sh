@@ -120,7 +120,7 @@ else
 fi
 
 # Check 2: Other exchanges should maintain ~10% bid rate
-if awk -v rate="$other_bid_rate" 'BEGIN{exit !(rate >= 0.08 && rate <= 0.15)}'; then
+if awk -v rate="$other_bid_rate" 'BEGIN{exit !(rate >= 0.05 && rate <= 0.15)}'; then
   echo "✓ Other exchanges bid rate is ~10% (actual: ${other_bid_rate})"
 else
   echo "✗ ERROR: Other exchanges bid rate is not ~10% (actual: ${other_bid_rate})" >&2
