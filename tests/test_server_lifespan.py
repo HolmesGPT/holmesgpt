@@ -33,7 +33,7 @@ def test_app_registers_no_legacy_event_handlers():
 
 def test_worker_is_stopped_on_shutdown_not_on_startup():
     worker = MagicMock()
-    with patch.object(server, "conversation_worker", worker):
+    with patch.object(server, "conversation_runtime", worker):
         with TestClient(server.app) as client:
             assert client.get("/healthz").status_code == 200
             worker.stop.assert_not_called()
@@ -42,7 +42,7 @@ def test_worker_is_stopped_on_shutdown_not_on_startup():
 
 
 def test_shutdown_without_worker_is_a_noop():
-    with patch.object(server, "conversation_worker", None):
+    with patch.object(server, "conversation_runtime", None):
         with TestClient(server.app) as client:
             assert client.get("/healthz").status_code == 200
 
@@ -50,12 +50,12 @@ def test_shutdown_without_worker_is_a_noop():
 def test_failing_stop_is_logged_and_does_not_break_shutdown(caplog):
     worker = MagicMock()
     worker.stop.side_effect = RuntimeError("supabase down")
-    with patch.object(server, "conversation_worker", worker):
+    with patch.object(server, "conversation_runtime", worker):
         with caplog.at_level(logging.ERROR):
             with TestClient(server.app):
                 pass
     worker.stop.assert_called_once_with()
-    assert "Failed to stop conversation worker" in caplog.text
+    assert "Failed to stop conversation runtime" in caplog.text
     assert "supabase down" in caplog.text
 
 
@@ -72,7 +72,7 @@ def test_stop_runs_off_the_event_loop_thread():
 
     server.app.add_api_route("/__test_loop_thread", record_loop_thread)
     try:
-        with patch.object(server, "conversation_worker", worker):
+        with patch.object(server, "conversation_runtime", worker):
             with TestClient(server.app) as client:
                 client.get("/__test_loop_thread")
     finally:
@@ -88,7 +88,7 @@ def test_stop_runs_off_the_event_loop_thread():
 
 def test_each_lifespan_cycle_stops_the_worker_once():
     worker = MagicMock()
-    with patch.object(server, "conversation_worker", worker):
+    with patch.object(server, "conversation_runtime", worker):
         for _ in range(2):
             with TestClient(server.app):
                 pass
