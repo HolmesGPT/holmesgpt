@@ -209,7 +209,7 @@ class _ShellSafeHeaders(CaseInsensitiveDict):
         return ((key.lower(), self[key]) for key in self)
 
     def copy(self) -> "_ShellSafeHeaders":
-        return _ShellSafeHeaders(self)
+        return _ShellSafeHeaders(self._store.values())
 
 
 class PrerequisiteCacheMode(str, Enum):

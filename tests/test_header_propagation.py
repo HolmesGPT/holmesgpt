@@ -512,6 +512,18 @@ class TestRequestContextShellInjection:
         assert headers[unused_name] == unused_value
 
     @pytest.mark.parametrize("sink", ["command", "script"])
+    def test_unused_headers_do_not_block_copied_lookup(self, sink):
+        source = "echo {{ request_context.headers.copy().get('x-tenant') }}"
+        if sink == "script":
+            source = "#!/bin/bash\n" + source
+        tool = YAMLTool(name="t", description="t", **{sink: source})
+        result = tool._invoke(
+            {}, self._ctx({"headers": {"Accept": "*/*", "X-Tenant": "tenant-abc"}})
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "tenant-abc"
+
+    @pytest.mark.parametrize("sink", ["command", "script"])
     def test_unused_header_value_is_not_read_by_membership(self, sink):
         source = "echo {% if 'aCcEpT' in request_context.headers %}present{% endif %}"
         if sink == "script":
