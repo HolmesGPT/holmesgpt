@@ -497,6 +497,7 @@ class TestRequestContextShellInjection:
     def test_unused_proxy_headers_do_not_block_tools(
         self, sink, unused_name, unused_value, tmp_path
     ):
+        """Unused proxy or hostile values cannot block a safe header lookup."""
         marker = tmp_path / "executed"
         if unused_value == "injection":
             unused_value = f"$(touch {marker})"
@@ -513,6 +514,7 @@ class TestRequestContextShellInjection:
 
     @pytest.mark.parametrize("sink", ["command", "script"])
     def test_unused_headers_do_not_block_copied_lookup(self, sink):
+        """Copying headers preserves lazy validation of the requested value."""
         source = "echo {{ request_context.headers.copy().get('x-tenant') }}"
         if sink == "script":
             source = "#!/bin/bash\n" + source
@@ -525,6 +527,7 @@ class TestRequestContextShellInjection:
 
     @pytest.mark.parametrize("sink", ["command", "script"])
     def test_unused_header_value_is_not_read_by_membership(self, sink):
+        """A case-insensitive presence check does not render the header value."""
         source = "echo {% if 'aCcEpT' in request_context.headers %}present{% endif %}"
         if sink == "script":
             source = "#!/bin/bash\n" + source
@@ -550,6 +553,7 @@ class TestRequestContextShellInjection:
     def test_header_access_still_rejects_command_substitution(
         self, sink, expression, tmp_path
     ):
+        """Every supported value access refuses a payload before bash runs."""
         marker = tmp_path / "executed"
         source = 'echo "{{ ' + expression + ' }}"'
         if sink == "script":

@@ -195,20 +195,24 @@ class _ShellSafeHeaders(CaseInsensitiveDict):
     """Check a propagated header when a command template reads its value."""
 
     def __getitem__(self, key: str) -> Any:
+        """Reject shell metacharacters in a header when its value is read."""
         value = super().__getitem__(key)
         if isinstance(value, str):
             return reject_shell_metacharacters(value, f"request header {key!r}")
         return value
 
     def __contains__(self, key: object) -> bool:
+        """Check header presence without reading or validating its value."""
         # Checking a name's presence does not render its value into the shell.
         return isinstance(key, str) and key.lower() in self._store
 
     def lower_items(self) -> Iterator[Tuple[str, Any]]:
+        """Yield lowercase names with values validated on iteration."""
         # CaseInsensitiveDict's implementation reads its raw internal store.
         return ((key.lower(), self[key]) for key in self)
 
     def copy(self) -> "_ShellSafeHeaders":
+        """Copy the headers while retaining validation on subsequent reads."""
         return _ShellSafeHeaders(self._store.values())
 
 
