@@ -14,8 +14,10 @@ from typing import Any, Dict, Optional, Tuple
 from unittest.mock import Mock, patch
 
 import pytest
+from jinja2 import Template
 
 from holmes.core.tools import (
+    ShellInjectionError,
     StructuredToolResultStatus,
     ToolInvokeContext,
     YAMLTool,
@@ -458,18 +460,17 @@ class TestRequestContextShellInjection:
         assert "uid=" not in (result.error or "")
         assert "uid=" not in (result.data or "")
 
-    def test_build_context_raises_on_metacharacter_header(self):
-        """_build_context refuses a metacharacter header at the source."""
-        from holmes.core.tools import ShellInjectionError
-
+    def test_rendering_raises_on_metacharacter_header(self):
+        """A referenced header is refused before its template reaches bash."""
         tool = YAMLTool(
             name="t", description="t",
             command="echo {{ request_context.headers['X-Val'] }}",
         )
+        context = tool._build_context(
+            {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
+        )
         with pytest.raises(ShellInjectionError):
-            tool._build_context(
-                {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
-            )
+            Template(tool.command).render(context)
 
     def test_benign_header_with_whitespace_is_allowed(self):
         """A legitimate multi-word token (e.g. `Bearer <jwt>`) is permitted."""
@@ -482,6 +483,72 @@ class TestRequestContextShellInjection:
         )
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "Bearer abc.def-ghi_jkl"
+
+    @pytest.mark.parametrize("sink", ["command", "script"])
+    @pytest.mark.parametrize(
+        "unused_name, unused_value",
+        [
+            ("Accept", "*/*"),
+            ("x-envoy-decorator-operation", "service.namespace.svc.cluster.local:80/*"),
+            ("x-forwarded-client-cert", 'By=proxy;Hash="certificate"'),
+            ("X-Unused", "injection"),
+        ],
+    )
+    def test_unused_proxy_headers_do_not_block_tools(
+        self, sink, unused_name, unused_value, tmp_path
+    ):
+        marker = tmp_path / "executed"
+        if unused_value == "injection":
+            unused_value = f"$(touch {marker})"
+        source = "printf '%s' '{{ request_context.headers.get('x-tenant') }}'"
+        if sink == "script":
+            source = "#!/bin/bash\n" + source
+        tool = YAMLTool(name="t", description="t", **{sink: source})
+        headers = {unused_name: unused_value, "X-Tenant": "tenant-abc"}
+        result = tool._invoke({}, self._ctx({"headers": headers}))
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "tenant-abc"
+        assert not marker.exists()
+        assert headers[unused_name] == unused_value
+
+    @pytest.mark.parametrize("sink", ["command", "script"])
+    def test_unused_header_value_is_not_read_by_membership(self, sink):
+        source = "echo {% if 'aCcEpT' in request_context.headers %}present{% endif %}"
+        if sink == "script":
+            source = "#!/bin/bash\n" + source
+        tool = YAMLTool(name="t", description="t", **{sink: source})
+        result = tool._invoke({}, self._ctx({"headers": {"Accept": "*/*"}}))
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "present"
+
+    @pytest.mark.parametrize("sink", ["command", "script"])
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "request_context.headers['X_Value']",
+            "request_context.headers.X_Value",
+            "request_context.headers.get('x_value')",
+            "request_context.headers.items() | map(attribute=1) | join",
+            "request_context.headers.values() | join",
+            "request_context.headers.lower_items() | map(attribute=1) | join",
+            "request_context.headers.copy()['X_Value']",
+            "request_context.headers",
+        ],
+    )
+    def test_header_access_still_rejects_command_substitution(
+        self, sink, expression, tmp_path
+    ):
+        marker = tmp_path / "executed"
+        source = 'echo "{{ ' + expression + ' }}"'
+        if sink == "script":
+            source = "#!/bin/bash\n" + source
+        tool = YAMLTool(name="t", description="t", **{sink: source})
+        result = tool._invoke(
+            {}, self._ctx({"headers": {"X_Value": f"$(touch {marker})"}})
+        )
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "metacharacter" in (result.error or "")
+        assert not marker.exists()
 
     def test_benign_header_still_renders_unchanged(self):
         """A normal token passes through untouched (no regression)."""
