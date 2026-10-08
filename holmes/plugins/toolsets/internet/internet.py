@@ -1,8 +1,8 @@
 import logging
 import os
 import re
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Type
-from urllib.parse import urljoin, urlparse
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, Tuple, Type
+from urllib.parse import urljoin
 
 from pydantic import Field
 import requests  # type: ignore
@@ -23,13 +23,12 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.internet.ssrf import (
     SSRFValidationError,
     build_pinned_adapter,
+    credentials_for_redirect,
+    no_auth,
     validate_url,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 from holmes.utils.pydantic_utils import ToolsetConfig
-
-# Headers that carry credentials and must never survive a cross-host redirect.
-SENSITIVE_HEADERS = frozenset({"authorization", "cookie", "proxy-authorization"})
 
 # Bound the manual (validated) redirect chain, mirroring requests' default.
 MAX_REDIRECTS = 5
@@ -93,12 +92,6 @@ SELECTORS_TO_REMOVE = [
 ]
 
 
-def _strip_sensitive_headers(headers: Dict[str, str]) -> Dict[str, str]:
-    """Drop credential-bearing headers (used when following a cross-host
-    redirect so operator-configured auth is never leaked to another host)."""
-    return {k: v for k, v in headers.items() if k.lower() not in SENSITIVE_HEADERS}
-
-
 def scrape(
     url: str,
     headers: Dict[str, str],
@@ -109,8 +102,8 @@ def scrape(
 
     Every hop (including redirects) is validated against the SSRF policy and the
     connection is pinned to the exact IP that was validated, defeating DNS
-    rebinding. Credential headers are stripped when a redirect crosses to a
-    different host.
+    rebinding. Credential headers are stripped when a redirect changes the
+    origin (scheme, host or port), except a same-host http -> https upgrade.
     """
     content = None
     mime_type = None
@@ -120,8 +113,10 @@ def scrape(
     headers["User-Agent"] = INTERNET_TOOLSET_USER_AGENT
 
     current_url = url
-    current_host = (urlparse(url).hostname or "").lower()
     current_headers = headers
+    # Credentials come only from `headers`, never from ~/.netrc: the URL is
+    # model-chosen, and netrc would bypass the allowed_hosts rule for auth.
+    current_auth: Callable[..., Any] = no_auth
 
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -144,6 +139,7 @@ def scrape(
                 response = session.get(
                     current_url,
                     headers=current_headers,
+                    auth=current_auth,
                     timeout=INTERNET_TOOLSET_TIMEOUT_SECONDS,
                     allow_redirects=False,
                 )
@@ -154,11 +150,15 @@ def scrape(
                 location = response.headers.get("location")
                 if not location:
                     break
-                current_url = urljoin(current_url, location)
-                next_host = (urlparse(current_url).hostname or "").lower()
-                if next_host != current_host:
-                    current_headers = _strip_sensitive_headers(current_headers)
-                    current_host = next_host
+                next_url = urljoin(current_url, location)
+                current_headers, current_auth = credentials_for_redirect(
+                    current_url,
+                    next_url,
+                    current_headers,
+                    current_auth,
+                    own_headers={"User-Agent": INTERNET_TOOLSET_USER_AGENT},
+                )
+                current_url = next_url
                 continue
 
             response.raise_for_status()

@@ -17,7 +17,7 @@ import requests
 
 from holmes.core.tools import ToolsetStatusEnum
 from holmes.core.tools_utils.tool_executor import ToolExecutor
-from holmes.plugins.toolsets.internet import ssrf
+from holmes.plugins.toolsets.internet import internet, ssrf
 from holmes.plugins.toolsets.internet.internet import InternetToolset, scrape
 from holmes.plugins.toolsets.internet.ssrf import (
     SSRFValidationError,
@@ -292,3 +292,341 @@ def test_pinned_adapter_connects_to_validated_ip(responses):
     finally:
         server.shutdown()
         server.server_close()
+
+
+# ---------------------------------------------------------------------------
+# Credential stripping on cross-origin redirects (ROB-1480)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def public_dns(monkeypatch):
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        return [(2, 1, 6, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(ssrf.socket, "getaddrinfo", fake_getaddrinfo)
+
+
+CREDENTIAL_HEADERS = {
+    "Authorization": "Bearer super-secret",
+    "Cookie": "session=abc",
+    "Proxy-Authorization": "Basic cHJveHk=",
+    "X-Api-Key": "key-123",
+    "Notion-Version": "2022-06-28",
+}
+
+
+def _redirect_and_land(responses, start, location, landing=None):
+    responses.get(start, status=302, headers={"Location": location})
+    responses.get(landing or location, status=200, body="landed")
+
+
+@pytest.mark.parametrize(
+    "start,location",
+    [
+        ("https://trusted.example/a", "http://trusted.example/b"),  # downgrade
+        ("http://trusted.example/a", "https://trusted.example:8443/b"),
+        ("http://trusted.example:8080/a", "https://trusted.example/b"),
+        ("https://trusted.example/a", "https://trusted.example:8443/b"),  # port
+        ("https://trusted.example:8443/a", "https://trusted.example/b"),
+        ("http://trusted.example/a", "http://trusted.example:8080/b"),
+        ("https://trusted.example/a", "http://trusted.example:443/b"),
+        ("https://trusted.example/a", "https://evil.example/b"),  # host
+        ("https://Trusted.Example/a", "https://evil.example/b"),
+    ],
+)
+def test_scrape_strips_credentials_on_cross_origin_redirect(
+    start, location, public_dns, responses
+):
+    _redirect_and_land(responses, start, location)
+
+    content, _ = scrape(
+        start,
+        dict(CREDENTIAL_HEADERS),
+        allowed_hosts=["trusted.example", "evil.example"],
+    )
+
+    assert content == "landed"
+    assert len(responses.calls) == 2
+    first, second = (c.request.headers for c in responses.calls)
+    for name, value in CREDENTIAL_HEADERS.items():
+        assert first.get(name) == value
+        assert name not in second, name
+    assert second["User-Agent"] == first["User-Agent"]
+
+
+@pytest.mark.parametrize(
+    "start,location,landing",
+    [
+        ("https://trusted.example/a", "/b", "https://trusted.example/b"),
+        (
+            "https://trusted.example/a",
+            "//trusted.example/b",
+            "https://trusted.example/b",
+        ),
+        (
+            "https://trusted.example/a",
+            "https://TRUSTED.example/b",
+            "https://trusted.example/b",
+        ),
+        (
+            "https://trusted.example/a",
+            "https://trusted.example:443/b",
+            "https://trusted.example:443/b",
+        ),
+        (
+            "https://trusted.example:443/a",
+            "https://trusted.example/b",
+            "https://trusted.example/b",
+        ),
+        (
+            "http://trusted.example/a",
+            "http://trusted.example:80/b",
+            "http://trusted.example:80/b",
+        ),
+        (
+            "https://trusted.example:8443/a",
+            "https://trusted.example:8443/b",
+            "https://trusted.example:8443/b",
+        ),
+        ("http://trusted.example/a", "https://trusted.example/b", None),
+        ("http://trusted.example:80/a", "https://trusted.example:443/b", None),
+    ],
+)
+def test_scrape_keeps_credentials_on_same_origin_or_https_upgrade_redirect(
+    start, location, landing, public_dns, responses
+):
+    _redirect_and_land(responses, start, location, landing)
+
+    content, _ = scrape(
+        start, dict(CREDENTIAL_HEADERS), allowed_hosts=["trusted.example"]
+    )
+
+    assert content == "landed"
+    second = responses.calls[1].request.headers
+    for name, value in CREDENTIAL_HEADERS.items():
+        assert second.get(name) == value, name
+
+
+def test_scrape_credentials_stay_stripped_after_returning_to_origin(
+    public_dns, responses
+):
+    """A -> B -> A: once dropped, credentials are not re-attached."""
+    responses.get(
+        "https://trusted.example/a",
+        status=302,
+        headers={"Location": "http://trusted.example/b"},
+    )
+    responses.get(
+        "http://trusted.example/b",
+        status=302,
+        headers={"Location": "https://trusted.example/c"},
+    )
+    responses.get("https://trusted.example/c", status=200, body="landed")
+
+    content, _ = scrape(
+        "https://trusted.example/a",
+        {"Authorization": "Bearer super-secret"},
+        allowed_hosts=["trusted.example"],
+    )
+
+    assert content == "landed"
+    assert [c.request.url for c in responses.calls] == [
+        "https://trusted.example/a",
+        "http://trusted.example/b",
+        "https://trusted.example/c",
+    ]
+    assert responses.calls[0].request.headers["Authorization"] == "Bearer super-secret"
+    assert "Authorization" not in responses.calls[1].request.headers
+    assert "Authorization" not in responses.calls[2].request.headers
+
+
+def test_scrape_does_not_mutate_caller_headers(public_dns, responses):
+    _redirect_and_land(
+        responses, "https://trusted.example/a", "http://trusted.example/b"
+    )
+    headers = {"Authorization": "Bearer super-secret"}
+
+    scrape("https://trusted.example/a", headers, allowed_hosts=["trusted.example"])
+
+    assert headers == {"Authorization": "Bearer super-secret"}
+
+
+def test_fetch_webpage_tool_strips_auth_on_scheme_downgrade(public_dns, responses):
+    _redirect_and_land(
+        responses, "https://trusted.example/a", "http://trusted.example/b"
+    )
+    tool = _build_tool(
+        {
+            "additional_headers": {"Authorization": "Bearer super-secret"},
+            "allowed_hosts": ["trusted.example"],
+        }
+    )
+
+    result = tool.invoke(
+        {"url": "https://trusted.example/a"}, context=create_mock_tool_invoke_context()
+    )
+
+    assert result.data == "landed"
+    assert responses.calls[0].request.headers["Authorization"] == "Bearer super-secret"
+    assert "Authorization" not in responses.calls[1].request.headers
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("https://h.example/x", ("https", "h.example", 443)),
+        ("http://h.example/x", ("http", "h.example", 80)),
+        ("HTTPS://H.Example:443/x", ("https", "h.example", 443)),
+        ("https://h.example:8443", ("https", "h.example", 8443)),
+        ("http://[::1]:8080/", ("http", "::1", 8080)),
+        ("https://h.example:notaport/", ("https", "h.example", None)),
+        ("https://h.example:99999/", ("https", "h.example", None)),
+        ("ftp://h.example/", ("ftp", "h.example", None)),
+    ],
+)
+def test_url_origin(url, expected):
+    assert ssrf.url_origin(url) == expected
+
+
+@pytest.mark.parametrize("headers", [{}, {"Location": ""}])
+def test_scrape_redirect_without_location_returns_redirect_body(
+    headers, public_dns, responses
+):
+    responses.get(
+        "https://trusted.example/a", status=302, body="moved", headers=headers
+    )
+
+    content, _ = scrape(
+        "https://trusted.example/a", {}, allowed_hosts=["trusted.example"]
+    )
+
+    assert content == "moved"
+    assert len(responses.calls) == 1
+
+
+def test_scrape_gives_up_after_max_redirects(public_dns, responses):
+    responses.get(
+        "https://trusted.example/a",
+        status=302,
+        headers={"Location": "https://trusted.example/a"},
+    )
+
+    content, mime = scrape(
+        "https://trusted.example/a", {}, allowed_hosts=["trusted.example"]
+    )
+
+    assert mime is None
+    assert "exceeded" in content
+    assert len(responses.calls) == internet.MAX_REDIRECTS + 1
+
+
+def test_scrape_cross_origin_redirect_to_disallowed_host_is_refused(
+    public_dns, responses
+):
+    responses.get(
+        "https://trusted.example/a",
+        status=302,
+        headers={"Location": "http://other.example/b"},
+    )
+
+    content, mime = scrape(
+        "https://trusted.example/a",
+        {"Authorization": "Bearer super-secret"},
+        allowed_hosts=["trusted.example"],
+    )
+
+    assert mime is None
+    assert content.startswith("Refusing to fetch http://other.example/b")
+    assert len(responses.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (requests.Timeout("slow"), "Timeout after"),
+        (requests.ConnectionError("refused"), "refused"),
+    ],
+)
+def test_scrape_reports_transport_errors_after_redirect(
+    error, expected, public_dns, responses
+):
+    responses.get(
+        "https://trusted.example/a",
+        status=302,
+        headers={"Location": "http://trusted.example/b"},
+    )
+    responses.get("http://trusted.example/b", body=error)
+
+    content, mime = scrape(
+        "https://trusted.example/a", {}, allowed_hosts=["trusted.example"]
+    )
+
+    assert mime is None
+    assert content.startswith("Failed to load https://trusted.example/a")
+    assert expected in content
+
+
+def test_scrape_secret_in_a_safe_header_name_does_not_cross_an_origin(
+    public_dns, responses
+):
+    _redirect_and_land(
+        responses, "https://trusted.example/a", "https://other.example/b"
+    )
+    secrets = {
+        "Accept": "secret-1",
+        "Accept-Language": "secret-2",
+        "Content-Type": "secret-3",
+    }
+
+    scrape(
+        "https://trusted.example/a",
+        dict(secrets),
+        allowed_hosts=["trusted.example", "other.example"],
+    )
+
+    first, second = (c.request.headers for c in responses.calls)
+    for name, value in secrets.items():
+        assert first[name] == value
+        assert second.get(name) != value, name
+    assert second["User-Agent"] == internet.INTERNET_TOOLSET_USER_AGENT
+
+
+def test_scrape_never_sends_netrc_credentials(
+    tmp_path, monkeypatch, public_dns, responses
+):
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine trusted.example login netrc-user password netrc-pass\n")
+    netrc.chmod(0o600)
+    monkeypatch.setenv("NETRC", str(netrc))
+    _redirect_and_land(
+        responses, "https://trusted.example/a", "http://trusted.example/b"
+    )
+
+    content, _ = scrape(
+        "https://trusted.example/a", {}, allowed_hosts=["trusted.example"]
+    )
+
+    assert content == "landed"
+    for call in responses.calls:
+        assert "Authorization" not in call.request.headers
+
+
+@pytest.mark.parametrize(
+    "current,target,expected",
+    [
+        ("https://h.example/a", "https://h.example/b", True),
+        ("https://h.example/a", "https://H.example:443/b", True),
+        ("http://h.example/a", "https://h.example/b", True),
+        ("http://h.example:80/a", "https://h.example:443/b", True),
+        ("https://h.example/a", "http://h.example/b", False),
+        ("http://h.example:8080/a", "https://h.example/b", False),
+        ("http://h.example/a", "https://h.example:8443/b", False),
+        ("http://h.example/a", "https://other.example/b", False),
+        ("https://h.example/a", "https://h.example:8443/b", False),
+        ("http://h.example/a", "https://h.example:99999/b", False),
+        ("https://h.example/a", "https://h.example:70000/b", False),
+    ],
+)
+def test_credentials_may_follow(current, target, expected):
+    assert ssrf.credentials_may_follow(current, target) is expected
