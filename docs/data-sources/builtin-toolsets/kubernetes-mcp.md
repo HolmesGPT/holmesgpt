@@ -642,7 +642,7 @@ kubectl create secret generic mcp-k8s-credentials \
 
 ### Step 3: Deploy
 
-Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.example.com`). The `offline_access` scope lets Dex issue refresh tokens, so users don't have to sign in again every time their token expires. Some connectors ignore it, notably the SAML connector.
+Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.example.com`). All three Dex URLs below derive from the `issuer` in your Dex config: the server-side `authorization_url` is the issuer itself, and the Holmes-side `authorization_url` and `token_url` are the issuer followed by `/auth` and `/token`. The `offline_access` scope lets Dex issue refresh tokens, so users don't have to sign in again every time their token expires. Some connectors ignore it, notably the SAML connector.
 
 === "Holmes Helm Chart"
 
@@ -679,11 +679,13 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
         config:
           readOnly: true
 
-          # Server-side: pass each user's token through to the API server.
+          # Server-side: validate each user's Dex token, then pass it through to the API server.
           serverConfig: |
             require_oauth = true
             accept_opaque_tokens = false
             cluster_auth_mode = "passthrough"
+            authorization_url = "<DEX_ISSUER_URL>"
+            oauth_audience = "mcp-k8s"
 
           # Holmes-side: tells Holmes which OAuth endpoints to drive in the browser.
           oauth:
@@ -742,11 +744,13 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
           config:
             readOnly: true
 
-            # Server-side: pass each user's token through to the API server.
+            # Server-side: validate each user's Dex token, then pass it through to the API server.
             serverConfig: |
               require_oauth = true
               accept_opaque_tokens = false
               cluster_auth_mode = "passthrough"
+              authorization_url = "<DEX_ISSUER_URL>"
+              oauth_audience = "mcp-k8s"
 
             # Holmes-side: tells Holmes which OAuth endpoints to drive in the browser.
             oauth:
