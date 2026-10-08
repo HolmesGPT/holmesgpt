@@ -17,6 +17,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterator,
     List,
     Optional,
     OrderedDict,
@@ -203,11 +204,11 @@ class _ShellSafeHeaders(CaseInsensitiveDict):
         # Checking a name's presence does not render its value into the shell.
         return isinstance(key, str) and key.lower() in self._store
 
-    def lower_items(self):
+    def lower_items(self) -> Iterator[Tuple[str, Any]]:
         # CaseInsensitiveDict's implementation reads its raw internal store.
         return ((key.lower(), self[key]) for key in self)
 
-    def copy(self):
+    def copy(self) -> "_ShellSafeHeaders":
         return _ShellSafeHeaders(self)
 
 
