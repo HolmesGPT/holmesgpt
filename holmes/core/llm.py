@@ -38,6 +38,7 @@ from holmes.common.env_vars import (
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS,
 )
 from holmes.core.azure_token import get_azure_ad_token
+from holmes.core.llm_rate_limit import call_with_rate_limit_retry
 from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
@@ -747,11 +748,10 @@ class DefaultLLM(LLM):
 
         # When Azure AD (Entra ID) token auth is enabled, obtain a cached token
         # and pass it to litellm instead of an API key.
-        azure_ad_kwargs: Dict[str, Any] = {}
-        if AZURE_AD_TOKEN_AUTH and litellm_model_name.startswith("azure/"):
-            # For LiteLLM Azure provider, pass the bearer token via azure_ad_token
-            # LiteLLM will send it as Authorization: Bearer <token>
-            azure_ad_kwargs["azure_ad_token"] = get_azure_ad_token()
+        use_azure_ad_token = AZURE_AD_TOKEN_AUTH and litellm_model_name.startswith(
+            "azure/"
+        )
+        if use_azure_ad_token:
             # Also, ensure we do not leak stale API keys when using Entra ID
             # Leave api_key as None in completion call when AZURE_AD_TOKEN_AUTH is enabled
             self.api_key = None
@@ -771,21 +771,35 @@ class DefaultLLM(LLM):
                 }
             ]
 
-        result = litellm_to_use.completion(
-            model=litellm_model_name,
-            api_key=self.api_key,
-            base_url=self.api_base,
-            api_version=self.api_version,
-            messages=sanitized_messages,
-            response_format=response_format,
-            drop_params=drop_params,
-            allowed_openai_params=allowed_openai_params,
-            stream=stream,
-            timeout=LLM_REQUEST_TIMEOUT,
-            **azure_ad_kwargs,
-            **tools_args,
-            **self.args,
-            **cache_kwargs,
+        def call_provider() -> Any:
+            azure_ad_kwargs: Dict[str, Any] = {}
+            if use_azure_ad_token:
+                # For LiteLLM Azure provider, pass the bearer token via azure_ad_token
+                # LiteLLM will send it as Authorization: Bearer <token>.
+                # Fetched per attempt: a retry after a long backoff may need a new one.
+                azure_ad_kwargs["azure_ad_token"] = get_azure_ad_token()
+            return litellm_to_use.completion(
+                model=litellm_model_name,
+                api_key=self.api_key,
+                base_url=self.api_base,
+                api_version=self.api_version,
+                messages=sanitized_messages,
+                response_format=response_format,
+                drop_params=drop_params,
+                allowed_openai_params=allowed_openai_params,
+                stream=stream,
+                timeout=LLM_REQUEST_TIMEOUT,
+                **azure_ad_kwargs,
+                **tools_args,
+                **self.args,
+                **cache_kwargs,
+            )
+
+        # With stream=True only errors raised by completion() itself are
+        # retried; an error while reading chunks propagates, so a partial answer
+        # is never replayed. Some providers send the request on the first chunk.
+        result = call_with_rate_limit_retry(
+            call_provider, model=litellm_model_name, api_base=self.api_base
         )
 
         if isinstance(result, ModelResponse):

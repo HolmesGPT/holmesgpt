@@ -15,12 +15,16 @@ Mocking strategy:
 
 import json
 import threading
+import time
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
+import httpx
+import litellm
 import pytest
 
 from holmes.core.llm import LLM, ContextWindowUsage
+from holmes.core.llm_rate_limit import LLMRetryCancelled, call_with_rate_limit_retry
 from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
 from holmes.core.llm_usage import RequestStats
 from holmes.core.tool_calling_llm import LLMInterruptedError, ToolCallingLLM
@@ -1180,7 +1184,7 @@ EXPECTED_COSTS_KEYS = {
     "total_cost", "total_tokens", "prompt_tokens", "completion_tokens",
     "cached_tokens", "cache_creation_tokens", "reasoning_tokens",
     "max_completion_tokens_per_call", "max_prompt_tokens_per_call",
-    "num_compactions",
+    "num_compactions", "llm_rate_limit_retries", "llm_rate_limit_wait_ms",
 }
 
 EXPECTED_TOKEN_COUNT_METADATA_KEYS = {"costs", "usage", "tokens", "max_tokens", "max_output_tokens"}
@@ -1759,3 +1763,139 @@ class TestFrontendNoopToolFlow:
         tool_names = [t["function"]["name"] for t in tools_sent]
         assert "kubectl_get" in tool_names, "Backend tool should be included"
         assert "navigate_to_page" in tool_names, "Noop tool should be included"
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit retries inside the agentic loop
+# ---------------------------------------------------------------------------
+
+
+class TestRateLimitRetryInLoop:
+    """A 429 on a later iteration retries that LLM call only: tool work done
+    in earlier iterations is kept and no event is emitted twice."""
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_429_on_second_iteration_keeps_tool_work(
+        self, _mock_limit, make_ai, mock_llm, monkeypatch
+    ):
+        monkeypatch.setattr("time.sleep", lambda _s: None)
+        tc = _make_mock_tool_call()
+        outcomes = [
+            _make_llm_response(content="Let me check", tool_calls=[tc]),
+            litellm.RateLimitError(
+                message="slow down", llm_provider="openai", model="gpt-4o"
+            ),
+            _make_llm_response(content="All pods are running"),
+        ]
+
+        def provider_call():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        mock_llm.completion.side_effect = lambda **_kw: call_with_rate_limit_retry(
+            provider_call, model="gpt-4o"
+        )
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = list(ai.call_stream(msgs=[{"role": "user", "content": "pods?"}]))
+
+        assert ai._invoke_llm_tool_call.call_count == 1
+        assert len(_events_of_type(events, StreamEvents.START_TOOL)) == 1
+        assert len(_events_of_type(events, StreamEvents.TOOL_RESULT)) == 1
+        answer_end = _events_of_type(events, StreamEvents.ANSWER_END)
+        assert len(answer_end) == 1
+        assert answer_end[0].data["content"] == "All pods are running"
+        assert answer_end[0].data["costs"]["llm_rate_limit_retries"] == 1
+        assert mock_llm.completion.call_count == 2
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_exhausted_budget_propagates_after_tool_events(
+        self, _mock_limit, make_ai, mock_llm, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "holmes.common.env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS", 0
+        )
+        tc = _make_mock_tool_call()
+        outcomes = [
+            _make_llm_response(content="Let me check", tool_calls=[tc]),
+            litellm.RateLimitError(
+                message="slow down", llm_provider="openai", model="gpt-4o"
+            ),
+        ]
+
+        def provider_call():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        mock_llm.completion.side_effect = lambda **_kw: call_with_rate_limit_retry(
+            provider_call, model="gpt-4o"
+        )
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = []
+        with pytest.raises(litellm.RateLimitError):
+            for event in ai.call_stream(msgs=[{"role": "user", "content": "pods?"}]):
+                events.append(event)
+
+        assert len(_events_of_type(events, StreamEvents.TOOL_RESULT)) == 1
+        assert not _events_of_type(events, StreamEvents.ANSWER_END)
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_cancel_during_backoff_interrupts(self, _mock_limit, make_ai, mock_llm):
+        cancel = threading.Event()
+
+        def provider_call():
+            threading.Timer(0.1, cancel.set).start()
+            raise litellm.RateLimitError(
+                message="slow down",
+                llm_provider="openai",
+                model="gpt-4o",
+                response=httpx.Response(429, headers={"Retry-After": "30"}),
+            )
+
+        mock_llm.completion.side_effect = lambda **_kw: call_with_rate_limit_retry(
+            provider_call, model="gpt-4o"
+        )
+        ai = make_ai()
+
+        started = time.monotonic()
+        with pytest.raises(LLMInterruptedError):
+            list(
+                ai.call_stream(
+                    msgs=[{"role": "user", "content": "pods?"}], cancel_event=cancel
+                )
+            )
+        assert time.monotonic() - started < 5
+
+    def test_cancel_during_compaction_backoff_interrupts(self, make_ai, mock_llm):
+        with patch(LIMIT_PATCH, side_effect=LLMRetryCancelled()):
+            with pytest.raises(LLMInterruptedError):
+                list(
+                    make_ai().call_stream(
+                        msgs=[{"role": "user", "content": "pods?"}],
+                        cancel_event=threading.Event(),
+                    )
+                )
+        mock_llm.completion.assert_not_called()
+
+    def test_retries_of_a_skipped_compaction_are_counted(self, make_ai, mock_llm):
+        def skipped_compaction(messages, **_kwargs):
+            output = _make_context_limiter_passthrough(messages)
+            output.compaction_usage = RequestStats(
+                llm_rate_limit_retries=2, llm_rate_limit_wait_ms=7000
+            )
+            return output
+
+        mock_llm.completion.return_value = _make_llm_response(content="done")
+        with patch(LIMIT_PATCH, side_effect=skipped_compaction):
+            events = list(make_ai().call_stream(msgs=[{"role": "user", "content": "q"}]))
+
+        costs = _events_of_type(events, StreamEvents.ANSWER_END)[0].data["costs"]
+        assert costs["llm_rate_limit_retries"] == 2
+        assert costs["llm_rate_limit_wait_ms"] == 7000

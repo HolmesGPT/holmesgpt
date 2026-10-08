@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import json
+import litellm
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
@@ -48,6 +49,29 @@ def test_api_chat_answers_a_relay_refusal_with_its_own_status(
 
     assert response.status_code == status_code
     assert response.json()["detail"] == message
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        # Bedrock throttling arrives as a plain Exception
+        Exception("Model is getting throttled. Try your request again."),
+    ],
+)
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_answers_rate_limits_with_429(
+    mock_get_global_instructions, mock_create_toolcalling_llm, client, error
+):
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.side_effect = error
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?"})
+
+    assert response.status_code == 429
 
 
 @pytest.mark.parametrize("status_code", [401, 403])

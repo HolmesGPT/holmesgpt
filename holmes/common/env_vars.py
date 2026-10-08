@@ -165,6 +165,16 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 
+# Max time one LLM call may spend backing off from rate-limit / overloaded
+# errors before the error is raised. 0 disables these retries.
+LLM_RATE_LIMIT_MAX_WAIT_SECONDS = float(
+    os.environ.get("LLM_RATE_LIMIT_MAX_WAIT_SECONDS", "180")
+)
+# Max in-flight LLM calls per model in this process. 0 (default) means no cap.
+LLM_MAX_CONCURRENT_CALLS_PER_MODEL = int(
+    os.environ.get("LLM_MAX_CONCURRENT_CALLS_PER_MODEL", "0")
+)
+
 # Extra message fields to strip before sending messages to the provider API.
 # Comma-separated. Set this if a provider rejects a field with an error like:
 #   "messages.N.<field>: Extra inputs are not permitted"

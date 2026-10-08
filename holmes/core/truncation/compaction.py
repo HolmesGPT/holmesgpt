@@ -12,8 +12,23 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
 from holmes.core.llm import LLM
+from holmes.core.llm_rate_limit import (
+    LLMRetryCancelled,
+    is_provider_capacity_error,
+    retry_counts,
+)
 from holmes.core.llm_usage import RequestStats
 from holmes.plugins.prompts import load_and_render_prompt
+
+
+class CompactionRefusedError(Exception):
+    """The provider refused the summarization for lack of capacity (rate limit,
+    quota or overload). Carries the usage of attempts made so far."""
+
+    def __init__(self, provider_error: Exception, usage: RequestStats):
+        super().__init__(str(provider_error))
+        self.provider_error = provider_error
+        self.usage = usage
 
 
 class CompactionResult(BaseModel):
@@ -276,7 +291,14 @@ def compact_conversation_history(
             fallback_reason = "model responded with a tool call instead of a summary"
         elif not _extract_text_content(response_message).strip():
             fallback_reason = "summarization response contains no text"
+    except LLMRetryCancelled:
+        raise
     except Exception as e:
+        compaction_usage += RequestStats(**retry_counts(e))
+        # Already retried by the LLM call, and the fallback would only hit the
+        # same limit again. The caller decides whether the turn can go on.
+        if is_provider_capacity_error(e):
+            raise CompactionRefusedError(e, compaction_usage) from e
         fallback_reason = f"summarization request failed: {e}"
 
     if fallback_reason:
@@ -296,7 +318,12 @@ def compact_conversation_history(
             )  # type: ignore
             compaction_usage += RequestStats.from_response(response)
             response_message = _get_response_message(response)
+        except LLMRetryCancelled:
+            raise
         except Exception as e:
+            compaction_usage += RequestStats(**retry_counts(e))
+            if is_provider_capacity_error(e):
+                raise CompactionRefusedError(e, compaction_usage) from e
             # Both attempts failed — degrade gracefully via the empty-summary
             # path below (original history returned unchanged) instead of
             # aborting the whole turn.

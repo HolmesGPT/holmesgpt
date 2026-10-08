@@ -19,6 +19,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
 
+from holmes.core.llm_rate_limit import (
+    error_status_code,
+    is_rate_limit_error,
+    retry_counts,
+)
 from holmes.core.llm_usage import RequestStats
 from holmes.utils.stream import StreamEvents, StreamMessage
 
@@ -427,6 +432,26 @@ class UsageRecorderState:
             metadata.get("finish_reason") or self.finish_reason
         )
 
+    def _capture_error(self, exc: BaseException) -> None:
+        """Set the failed status and record the error class in ``meta``.
+
+        Retries spent inside the failing LLM call never reached a
+        TOKEN_COUNT event, so they are added to ``stats`` here.
+        """
+        msg = str(exc).lower()
+        if is_rate_limit_error(exc) or ("rate" in msg and "limit" in msg):
+            self.status = RequestStatus.RATE_LIMITED
+        else:
+            self.status = RequestStatus.ERROR
+        self.meta = {
+            **self.meta,
+            "error_class": type(exc).__name__,
+            "error_status_code": error_status_code(exc),
+        }
+        if self.stats is None:
+            self.stats = RequestStats()
+        self.stats += RequestStats(**retry_counts(exc))
+
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.
 
@@ -505,9 +530,9 @@ def stream_with_usage_recording(
                 state.status = RequestStatus.ERROR
                 saw_terminal = True
             yield msg
-    except Exception:
+    except Exception as e:
         if not saw_terminal:
-            state.status = RequestStatus.ERROR
+            state._capture_error(e)
         raise
     finally:
         # If the inner stream ended without yielding any terminal event
@@ -568,11 +593,7 @@ def record_from_llm_result(
 
 def record_error(state: UsageRecorderState, exc: Exception) -> None:
     """Record a failed call where an exception bubbled before getting a result."""
-    msg = str(exc).lower()
-    if "rate" in msg and "limit" in msg:
-        state.status = RequestStatus.RATE_LIMITED
-    else:
-        state.status = RequestStatus.ERROR
+    state._capture_error(exc)
     state._fire()
 
 
