@@ -76,7 +76,7 @@ class ContextWindowLimiterOutput(BaseModel):
     tokens: ContextWindowUsage
     conversation_history_compacted: bool
     compaction_usage: Optional["RequestStats"] = None
-    compaction_input_truncated: bool = False
+    compaction_overflowing_tool_call_ids: list[str] = []
 
 
 @sentry_sdk.trace
@@ -91,7 +91,7 @@ def compact_if_necessary(
     max_context_size = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
     conversation_history_compacted = False
-    compaction_input_truncated = False
+    compaction_overflowing_tool_call_ids: list[str] = []
     compaction_usage = RequestStats()
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
@@ -111,7 +111,7 @@ def compact_if_necessary(
             compaction_message = f"The conversation history has been compacted from {initial_tokens.total_tokens} to {compacted_total_tokens} tokens"
             logging.info(compaction_message)
             conversation_history_compacted = True
-            compaction_input_truncated = compaction_result.input_truncated
+            compaction_overflowing_tool_call_ids = compaction_result.overflowing_tool_call_ids
 
             compaction_summary = compaction_result.summary
 
@@ -128,7 +128,7 @@ def compact_if_necessary(
                 # reuse the agentic prompt cache). Key for diagnosing zero
                 # cached_tokens on the compaction call from event data alone.
                 "fallback_used": compaction_result.fallback_used,
-                "input_truncated": compaction_result.input_truncated,
+                "summarization_requests": compaction_result.summarization_requests,
             }
             if compaction_result.fallback_reason:
                 compaction_stats["fallback_reason"] = compaction_result.fallback_reason
@@ -201,5 +201,5 @@ def compact_if_necessary(
         tokens=tokens,
         conversation_history_compacted=conversation_history_compacted,
         compaction_usage=compaction_usage,
-        compaction_input_truncated=compaction_input_truncated,
+        compaction_overflowing_tool_call_ids=compaction_overflowing_tool_call_ids,
     )

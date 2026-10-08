@@ -6,13 +6,13 @@ docs/reference/context-management.md
 """
 
 import logging
-import math
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from litellm.exceptions import ContextWindowExceededError
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
+from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from holmes.core.llm import LLM
 from holmes.core.llm_usage import RequestStats
@@ -27,7 +27,11 @@ class CompactionResult(BaseModel):
     summary: Optional[str] = None
     fallback_used: bool = False
     fallback_reason: Optional[str] = None
-    input_truncated: bool = False
+    # Requests the summary took; more than one means the history was summarized in chunks.
+    summarization_requests: int = 0
+    # Tool calls with outputs near the per-tool cap, set only when the history
+    # did not fit one summarization request: fetching them again would overflow it again.
+    overflowing_tool_call_ids: list[str] = []
 
 
 COMPACTION_SUMMARY_PREAMBLE = (
@@ -38,19 +42,7 @@ COMPACTION_SUMMARY_SUFFIX = (
     "Continue the conversation from where it left off, using the summary above as "
     "established context."
 )
-TRUNCATED_INPUT_INSTRUCTION = (
-    "Some conversation text above was cut to fit this request; each cut is marked "
-    "'characters truncated to fit the compaction request' (or '[…]' when short). For "
-    "each such message, say in the summary that it was only partially seen, and never "
-    "state that something is absent from its original text."
-)
-COMPACTION_TRUNCATION_NOTE = (
-    "Some conversation text was cut before this summary was written, so the summary "
-    "may omit parts of the affected messages. Do not conclude that information is "
-    "absent from those messages. If omitted tool output matters, re-run the tool with "
-    "a narrower query (for example, filtering with grep) instead of fetching the full "
-    "output again."
-)
+MESSAGE_PART_LABEL = "[part {index} of {count} of a message split to fit the summarization request]"
 
 
 def strip_system_prompt(
@@ -210,144 +202,151 @@ def _extract_text_content(message: Any) -> str:
     return ""
 
 
-# Fallback attempts start at the full input budget and halve only after the
-# provider rejects a request as too long: the local token count can undercount
-# the provider's tokenizer by a third or more, so a history that "fits" locally
-# can still be rejected.
-FALLBACK_BUDGET_FRACTIONS = (1.0, 0.5, 0.25)
+# A request the provider rejects as too long is resent with half the budget:
+# the local token count can undercount the provider's tokenizer
+# by a third or more, so a request that fits locally can still be rejected.
+_MAX_SUMMARIZATION_ATTEMPTS = 3
 # Gateways (e.g. the Robusta AI gateway) return context-length rejections as a
 # plain 400 that litellm does not map to ContextWindowExceededError.
 _CONTEXT_LENGTH_ERROR = re.compile(
-    r"context.?(window|length|limit)|too long|too many tokens|maximum context|exceeds? the (model|context)",
+    r"context.?(window|length|limit)|(prompt|input|request) (is )?too long|too many (input )?tokens"
+    r"|maximum context|exceeds? the (model|context|maximum)",
     re.IGNORECASE,
 )
-TRUNCATION_MARKER = "\n[... {removed} characters truncated to fit the compaction request; not shown to the summarizer ...]\n"
-SHORT_TRUNCATION_MARKER = "[…]"
-_MAX_TRUNCATION_PASSES = 5
 
 
-def _text_length(message: dict) -> int:
-    """Number of characters of text in a message's content."""
-    content = message.get("content")
-    if isinstance(content, str):
-        return len(content)
-    if isinstance(content, list):
-        return sum(
-            len(block.get("text") or "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
-    return 0
-
-
-def _truncate_text(text: str, keep: int) -> str:
-    """Keep the head and tail of ``text`` in at most ``keep`` characters, marker included.
-
-    Every cut carries a marker: below the full marker's length the short one is
-    used, even when that exceeds ``keep``, and text no longer than the short
-    marker is left as is so a cut never lengthens it.
-    """
-    if len(text) <= max(keep, len(SHORT_TRUNCATION_MARKER)):
-        return text
-    if len(TRUNCATION_MARKER.format(removed=len(text))) <= keep:
-        body = keep - len(TRUNCATION_MARKER.format(removed=len(text)))
-        marker = TRUNCATION_MARKER.format(removed=len(text) - body)
-    else:
-        marker = SHORT_TRUNCATION_MARKER
-        body = max(keep - len(marker), 0)
-    head = body - body // 2
-    tail = body // 2
-    return text[:head] + marker + (text[-tail:] if tail else "")
-
-
-def _is_context_length_error(error: Exception) -> bool:
+def _is_context_length_error(error: BaseException) -> bool:
     """Whether a provider rejected the request for exceeding its context window."""
     return isinstance(error, ContextWindowExceededError) or bool(
         _CONTEXT_LENGTH_ERROR.search(str(error))
     )
 
 
-def _truncate_message_text(message: dict, keep: int) -> dict:
-    """Return a copy of ``message`` with at most ``keep`` characters of text."""
-    length = _text_length(message)
-    if length <= keep:
-        return message
-    new_msg = dict(message)
-    new_msg.pop("token_count", None)
-    content = message["content"]
-    if isinstance(content, str):
-        new_msg["content"] = _truncate_text(content, keep)
-    else:
-        is_text = [isinstance(block, dict) and block.get("type") == "text" for block in content]
-        block_cap = _water_fill_cap(
-            [len(block.get("text") or "") for block, text in zip(content, is_text) if text], length - keep
+def _message_tokens(message: dict, llm: LLM) -> int:
+    return llm.count_tokens(messages=[message]).total_tokens
+
+
+def _split_text(text: str, fits: Callable[[str], bool]) -> list[str]:
+    """Halve ``text`` until every part fits; at least one character per part."""
+    if len(text) <= 1 or fits(text):
+        return [text]
+    middle = len(text) // 2
+    return _split_text(text[:middle], fits) + _split_text(text[middle:], fits)
+
+
+def _split_message(message: dict, llm: LLM, max_tokens: int) -> list[dict]:
+    """Split a message larger than ``max_tokens`` into consecutive labelled parts.
+
+    Non-text blocks (images) stay on the first part.
+    """
+    if _message_tokens(message, llm) <= max_tokens:
+        return [message]
+    content = message.get("content")
+    if isinstance(content, list):
+        text = "\n".join(
+            block.get("text") or ""
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
         )
-        new_msg["content"] = [
-            {**block, "text": _truncate_text(block.get("text") or "", block_cap)} if text else block
-            for block, text in zip(content, is_text)
-        ]
-    return new_msg
+        other_blocks = [b for b in content if not (isinstance(b, dict) and b.get("type") == "text")]
+    else:
+        text, other_blocks = content or "", []
+    if not text:
+        return [message]
+
+    base = {k: v for k, v in message.items() if k not in ("content", "token_count")}
+    widest_label = MESSAGE_PART_LABEL.format(index=999, count=999)
+
+    def fits(part_text: str) -> bool:
+        return _message_tokens({**base, "content": f"{widest_label}\n{part_text}"}, llm) <= max_tokens
+
+    if not fits(""):
+        return [message]  # the overhead alone is too big; splitting cannot help
+    # Cut into roughly fitting slices first so only the few that still overflow are halved.
+    slices = -(-_message_tokens(message, llm) // max_tokens)
+    size = -(-len(text) // slices)
+    texts = [part for start in range(0, len(text), size) for part in _split_text(text[start : start + size], fits)]
+    parts = []
+    for index, part_text in enumerate(texts, start=1):
+        labelled = f"{MESSAGE_PART_LABEL.format(index=index, count=len(texts))}\n{part_text}"
+        part_content: Any = labelled
+        if index == 1 and other_blocks:
+            part_content = [{"type": "text", "text": labelled}, *other_blocks]
+        parts.append({**base, "content": part_content})
+    return parts
 
 
-def _water_fill_cap(lengths: list[int], chars_to_remove: int) -> int:
-    """Largest per-message cap that removes at least ``chars_to_remove`` characters,
-    cutting only the longest messages."""
-    remaining = sorted(lengths, reverse=True)
-    removed_above_cap = 0
-    for i, length in enumerate(remaining):
-        next_length = remaining[i + 1] if i + 1 < len(remaining) else 0
-        # Lowering the cap from `length` to `next_length` trims the i+1 longest messages.
-        step = (length - next_length) * (i + 1)
-        if removed_above_cap + step >= chars_to_remove:
-            return length - math.ceil((chars_to_remove - removed_above_cap) / (i + 1))
-        removed_above_cap += step
-    return 0
+def _large_tool_call_ids(messages: list[dict], llm: LLM) -> list[str]:
+    """Ids of tool messages holding at least half of the per-tool output cap."""
+    threshold = llm.get_max_token_count_for_single_tool() // 2
+    return [
+        message["tool_call_id"]
+        for message in messages
+        if message.get("role") == "tool"
+        and message.get("tool_call_id")
+        and _message_tokens(message, llm) >= threshold
+    ]
 
 
-def _fit_history_to_token_budget(
+def _summary_message(summary_text: str, continue_directive: bool) -> dict:
+    """The user message that carries a summary in place of the history it covers."""
+    content = f"{COMPACTION_SUMMARY_PREAMBLE}\n\n{summary_text}"
+    if continue_directive:
+        content = f"{content}\n\n{COMPACTION_SUMMARY_SUFFIX}"
+    return {"role": "user", "content": content}
+
+
+def _summarize_in_chunks(
     messages: list[dict],
     llm: LLM,
-    tools: Optional[list[dict[str, Any]]],
     budget_tokens: int,
-) -> tuple[list[dict], bool, bool]:
-    """Truncate the longest message texts until the history fits ``budget_tokens``.
+    instructions_message: dict,
+    usage: RequestStats,
+) -> tuple[str, int]:
+    """Summarize ``messages`` in as many requests as it takes to stay within ``budget_tokens``.
 
-    A leading system message is never truncated. Returns (messages, truncated,
-    fits); ``fits`` is False when non-text content alone exceeds the budget.
+    Each request carries the summary so far followed by as many of the next
+    messages as fit, so no message is dropped. Messages are split into parts of
+    at most a quarter of the budget, leaving room for the summary they follow. A
+    request rejected as too long is resent with half the budget, which then
+    applies to the remaining requests too; the summary already made is kept.
+    Returns (summary, number of requests); usage is added to ``usage``.
     """
-    total = llm.count_tokens(messages=messages, tools=tools).total_tokens  # type: ignore
-    if total <= budget_tokens:
-        return messages, False, True
-
-    has_system = bool(messages) and messages[0].get("role") == "system"
-    truncatable_from = 1 if has_system else 0
-    fixed_tokens = (
-        llm.count_tokens(messages=messages[:truncatable_from], tools=tools).total_tokens  # type: ignore
-        if has_system
-        else 0
+    parts = [part for message in messages for part in _split_message(message, llm, budget_tokens // 4)]
+    part_tokens = [_message_tokens(part, llm) for part in parts]
+    summary = ""
+    requests = 0
+    next_part = 0
+    sent = 0
+    # A rejected request that held a single part cannot be made smaller.
+    retrying = Retrying(
+        retry=retry_if_exception(_is_context_length_error),
+        stop=stop_after_attempt(_MAX_SUMMARIZATION_ATTEMPTS) | (lambda _: sent == 1),
+        reraise=True,
     )
-    original_total = total
-    originals = messages[truncatable_from:]
-    for _ in range(_MAX_TRUNCATION_PASSES):
-        lengths = [_text_length(m) for m in messages[truncatable_from:]]
-        total_chars = sum(lengths)
-        if total_chars == 0:
-            break
-        chars_per_token = total_chars / max(total - fixed_tokens, 1)
-        # Aim 5% under the budget so a pass rarely lands just above it.
-        chars_to_remove = min(total_chars, int((total - budget_tokens * 0.95) * chars_per_token) + 1)
-        cap = _water_fill_cap(lengths, chars_to_remove)
-        # Always cut the original text, so each marker counts everything removed.
-        messages = messages[:truncatable_from] + [_truncate_message_text(m, cap) for m in originals]
-        total = llm.count_tokens(messages=messages, tools=tools).total_tokens  # type: ignore
-        if total <= budget_tokens:
-            break
-
-    logging.info(
-        f"Compaction: truncated the longest messages to fit the summarization request "
-        f"({original_total} -> {total} tokens, budget {budget_tokens})"
-    )
-    return messages, True, total <= budget_tokens
+    while next_part < len(parts):
+        prefix = [_summary_message(summary, continue_directive=False)] if summary else []
+        prefix_tokens = sum(_message_tokens(m, llm) for m in prefix)
+        for attempt in retrying:
+            with attempt:
+                if attempt.retry_state.attempt_number > 1:
+                    budget_tokens //= 2
+                sent = 1
+                used = prefix_tokens + part_tokens[next_part]
+                while next_part + sent < len(parts) and used + part_tokens[next_part + sent] <= budget_tokens:
+                    used += part_tokens[next_part + sent]
+                    sent += 1
+                response = llm.completion(
+                    messages=[*prefix, *parts[next_part : next_part + sent], instructions_message],
+                    drop_params=True,
+                )  # type: ignore
+        usage += RequestStats.from_response(response)
+        requests += 1
+        next_part += sent
+        summary = _extract_text_content(_get_response_message(response)).strip()  # type: ignore[arg-type]
+        if not summary:
+            raise ValueError(f"summarization request {requests} returned no text")
+    return summary, requests
 
 
 def compact_conversation_history(
@@ -371,10 +370,11 @@ def compact_conversation_history(
     we fall back to tool messages flattened to text and no tools attached, which
     every OpenAI-compatible gateway accepts.
 
-    Every request is cut to fit the context window first (ROB-1519). The fallback
-    starts at the full budget, or at half when the provider already rejected the
-    primary as too long, and halves again only after another too-long rejection;
-    any other failure, or a history that cannot be cut to the budget, ends it.
+    A history too big for one request skips the primary and goes straight to the
+    flattened form, summarized in chunks: each request carries the summary so far
+    and the next messages that fit, so nothing is dropped (ROB-1519). A chunk the
+    provider rejects as too long is resent, and the rest are sent, at half the
+    budget; any other failure ends compaction.
 
     The summary is stored as a *user* message (as Claude Code does) rather than an
     assistant message, with no trailing system sentinel: an assistant summary
@@ -400,6 +400,7 @@ def compact_conversation_history(
     ).total_tokens
     total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
     image_tokens = _count_image_tokens_in_messages(conversation_history, llm)
+    images_stripped = False
 
     if image_tokens > 0 and (total_tokens + instruction_tokens + maximum_output_token) <= context_window:
         logging.info(
@@ -407,6 +408,7 @@ def compact_conversation_history(
             f"(conversation fits in context window: {total_tokens} + {instruction_tokens} + {maximum_output_token} <= {context_window})"
         )
     elif image_tokens > 0:
+        images_stripped = True
         logging.info(
             f"Compaction: stripping {image_tokens} image tokens "
             f"(conversation would overflow: {total_tokens} + {instruction_tokens} + {maximum_output_token} > {context_window})"
@@ -414,45 +416,31 @@ def compact_conversation_history(
         conversation_history = _strip_images_for_compaction(conversation_history)
 
     instructions_message = {"role": "user", "content": compaction_instructions}
-    truncated_instructions_message = {
-        "role": "user",
-        "content": f"{compaction_instructions}\n\n{TRUNCATED_INPUT_INSTRUCTION}",
-    }
     compaction_usage = RequestStats()
+    # The summarization request must itself fit the window, or the provider
+    # rejects it and compaction can never recover (ROB-1519).
+    input_budget = max(0, context_window - maximum_output_token - instruction_tokens)
+    if images_stripped:
+        total_tokens = llm.count_tokens(messages=conversation_history, tools=tools).total_tokens  # type: ignore
 
-    # The history is compacted because it no longer fits, so the summarization
-    # request itself must be cut down to the window: the provider rejects it
-    # otherwise and compaction can never recover (ROB-1519). Reserve room for
-    # the longer instructions, which are the ones sent once anything is cut.
-    truncated_instruction_tokens = llm.count_tokens(
-        messages=[truncated_instructions_message]
-    ).total_tokens
-    input_budget = max(
-        0, context_window - maximum_output_token - max(instruction_tokens, truncated_instruction_tokens)
-    )
-    primary_history, input_truncated, primary_fits = _fit_history_to_token_budget(
-        conversation_history, llm, tools, input_budget
-    )
-    primary_instructions = truncated_instructions_message if input_truncated else instructions_message
-
-    response_message = None
+    summary_text = ""
+    summarization_requests = 0
     fallback_reason: Optional[str] = None
-    primary_too_long = False
-    if not primary_fits:
-        # A request still over budget would only be rejected by the provider.
-        fallback_reason = f"history could not be cut to the {input_budget}-token budget"
+    history_overflowed = total_tokens > input_budget
+    if history_overflowed:
+        fallback_reason = f"history ({total_tokens} tokens) exceeds the {input_budget}-token budget of one request"
     else:
         try:
             if tools:
                 response: Optional[ModelResponse] = llm.completion(
-                    messages=[*primary_history, primary_instructions],
+                    messages=[*conversation_history, instructions_message],
                     tools=tools,
                     tool_choice="auto",
                     drop_params=True,
                 )  # type: ignore
             else:
                 response = llm.completion(
-                    messages=[*primary_history, primary_instructions], drop_params=True
+                    messages=[*conversation_history, instructions_message], drop_params=True
                 )  # type: ignore
             compaction_usage += RequestStats.from_response(response)
             response_message = _get_response_message(response)
@@ -460,62 +448,39 @@ def compact_conversation_history(
                 fallback_reason = "no message in summarization response"
             elif getattr(response_message, "tool_calls", None):
                 fallback_reason = "model responded with a tool call instead of a summary"
-            elif not _extract_text_content(response_message).strip():
+            elif not (summary_text := _extract_text_content(response_message).strip()):
                 fallback_reason = "summarization response contains no text"
+            else:
+                summarization_requests = 1
         except Exception as e:
             fallback_reason = f"summarization request failed: {e}"
-            primary_too_long = _is_context_length_error(e)
+            history_overflowed = _is_context_length_error(e)
 
     if fallback_reason:
-        # Compatibility fallback: some gateways mis-translate tool blocks / tools
-        # (ROB-424 was reported on Kong AI Gateway and vanilla LiteLLM proxies).
-        # Flattening tool messages to text and sending no tools is accepted by
-        # every OpenAI-compatible endpoint.
-        logging.warning(
-            f"Compaction: primary summarization attempt unusable ({fallback_reason}); "
-            "retrying with tool messages flattened to text and no tools attached"
+        # Some gateways mis-translate tool blocks / tools (ROB-424, reported on
+        # Kong AI Gateway and vanilla LiteLLM proxies); flattened text with no
+        # tools is accepted by every OpenAI-compatible endpoint. A history too big
+        # for one request is summarized in chunks so nothing is dropped.
+        logging.log(
+            logging.INFO if history_overflowed else logging.WARNING,
+            f"Compaction: {fallback_reason}; summarizing tool messages flattened to text, "
+            "without tools, in as many requests as needed",
         )
+        summary_text = ""
+        if history_overflowed and not images_stripped:
+            conversation_history = _strip_images_for_compaction(conversation_history)
         flattened_history, _ = strip_system_prompt(conversation_history)
         flattened_history = _flatten_tool_messages_for_compaction(flattened_history)
-        # A primary rejected as too long would be rejected at full size again.
-        fractions = FALLBACK_BUDGET_FRACTIONS[1:] if primary_too_long else FALLBACK_BUDGET_FRACTIONS
-        # Reflects only the request that produced the summary.
-        input_truncated = False
-        previous_attempt: Optional[list[dict]] = None
-        for budget_fraction in fractions:
-            fallback_history, truncated, fits = _fit_history_to_token_budget(
-                flattened_history, llm, None, int(input_budget * budget_fraction)
+        try:
+            summary_text, summarization_requests = _summarize_in_chunks(
+                flattened_history, llm, input_budget, instructions_message, compaction_usage
             )
-            if not fits:
-                fallback_reason = f"{fallback_reason}; flattened history could not be cut to the {budget_fraction:.0%} budget"
-                break  # a smaller budget cannot fit either
-            if fallback_history is previous_attempt:
-                break  # a smaller budget no longer changes the request
-            previous_attempt = fallback_history
-            input_truncated = truncated
-            try:
-                response = llm.completion(
-                    messages=[
-                        *fallback_history,
-                        truncated_instructions_message if truncated else instructions_message,
-                    ],
-                    drop_params=True,
-                )  # type: ignore
-                compaction_usage += RequestStats.from_response(response)
-                response_message = _get_response_message(response)
-                break
-            except Exception as e:
-                # Every attempt failed — degrade gracefully via the empty-summary
-                # path below (original history returned unchanged) instead of
-                # aborting the whole turn.
-                fallback_reason = f"{fallback_reason}; fallback request (budget {budget_fraction:.0%}) failed: {e}"
-                response_message = None
-                if not _is_context_length_error(e):
-                    break  # a smaller request would fail the same way
+        except Exception as e:
+            # Degrade gracefully via the empty-summary path below (original
+            # history returned unchanged) instead of aborting the whole turn.
+            fallback_reason = f"{fallback_reason}; fallback summarization failed: {e}"
+            summary_text = ""
 
-    summary_text = (
-        _extract_text_content(response_message).strip() if response_message else ""
-    )
     if not summary_text:
         logging.error(
             "Failed to compact conversation history. Unexpected LLM's response for compaction"
@@ -525,7 +490,6 @@ def compact_conversation_history(
             usage=compaction_usage,
             fallback_used=bool(fallback_reason),
             fallback_reason=fallback_reason,
-            input_truncated=input_truncated,
         )
 
     compacted_conversation_history: list[dict] = []
@@ -534,13 +498,7 @@ def compact_conversation_history(
 
     # The summary goes into history as a *user* message built from the response's
     # text only — thinking blocks / provider-specific fields must never be replayed.
-    suffix = f"{COMPACTION_TRUNCATION_NOTE}\n\n{COMPACTION_SUMMARY_SUFFIX}" if input_truncated else COMPACTION_SUMMARY_SUFFIX
-    compacted_conversation_history.append(
-        {
-            "role": "user",
-            "content": f"{COMPACTION_SUMMARY_PREAMBLE}\n\n{summary_text}\n\n{suffix}",
-        }
-    )
+    compacted_conversation_history.append(_summary_message(summary_text, continue_directive=True))
 
     last_user_prompt = find_last_user_prompt(original_conversation_history)
     if last_user_prompt:
@@ -552,5 +510,8 @@ def compact_conversation_history(
         summary=summary_text,
         fallback_used=bool(fallback_reason),
         fallback_reason=fallback_reason,
-        input_truncated=input_truncated,
+        summarization_requests=summarization_requests,
+        overflowing_tool_call_ids=(
+            _large_tool_call_ids(original_conversation_history, llm) if history_overflowed else []
+        ),
     )
