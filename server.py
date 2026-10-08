@@ -102,6 +102,7 @@ from holmes.core.usage_recorder import (
     record_from_llm_result,
     stream_with_usage_recording,
 )
+from holmes.utils.single_flight_cache import SetupTracker
 from holmes.utils.stream import stream_chat_formatter
 
 
@@ -589,6 +590,7 @@ def _stream_with_trace_cleanup(storage, stream_generator, req_info, trace_span):
 
 @app.post("/api/chat")
 def chat(chat_request: ChatRequest, http_request: Request):
+    setup = SetupTracker()
     try:
         # Log incoming request details
         has_images = bool(chat_request.images)
@@ -602,8 +604,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
         open_experiment_from_request(http_request)
 
-        # End user's id, so their personal skills are included for this request only.
-        skills = config.get_skill_catalog(user_id=chat_request.user_id)
+        with setup.track():
+            # End user's id, so their personal skills are included for this request only.
+            skills = config.get_skill_catalog(user_id=chat_request.user_id)
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -667,8 +670,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
             tool_results_dir=tool_results_dir,
         )
 
-        global_instructions = dal.get_global_instructions_for_account()
-
         # A follow-up may carry only tool_decisions / frontend_tool_results
         # (no new user question). In that case, resume from the existing
         # conversation_history without appending an empty user message —
@@ -682,6 +683,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
         if resume_only:
             messages = list(chat_request.conversation_history)
         else:
+            with setup.track():
+                global_instructions = dal.get_global_instructions_for_account()
             messages = build_chat_messages(
                 chat_request.ask,
                 chat_request.conversation_history,
@@ -744,6 +747,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             recorder_state = build_chat_recorder_state(
                 chat_request, request_ai, dal=dal, is_streaming=True
             )
+            recorder_state.meta.update(setup.meta())
             recorded_stream = stream_with_usage_recording(
                 request_ai.call_stream(
                     msgs=messages,
@@ -769,6 +773,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             recorder_state = build_chat_recorder_state(
                 chat_request, request_ai, dal=dal, is_streaming=False
             )
+            recorder_state.meta.update(setup.meta())
             try:
                 # Use provided trace_span or create a root investigation span
                 trace_span = chat_request.trace_span

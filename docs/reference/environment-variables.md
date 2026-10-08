@@ -349,6 +349,12 @@ Completed /api/chat request: ask=... (stream) | model=gpt-4o, input=45290, outpu
 ### HOLMES_CACHE_DIR
 Directory for caching HolmesGPT data and temporary files.
 
+### SKILLS_CACHE_TTL_SEC
+Seconds Holmes caches the Robusta-platform skills (global and per-user personal skills) and the account's global instructions it reads before every chat turn. Default: `60`. Edits made in the Robusta UI reach Holmes within this time. `0` disables the cache and queries on every turn.
+
+### SKILL_HIERARCHY_CACHE_TTL_SEC
+Seconds Holmes caches the account's skill name-collision settings. Default: `60`.
+
 ### HOLMES_PASSTHROUGH_BLOCKED_HEADERS
 **Default:** `"authorization,cookie,set-cookie"`
 

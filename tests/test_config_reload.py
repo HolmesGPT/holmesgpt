@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from holmes.admin.admin_api import init_admin_app
 from holmes.config import Config
+from holmes.plugins.skills import skill_loader
 
 
 @pytest.fixture
@@ -102,6 +103,33 @@ class TestReloadToolsets:
         config.reload_toolsets()
 
         assert config.custom_skill_paths == [str(skill_root)]
+
+    def test_invalidates_setup_caches(self, config):
+        """Admin reload must make skill and instruction edits visible immediately."""
+        config._dal = MagicMock()
+        with patch("holmes.config.clear_filesystem_skills_cache") as clear_fs:
+            config.reload_toolsets()
+        config._dal.invalidate_setup_caches.assert_called_once()
+        clear_fs.assert_called_once()
+
+    def test_reload_reparses_unchanged_skill_files(self, config, tmp_path):
+        skill = tmp_path / "skills" / "alpha" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\ndescription: d\n---\nbody\n")
+        config.custom_skill_paths = [str(tmp_path / "skills")]
+        config._dal = MagicMock(enabled=False)
+        config._dal.get_skill_hierarchy_config.return_value = None
+        config._dal.get_skill_catalog.return_value = None
+        with patch.object(
+            skill_loader, "parse_skill_file", wraps=skill_loader.parse_skill_file
+        ) as parse:
+            config.get_skill_catalog()
+            config.get_skill_catalog()
+            assert parse.call_count == 1
+            config.reload_toolsets()
+            config.custom_skill_paths = [str(tmp_path / "skills")]
+            config.get_skill_catalog()
+            assert parse.call_count == 2
 
     def test_returns_dict(self, config):
         """reload_toolsets returns a dict with reloaded=True."""
