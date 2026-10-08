@@ -73,6 +73,12 @@ spec:
         {{- . | nindent 8 }}
         {{- end }}
         checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
+        {{- if .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+        robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
+        {{- with .Values.mcpAddons.kubernetesRemediation.auth.existingSecret }}
+        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.existingSecretChecksum" $ }}
+        {{- end }}
+        {{- end }}
     spec:
       {{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.create }}
       serviceAccountName: {{ .Values.mcpAddons.kubernetesRemediation.serviceAccount.name }}

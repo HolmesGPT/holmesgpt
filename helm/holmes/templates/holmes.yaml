@@ -46,6 +46,12 @@ spec:
         # alone does not refresh.
         checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
         {{- end }}
+        {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
+        robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
+        {{- with .Values.mcpAddons.kubernetesRemediation.auth.existingSecret }}
+        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.existingSecretChecksum" $ }}
+        {{- end }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}

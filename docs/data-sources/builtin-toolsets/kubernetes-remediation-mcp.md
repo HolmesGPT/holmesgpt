@@ -283,27 +283,33 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 
 ### Authentication token
 
-With `auth.enabled: true` (the default), a pre-install/pre-upgrade hook Job
-creates the Secret `<release>-k8s-remediation-mcp-token` with a random token
-the first time the chart is deployed, and both Holmes and the server read it.
-The token is never part of the rendered manifests, so `helm template` and
-ArgoCD renders are identical on every sync and do not restart Holmes. ArgoCD
-runs the hook as a `PreSync` hook. The Secret is not part of the Helm release,
-so `helm uninstall` leaves it in place and a reinstall reuses it.
+With `auth.enabled: true` (the default), a Helm hook Job creates the Secret
+`<release>-k8s-remediation-mcp-token` with a random token the first time the
+chart is deployed, and both Holmes and the server read it. The token is never
+part of the rendered manifests, so `helm template` and ArgoCD renders are
+identical on every sync and do not restart Holmes. ArgoCD runs the hook as a
+`PreSync` hook. The Secret is not part of the Helm release, so `helm uninstall`
+leaves it in place and a reinstall reuses it. The hook needs a deploy tool that
+runs Helm hooks (Helm, ArgoCD, Flux); if you disable hooks, use `existingSecret`.
 
-To rotate the token, delete the Secret and upgrade (or sync) again; the hook
-creates a new token and restarts both Deployments. Every run also restarts any
-Deployment whose pods predate the Secret, so an interrupted rotation finishes
-on the next upgrade or sync:
+To rotate the token, increase `auth.rotation`. The hook replaces the token and
+both pods restart with it in the same upgrade or sync:
 
-```bash
-kubectl delete secret <release>-k8s-remediation-mcp-token -n <namespace>
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    auth:
+      rotation: 1
 ```
+
+If the Secret is deleted, the next upgrade or sync creates a new token and
+restarts both Deployments.
 
 To manage the token yourself instead, set
 `mcpAddons.kubernetesRemediation.auth.existingSecret` to a Secret holding it
-under the key `token`. The chart then runs no hook, and rotating that Secret
-does not restart the pods; restart both Deployments afterwards.
+under the key `token`. The chart then runs no hook. After you change that
+Secret, `helm upgrade` restarts both pods; under ArgoCD, also increase
+`auth.rotation`.
 
 ## Diagnostic-pod target policy
 

@@ -13,6 +13,24 @@ Job, never rendered, so `helm template`/ArgoCD output is deterministic.
 {{- end -}}
 
 {{/*
+auth.rotation, rendered into both pod templates so that bumping it rolls the
+pods. The auth-bootstrap hook replaces the generated token when it changes.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.authRotation" -}}
+{{- .Values.mcpAddons.kubernetesRemediation.auth.rotation | default 0 | toString -}}
+{{- end -}}
+
+{{/*
+Checksum of auth.existingSecret's token, so a plain `helm upgrade` after the
+user rotates it rolls both pods. lookup is empty under `helm template`/ArgoCD,
+where the value is a constant; bump auth.rotation there instead.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.existingSecretChecksum" -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace .Values.mcpAddons.kubernetesRemediation.auth.existingSecret | default dict -}}
+{{- dig "data" "token" "" $secret | sha256sum -}}
+{{- end -}}
+
+{{/*
 Define the LLM instructions for Kubernetes Remediation MCP
 */}}
 {{- define "holmes.kubernetesRemediationMcp.llmInstructions" -}}

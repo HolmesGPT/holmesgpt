@@ -738,20 +738,24 @@ mcpAddons:
     # Bearer-token authentication for the server's HTTP endpoint. Without it,
     # any pod that can reach the port gets the full tool surface (including
     # cluster mutations) with the remediation ServiceAccount's RBAC, bypassing
-    # Holmes's human-approval gate. A pre-install/pre-upgrade hook Job creates
-    # a random token Secret (<release>-k8s-remediation-mcp-token) once and
-    # wires both the server and Holmes automatically. The token is never part
-    # of the rendered manifests, so `helm template` and ArgoCD renders are
-    # deterministic. Rotate by deleting the Secret and upgrading/syncing
-    # again; the hook then restarts both Deployments.
+    # Holmes's human-approval gate. A Helm hook Job (ArgoCD: PreSync) creates
+    # a random token Secret (<release>-k8s-remediation-mcp-token) once and both
+    # the server and Holmes read it. The token is never part of the rendered
+    # manifests, so `helm template` and ArgoCD renders are deterministic.
+    # Requires a deploy tool that runs Helm hooks (Helm, ArgoCD, Flux); with
+    # hooks disabled, set existingSecret instead.
     # Requires server image >= 1.2.0; when running an older pinned image, the
     # extra env/header are ignored and behavior is unchanged (unauthenticated).
     auth:
       enabled: true
+      # Increase to rotate the token: the hook replaces the generated token and
+      # both pods roll in the same release. With existingSecret under ArgoCD,
+      # increase it after updating that Secret to roll the pods (a plain
+      # `helm upgrade` notices the change on its own).
+      rotation: 0
       # Name of a pre-existing Secret holding the token under the key "token".
-      # When set, the chart creates no Secret (and runs no hook Job) and uses
-      # this one on both sides. Rotating it does not restart the pods; restart
-      # both Deployments (or use a reloader). Create it once with, e.g.:
+      # When set, the chart creates no Secret and runs no hook Job, and uses
+      # this one on both sides. Create it once with, e.g.:
       #   kubectl create secret generic my-remediation-auth \
       #     --from-literal=token="$(openssl rand -hex 32)"
       existingSecret: ""

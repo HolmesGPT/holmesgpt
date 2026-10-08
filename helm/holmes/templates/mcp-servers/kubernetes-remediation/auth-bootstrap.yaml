@@ -2,48 +2,45 @@
 Creates the remediation MCP token Secret at deploy time instead of rendering
 it: a rendered random token differs on every clusterless render (ArgoCD,
 `helm template`) and would roll both pods on each sync. ArgoCD runs this as a
-PreSync hook. Every run also restarts any Deployment reading the Secret whose
-pods predate it, so an interrupted rotation converges on the next run.
+PreSync hook.
+The Secret records auth.rotation; when the value changes, the hook replaces the
+token. Both pods carry the value as a pod-template annotation, so the release
+itself rolls them.
 */ -}}
+{{- define "holmes.kubernetesRemediationMcp.authBootstrapName" -}}
+{{- printf "%s-k8s-remediation-mcp-auth-bootstrap" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "holmes.kubernetesRemediationMcp.authBootstrapMetadata" -}}
+name: {{ include "holmes.kubernetesRemediationMcp.authBootstrapName" .ctx }}
+namespace: {{ .ctx.Release.Namespace }}
+labels:
+  app.kubernetes.io/component: mcp-server-auth-bootstrap
+  app.kubernetes.io/part-of: holmes
+  {{- include "holmes.commonLabels" .ctx | nindent 2 }}
+annotations:
+  helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+  helm.sh/hook-weight: {{ .weight | quote }}
+  helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- with (include "holmes.commonAnnotations" .ctx) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+{{- end -}}
 {{- $k8s := .Values.mcpAddons.kubernetesRemediation }}
 {{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) }}
-{{- $name := printf "%s-k8s-remediation-mcp-auth-bootstrap" .Release.Name }}
+{{- $name := include "holmes.kubernetesRemediationMcp.authBootstrapName" . }}
 {{- $secretName := include "holmes.kubernetesRemediationMcp.authSecretName" . }}
+{{- $legacySecretName := printf "%s-k8s-remediation-mcp-auth" .Release.Name }}
 {{- $deployments := list (printf "%s-holmes" .Release.Name) (printf "%s-k8s-remediation-mcp-server" .Release.Name) }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ $name }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/component: mcp-server-auth-bootstrap
-    app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  annotations:
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: "-10"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
-    {{- with (include "holmes.commonAnnotations" .) }}
-    {{- . | nindent 4 }}
-    {{- end }}
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ $name }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/component: mcp-server-auth-bootstrap
-    app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  annotations:
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: "-10"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
-    {{- with (include "holmes.commonAnnotations" .) }}
-    {{- . | nindent 4 }}
-    {{- end }}
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
 rules:
 # create cannot be scoped by resourceNames.
 - apiGroups: [""]
@@ -52,10 +49,11 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   resourceNames: [{{ $secretName | quote }}]
-  verbs: ["get"]
+  verbs: ["get", "delete"]
 - apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["list"]
+  resources: ["secrets"]
+  resourceNames: [{{ $legacySecretName | quote }}]
+  verbs: ["get"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
   resourceNames: {{ toJson $deployments }}
@@ -64,19 +62,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ $name }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/component: mcp-server-auth-bootstrap
-    app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  annotations:
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: "-10"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
-    {{- with (include "holmes.commonAnnotations" .) }}
-    {{- . | nindent 4 }}
-    {{- end }}
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -89,22 +75,12 @@ subjects:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ $name }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/component: mcp-server-auth-bootstrap
-    app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  annotations:
-    helm.sh/hook: pre-install,pre-upgrade
-    helm.sh/hook-weight: "-5"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
-    {{- with (include "holmes.commonAnnotations" .) }}
-    {{- . | nindent 4 }}
-    {{- end }}
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-5") | nindent 2 }}
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 300
+  # Lets tools that apply hooks as plain manifests re-run it on a later apply.
+  ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels:
@@ -118,6 +94,10 @@ spec:
     spec:
       serviceAccountName: {{ $name }}
       restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with $k8s.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -142,54 +122,53 @@ spec:
           value: {{ .Release.Namespace | quote }}
         - name: SECRET_NAME
           value: {{ $secretName | quote }}
+        - name: LEGACY_SECRET_NAME
+          value: {{ $legacySecretName | quote }}
         - name: DEPLOYMENTS
           value: {{ join " " $deployments | quote }}
+        - name: ROTATION
+          value: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
+        - name: SECRET_LABELS
+          value: {{ include "holmes.commonLabels" . | fromYaml | default dict | toJson | quote }}
+        - name: SECRET_ANNOTATIONS
+          value: {{ include "holmes.commonAnnotations" . | fromYaml | default dict | toJson | quote }}
         command: ["python3", "-c"]
         args:
         - |
-          import datetime, json, os, secrets, subprocess, sys
+          import base64, json, os, secrets, subprocess, sys
 
           NS, NAME = os.environ["NAMESPACE"], os.environ["SECRET_NAME"]
+          ROTATION = os.environ["ROTATION"]
+          ROTATION_KEY = "robusta.dev/k8s-remediation-token-rotation"
 
-          def kubectl(*args, stdin=None):
+          def kubectl(*args, stdin=None, ok_if=None):
               p = subprocess.run(["kubectl", *args, "-n", NS], input=stdin, capture_output=True, text=True)
-              if p.returncode != 0 and not (stdin and "AlreadyExists" in p.stderr):
+              if p.returncode != 0 and not (ok_if and ok_if in p.stderr):
                   sys.exit(f"kubectl {args[0]} {args[1]} failed: {p.stderr.strip()}")
               return p
 
-          def get(*args):
-              out = kubectl("get", *args, "--ignore-not-found", "-o", "json").stdout
+          def get(kind, name):
+              out = kubectl("get", kind, name, "--ignore-not-found", "-o", "json").stdout
               return json.loads(out) if out.strip() else None
 
-          def ts(value):
-              return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+          def rotation_of(metadata):
+              return (metadata.get("annotations") or {}).get(ROTATION_KEY)
 
           secret = get("secret", NAME)
-          if secret is None:
-              # No app.kubernetes.io/instance label: ArgoCD label tracking would
-              # treat the Secret as part of the app and prune it.
-              manifest = {
-                  "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-                  "metadata": {
-                      "name": NAME,
-                      "namespace": NS,
-                      "labels": {"app.kubernetes.io/component": "mcp-server-auth", "app.kubernetes.io/part-of": "holmes"},
-                  },
-                  "stringData": {"token": secrets.token_urlsafe(36)},
-              }
-              created = kubectl("create", "-f", "-", stdin=json.dumps(manifest)).returncode == 0
-              print(f"Created Secret {NAME}" if created else f"Secret {NAME} was created concurrently; keeping it")
-              secret = get("secret", NAME)
-              if secret is None:
-                  sys.exit(f"Secret {NAME} disappeared right after creation")
-          else:
-              print(f"Secret {NAME} exists; keeping its token")
-          secret_created = ts(secret["metadata"]["creationTimestamp"])
+          if secret is not None:
+              if rotation_of(secret["metadata"]) == ROTATION:
+                  print(f"Secret {NAME} is at rotation {ROTATION}; keeping its token")
+                  sys.exit(0)
+              # Deleting first makes the steps below the only path that writes a
+              # token, so a crash anywhere is finished by the next run.
+              kubectl("delete", "secret", NAME, "--ignore-not-found")
+              print(f"Rotating the token in Secret {NAME} to rotation {ROTATION}")
 
-          # Env from a Secret is read at container start, so pods created before
-          # the Secret hold the previous token. A restart already issued after
-          # the Secret was created counts as done, so a stuck rollout is not
-          # restarted again on every sync.
+          # A Deployment already at this rotation won't be rolled by the release,
+          # yet holds a token that no longer matches. Restart it before creating
+          # the Secret: its new pods wait for the Secret instead of reading a
+          # stale one. Deployments at another rotation are rolled by the release.
+          readers = 0
           for name in os.environ["DEPLOYMENTS"].split():
               deployment = get("deployment", name)
               if deployment is None:
@@ -200,15 +179,31 @@ spec:
                   for c in template["spec"]["containers"]
                   for env in c.get("env") or []
               }
-              if NAME not in refs:
-                  continue
-              restarted_at = (template["metadata"].get("annotations") or {}).get("kubectl.kubernetes.io/restartedAt")
-              if restarted_at and ts(restarted_at) >= secret_created:
-                  continue
-              selector = ",".join(f"{k}={v}" for k, v in deployment["spec"]["selector"]["matchLabels"].items())
-              pods = (get("pods", "-l", selector) or {}).get("items", [])
-              if any(ts(p["metadata"]["creationTimestamp"]) < secret_created for p in pods):
+              readers += NAME in refs
+              if NAME in refs and rotation_of(template["metadata"]) == ROTATION:
                   print(kubectl("rollout", "restart", "deployment", name).stdout.strip())
+
+          # Upgrading from the chart-rendered Secret (nothing reads this one yet)
+          # keeps its token, so the two sides never disagree mid-rollout.
+          migrating = secret is None and readers == 0
+          legacy = get("secret", os.environ["LEGACY_SECRET_NAME"]) if migrating else None
+          legacy_token = ((legacy or {}).get("data") or {}).get("token")
+          token = base64.b64decode(legacy_token).decode() if legacy_token else secrets.token_urlsafe(36)
+
+          # No app.kubernetes.io/instance label: ArgoCD label tracking would
+          # treat the Secret as part of the app and prune it.
+          labels = json.loads(os.environ["SECRET_LABELS"])
+          labels.update({"app.kubernetes.io/component": "mcp-server-auth", "app.kubernetes.io/part-of": "holmes"})
+          annotations = json.loads(os.environ["SECRET_ANNOTATIONS"])
+          annotations[ROTATION_KEY] = ROTATION
+          manifest = json.dumps({
+              "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+              "metadata": {"name": NAME, "namespace": NS, "labels": labels, "annotations": annotations},
+              "stringData": {"token": token},
+          })
+          created = kubectl("create", "-f", "-", stdin=manifest, ok_if="AlreadyExists").returncode == 0
+          source = "the previous chart's Secret" if legacy_token else "a new token"
+          print(f"Created Secret {NAME} from {source}" if created else f"Secret {NAME} was created concurrently; keeping it")
         resources:
           requests:
             cpu: 10m

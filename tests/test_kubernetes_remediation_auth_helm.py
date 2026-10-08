@@ -2,10 +2,11 @@
 
 The token Secret is created at deploy time by a hook Job, so clusterless
 renders (ArgoCD, `helm template`) are deterministic and do not roll
-Holmes and the MCP server on every sync (ROB-1365). The hook's shell script is
-also executed here against a stub `kubectl` to cover each branch.
+Holmes and the MCP server on every sync (ROB-1365). The hook's inline Python
+program is also executed here against a stub `kubectl` to cover each branch.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -26,6 +27,9 @@ SECRET_NAME = f"{RELEASE}-k8s-remediation-mcp-token"
 BOOTSTRAP_NAME = f"{RELEASE}-k8s-remediation-mcp-auth-bootstrap"
 HOLMES_DEPLOYMENT = f"{RELEASE}-holmes"
 MCP_DEPLOYMENT = f"{RELEASE}-k8s-remediation-mcp-server"
+LEGACY_SECRET_NAME = f"{RELEASE}-k8s-remediation-mcp-auth"
+ROTATION_KEY = "robusta.dev/k8s-remediation-token-rotation"
+HOOKS = "pre-install,pre-upgrade,pre-rollback"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("helm") is None, reason="helm binary not available"
@@ -107,7 +111,7 @@ def test_bootstrap_resources_are_ordered_hooks():
     hooks = {d["kind"]: d["metadata"]["annotations"] for d in bootstrap_docs(render())}
     assert set(hooks) == {"ServiceAccount", "Role", "RoleBinding", "Job"}
     for ann in hooks.values():
-        assert ann["helm.sh/hook"] == "pre-install,pre-upgrade"
+        assert ann["helm.sh/hook"] == HOOKS
         assert (
             ann["helm.sh/hook-delete-policy"] == "before-hook-creation,hook-succeeded"
         )
@@ -126,9 +130,14 @@ def test_bootstrap_role_is_least_privilege():
             "apiGroups": [""],
             "resources": ["secrets"],
             "resourceNames": [SECRET_NAME],
+            "verbs": ["get", "delete"],
+        },
+        {
+            "apiGroups": [""],
+            "resources": ["secrets"],
+            "resourceNames": [LEGACY_SECRET_NAME],
             "verbs": ["get"],
         },
-        {"apiGroups": [""], "resources": ["pods"], "verbs": ["list"]},
         {
             "apiGroups": ["apps"],
             "resources": ["deployments"],
@@ -152,6 +161,10 @@ def test_bootstrap_job_spec():
     assert env["SECRET_NAME"] == SECRET_NAME
     assert env["NAMESPACE"] == NAMESPACE
     assert env["DEPLOYMENTS"].split() == [HOLMES_DEPLOYMENT, MCP_DEPLOYMENT]
+    assert env["LEGACY_SECRET_NAME"] == LEGACY_SECRET_NAME
+    assert env["ROTATION"] == "0"
+    assert json.loads(env["SECRET_LABELS"]) == {}
+    assert json.loads(env["SECRET_ANNOTATIONS"]) == {}
     for name in env["DEPLOYMENTS"].split():
         assert find(docs, "Deployment", name) is not None
     assert pod["serviceAccountName"] == BOOTSTRAP_NAME
@@ -161,6 +174,47 @@ def test_bootstrap_job_spec():
     assert c["securityContext"]["runAsNonRoot"] is True
     assert {"name": "tmp", "mountPath": env["HOME"]} in c["volumeMounts"]
     assert job["spec"]["backoffLimit"] > 0
+    assert job["spec"]["ttlSecondsAfterFinished"] > 0
+    assert "imagePullSecrets" not in pod
+
+
+def test_bootstrap_job_uses_the_chart_image_pull_secrets():
+    pod = find(render("imagePullSecrets[0].name=regcred"), "Job", BOOTSTRAP_NAME)[
+        "spec"
+    ]["template"]["spec"]
+    assert pod["imagePullSecrets"] == [{"name": "regcred"}]
+
+
+def test_bootstrap_names_fit_kubernetes_limits_for_long_release_names():
+    release = "r" * 53
+    out = subprocess.check_output(
+        [
+            "helm",
+            "template",
+            release,
+            str(HELM_DIR),
+            "--set",
+            "mcpAddons.kubernetesRemediation.enabled=true",
+        ],
+        text=True,
+    )
+    docs = [d for d in yaml.safe_load_all(out) if d]
+    hooks = [
+        d for d in docs if "helm.sh/hook" in (d["metadata"].get("annotations") or {})
+    ]
+    assert {d["kind"] for d in hooks} == {
+        "ServiceAccount",
+        "Role",
+        "RoleBinding",
+        "Job",
+    }
+    names = {d["metadata"]["name"] for d in hooks}
+    assert len(names) == 1
+    [name] = names
+    assert len(name) <= 63 and not name.endswith("-")
+    binding = next(d for d in hooks if d["kind"] == "RoleBinding")
+    assert binding["roleRef"]["name"] == name
+    assert binding["subjects"][0]["name"] == name
 
 
 def test_bootstrap_job_follows_scheduling_and_common_metadata():
@@ -178,10 +232,33 @@ def test_bootstrap_job_follows_scheduling_and_common_metadata():
     assert pod["nodeSelector"] == {"pool": "infra"}
     assert pod["tolerations"] == [{"key": "dedicated", "operator": "Exists"}]
     assert pod["containers"][0]["image"] == "my.registry/mcp:9.9.9"
+    env = {e["name"]: e["value"] for e in pod["containers"][0]["env"]}
+    assert json.loads(env["SECRET_LABELS"]) == {"team": "sre"}
+    assert json.loads(env["SECRET_ANNOTATIONS"]) == {"owner": "platform"}
     for d in bootstrap_docs(docs):
         assert d["metadata"]["labels"]["team"] == "sre"
         assert d["metadata"]["annotations"]["owner"] == "platform"
-        assert d["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
+        assert d["metadata"]["annotations"]["helm.sh/hook"] == HOOKS
+
+
+def test_rotation_is_rendered_into_both_pod_templates():
+    for sets, expected in (
+        ((), "0"),
+        (("mcpAddons.kubernetesRemediation.auth.rotation=7",), "7"),
+    ):
+        docs = render(*sets)
+        job_env = {
+            e["name"]: e["value"]
+            for e in find(docs, "Job", BOOTSTRAP_NAME)["spec"]["template"]["spec"][
+                "containers"
+            ][0]["env"]
+        }
+        assert job_env["ROTATION"] == expected
+        for name in (HOLMES_DEPLOYMENT, MCP_DEPLOYMENT):
+            assert (
+                pod_annotations(find(docs, "Deployment", name))[ROTATION_KEY]
+                == expected
+            )
 
 
 def test_existing_secret_skips_bootstrap_and_is_wired_on_both_sides():
@@ -193,12 +270,19 @@ def test_existing_secret_skips_bootstrap_and_is_wired_on_both_sides():
     assert env_secret_ref(holmes, "K8S_REMEDIATION_MCP_TOKEN") == "my-auth"
     assert env_secret_ref(mcp, "MCP_AUTH_TOKEN") == "my-auth"
     for d in (holmes, mcp):
-        assert not any("auth-token" in k for k in pod_annotations(d))
+        annotations = pod_annotations(d)
+        assert annotations[ROTATION_KEY] == "0"
+        # lookup is empty under `helm template`, so the checksum is constant.
+        assert annotations["checksum/k8s-remediation-auth-token"] == (
+            hashlib.sha256(b"").hexdigest()
+        )
 
 
 def test_auth_disabled_renders_no_token_wiring():
     docs = render("mcpAddons.kubernetesRemediation.auth.enabled=false")
     assert bootstrap_docs(docs) == []
+    for name in (HOLMES_DEPLOYMENT, MCP_DEPLOYMENT):
+        assert ROTATION_KEY not in pod_annotations(find(docs, "Deployment", name))
     assert (
         env_secret_ref(
             find(docs, "Deployment", HOLMES_DEPLOYMENT), "K8S_REMEDIATION_MCP_TOKEN"
@@ -218,20 +302,16 @@ def test_addon_disabled_renders_no_bootstrap():
 
 
 # ---------------------------------------------------------------------------
-# Bootstrap script, run against a stub kubectl
+# Bootstrap program, run against a stub kubectl
 # ---------------------------------------------------------------------------
-
-T_OLD = "2026-01-01T00:00:00Z"
-T_SECRET = "2026-01-02T00:00:00Z"
-T_NEW = "2026-01-03T00:00:00Z"
 
 FAKE_KUBECTL = textwrap.dedent(
     """\
     #!{python}
-    import json, os, sys
+    import base64, json, os, sys
     state_path = os.environ["FAKE_KUBECTL_STATE"]
     state = json.load(open(state_path))
-    args = [a for a in sys.argv[1:]]
+    args = sys.argv[1:]
     state["calls"].append(args)
 
     def done(out="", err="", code=0):
@@ -247,42 +327,41 @@ FAKE_KUBECTL = textwrap.dedent(
     verb, kind = args[0], args[1]
     if verb == "get" and kind == "secret":
         fail("get_secret_error")
-        created = state["secrets"].get(args[2])
-        if created:
-            done(json.dumps({{"metadata": {{"name": args[2], "creationTimestamp": created}}}}))
-        done()
+        s = state["secrets"].get(args[2])
+        if s is None:
+            done()
+        done(json.dumps({{
+            "metadata": {{"name": args[2], "annotations": s.get("annotations")}},
+            "data": {{"token": base64.b64encode(s["token"].encode()).decode()}},
+        }}))
     if verb == "get" and kind == "deployment":
         fail("get_deployment_error")
         d = state["deployments"].get(args[2])
         if d is None:
             done()
-        annotations = {{}}
-        if d.get("restartedAt"):
-            annotations["kubectl.kubernetes.io/restartedAt"] = d["restartedAt"]
         env = [{{"name": "T", "valueFrom": {{"secretKeyRef": {{"name": r, "key": "token"}}}}}} for r in d["refs"]]
         env.append({{"name": "PLAIN", "value": "x"}})
-        done(json.dumps({{
-            "spec": {{
-                "selector": {{"matchLabels": {{"app": args[2]}}}},
-                "template": {{"metadata": {{"annotations": annotations}}, "spec": {{"containers": [{{"env": env}}]}}}},
-            }}
-        }}))
-    if verb == "get" and kind == "pods":
-        fail("get_pods_error")
-        selector = args[args.index("-l") + 1]
-        app = selector.split("=", 1)[1]
-        items = [{{"metadata": {{"creationTimestamp": p["created"]}}}} for p in state["pods"] if p["app"] == app]
-        done(json.dumps({{"kind": "List", "items": items}}))
+        annotations = {{}} if d.get("rotation") is None else {{"{rotation_key}": d["rotation"]}}
+        done(json.dumps({{"spec": {{"template": {{
+            "metadata": {{"annotations": annotations}},
+            "spec": {{"containers": [{{"env": env}}]}},
+        }}}}}}))
+    if verb == "delete" and kind == "secret":
+        fail("delete_error")
+        state["secrets"].pop(args[2], None)
+        done("secret " + args[2] + " deleted")
     if verb == "create":
         manifest = json.loads(sys.stdin.read())
-        if "AlreadyExists" in state.get("create_error", ""):
-            state["secrets"][manifest["metadata"]["name"]] = state["now"]
-        if state.get("create_vanishes"):
-            done("secret/" + manifest["metadata"]["name"] + " created")
-        fail("create_error")
         state["created"].append(manifest)
-        state["secrets"][manifest["metadata"]["name"]] = state["now"]
-        done("secret/" + manifest["metadata"]["name"] + " created")
+        name = manifest["metadata"]["name"]
+        if "AlreadyExists" in state.get("create_error", ""):
+            state["secrets"][name] = {{"token": "winner", "annotations": {{}}}}
+        fail("create_error")
+        state["secrets"][name] = {{
+            "token": manifest["stringData"]["token"],
+            "annotations": manifest["metadata"]["annotations"],
+        }}
+        done("secret/" + name + " created")
     if verb == "rollout" and kind == "restart":
         fail("restart_error")
         done("deployment.apps/" + args[3] + " restarted")
@@ -296,19 +375,32 @@ def bootstrap_job() -> dict:
     return find(render(), "Job", BOOTSTRAP_NAME)
 
 
+@pytest.fixture(scope="module")
+def bootstrap_job_rotation_2() -> dict:
+    return find(
+        render(
+            "mcpAddons.kubernetesRemediation.auth.rotation=2",
+            "commonLabels.team=sre",
+            "commonAnnotations.owner=platform",
+        ),
+        "Job",
+        BOOTSTRAP_NAME,
+    )
+
+
 def run_bootstrap(job: dict, tmp_path: Path, **state) -> tuple:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     kubectl = bin_dir / "kubectl"
-    kubectl.write_text(FAKE_KUBECTL.format(python=sys.executable))
+    kubectl.write_text(
+        FAKE_KUBECTL.format(python=sys.executable, rotation_key=ROTATION_KEY)
+    )
     kubectl.chmod(kubectl.stat().st_mode | stat.S_IEXEC)
     (bin_dir / "python3").symlink_to(sys.executable)
 
     state_file = tmp_path / "state.json"
     state.setdefault("secrets", {})
     state.setdefault("deployments", {})
-    state.setdefault("pods", [])
-    state.setdefault("now", T_SECRET)
     state.update(calls=[], created=[])
     state_file.write_text(json.dumps(state))
 
@@ -325,51 +417,65 @@ def run_bootstrap(job: dict, tmp_path: Path, **state) -> tuple:
     return proc, json.loads(state_file.read_text())
 
 
-def both_reading(secret: str = SECRET_NAME, **extra) -> dict:
+def secret(token: str = "old-token", rotation: Optional[str] = "0") -> dict:
     return {
-        HOLMES_DEPLOYMENT: {"refs": ["robusta-ui-token", secret], **extra},
-        MCP_DEPLOYMENT: {"refs": [secret], **extra},
+        "token": token,
+        "annotations": {} if rotation is None else {ROTATION_KEY: rotation},
     }
 
 
-def pods(created: str) -> List[dict]:
-    return [
-        {"app": HOLMES_DEPLOYMENT, "created": created},
-        {"app": MCP_DEPLOYMENT, "created": created},
-    ]
+def both_reading(name: str = SECRET_NAME, rotation: Optional[str] = "0") -> dict:
+    return {
+        HOLMES_DEPLOYMENT: {"refs": ["robusta-ui-token", name], "rotation": rotation},
+        MCP_DEPLOYMENT: {"refs": [name], "rotation": rotation},
+    }
 
 
 def restarted(result: dict) -> List[str]:
     return [c[3] for c in result["calls"] if c[:2] == ["rollout", "restart"]]
 
 
-def test_script_steady_state_is_a_no_op(bootstrap_job, tmp_path):
+def mutations(result: dict) -> List[str]:
+    return [c[0] for c in result["calls"] if c[0] in ("create", "delete", "rollout")]
+
+
+def test_script_keeps_a_secret_at_the_current_rotation(bootstrap_job, tmp_path):
     proc, result = run_bootstrap(
         bootstrap_job,
         tmp_path,
-        secrets={SECRET_NAME: T_SECRET},
+        secrets={SECRET_NAME: secret()},
         deployments=both_reading(),
-        pods=pods(T_NEW),
     )
     assert proc.returncode == 0, proc.stderr
     assert "keeping its token" in proc.stdout
-    assert result["created"] == []
-    assert restarted(result) == []
+    assert mutations(result) == []
 
 
 def test_script_creates_secret_on_fresh_install(bootstrap_job, tmp_path):
     proc, result = run_bootstrap(bootstrap_job, tmp_path)
     assert proc.returncode == 0, proc.stderr
-    [secret] = result["created"]
-    assert secret["kind"] == "Secret"
-    assert secret["metadata"]["name"] == SECRET_NAME
-    assert secret["metadata"]["namespace"] == NAMESPACE
-    assert "app.kubernetes.io/instance" not in secret["metadata"]["labels"]
-    token = secret["stringData"]["token"]
+    [created] = result["created"]
+    meta = created["metadata"]
+    assert meta["name"] == SECRET_NAME
+    assert meta["namespace"] == NAMESPACE
+    assert meta["annotations"] == {ROTATION_KEY: "0"}
+    assert meta["labels"] == {
+        "app.kubernetes.io/component": "mcp-server-auth",
+        "app.kubernetes.io/part-of": "holmes",
+    }
+    token = created["stringData"]["token"]
     assert len(token) >= 40
     assert token.replace("-", "").replace("_", "").isalnum()
     assert token not in proc.stdout + proc.stderr
     assert restarted(result) == []
+
+
+def test_script_secret_carries_common_metadata(bootstrap_job_rotation_2, tmp_path):
+    proc, result = run_bootstrap(bootstrap_job_rotation_2, tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    meta = result["created"][0]["metadata"]
+    assert meta["labels"]["team"] == "sre"
+    assert meta["annotations"] == {"owner": "platform", ROTATION_KEY: "2"}
 
 
 def test_script_generates_a_new_token_each_time(bootstrap_job, tmp_path):
@@ -383,128 +489,145 @@ def test_script_generates_a_new_token_each_time(bootstrap_job, tmp_path):
     assert len(tokens) == 2
 
 
-def test_script_restarts_deployments_on_rotation(bootstrap_job, tmp_path):
+@pytest.mark.parametrize("previous", ["0", "1", None])
+def test_rotation_replaces_the_token_and_leaves_the_rollout_to_the_release(
+    bootstrap_job_rotation_2, tmp_path, previous
+):
     proc, result = run_bootstrap(
-        bootstrap_job, tmp_path, deployments=both_reading(), pods=pods(T_OLD)
+        bootstrap_job_rotation_2,
+        tmp_path,
+        secrets={SECRET_NAME: secret(rotation=previous)},
+        deployments=both_reading(rotation=previous),
     )
     assert proc.returncode == 0, proc.stderr
-    assert len(result["created"]) == 1
-    assert restarted(result) == [HOLMES_DEPLOYMENT, MCP_DEPLOYMENT]
+    assert mutations(result) == ["delete", "create"]
+    new = result["secrets"][SECRET_NAME]
+    assert new["annotations"][ROTATION_KEY] == "2"
+    assert new["token"] != "old-token"
 
 
-def test_script_finishes_an_interrupted_rotation(bootstrap_job, tmp_path):
+def test_rotation_restarts_deployments_the_release_will_not_roll(
+    bootstrap_job, tmp_path
+):
+    # e.g. an --atomic rollback to rotation 0 after the hook already rotated to 1
     proc, result = run_bootstrap(
         bootstrap_job,
         tmp_path,
-        secrets={SECRET_NAME: T_SECRET},
-        deployments=both_reading(),
-        pods=pods(T_OLD),
+        secrets={SECRET_NAME: secret(rotation="1")},
+        deployments=both_reading(rotation="0"),
     )
     assert proc.returncode == 0, proc.stderr
-    assert result["created"] == []
-    assert restarted(result) == [HOLMES_DEPLOYMENT, MCP_DEPLOYMENT]
+    assert mutations(result) == ["delete", "rollout", "rollout", "create"]
+    assert result["secrets"][SECRET_NAME]["annotations"][ROTATION_KEY] == "0"
 
 
-def test_script_restarts_only_the_deployment_with_stale_pods(bootstrap_job, tmp_path):
+def test_a_crash_mid_rotation_is_finished_by_the_next_run(bootstrap_job, tmp_path):
+    # The previous run deleted the Secret and died before creating it.
     proc, result = run_bootstrap(
-        bootstrap_job,
-        tmp_path,
-        secrets={SECRET_NAME: T_SECRET},
-        deployments=both_reading(),
-        pods=[
-            {"app": HOLMES_DEPLOYMENT, "created": T_NEW},
-            {"app": MCP_DEPLOYMENT, "created": T_NEW},
-            {"app": MCP_DEPLOYMENT, "created": T_OLD},
-        ],
+        bootstrap_job, tmp_path, deployments=both_reading(rotation="0")
     )
     assert proc.returncode == 0, proc.stderr
-    assert restarted(result) == [MCP_DEPLOYMENT]
+    assert mutations(result) == ["rollout", "rollout", "create"]
 
 
-def test_script_does_not_restart_again_while_a_restart_is_rolling(
+def test_a_deleted_secret_is_recreated_after_restarting_its_readers(
     bootstrap_job, tmp_path
 ):
     proc, result = run_bootstrap(
         bootstrap_job,
         tmp_path,
-        secrets={SECRET_NAME: T_SECRET},
-        deployments=both_reading(restartedAt=T_NEW),
-        pods=pods(T_OLD),
+        deployments={
+            HOLMES_DEPLOYMENT: {"refs": [SECRET_NAME], "rotation": "0"},
+            MCP_DEPLOYMENT: {"refs": ["other"], "rotation": "0"},
+        },
     )
     assert proc.returncode == 0, proc.stderr
+    assert mutations(result) == ["rollout", "create"]
+    assert restarted(result) == [HOLMES_DEPLOYMENT]
+
+
+def test_upgrade_from_the_rendered_secret_keeps_its_token(bootstrap_job, tmp_path):
+    proc, result = run_bootstrap(
+        bootstrap_job,
+        tmp_path,
+        secrets={LEGACY_SECRET_NAME: {"token": "legacy-token"}},
+        deployments=both_reading(LEGACY_SECRET_NAME, rotation=None),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "previous chart" in proc.stdout
+    assert result["created"][0]["stringData"]["token"] == "legacy-token"
+    assert "legacy-token" not in proc.stdout + proc.stderr
     assert restarted(result) == []
 
 
-def test_script_ignores_a_restart_from_before_the_current_token(
+def test_rotation_never_reuses_the_legacy_token(bootstrap_job_rotation_2, tmp_path):
+    proc, result = run_bootstrap(
+        bootstrap_job_rotation_2,
+        tmp_path,
+        secrets={
+            SECRET_NAME: secret(rotation="0"),
+            LEGACY_SECRET_NAME: {"token": "legacy-token"},
+        },
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert result["secrets"][SECRET_NAME]["token"] not in ("legacy-token", "old-token")
+
+
+def test_a_lingering_legacy_secret_is_not_reused_after_migration(
     bootstrap_job, tmp_path
 ):
+    # The Secret was deleted (or a rotation crashed) and an unpruned legacy
+    # Secret is still around: the readers must get a fresh token.
     proc, result = run_bootstrap(
         bootstrap_job,
         tmp_path,
-        secrets={SECRET_NAME: T_SECRET},
-        deployments=both_reading(restartedAt="2026-01-01T12:00:00+00:00"),
-        pods=pods(T_OLD),
+        secrets={LEGACY_SECRET_NAME: {"token": "legacy-token"}},
+        deployments=both_reading(),
     )
     assert proc.returncode == 0, proc.stderr
+    assert result["secrets"][SECRET_NAME]["token"] != "legacy-token"
     assert restarted(result) == [HOLMES_DEPLOYMENT, MCP_DEPLOYMENT]
 
 
-def test_script_does_not_restart_deployments_still_on_the_old_secret(
-    bootstrap_job, tmp_path
-):
-    proc, result = run_bootstrap(
-        bootstrap_job,
-        tmp_path,
-        deployments=both_reading(f"{RELEASE}-k8s-remediation-mcp-auth"),
-        pods=pods(T_OLD),
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert len(result["created"]) == 1
-    assert restarted(result) == []
-
-
-def test_script_reconciles_after_a_concurrent_create(bootstrap_job, tmp_path):
+def test_script_tolerates_a_concurrent_create(bootstrap_job, tmp_path):
     proc, result = run_bootstrap(
         bootstrap_job,
         tmp_path,
         create_error=f'Error from server (AlreadyExists): secrets "{SECRET_NAME}" already exists',
-        deployments=both_reading(),
-        pods=pods(T_OLD),
     )
     assert proc.returncode == 0, proc.stderr
     assert "created concurrently" in proc.stdout
-    assert result["created"] == []
-    assert restarted(result) == [HOLMES_DEPLOYMENT, MCP_DEPLOYMENT]
-
-
-def test_script_fails_if_the_secret_vanishes_after_create(bootstrap_job, tmp_path):
-    proc, result = run_bootstrap(
-        bootstrap_job, tmp_path, create_vanishes=True, deployments=both_reading()
-    )
-    assert proc.returncode != 0
-    assert "disappeared" in proc.stderr
-    assert restarted(result) == []
 
 
 @pytest.mark.parametrize(
-    "error_key,message",
+    "error_key,message,state",
     [
-        ("create_error", "Error from server (Forbidden): exceeded quota"),
-        ("get_secret_error", 'Error from server (Forbidden): secrets "x" is forbidden'),
-        ("get_deployment_error", "Error from server (Forbidden): deployments.apps"),
-        ("get_pods_error", "Error from server (Forbidden): pods is forbidden"),
-        ("restart_error", "Error from server (Conflict): deployments.apps"),
+        ("create_error", "Error from server (Forbidden): exceeded quota", {}),
+        ("get_secret_error", 'Error from server (Forbidden): secrets "x"', {}),
+        (
+            "get_deployment_error",
+            "Error from server (Forbidden): deployments.apps",
+            {},
+        ),
+        (
+            "restart_error",
+            "Error from server (Conflict): deployments.apps",
+            {"deployments": both_reading()},
+        ),
+        (
+            "delete_error",
+            "Error from server (Forbidden): secrets is forbidden",
+            {"secrets": {SECRET_NAME: secret(rotation="9")}},
+        ),
     ],
 )
-def test_script_fails_loudly_on_api_errors(bootstrap_job, tmp_path, error_key, message):
+def test_script_fails_loudly_on_api_errors(
+    bootstrap_job, tmp_path, error_key, message, state
+):
     proc, result = run_bootstrap(
-        bootstrap_job,
-        tmp_path,
-        deployments=both_reading(),
-        pods=pods(T_OLD),
-        **{error_key: message},
+        bootstrap_job, tmp_path, **state, **{error_key: message}
     )
     assert proc.returncode != 0
     assert message in proc.stderr
-    if error_key == "get_secret_error":
+    if error_key != "create_error":
         assert result["created"] == []
