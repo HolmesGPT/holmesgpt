@@ -15,6 +15,8 @@ Goal: separate real model failures from broken evals, harness bugs and judge mis
 poetry run python .claude/skills/review-eval-run/review_eval_run.py <run_id> --model <newest-model> [--min-cache 50]
 ```
 
+The script output is a guideline, not a verdict: it only catches known patterns. Always also investigate on your own in Braintrust (experiment `ci-benchmark-<run_id>`): open the failing traces, read the rendered prompts and tool outputs, and look for anything the script doesn't check.
+
 Requires `BRAINTRUST_API_KEY`. If the run is still in progress, check `gh run view <id> --json status,jobs` first; Braintrust rows appear as tests finish.
 
 ## Step 2: Act on each section
