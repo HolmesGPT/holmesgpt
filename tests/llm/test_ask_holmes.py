@@ -14,7 +14,7 @@ import pytest
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
-from holmes.core.prompt import PromptComponent, build_initial_ask_messages
+from holmes.core.prompt import build_initial_ask_messages, todowrite_overrides
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.frontend_tools import inject_frontend_tools
@@ -607,15 +607,10 @@ def ask_holmes(
                     if p
                 )
 
-        # Todos (TodoWrite) are disabled by default in evals; turn off the
-        # related prompt instructions/reminder unless the test opts in. The
-        # TodoWrite tool itself is dropped by TestToolsetManager (above).
-        prompt_component_overrides = None
-        if not getattr(test_case, "enable_todo", False):
-            prompt_component_overrides = {
-                PromptComponent.TODOWRITE_INSTRUCTIONS: False,
-                PromptComponent.TODOWRITE_REMINDER: False,
-            }
+        # TodoWrite prompt components are opt-in via enable_todo
+        prompt_component_overrides = todowrite_overrides(
+            getattr(test_case, "enable_todo", False)
+        )
 
         test_type = (
             test_case.test_type
