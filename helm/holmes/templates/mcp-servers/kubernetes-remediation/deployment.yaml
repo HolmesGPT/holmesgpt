@@ -48,11 +48,9 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with list (include "holmes.commonAnnotations" .) (include "holmes.kubernetesRemediationMcp.deploymentAuthAnnotations" .) | compact }}
+  {{- with (include "holmes.kubernetesRemediationMcp.deploymentAnnotations" . | trim) }}
   annotations:
-    {{- range . }}
     {{- . | nindent 4 }}
-    {{- end }}
   {{- end }}
 spec:
   replicas: 1

@@ -156,7 +156,7 @@ spec:
 
           secret = get("secret", NAME)
           if secret is not None:
-              if rotation_of(secret["metadata"]) == ROTATION:
+              if rotation_of(secret["metadata"]) == ROTATION and (secret.get("data") or {}).get("token"):
                   print(f"Secret {NAME} is at rotation {ROTATION}; keeping its token")
                   sys.exit(0)
               # Deleting first makes the steps below the only path that writes a
@@ -185,8 +185,9 @@ spec:
                   print(kubectl("rollout", "restart", "deployment", name).stdout.strip())
 
           # Upgrading from the chart-rendered Secret (nothing reads this one yet)
-          # keeps its token, so the two sides never disagree mid-rollout.
-          migrating = secret is None and readers == 0
+          # keeps its token, so the two sides never disagree mid-rollout, unless
+          # the same upgrade also asks for a rotation.
+          migrating = secret is None and readers == 0 and ROTATION == "0"
           legacy = get("secret", os.environ["LEGACY_SECRET_NAME"]) if migrating else None
           legacy_token = ((legacy or {}).get("data") or {}).get("token")
           token = base64.b64decode(legacy_token).decode() if legacy_token else secrets.token_urlsafe(36)
@@ -205,12 +206,9 @@ spec:
           created = kubectl("create", "-f", "-", stdin=manifest, ok_if="AlreadyExists").returncode == 0
           source = "the previous chart's Secret" if legacy_token else "a new token"
           print(f"Created Secret {NAME} from {source}" if created else f"Secret {NAME} was created concurrently; keeping it")
+        # The server's resources, so namespace quotas that admit it admit this.
         resources:
-          requests:
-            cpu: 10m
-            memory: 64Mi
-          limits:
-            memory: 256Mi
+          {{- toYaml $k8s.resources | nindent 10 }}
         securityContext:
           readOnlyRootFilesystem: true
           runAsNonRoot: true

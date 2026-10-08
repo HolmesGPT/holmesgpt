@@ -36,9 +36,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def render_raw(*sets: str) -> str:
+def render_raw(*sets: str, values_file: Optional[Path] = None) -> str:
     cmd = ["helm", "template", RELEASE, str(HELM_DIR), "-n", NAMESPACE]
     cmd += ["--set", "mcpAddons.kubernetesRemediation.enabled=true"]
+    if values_file:
+        cmd += ["-f", str(values_file)]
     for s in sets:
         cmd += ["--set", s]
     return subprocess.check_output(cmd, text=True)
@@ -175,6 +177,10 @@ def test_bootstrap_job_spec():
     assert {"name": "tmp", "mountPath": env["HOME"]} in c["volumeMounts"]
     assert job["spec"]["backoffLimit"] > 0
     assert job["spec"]["ttlSecondsAfterFinished"] > 0
+    assert (
+        c["resources"]
+        == container(find(docs, "Deployment", MCP_DEPLOYMENT))["resources"]
+    )
     assert "imagePullSecrets" not in pod
 
 
@@ -273,6 +279,17 @@ def test_rotation_leaves_the_pod_templates_unchanged():
             find(before, "Deployment", name)["spec"]["template"]
             == find(after, "Deployment", name)["spec"]["template"]
         )
+
+
+def test_rotation_renders_the_same_from_a_values_file_and_set(tmp_path):
+    values = tmp_path / "values.yaml"
+    values.write_text(
+        "mcpAddons:\n  kubernetesRemediation:\n    auth:\n      rotation: 20261008\n"
+    )
+    from_file = render_raw(values_file=values)
+    from_set = render_raw("mcpAddons.kubernetesRemediation.auth.rotation=20261008")
+    assert from_file == from_set
+    assert f'{ROTATION_KEY}: "20261008"' in from_file
 
 
 def test_rotation_annotation_keeps_common_annotations():
@@ -604,6 +621,31 @@ def test_a_lingering_legacy_secret_is_not_reused_after_migration(
     assert proc.returncode == 0, proc.stderr
     assert result["secrets"][SECRET_NAME]["token"] != "legacy-token"
     assert restarted(result) == [HOLMES_DEPLOYMENT, MCP_DEPLOYMENT]
+
+
+def test_a_migration_that_also_rotates_gets_a_fresh_token(
+    bootstrap_job_rotation_2, tmp_path
+):
+    proc, result = run_bootstrap(
+        bootstrap_job_rotation_2,
+        tmp_path,
+        secrets={LEGACY_SECRET_NAME: {"token": "legacy-token"}},
+        deployments=both_reading(LEGACY_SECRET_NAME),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert result["secrets"][SECRET_NAME]["token"] != "legacy-token"
+
+
+def test_a_secret_that_lost_its_token_is_repaired(bootstrap_job, tmp_path):
+    proc, result = run_bootstrap(
+        bootstrap_job,
+        tmp_path,
+        secrets={SECRET_NAME: secret(token="")},
+        deployments=both_reading(),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert mutations(result) == ["delete", "rollout", "rollout", "create"]
+    assert result["secrets"][SECRET_NAME]["token"]
 
 
 def test_script_tolerates_a_concurrent_create(bootstrap_job, tmp_path):

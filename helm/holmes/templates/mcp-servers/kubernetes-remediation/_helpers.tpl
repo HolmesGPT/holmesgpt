@@ -13,21 +13,23 @@ Job, never rendered, so `helm template`/ArgoCD output is deterministic.
 {{- end -}}
 
 {{/*
-auth.rotation, as annotations for the Holmes and server Deployments. With the
+auth.rotation, as annotations for the Holmes and server Deployments
+(deploymentAnnotations also carries commonAnnotations). With the
 generated token it goes on the Deployment itself: the change makes Helm/ArgoCD
 run the auth-bootstrap hook, which replaces the token and restarts both pods,
 so it must not roll them a second time. With existingSecret there is no hook,
 so it goes on the pod template (next to the Secret's checksum) to roll them.
 */}}
 {{- define "holmes.kubernetesRemediationMcp.authRotation" -}}
-{{- .Values.mcpAddons.kubernetesRemediation.auth.rotation | default 0 | toString -}}
+{{- .Values.mcpAddons.kubernetesRemediation.auth.rotation | default 0 | int64 | toString -}}
 {{- end -}}
 
-{{- define "holmes.kubernetesRemediationMcp.deploymentAuthAnnotations" -}}
-{{- $k8s := .Values.mcpAddons.kubernetesRemediation -}}
-{{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) -}}
+{{- define "holmes.kubernetesRemediationMcp.deploymentAnnotations" -}}
+{{- include "holmes.commonAnnotations" . }}
+{{- $k8s := .Values.mcpAddons.kubernetesRemediation }}
+{{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) }}
 robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
-{{- end -}}
+{{- end }}
 {{- end -}}
 
 {{/*

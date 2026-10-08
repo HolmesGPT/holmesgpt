@@ -748,10 +748,10 @@ mcpAddons:
     # extra env/header are ignored and behavior is unchanged (unauthenticated).
     auth:
       enabled: true
-      # Increase to rotate the token: the hook replaces the generated token and
-      # both pods roll in the same release. With existingSecret under ArgoCD,
-      # increase it after updating that Secret to roll the pods (a plain
-      # `helm upgrade` notices the change on its own).
+      # An integer. Increase it to rotate the token: the hook replaces the
+      # generated token and restarts both pods in the same upgrade or sync.
+      # With existingSecret under ArgoCD, increase it after updating that
+      # Secret to roll the pods (a plain `helm upgrade` notices on its own).
       rotation: 0
       # Name of a pre-existing Secret holding the token under the key "token".
       # When set, the chart creates no Secret and runs no hook Job, and uses
