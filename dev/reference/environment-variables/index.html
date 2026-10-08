@@ -7108,8 +7108,8 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOOL_MEMORY_LIMIT_MB</span><span class="o">=</span><span class="m">2000</span>
 </span></code></pre></div></p>
 <h2 id="conversation-worker-executors">Conversation Worker Executors<a class="headerlink" href="#conversation-worker-executors" title="Permanent link">&para;</a></h2>
-<p>The conversation runtime (Robusta platform deployments) runs each conversation on a named <strong>executor</strong>. <code>Conversations.executor</code> names it: <code>manual</code> for live user asks (chat, follow-ups, a single "Investigate now") and <code>auto</code> for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Executors are created on demand and sized from the account setting <code>conversation_executors.&lt;name&gt;</code> (Settings → LLMs sets <code>manual</code>, Settings → Triage sets <code>auto</code>; applied live, no restart), falling back to the built-in default (<code>manual</code>=10, <code>auto</code>=2). <code>CONVERSATION_WORKER_MAX_CONCURRENT</code> (default 5) only sizes an executor whose name has no built-in default.</p>
-<p><strong>Upgrade note.</strong> Before executors existed, one shared pool of <code>CONVERSATION_WORKER_MAX_CONCURRENT</code> (5) ran everything. With the defaults above an agent now runs up to 12 conversations at once (10 <code>manual</code> + 2 <code>auto</code>), and <code>CONVERSATION_WORKER_MAX_CONCURRENT</code> no longer sizes those two executors. Deployments that tuned it should set the concurrency in Settings instead.</p>
+<p>The conversation runtime (Robusta platform deployments) runs each conversation on a named <strong>executor</strong>. <code>Conversations.executor</code> names it: <code>manual</code> for live user asks (chat, follow-ups, a single "Investigate now") and <code>auto</code> for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Executors are created on demand and sized from the account setting <code>conversation_executors.&lt;name&gt;</code> (Settings → LLMs sets <code>manual</code>, Settings → Triage sets <code>auto</code>; applied live, no restart), falling back to the built-in default (<code>manual</code>=10, <code>auto</code>=1). <code>CONVERSATION_WORKER_MAX_CONCURRENT</code> (default 5) only sizes an executor whose name has no built-in default.</p>
+<p><strong>Upgrade note.</strong> Before executors existed, one shared pool of <code>CONVERSATION_WORKER_MAX_CONCURRENT</code> (5) ran everything. With the defaults above an agent now runs up to 11 conversations at once (10 <code>manual</code> + 1 <code>auto</code>), and <code>CONVERSATION_WORKER_MAX_CONCURRENT</code> no longer sizes those two executors. Deployments that tuned it should set the concurrency in Settings instead.</p>
 <h2 id="holmesgpt-configuration">HolmesGPT Configuration<a class="headerlink" href="#holmesgpt-configuration" title="Permanent link">&para;</a></h2>
 <h3 id="model_list_file_location">MODEL_LIST_FILE_LOCATION<a class="headerlink" href="#model_list_file_location" title="Permanent link">&para;</a></h3>
 <p>Path to a YAML file that defines named model configurations. When set, you can reference models by name using <code>--model=&lt;name&gt;</code> in the CLI or the <code>model</code> parameter in the HTTP API, instead of specifying the full model identifier and credentials each time.</p>
@@ -7126,13 +7126,13 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p>Overrides the URL LiteLLM fetches the model catalog (<code>model_prices_and_context_window.json</code>) from. LiteLLM uses that catalog to know each model's context window, max output tokens, and pricing. By default LiteLLM pulls it from <code>raw.githubusercontent.com</code>, which is unreachable from networks that block GitHub egress.</p>
 <p>Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d_1" name="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d" type="radio">
-<input id="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d_2" name="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d" type="radio">
-<input id="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d_3" name="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d" type="radio">
+<input checked="checked" id="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6_1" name="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6" type="radio">
+<input id="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6_2" name="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6" type="radio">
+<input id="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6_3" name="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d_1">US</label>
-<label for="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d_2">EU</label>
-<label for="__tabbed_a6df81db_4d9f_4ab8_aaed_c65b4b94242d_3">AP</label>
+<label for="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6_1">US</label>
+<label for="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6_2">EU</label>
+<label for="__tabbed_77e0f7f1_f5e8_409b_baf0_1e6dff942fb6_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/litellm/model_prices_and_context_window.json</code></pre></div>
@@ -7143,13 +7143,13 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p>The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to <code>raw.githubusercontent.com</code>.</p>
 <p><strong>Helm example:</strong></p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8_1" name="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8" type="radio">
-<input id="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8_2" name="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8" type="radio">
-<input id="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8_3" name="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8" type="radio">
+<input checked="checked" id="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74_1" name="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74" type="radio">
+<input id="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74_2" name="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74" type="radio">
+<input id="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74_3" name="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8_1">US</label>
-<label for="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8_2">EU</label>
-<label for="__tabbed_af3fbbdb_f31f_40de_a606_e2f7bd918bb8_3">AP</label>
+<label for="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74_1">US</label>
+<label for="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74_2">EU</label>
+<label for="__tabbed_92b6ecca_7f6b_4065_aa36_e8e06ce6fa74_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">additionalEnvVars:
