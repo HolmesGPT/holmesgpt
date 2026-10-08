@@ -1,27 +1,4 @@
 {{- if .Values.mcpAddons.kubernetesRemediation.enabled }}
-{{- $auth := .Values.mcpAddons.kubernetesRemediation.auth }}
-{{- if and $auth.enabled (not $auth.existingSecret) }}
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ include "holmes.kubernetesRemediationMcp.authSecretName" . }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app: {{ .Release.Name }}-k8s-remediation-mcp
-    app.kubernetes.io/name: k8s-remediation-mcp-server
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/component: mcp-server
-    app.kubernetes.io/part-of: holmes
-    {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
-  annotations:
-    {{- . | nindent 4 }}
-  {{- end }}
-type: Opaque
-data:
-  token: {{ include "holmes.kubernetesRemediationMcp.authToken" . | b64enc }}
-{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -71,7 +48,7 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+  {{- with (include "holmes.kubernetesRemediationMcp.deploymentAnnotations" . | trim) }}
   annotations:
     {{- . | nindent 4 }}
   {{- end }}
@@ -95,11 +72,12 @@ spec:
         {{- with (include "holmes.commonAnnotations" .) }}
         {{- . | nindent 8 }}
         {{- end }}
-        checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
-        {{- if .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
-        # Roll the pod when the auth token is rotated (env comes from a Secret,
-        # so a content change alone would not restart anything).
-        checksum/auth-token: {{ include "holmes.kubernetesRemediationMcp.authTokenChecksum" . }}
+        {{- /* auth.rotation is left out: rotating restarts the pods already. */}}
+        {{- $config := deepCopy .Values.mcpAddons.kubernetesRemediation }}
+        {{- $_ := unset $config.auth "rotation" }}
+        checksum/config: {{ $config | toYaml | sha256sum }}
+        {{- with (include "holmes.kubernetesRemediationMcp.podAuthAnnotations" .) }}
+        {{- . | nindent 8 }}
         {{- end }}
     spec:
       {{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.create }}
