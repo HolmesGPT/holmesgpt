@@ -74,7 +74,10 @@ spec:
         {{- with (include "holmes.commonAnnotations" .) }}
         {{- . | nindent 8 }}
         {{- end }}
-        checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
+        {{- /* auth.rotation is left out: rotating restarts the pods already. */}}
+        {{- $config := deepCopy .Values.mcpAddons.kubernetesRemediation }}
+        {{- $_ := unset $config.auth "rotation" }}
+        checksum/config: {{ $config | toYaml | sha256sum }}
         {{- with (include "holmes.kubernetesRemediationMcp.podAuthAnnotations" .) }}
         {{- . | nindent 8 }}
         {{- end }}

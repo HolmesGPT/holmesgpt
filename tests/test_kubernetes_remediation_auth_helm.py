@@ -265,6 +265,16 @@ def test_rotation_triggers_the_hook_without_rolling_the_pods():
             assert ROTATION_KEY not in pod_annotations(deployment)
 
 
+def test_rotation_leaves_the_pod_templates_unchanged():
+    before = render()
+    after = render("mcpAddons.kubernetesRemediation.auth.rotation=1")
+    for name in (HOLMES_DEPLOYMENT, MCP_DEPLOYMENT):
+        assert (
+            find(before, "Deployment", name)["spec"]["template"]
+            == find(after, "Deployment", name)["spec"]["template"]
+        )
+
+
 def test_rotation_annotation_keeps_common_annotations():
     docs = render("commonAnnotations.owner=platform")
     for name in (HOLMES_DEPLOYMENT, MCP_DEPLOYMENT):
