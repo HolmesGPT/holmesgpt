@@ -68,6 +68,8 @@ class HolmesMetadata:
     # older agent has no such key, and an agent that never reads the catalog
     # (see LLMModelRegistry.reads_robusta_catalog) says so with False.
     honors_robusta_ai_disabled: bool = False
+    # Supabase re-logins after a JWT error since this pod started.
+    supabase_relogins: int = 0
 
 
 # Last realtime_available value passed to update_holmes_status_in_db. The
@@ -121,6 +123,7 @@ def update_holmes_status_in_db(
         requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
         honors_robusta_ai_disabled=config.llm_model_registry.reads_robusta_catalog(),
+        supabase_relogins=dal.relogin_count,
     )
 
     dal.upsert_holmes_status(
