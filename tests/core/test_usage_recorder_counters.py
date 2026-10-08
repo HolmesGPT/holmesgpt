@@ -38,9 +38,7 @@ class TestRequestCounters:
                         "datadog_calls",
                     ).result()
             request_counters.increment("datadog_wait_ms_total", 250)
-            yield StreamMessage(
-                event=StreamEvents.ANSWER_END, data=_terminal_data({})
-            )
+            yield StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({}))
 
         list(stream_with_usage_recording(inner(), state))
 
@@ -54,7 +52,9 @@ class TestRequestCounters:
         _patch_inline_thread(monkeypatch)
         state = _make_state()
         stream = stream_with_usage_recording(
-            _stream(StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({}))),
+            _stream(
+                StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({}))
+            ),
             state,
         )
 

@@ -1,6 +1,7 @@
 import json
 from unittest.mock import MagicMock
 
+import holmes.core.usage_recorder as recorder
 from holmes.checks.checks import execute_check
 from holmes.checks.models import Check, CheckMode
 from holmes.core import request_counters
@@ -35,8 +36,6 @@ def _ai_bumping_counter() -> MagicMock:
 
 
 def test_check_records_tool_counters_in_meta(monkeypatch):
-    import holmes.core.usage_recorder as recorder
-
     submitted = []
     monkeypatch.setattr(
         recorder._RECORDER_EXECUTOR, "submit", lambda fn, state: submitted.append(state)

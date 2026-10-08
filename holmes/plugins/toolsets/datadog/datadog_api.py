@@ -1,5 +1,7 @@
+import hashlib
 import json
 import logging
+import math
 import random
 import re
 import threading
@@ -30,10 +32,13 @@ START_RETRY_DELAY = (
 INCREMENT_RETRY_DELAY = 5.0  # Delay increment after each rate limit, if datadog does not return a reset_time
 MAX_RETRY_COUNT_ON_RATE_LIMIT = 5
 
-RATE_LIMIT_REMAINING_SECONDS_HEADER = "X-RateLimit-Reset"
+RATE_LIMIT_RESET_HEADER = "X-RateLimit-Reset"
 RATE_LIMIT_REMAINING_HEADER = "X-RateLimit-Remaining"
 RATE_LIMIT_NAME_HEADER = "X-RateLimit-Name"
 RETRY_JITTER_SECONDS = 2.0
+# Budget for one call's rate-limit waits; a later reset (e.g. an hourly quota)
+# fails the call instead of stalling the tool.
+MAX_RATE_LIMIT_WAIT_SECONDS = 60.0
 
 # Cache for OpenAPI spec
 _openapi_spec_cache: Dict[str, Any] = {}
@@ -42,7 +47,7 @@ _datadog_request_semaphore = threading.BoundedSemaphore(
     max(1, DATADOG_MAX_CONCURRENT_REQUESTS)
 )
 
-_API_FAMILY_PATTERN = re.compile(r"/api/v\d+/+([^/]+)")
+_API_FAMILY_PATTERN = re.compile(r"/api/(v\d+)/+([^/]+)")
 
 # Relative time pattern (m = minutes, mo = months)
 RELATIVE_TIME_PATTERN = re.compile(r"^-?(\d+)([hdwsy]|min|m|mo)$|^now$", re.IGNORECASE)
@@ -204,28 +209,41 @@ def extract_cursor(data: dict) -> Optional[str]:
     return page.get("after", None)
 
 
-class retry_if_http_429_error(retry_if_exception):
-    def __init__(self):
-        def is_http_429_error(exception):
-            return (
-                isinstance(exception, DataDogRequestError)
-                and exception.status_code == 429
-            )
+class DataDogRateLimitWaitExceeded(DataDogRequestError):
+    """Not sent: the rate limit resets after the call's wait budget runs out."""
 
-        super().__init__(predicate=is_http_429_error)
+
+def rate_limit_error_message(error: DataDogRequestError) -> str:
+    message = f"Datadog API rate limit exceeded (HTTP 429): {error.response_text}"
+    reset_seconds = _parse_reset_seconds(error.response_headers)
+    if reset_seconds is not None:
+        message += f" The rate limit resets in {math.ceil(reset_seconds)}s."
+    return message
+
+
+def _is_retryable_429(exception: BaseException, deadline: float) -> bool:
+    if isinstance(exception, DataDogRateLimitWaitExceeded) or not (
+        isinstance(exception, DataDogRequestError) and exception.status_code == 429
+    ):
+        return False
+    reset_seconds = _parse_reset_seconds(exception.response_headers) or 0.0
+    return time.monotonic() + reset_seconds <= deadline
 
 
 def _parse_reset_seconds(headers: CaseInsensitiveDict) -> Optional[float]:
-    value = headers.get(RATE_LIMIT_REMAINING_SECONDS_HEADER)
+    value = headers.get(RATE_LIMIT_RESET_HEADER)
     if not value:
         return None
     try:
-        return max(0.0, float(value))
+        seconds = float(value)
     except ValueError:
+        seconds = math.nan
+    if not math.isfinite(seconds):
         logging.warning(
-            f"Received invalid {RATE_LIMIT_REMAINING_SECONDS_HEADER} header value from datadog: {value}"
+            f"Received invalid {RATE_LIMIT_RESET_HEADER} header value from datadog: {value}"
         )
         return None
+    return max(0.0, seconds)
 
 
 class wait_for_retry_after_header(wait_base):
@@ -243,14 +261,19 @@ class wait_for_retry_after_header(wait_base):
         return self.fallback(retry_state)
 
 
-def _rate_limit_key(url: str) -> Tuple[str, str]:
-    """(site, API family): Datadog rate limits are per endpoint family."""
+RateLimitKey = Tuple[str, str, str]
+
+
+def _rate_limit_key(url: str, headers: dict) -> RateLimitKey:
+    """(site, org, API family): Datadog rate limits are per org and endpoint family."""
     parsed = urlparse(url)
     # Base URLs carry a trailing slash (and may carry a proxy prefix), so
     # paths look like "//api/v2/logs/..." or "/dd/api/v1/query".
     match = _API_FAMILY_PATTERN.search(parsed.path)
-    family = match.group(1) if match else parsed.path.strip("/").split("/")[0]
-    return parsed.netloc, family
+    family = f"{match.group(1)}/{match.group(2)}" if match else parsed.path.strip("/")
+    api_key = str(headers.get("DD-API-KEY", ""))
+    org = hashlib.sha256(api_key.encode()).hexdigest()[:12]
+    return parsed.netloc, org, family
 
 
 class _RateLimitGate:
@@ -262,24 +285,32 @@ class _RateLimitGate:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._reset_at: Dict[Tuple[str, str], float] = {}
+        self._reset_at: Dict[RateLimitKey, float] = {}
 
-    def close(self, key: Tuple[str, str], seconds: float) -> bool:
+    def close(self, key: RateLimitKey, seconds: float) -> bool:
         """Returns True when this closes an open gate (a new activation)."""
         now = time.monotonic()
         with self._lock:
             current = self._reset_at.get(key, 0.0)
+            self._reset_at = {k: v for k, v in self._reset_at.items() if v > now}
             self._reset_at[key] = max(current, now + seconds)
             return current <= now
 
-    def wait(self, key: Tuple[str, str]) -> float:
+    def remaining(self, key: RateLimitKey) -> float:
+        with self._lock:
+            reset_at = self._reset_at.get(key)
+        return (reset_at - time.monotonic()) if reset_at else 0.0
+
+    def wait(self, key: RateLimitKey, deadline: float) -> Tuple[bool, float]:
+        """Sleeps until the gate opens. Returns (opened, seconds waited); gives up
+        without sleeping further once the gate would open after `deadline`."""
         waited = 0.0
         while True:
-            with self._lock:
-                reset_at = self._reset_at.get(key)
-            remaining = (reset_at - time.monotonic()) if reset_at else 0.0
+            remaining = self.remaining(key)
             if remaining <= 0:
-                return waited
+                return True, waited
+            if time.monotonic() + remaining > deadline:
+                return False, waited
             # Jitter so callers (and pods sharing an org) don't all fire at reset.
             delay = remaining + random.uniform(0, RETRY_JITTER_SECONDS)
             time.sleep(delay)
@@ -289,7 +320,7 @@ class _RateLimitGate:
 _rate_limit_gate = _RateLimitGate()
 
 
-def _record_rate_limit(key: Tuple[str, str], response: requests.Response) -> None:
+def _record_rate_limit(key: RateLimitKey, response: requests.Response) -> None:
     throttled = response.status_code == 429
     if throttled:
         request_counters.increment("datadog_429s")
@@ -299,12 +330,13 @@ def _record_rate_limit(key: Tuple[str, str], response: requests.Response) -> Non
     if reset_seconds is None:
         return
     if _rate_limit_gate.close(key, reset_seconds):
-        host, family = key
+        host, _, family = key
         limit_name = response.headers.get(RATE_LIMIT_NAME_HEADER, "unknown")
         logging.warning(
             f"Datadog rate limit reached for the '{family}' API on {host} "
             f"(limit: {limit_name}, status: {response.status_code}); "
-            f"holding '{family}' requests for {reset_seconds:g}s until reset"
+            f"'{family}' requests wait until it resets in {reset_seconds:g}s, "
+            f"or fail if that is over {MAX_RATE_LIMIT_WAIT_SECONDS:g}s away"
         )
 
 
@@ -352,8 +384,9 @@ def execute_datadog_http_request(
     timeout: int,
     method: str = "POST",
 ) -> Any:
+    deadline = time.monotonic() + MAX_RATE_LIMIT_WAIT_SECONDS
     retrying = Retrying(
-        retry=retry_if_http_429_error(),
+        retry=retry_if_exception(lambda e: _is_retryable_429(e, deadline)),
         wait=wait_for_retry_after_header(
             fallback=wait_incrementing(
                 start=START_RETRY_DELAY, increment=INCREMENT_RETRY_DELAY
@@ -375,6 +408,7 @@ def execute_datadog_http_request(
         payload_or_params,
         timeout,
         method,
+        deadline,
     )
 
 
@@ -384,9 +418,13 @@ def _execute_datadog_http_request_once(
     payload_or_params: dict,
     timeout: int,
     method: str,
+    deadline: float,
 ) -> Any:
-    key = _rate_limit_key(url)
-    waited = _rate_limit_gate.wait(key)
+    key = _rate_limit_key(url, headers)
+    opened, waited = _rate_limit_gate.wait(key, deadline)
+    if not opened:
+        request_counters.increment("datadog_wait_ms_total", int(waited * 1000))
+        raise _wait_exceeded_error(key, payload_or_params)
     acquire_started = time.monotonic()
     with _datadog_request_semaphore:
         waited += time.monotonic() - acquire_started
@@ -406,6 +444,24 @@ def _execute_datadog_http_request_once(
         status_code=response.status_code,
         response_text=response.text,
         response_headers=response.headers,
+    )
+
+
+def _wait_exceeded_error(
+    key: RateLimitKey, payload: dict
+) -> DataDogRateLimitWaitExceeded:
+    host, _, family = key
+    reset_seconds = math.ceil(_rate_limit_gate.remaining(key))
+    return DataDogRateLimitWaitExceeded(
+        payload=payload,
+        status_code=429,
+        response_text=(
+            f"Request not sent: the rate limit of the '{family}' API on {host} "
+            "is exhausted."
+        ),
+        response_headers=CaseInsensitiveDict(
+            {RATE_LIMIT_RESET_HEADER: str(reset_seconds)}
+        ),
     )
 
 

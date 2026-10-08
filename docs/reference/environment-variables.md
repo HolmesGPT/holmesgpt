@@ -407,6 +407,7 @@ See [Connectivity Check](../data-sources/builtin-toolsets/connectivity-check.md)
 ### Datadog
 - `DATADOG_APP_KEY` - Datadog application key
 - `DATADOG_API_KEY` - Datadog API key
+- `DATADOG_MAX_CONCURRENT_REQUESTS` - Maximum Datadog API requests in flight per Holmes process (default: `4`). Datadog rate limits are shared across all clusters in your Datadog org, so keep this low. When Datadog rate-limits an endpoint family (e.g. logs search), only calls to that family wait for the reset. Each call waits at most 60 seconds in total; beyond that, the rate-limit error and its reset time are returned to the AI.
 
 ### AWS
 - `AWS_ACCESS_KEY_ID` - AWS access key (also used for AWS toolset)

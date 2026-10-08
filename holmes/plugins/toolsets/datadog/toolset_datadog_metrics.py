@@ -23,10 +23,10 @@ from holmes.plugins.toolsets.consts import (
     TOOLSET_CONFIG_MISSING_ERROR,
 )
 from holmes.plugins.toolsets.datadog.datadog_api import (
-    MAX_RETRY_COUNT_ON_RATE_LIMIT,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
+    rate_limit_error_message,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import DatadogMetricsConfig
 from holmes.plugins.toolsets.datadog.datadog_url_utils import (
@@ -199,7 +199,7 @@ class ListActiveMetrics(BaseDatadogMetricsTool):
             logging.exception(e, exc_info=True)
 
             if e.status_code == 429:
-                error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                error_msg = rate_limit_error_message(e)
             elif e.status_code == 403:
                 error_msg = (
                     f"Permission denied. Ensure your Datadog Application Key has the 'metrics_read' "
@@ -430,7 +430,7 @@ class QueryMetrics(BaseDatadogMetricsTool):
             logging.exception(e, exc_info=True)
 
             if e.status_code == 429:
-                error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                error_msg = rate_limit_error_message(e)
             elif e.status_code == 403:
                 error_msg = (
                     f"Permission denied. Ensure your Datadog Application Key has the 'metrics_read' "
@@ -544,9 +544,7 @@ class QueryMetricsMetadata(BaseDatadogMetricsTool):
                     if e.status_code == 404:
                         errors[metric_name] = "Metric not found"
                     elif e.status_code == 429:
-                        errors[metric_name] = (
-                            f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
-                        )
+                        errors[metric_name] = rate_limit_error_message(e)
                     else:
                         errors[metric_name] = f"Error {e.status_code}: {str(e)}"
                 except Exception as e:
@@ -665,7 +663,7 @@ class ListMetricTags(BaseDatadogMetricsTool):
             if e.status_code == 404:
                 error_msg = f"Metric '{params.get('metric_name', 'unknown')}' not found. Please check the metric name."
             elif e.status_code == 429:
-                error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                error_msg = rate_limit_error_message(e)
             elif e.status_code == 403:
                 error_msg = (
                     f"Permission denied. Ensure your Datadog Application Key has the 'metrics_read' "
