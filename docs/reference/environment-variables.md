@@ -65,7 +65,7 @@ Maximum time a single LLM call may spend backing off from provider rate-limit er
 
 Not retried:
 
-- Quota exhaustion (a Robusta AI account limit, OpenAI `insufficient_quota`), since waiting does not clear it.
+- A Robusta AI account that has reached its limit, since waiting does not clear it. Other providers' quota errors look like ordinary rate limits (Gemini words its per-minute limit the same way as OpenAI's out-of-credit error), so they are retried until the budget runs out.
 - Tool-output summarization by the fast model, which falls back to the unsummarized output instead.
 
 Interrupting the CLI (Esc) stops the backoff. Server requests run until the budget is used up.

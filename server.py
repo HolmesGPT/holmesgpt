@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import List, Optional
 
 import colorlog
-import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
@@ -870,11 +869,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
     except Exception as e:
         if is_rate_limit_error(e):
-            raise HTTPException(status_code=429, detail=str(e))
+            raise HTTPException(status_code=429, detail=getattr(e, "message", str(e)))
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -984,15 +981,15 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     return resp
 
 
-# async so it runs on the event loop: the threadpool can be full of chats
-# waiting on the LLM, and a liveness probe that times out restarts the pod.
+# The probes are async so they run on the event loop: the threadpool can be
+# full of chats waiting on the LLM, and a probe that times out takes the pod down.
 @app.get("/healthz")
 async def health_check():
     return {"status": "healthy"}
 
 
 @app.get("/readyz")
-def readiness_check():
+async def readiness_check():
     try:
         models_list = config.get_models_list()
         return {"status": "ready", "models": models_list}

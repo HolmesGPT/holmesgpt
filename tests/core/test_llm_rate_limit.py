@@ -485,8 +485,8 @@ class TestQuotaExhaustion:
         [
             # Robusta relay, relay/pkg/common/relay_error_codes.py
             "Your Robusta AI account limit has been reached. Contact support@robusta.dev to increase limits.",
-            # OpenAI insufficient_quota
-            "You exceeded your current quota, please check your plan and billing details.",
+            # the error code, when a proxy keeps it in the message
+            "OpenAIException - insufficient_quota",
         ],
     )
     def test_quota_exhaustion_is_not_retried(self, clock, budget, cap, message):
@@ -503,6 +503,15 @@ class TestQuotaExhaustion:
 
     def test_ordinary_rate_limit_is_not_quota(self):
         assert not is_quota_exhausted_error(rate_limit())
+
+    def test_gemini_per_minute_limit_is_retried(self):
+        # Gemini words its RPM/TPM 429 like OpenAI's insufficient_quota.
+        exc = rate_limit(
+            message="You exceeded your current quota, please check your plan and "
+            "billing details. For more information on this error, head to: "
+            "https://ai.google.dev/gemini-api/docs/rate-limits."
+        )
+        assert is_retryable_llm_error(exc)
 
 
 class TestWaitAndBudget:
