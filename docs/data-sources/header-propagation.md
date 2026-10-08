@@ -27,6 +27,8 @@ Templates can reference:
 - **`{{ env.ENV_VAR }}`** -- an environment variable
 - **Plain strings** -- static values that don't need rendering
 
+For YAML command/script tools, a referenced incoming header is rejected if its value contains shell metacharacters. Headers the template does not read (for example `Accept: */*` or proxy-added headers) do not prevent tool execution.
+
 ## Toolset Examples
 
 ### MCP Servers

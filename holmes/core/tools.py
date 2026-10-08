@@ -17,6 +17,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterator,
     List,
     Optional,
     OrderedDict,
@@ -188,6 +189,31 @@ def reject_shell_metacharacters(value: str, source: str) -> str:
             f"Disallowed: {''.join(sorted(_SHELL_METACHARACTERS))!r}"
         )
     return value
+
+
+class _ShellSafeHeaders(CaseInsensitiveDict):
+    """Check a propagated header when a command template reads its value."""
+
+    def __getitem__(self, key: str) -> Any:
+        """Reject shell metacharacters in a header when its value is read."""
+        value = super().__getitem__(key)
+        if isinstance(value, str):
+            return reject_shell_metacharacters(value, f"request header {key!r}")
+        return value
+
+    def __contains__(self, key: object) -> bool:
+        """Check header presence without reading or validating its value."""
+        # Checking a name's presence does not render its value into the shell.
+        return isinstance(key, str) and key.lower() in self._store
+
+    def lower_items(self) -> Iterator[Tuple[str, Any]]:
+        """Yield lowercase names with values validated on iteration."""
+        # CaseInsensitiveDict's implementation reads its raw internal store.
+        return ((key.lower(), self[key]) for key in self)
+
+    def copy(self) -> "_ShellSafeHeaders":
+        """Copy the headers while retaining validation on subsequent reads."""
+        return _ShellSafeHeaders(self._store.values())
 
 
 class PrerequisiteCacheMode(str, Enum):
@@ -621,12 +647,9 @@ class YAMLTool(Tool, BaseModel):
             ctx_copy = {
                 k: _clean(v, f"request_context.{k}") for k, v in request_context.items()
             }
-            ctx_copy["headers"] = CaseInsensitiveDict(
-                {
-                    k: _clean(v, f"request header {k!r}")
-                    for k, v in (request_context.get("headers") or {}).items()
-                }
-            )
+            # Proxy/client headers such as Accept: */* must not block tools
+            # that do not use them. Referenced values still fail closed.
+            ctx_copy["headers"] = _ShellSafeHeaders(request_context.get("headers") or {})
             context["request_context"] = ctx_copy
         else:
             context["request_context"] = {"headers": CaseInsensitiveDict()}
