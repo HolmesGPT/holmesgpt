@@ -90,7 +90,12 @@ class MidTurnFollowups:
 
     def pending_user_messages(self) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
-        if self._queued:
+        # Only fold queued messages in when tracking is enabled. When it is off
+        # (the serving Holmes doesn't advertise support, or the DB reports no
+        # seq) the completion guard is also off, so feeding them would let a
+        # message that arrives right after slip past an unguarded completion.
+        # They stay in the DB for a supporting turn / the next ordinary follow-up.
+        if self.enabled and self._queued:
             for data in self._queued:
                 out.append(format_mid_turn_user_message(str(data.get("ask"))))
             self._queued = []

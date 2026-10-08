@@ -342,6 +342,22 @@ def test_followups_disabled_without_seq_tracking_or_flag():
     dal.get_conversation_events.assert_not_called()
 
 
+def test_followups_do_not_deliver_queued_messages_when_disabled():
+    """With tracking off the completion guard is off too, so queued mid-turn
+    messages must not be fed — feeding them unguarded would let a later message
+    slip past completion. They stay queued for a supporting turn."""
+    off = MidTurnFollowups(
+        dal=MagicMock(),
+        conversation_id="c1",
+        signal=threading.Event(),
+        consumed_seq=1,
+        queued=[{"ask": "a", "mid_turn": True}],
+        enabled=False,
+    )
+    assert off.pending_user_messages() == []
+    assert off.delivered_count == 0
+
+
 def test_followups_poll_the_db_when_the_wake_never_came():
     """The realtime socket can be down for a whole turn; the step boundary
     then reads the DB on a timer instead, and not before the interval."""
@@ -631,16 +647,20 @@ def test_finish_turn_refused_but_nothing_to_feed_completes_unguarded():
 def test_finish_turn_defers_completion_when_the_followup_read_fails():
     """A PENDING_FOLLOWUP means an unread message exists; if the follow-up read
     then fails, an empty fetch is a failed read, not 'nothing to deliver', so the
-    turn must not force an unguarded completion past the message."""
+    turn must not force an unguarded completion past the message. It returns False
+    (turn left un-finalized) instead of raising — raising would reach the generic
+    handler and mark a turn that did answer as failed with a misleading error."""
     w, _ = _bare_worker()
     w.dal.update_conversation_status.side_effect = PendingFollowupError("x")
-    with pytest.raises(PendingFollowupError):
+    assert (
         _finish(
             w,
             StreamEvents.ANSWER_END,
             _followups(new=[], fetch_failed=True),
             messages=[{"role": "user", "content": "q"}],
         )
+        is False
+    )
     # Only the guarded attempt ran — no unguarded completion was sent.
     assert w.dal.update_conversation_status.call_count == 1
 
