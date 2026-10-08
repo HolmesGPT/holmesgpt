@@ -797,48 +797,79 @@ kubectl get secret <DEX_TLS_SECRET> -n <dex-namespace> -o jsonpath='{.data.ca\.c
 
 cert-manager only writes `ca.crt` when the issuer returns a CA, so if `dex-ca.pem` comes out empty, get the CA certificate from whoever runs the issuer.
 
-Holmes takes the CA base64-encoded in `certificate`, and the MCP server takes it as PEM in `mcpAddons.kubernetes.config.certificateAuthority`, which the chart mounts at `/etc/kubernetes-mcp-ca/ca.crt`. Either way, point the MCP server at that file by adding this line to the `serverConfig` from Step 3:
+Holmes takes the CA base64-encoded in `certificate`; get that value with:
 
-```toml
-certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+```bash
+base64 -i dex-ca.pem | tr -d '\n'
 ```
 
-Then supply the CA in one of two ways. If `ca.crt` is an intermediate CA, use the root CA for Holmes's `certificate`.
+The MCP server takes the CA as PEM (the contents of `dex-ca.pem`) in `certificateAuthority`. The chart mounts it at `/etc/kubernetes-mcp-ca/ca.crt`, and `certificate_authority` in `serverConfig` points the server at that file. If `ca.crt` is an intermediate CA, use the root CA for Holmes's `certificate`.
 
-=== "Paste into values"
+Merge these into your values from Step 3:
 
-    Add to the values from Step 3 (under `holmes:` for the Robusta Helm Chart). Get the base64 value for `certificate` with `base64 -i dex-ca.pem | tr -d '\n'`:
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
+    # Dex CA, base64-encoded, for Holmes's own calls to Dex
     certificate: "<BASE64_DEX_CA>"
 
     mcpAddons:
       kubernetes:
         config:
+          # Dex CA as PEM; mounted at /etc/kubernetes-mcp-ca/ca.crt
           certificateAuthority: |
             -----BEGIN CERTIFICATE-----
-            ...
+            <DEX_CA_PEM_LINES>
             -----END CERTIFICATE-----
+
+          serverConfig: |
+            require_oauth = true
+            accept_opaque_tokens = false
+            cluster_auth_mode = "passthrough"
+            authorization_url = "<DEX_ISSUER_URL>"
+            oauth_audience = "mcp-k8s"
+            certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
     ```
 
-=== "Pass the files"
-
-    Encode the CA for Holmes:
+    Apply the configuration:
 
     ```bash
-    base64 -i dex-ca.pem | tr -d '\n' > dex-ca.b64
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    Then add both files to your `helm upgrade` command from Step 3:
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      # Dex CA, base64-encoded, for Holmes's own calls to Dex
+      certificate: "<BASE64_DEX_CA>"
+
+      mcpAddons:
+        kubernetes:
+          config:
+            # Dex CA as PEM; mounted at /etc/kubernetes-mcp-ca/ca.crt
+            certificateAuthority: |
+              -----BEGIN CERTIFICATE-----
+              <DEX_CA_PEM_LINES>
+              -----END CERTIFICATE-----
+
+            serverConfig: |
+              require_oauth = true
+              accept_opaque_tokens = false
+              cluster_auth_mode = "passthrough"
+              authorization_url = "<DEX_ISSUER_URL>"
+              oauth_audience = "mcp-k8s"
+              certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+    ```
+
+    Apply the configuration:
 
     ```bash
-    # Holmes Helm Chart
-    --set-file certificate=dex-ca.b64 \
-    --set-file mcpAddons.kubernetes.config.certificateAuthority=dex-ca.pem
-
-    # Robusta Helm Chart
-    --set-file holmes.certificate=dex-ca.b64 \
-    --set-file holmes.mcpAddons.kubernetes.config.certificateAuthority=dex-ca.pem
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Common Use Cases
