@@ -401,6 +401,43 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
 
 ---
 
+## Multi-Tenant Prometheus
+
+For multi-tenant Prometheus-compatible backends such as Grafana Mimir, where one URL serves many tenants and the tenant is chosen per request by a header (e.g. `X-Scope-OrgID`), and the tenant to query is the value of a Kubernetes label on the investigated resource, use the dedicated `prometheus/multi-tenant-metrics` toolset instead of `prometheus/metrics`.
+
+```yaml
+toolsets:
+    prometheus/multi-tenant-metrics:
+        enabled: true
+        config:
+            prometheus_url: http://mimir.monitoring.svc.cluster.local/prometheus
+            tenant_label: productline       # Kubernetes label whose value is the tenant
+            tenant_header: X-Scope-OrgID    # default
+            additional_labels:              # optional: matchers the LLM adds to every query
+                k8s_cluster_name: prod-eu-1
+```
+
+**How it works:** every tool in this toolset requires a `tenant` parameter. Before calling any tool, the LLM is instructed to look up the `tenant_label` label (e.g. `productline`) on the Kubernetes resource being investigated using a kubernetes tool, and pass the value as `tenant`. Each call goes to the same `{prometheus_url}api/v1/...` with the header `{tenant_header}: {tenant}`. There is no default tenant: if the resource has no value for the configured label, the tool returns an error instead of guessing.
+
+This toolset replaces `prometheus/metrics` for this use case and exposes tools with the same names. Disable `prometheus/metrics` in the same deployment (it is enabled by default in the Helm chart), or one toolset's tools will replace the other's:
+
+```yaml
+toolsets:
+    prometheus/metrics:
+        enabled: false
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `prometheus_url` | (required) | Base URL of the Prometheus-compatible API, the same for every tenant |
+| `tenant_label` | `productline` | Kubernetes label name used to generate the LLM instructions telling it which label to look up first |
+| `tenant_header` | `X-Scope-OrgID` | HTTP header that carries `tenant` on every request. Overrides a header of the same name in `additional_headers` |
+| `additional_labels` | (none) | Label matchers the LLM is instructed to add to every PromQL query and discovery selector (e.g. `k8s_cluster_name: prod-eu-1`). Enforced through the prompt, not by rewriting queries |
+| `additional_headers` | `{}` | HTTP headers sent with every request (e.g. `Authorization: Bearer <token>`) |
+| `verify_ssl` | `true` | Enable SSL certificate verification |
+
+It also accepts the same `discover_metrics_from_last_hours`, `query_timeout_seconds_default`, `query_timeout_seconds_hard_max`, `metadata_timeout_seconds_default`, `metadata_timeout_seconds_hard_max`, `tool_calls_return_data`, and `query_response_size_limit_pct` options as `prometheus/metrics` (see [Advanced Configuration](#advanced-configuration) below for their meaning).
+
 ## Advanced Configuration
 
 You can further customize the Prometheus toolset with the following options:

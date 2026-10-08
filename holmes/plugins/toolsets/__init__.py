@@ -134,6 +134,12 @@ def load_python_toolsets(
 
         toolsets.append(multi_instance(PrometheusToolset))
 
+        from holmes.plugins.toolsets.prometheus.multi_tenant_prometheus import (
+            MultiTenantPrometheusToolset,
+        )
+
+        toolsets.append(MultiTenantPrometheusToolset())
+
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
 
