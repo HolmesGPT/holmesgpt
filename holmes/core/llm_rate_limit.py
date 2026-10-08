@@ -9,14 +9,25 @@ import email.utils
 import logging
 import threading
 import time
-from typing import Any, Callable, ContextManager, Dict, Mapping, Optional, TypeVar
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    Iterator,
+    Mapping,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import litellm
 from tenacity import (
     RetryCallState,
     Retrying,
     retry_if_exception,
-    stop_before_delay,
     wait_random_exponential,
 )
 
@@ -29,23 +40,47 @@ WAIT_MS_KEY = "llm_rate_limit_wait_ms"
 
 _backoff = wait_random_exponential(multiplier=2, min=2, max=60)
 
-_model_semaphores: Dict[str, threading.BoundedSemaphore] = {}
+# Quota exhaustion also arrives as a 429 RateLimitError but does not clear by
+# waiting. litellm drops the error code from the body, so match the messages:
+# Robusta relay's account limit and OpenAI's insufficient_quota.
+_QUOTA_EXHAUSTED_MARKERS = (
+    "account limit has been reached",
+    "exceeded your current quota",
+    "insufficient_quota",
+)
+
+_model_semaphores: Dict[Tuple[str, int], threading.BoundedSemaphore] = {}
 _model_semaphores_lock = threading.Lock()
 
 
-def is_rate_limit_error(e: BaseException) -> bool:
-    # Bedrock raises a generic Exception with this text instead of RateLimitError.
-    return isinstance(
-        e, litellm.exceptions.RateLimitError
-    ) or "Model is getting throttled" in str(e)
+class LLMRetryCancelled(Exception):
+    """The caller's cancel event fired while backing off."""
 
 
-def is_overloaded_error(e: BaseException) -> bool:
-    return error_status_code(e) == 529
+@dataclass(frozen=True)
+class _RetryScope:
+    max_wait_seconds: Optional[float] = None
+    cancel_event: Optional[threading.Event] = None
 
 
-def is_retryable_llm_error(e: BaseException) -> bool:
-    return is_rate_limit_error(e) or is_overloaded_error(e)
+_retry_scope: ContextVar[_RetryScope] = ContextVar(
+    "llm_rate_limit_retry_scope", default=_RetryScope()
+)
+
+
+@contextlib.contextmanager
+def rate_limit_retry_scope(
+    *,
+    max_wait_seconds: Optional[float] = None,
+    cancel_event: Optional[threading.Event] = None,
+) -> Iterator[None]:
+    """Override the wait budget or make backoff cancellable for LLM calls made
+    inside this block, without threading arguments through ``LLM.completion``."""
+    token = _retry_scope.set(_RetryScope(max_wait_seconds, cancel_event))
+    try:
+        yield
+    finally:
+        _retry_scope.reset(token)
 
 
 def error_status_code(e: BaseException) -> Optional[int]:
@@ -59,6 +94,28 @@ def error_status_code(e: BaseException) -> Optional[int]:
     if isinstance(code, str) and code.isdigit():
         return int(code)
     return None
+
+
+def is_rate_limit_error(e: BaseException) -> bool:
+    # Bedrock raises a generic Exception with this text instead of RateLimitError.
+    return isinstance(
+        e, litellm.exceptions.RateLimitError
+    ) or "Model is getting throttled" in str(e)
+
+
+def is_quota_exhausted_error(e: BaseException) -> bool:
+    msg = str(e).lower()
+    return any(marker in msg for marker in _QUOTA_EXHAUSTED_MARKERS)
+
+
+def is_overloaded_error(e: BaseException) -> bool:
+    return error_status_code(e) == 529
+
+
+def is_retryable_llm_error(e: BaseException) -> bool:
+    if is_quota_exhausted_error(e):
+        return False
+    return is_rate_limit_error(e) or is_overloaded_error(e)
 
 
 def _headers(e: BaseException) -> Mapping[str, str]:
@@ -97,9 +154,33 @@ def retry_after_seconds(e: BaseException) -> Optional[float]:
 
 
 def _wait(retry_state: RetryCallState) -> float:
+    # Retry-After is a floor, not an exact time: a hint of 0 or a few ms must not
+    # turn into a tight loop, and callers given the same hint must not wake together.
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     hinted = retry_after_seconds(exc) if exc else None
-    return hinted if hinted is not None else _backoff(retry_state)
+    return max(hinted or 0.0, _backoff(retry_state))
+
+
+def _stop(max_wait_seconds: float) -> Callable[[RetryCallState], bool]:
+    # Only time spent backing off counts; request time and waiting for a
+    # concurrency slot do not.
+    def stop(retry_state: RetryCallState) -> bool:
+        upcoming = retry_state.upcoming_sleep or 0.0
+        return (
+            max_wait_seconds <= 0 or retry_state.idle_for + upcoming > max_wait_seconds
+        )
+
+    return stop
+
+
+def _sleep(cancel_event: Optional[threading.Event]) -> Callable[[float], None]:
+    def sleep(seconds: float) -> None:
+        if cancel_event is None:
+            time.sleep(seconds)
+        elif cancel_event.wait(seconds):
+            raise LLMRetryCancelled()
+
+    return sleep
 
 
 def _log_retry(model: str) -> Callable[[RetryCallState], None]:
@@ -122,10 +203,10 @@ def _model_slot(model: str) -> ContextManager[Any]:
     if cap <= 0:
         return contextlib.nullcontext()
     with _model_semaphores_lock:
-        semaphore = _model_semaphores.get(model)
+        semaphore = _model_semaphores.get((model, cap))
         if semaphore is None:
             semaphore = threading.BoundedSemaphore(cap)
-            _model_semaphores[model] = semaphore
+            _model_semaphores[(model, cap)] = semaphore
     return semaphore
 
 
@@ -151,13 +232,20 @@ def retry_counts(obj: Any) -> Dict[str, int]:
 def call_with_rate_limit_retry(fn: Callable[[], T], model: str) -> T:
     """Run ``fn``, retrying rate-limit / overloaded errors within the wait budget.
 
-    The per-model concurrency slot is held only while a request is in flight,
-    not while backing off.
+    The per-model concurrency slot is held only while ``fn`` runs, not while
+    backing off. For a streamed call that is until the stream is opened.
     """
+    scope = _retry_scope.get()
+    max_wait = (
+        scope.max_wait_seconds
+        if scope.max_wait_seconds is not None
+        else env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS
+    )
     retrying = Retrying(
         retry=retry_if_exception(is_retryable_llm_error),
         wait=_wait,
-        stop=stop_before_delay(env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS),
+        stop=_stop(max_wait),
+        sleep=_sleep(scope.cancel_event),
         before_sleep=_log_retry(model),
         reraise=True,
     )

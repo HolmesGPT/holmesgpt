@@ -2,10 +2,12 @@ import json
 import os
 from pathlib import Path
 
+import litellm
 import pytest
 from litellm.types.utils import Choices, Message, ModelResponse
 
 from holmes.core.llm import DefaultLLM
+from holmes.core.llm_rate_limit import LLMRetryCancelled
 from holmes.core.truncation.compaction import (
     _count_image_tokens_in_messages,
     _flatten_tool_messages_for_compaction,
@@ -555,3 +557,53 @@ def test_compaction_returns_original_history_when_both_attempts_unusable():
     assert len(llm.calls) == 2
     assert result.summary is None
     assert result.messages_after_compaction == history
+
+
+def test_compaction_skips_fallback_when_rate_limited():
+    """The flattened fallback only works around gateway translation bugs; after
+    the primary call exhausted its rate-limit retries it would wait them out again."""
+    history = _history_with_tool_calls()
+    exc = litellm.RateLimitError(
+        message="slow down", llm_provider="openai", model="gpt-4o"
+    )
+    exc.llm_rate_limit_retries = 5
+    exc.llm_rate_limit_wait_ms = 170000
+    llm = RecordingFakeLLM([exc, _make_response(content="UNUSED")])
+    result = compact_conversation_history(
+        original_conversation_history=history,
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert len(llm.calls) == 1
+    assert result.messages_after_compaction == history
+    assert result.fallback_used is False
+    assert result.usage.llm_rate_limit_retries == 5
+    assert result.usage.llm_rate_limit_wait_ms == 170000
+
+
+def test_compaction_counts_retries_of_a_failed_fallback():
+    history = _history_with_tool_calls()
+    exc = litellm.RateLimitError(
+        message="slow down", llm_provider="openai", model="gpt-4o"
+    )
+    exc.llm_rate_limit_retries = 2
+    llm = RecordingFakeLLM([RuntimeError("400 toolConfig must be defined"), exc])
+    result = compact_conversation_history(
+        original_conversation_history=history,
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert len(llm.calls) == 2
+    assert result.fallback_used is True
+    assert result.usage.llm_rate_limit_retries == 2
+
+
+def test_compaction_propagates_cancellation():
+    llm = RecordingFakeLLM([LLMRetryCancelled(), _make_response(content="UNUSED")])
+    with pytest.raises(LLMRetryCancelled):
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    assert len(llm.calls) == 1

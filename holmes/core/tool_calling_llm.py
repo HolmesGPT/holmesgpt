@@ -26,6 +26,7 @@ from holmes.common.env_vars import (
     load_bool,
 )
 from holmes.core.llm import LLM
+from holmes.core.llm_rate_limit import LLMRetryCancelled, rate_limit_retry_scope
 from holmes.core.llm_usage import RequestStats
 from holmes.core.models import (
     FrontendToolResult,
@@ -1227,14 +1228,17 @@ class ToolCallingLLM:
                 yield compaction_start_event
 
             try:
-                limit_result = compact_if_necessary(
-                    llm=self.llm, messages=messages, tools=tools
-                )
+                with rate_limit_retry_scope(cancel_event=cancel_event):
+                    limit_result = compact_if_necessary(
+                        llm=self.llm, messages=messages, tools=tools
+                    )
             except CompactionInsufficientError as e:
                 yield from e.events
                 if e.compaction_usage and e.compaction_usage.total_tokens > 0:
                     stats += e.compaction_usage
                 raise
+            except LLMRetryCancelled as e:
+                raise LLMInterruptedError() from e
 
             yield from limit_result.events
             messages = limit_result.messages
@@ -1274,15 +1278,16 @@ class ToolCallingLLM:
             with trace_span.start_span(name="gen_ai.chat") as llm_span:
               try:
                 _llm_call_start = time.time()
-                full_response = self.llm.completion(
-                    messages=parse_messages_tags(messages),  # type: ignore
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    response_format=response_format,
-                    temperature=TEMPERATURE,
-                    stream=False,
-                    drop_params=True,
-                )
+                with rate_limit_retry_scope(cancel_event=cancel_event):
+                    full_response = self.llm.completion(
+                        messages=parse_messages_tags(messages),  # type: ignore
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        response_format=response_format,
+                        temperature=TEMPERATURE,
+                        stream=False,
+                        drop_params=True,
+                    )
 
                 # Accumulate cost information for this iteration
                 response_stats = RequestStats.from_response(full_response)
@@ -1347,6 +1352,8 @@ class ToolCallingLLM:
               # recognised by status before anything keyed on the class runs;
               # the Azure case below is a 400, so it can never be taken first.
               except Exception as e:
+                if cancel_event and cancel_event.is_set():
+                    raise LLMInterruptedError() from e
                 if _is_robusta_refusal(self.llm, e):
                     # _is_robusta_refusal already established the status is one
                     # of REFUSAL_STATUS_CODES.

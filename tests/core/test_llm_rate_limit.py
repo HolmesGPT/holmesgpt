@@ -14,7 +14,10 @@ from holmes.common import env_vars
 from holmes.core import llm_rate_limit
 from holmes.core.llm import DefaultLLM
 from holmes.core.llm_rate_limit import (
+    LLMRetryCancelled,
     call_with_rate_limit_retry,
+    is_quota_exhausted_error,
+    rate_limit_retry_scope,
     error_status_code,
     is_overloaded_error,
     is_rate_limit_error,
@@ -25,9 +28,9 @@ from holmes.core.llm_rate_limit import (
 from holmes.core.llm_usage import RequestStats
 
 
-def rate_limit(headers=None) -> litellm.RateLimitError:
+def rate_limit(headers=None, message="Rate limit reached") -> litellm.RateLimitError:
     return litellm.RateLimitError(
-        message="Rate limit reached",
+        message=message,
         llm_provider="openai",
         model="gpt-4.1",
         response=httpx.Response(429, headers=headers or {}),
@@ -397,7 +400,7 @@ class TestDefaultLLMCompletion:
         response = model_response()
         with patch(
             "holmes.core.llm.litellm.completion",
-            side_effect=[rate_limit({"Retry-After": "1"}), response],
+            side_effect=[rate_limit({"Retry-After": "3"}), response],
         ) as completion:
             result = _make_llm().completion(
                 messages=[{"role": "user", "content": "hi"}]
@@ -405,10 +408,10 @@ class TestDefaultLLMCompletion:
 
         assert result is response
         assert completion.call_count == 2
-        assert clock.sleeps == [1]
+        assert clock.sleeps == [3]
         stats = RequestStats.from_response(result)
         assert stats.llm_rate_limit_retries == 1
-        assert stats.llm_rate_limit_wait_ms == 1000
+        assert stats.llm_rate_limit_wait_ms == 3000
 
     def test_error_opening_a_stream_is_retried(self, clock, budget, cap):
         stream = MagicMock(spec=CustomStreamWrapper)
@@ -474,3 +477,109 @@ class TestRequestStatsRetryCounters:
         assert total.llm_rate_limit_retries == 3
         assert total.llm_rate_limit_wait_ms == 500
         assert total.total_tokens == 10
+
+
+class TestQuotaExhaustion:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Robusta relay, relay/pkg/common/relay_error_codes.py
+            "Your Robusta AI account limit has been reached. Contact support@robusta.dev to increase limits.",
+            # OpenAI insufficient_quota
+            "You exceeded your current quota, please check your plan and billing details.",
+        ],
+    )
+    def test_quota_exhaustion_is_not_retried(self, clock, budget, cap, message):
+        exc = rate_limit({"Retry-After": "1"}, message=message)
+        assert is_rate_limit_error(exc)
+        assert is_quota_exhausted_error(exc)
+        assert not is_retryable_llm_error(exc)
+
+        fn = scripted(exc, "ok")
+        with pytest.raises(litellm.RateLimitError):
+            call_with_rate_limit_retry(fn, model="m")
+        assert len(fn.calls) == 1
+        assert clock.sleeps == []
+
+    def test_ordinary_rate_limit_is_not_quota(self):
+        assert not is_quota_exhausted_error(rate_limit())
+
+
+class TestWaitAndBudget:
+    def test_zero_retry_after_still_backs_off(self, clock, budget, cap):
+        fn = scripted(
+            rate_limit({"Retry-After": "0"}), rate_limit({"retry-after-ms": "20"}), "ok"
+        )
+        assert call_with_rate_limit_retry(fn, model="m") == "ok"
+        assert all(slept >= 2 for slept in clock.sleeps)
+
+    def test_retry_after_is_a_floor(self, clock, budget, cap):
+        fn = scripted(rate_limit({"Retry-After": "7"}), "ok")
+        call_with_rate_limit_retry(fn, model="m")
+        assert clock.sleeps == [7]
+
+    def test_request_time_does_not_count_towards_budget(self, clock, budget, cap):
+        budget(10)
+        outcomes = [
+            rate_limit({"Retry-After": "4"}),
+            rate_limit({"Retry-After": "4"}),
+            "ok",
+        ]
+
+        def slow_call():
+            clock.now += 100  # each request takes 100s
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        assert call_with_rate_limit_retry(slow_call, model="m") == "ok"
+        assert clock.sleeps == [4, 4]
+
+
+class TestRetryScope:
+    def test_scope_overrides_budget_and_resets(self, clock, budget, cap):
+        with rate_limit_retry_scope(max_wait_seconds=0):
+            fn = scripted(rate_limit({"Retry-After": "1"}), "ok")
+            with pytest.raises(litellm.RateLimitError):
+                call_with_rate_limit_retry(fn, model="m")
+            assert len(fn.calls) == 1
+
+        fn = scripted(rate_limit({"Retry-After": "1"}), "ok")
+        assert call_with_rate_limit_retry(fn, model="m") == "ok"
+
+    def test_cancel_event_interrupts_backoff(self, budget, cap):
+        cancel = threading.Event()
+        fn = scripted(rate_limit({"Retry-After": "30"}), "ok")
+        threading.Timer(0.1, cancel.set).start()
+
+        started = time.monotonic()
+        with rate_limit_retry_scope(cancel_event=cancel):
+            with pytest.raises(LLMRetryCancelled):
+                call_with_rate_limit_retry(fn, model="m")
+
+        assert time.monotonic() - started < 5
+        assert len(fn.calls) == 1
+
+    def test_unset_cancel_event_lets_retries_run(self, clock, budget, cap):
+        with rate_limit_retry_scope(cancel_event=threading.Event()):
+            fn = scripted(rate_limit(), "ok")
+            assert call_with_rate_limit_retry(fn, model="m") == "ok"
+
+
+def test_changing_the_cap_takes_effect(budget, cap):
+    cap(1)
+    call_with_rate_limit_retry(lambda: "ok", model="m")
+    cap(2)
+    barrier = threading.Barrier(2, timeout=5)
+    threads = [
+        threading.Thread(
+            target=lambda: call_with_rate_limit_retry(barrier.wait, model="m")
+        )
+        for _ in range(2)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert not barrier.broken

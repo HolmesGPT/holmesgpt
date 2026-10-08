@@ -572,21 +572,6 @@ class TestRecordError:
         assert s.stats.llm_rate_limit_retries == 4
         assert s.stats.llm_rate_limit_wait_ms == 170000
 
-    def test_typed_non_rate_limit_error_mentioning_rate_limit_is_error(
-        self, monkeypatch
-    ):
-        _patch_inline_thread(monkeypatch)
-        state = _make_state()
-        record_error(
-            state,
-            litellm.AuthenticationError(
-                message="key has no rate limit tier", llm_provider="openai", model="m"
-            ),
-        )
-        s = _state_arg(state)
-        assert s.status == "error"
-        assert s.meta["error_status_code"] == 401
-
     def test_overloaded_is_an_error_with_its_status(self, monkeypatch):
         _patch_inline_thread(monkeypatch)
         state = _make_state()

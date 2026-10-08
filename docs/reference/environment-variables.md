@@ -61,11 +61,18 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 ### LLM_RATE_LIMIT_MAX_WAIT_SECONDS
 **Default:** `180`
 
-Total time a single LLM call may spend waiting out provider rate-limit errors (HTTP 429, Bedrock throttling) and Anthropic overloaded errors (HTTP 529) before the error is returned. HolmesGPT waits for the provider's `Retry-After` header when present, otherwise backs off exponentially with jitter from 2 to 60 seconds. Only the failing LLM call is retried, so tool calls already made during an investigation are kept. A retry never starts if its wait would exceed the budget. Set to `0` to disable these retries.
+Maximum time a single LLM call may spend backing off from provider rate-limit errors (HTTP 429, Bedrock throttling) and Anthropic overloaded errors (HTTP 529) before the error is returned. HolmesGPT waits at least as long as the provider's `Retry-After` header asks, and otherwise backs off exponentially with jitter from 2 to 60 seconds. A retry never starts if its wait would go over the budget. Only the failing LLM call is retried, so tool calls already made during an investigation are kept. Set to `0` to disable these retries.
 
-When the budget runs out, `/api/chat` returns HTTP 429 (or a streamed error with code `5204`), as before.
+Not retried:
 
-Some providers' SDKs (OpenAI, Azure) also retry rate limits briefly on their own; that happens inside each attempt and counts towards the budget.
+- Quota exhaustion (a Robusta AI account limit, OpenAI `insufficient_quota`), since waiting does not clear it.
+- Tool-output summarization by the fast model, which falls back to the unsummarized output instead.
+
+Cancelling a chat stops the backoff.
+
+When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded errors as HTTP 500.
+
+Some providers' SDKs (OpenAI, Azure) also retry a rate limit once or twice within each attempt. That time does not count towards the budget.
 
 **Example:**
 ```bash
@@ -75,7 +82,7 @@ export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=300
 ### LLM_MAX_CONCURRENT_CALLS_PER_MODEL
 **Default:** `0` (no limit)
 
-Maximum number of LLM calls in flight at once per model in one HolmesGPT process. Extra calls wait for a free slot. A call backing off from a rate limit does not hold a slot. Use this to keep many concurrent investigations from bursting one model deployment past its rate limit.
+Maximum number of LLM calls in flight at once per model in one HolmesGPT process. Extra calls wait for a free slot. A call backing off from a rate limit does not hold a slot, and a streamed call holds one only until its stream is opened. Use this to keep many concurrent investigations from bursting one model deployment past its rate limit.
 
 **Example:**
 ```bash

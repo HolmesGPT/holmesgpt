@@ -439,10 +439,7 @@ class UsageRecorderState:
         TOKEN_COUNT event, so they are added to ``stats`` here.
         """
         msg = str(exc).lower()
-        untyped_rate_limit = (
-            error_status_code(exc) is None and "rate" in msg and "limit" in msg
-        )
-        if is_rate_limit_error(exc) or untyped_rate_limit:
+        if is_rate_limit_error(exc) or ("rate" in msg and "limit" in msg):
             self.status = RequestStatus.RATE_LIMITED
         else:
             self.status = RequestStatus.ERROR

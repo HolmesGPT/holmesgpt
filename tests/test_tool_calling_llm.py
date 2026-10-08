@@ -15,14 +15,16 @@ Mocking strategy:
 
 import json
 import threading
+import time
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
+import httpx
 import litellm
 import pytest
 
 from holmes.core.llm import LLM, ContextWindowUsage
-from holmes.core.llm_rate_limit import call_with_rate_limit_retry
+from holmes.core.llm_rate_limit import LLMRetryCancelled, call_with_rate_limit_retry
 from holmes.core.models import PendingToolApproval, ToolApprovalDecision, ToolCallResult
 from holmes.core.llm_usage import RequestStats
 from holmes.core.tool_calling_llm import LLMInterruptedError, ToolCallingLLM
@@ -1843,3 +1845,41 @@ class TestRateLimitRetryInLoop:
 
         assert len(_events_of_type(events, StreamEvents.TOOL_RESULT)) == 1
         assert not _events_of_type(events, StreamEvents.ANSWER_END)
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_cancel_during_backoff_interrupts(self, _mock_limit, make_ai, mock_llm):
+        cancel = threading.Event()
+
+        def provider_call():
+            threading.Timer(0.1, cancel.set).start()
+            raise litellm.RateLimitError(
+                message="slow down",
+                llm_provider="openai",
+                model="gpt-4o",
+                response=httpx.Response(429, headers={"Retry-After": "30"}),
+            )
+
+        mock_llm.completion.side_effect = lambda **_kw: call_with_rate_limit_retry(
+            provider_call, model="gpt-4o"
+        )
+        ai = make_ai()
+
+        started = time.monotonic()
+        with pytest.raises(LLMInterruptedError):
+            list(
+                ai.call_stream(
+                    msgs=[{"role": "user", "content": "pods?"}], cancel_event=cancel
+                )
+            )
+        assert time.monotonic() - started < 5
+
+    def test_cancel_during_compaction_backoff_interrupts(self, make_ai, mock_llm):
+        with patch(LIMIT_PATCH, side_effect=LLMRetryCancelled()):
+            with pytest.raises(LLMInterruptedError):
+                list(
+                    make_ai().call_stream(
+                        msgs=[{"role": "user", "content": "pods?"}],
+                        cancel_event=threading.Event(),
+                    )
+                )
+        mock_llm.completion.assert_not_called()

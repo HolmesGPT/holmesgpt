@@ -12,6 +12,11 @@ from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
 from holmes.core.llm import LLM
+from holmes.core.llm_rate_limit import (
+    LLMRetryCancelled,
+    is_retryable_llm_error,
+    retry_counts,
+)
 from holmes.core.llm_usage import RequestStats
 from holmes.plugins.prompts import load_and_render_prompt
 
@@ -256,6 +261,7 @@ def compact_conversation_history(
 
     response_message = None
     fallback_reason: Optional[str] = None
+    rate_limited = False
     try:
         if tools:
             response: Optional[ModelResponse] = llm.completion(
@@ -276,10 +282,16 @@ def compact_conversation_history(
             fallback_reason = "model responded with a tool call instead of a summary"
         elif not _extract_text_content(response_message).strip():
             fallback_reason = "summarization response contains no text"
+    except LLMRetryCancelled:
+        raise
     except Exception as e:
+        compaction_usage += RequestStats(**retry_counts(e))
         fallback_reason = f"summarization request failed: {e}"
+        # The fallback works around gateways that mistranslate tool messages;
+        # it would hit the same rate limit and wait out the budget again.
+        rate_limited = is_retryable_llm_error(e)
 
-    if fallback_reason:
+    if fallback_reason and not rate_limited:
         # Compatibility fallback: some gateways mis-translate tool blocks / tools
         # (ROB-424 was reported on Kong AI Gateway and vanilla LiteLLM proxies).
         # Flattening tool messages to text and sending no tools is accepted by
@@ -296,7 +308,10 @@ def compact_conversation_history(
             )  # type: ignore
             compaction_usage += RequestStats.from_response(response)
             response_message = _get_response_message(response)
+        except LLMRetryCancelled:
+            raise
         except Exception as e:
+            compaction_usage += RequestStats(**retry_counts(e))
             # Both attempts failed — degrade gracefully via the empty-summary
             # path below (original history returned unchanged) instead of
             # aborting the whole turn.
@@ -313,7 +328,7 @@ def compact_conversation_history(
         return CompactionResult(
             messages_after_compaction=original_conversation_history,
             usage=compaction_usage,
-            fallback_used=bool(fallback_reason),
+            fallback_used=bool(fallback_reason) and not rate_limited,
             fallback_reason=fallback_reason,
         )
 

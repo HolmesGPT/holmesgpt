@@ -165,8 +165,8 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
 
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 
-# Total time one LLM call may spend waiting out rate-limit / overloaded errors
-# before the error is raised. 0 disables these retries.
+# Max time one LLM call may spend backing off from rate-limit / overloaded
+# errors before the error is raised. 0 disables these retries.
 LLM_RATE_LIMIT_MAX_WAIT_SECONDS = float(
     os.environ.get("LLM_RATE_LIMIT_MAX_WAIT_SECONDS", "180")
 )
