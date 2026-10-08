@@ -390,14 +390,14 @@ class ConversationProcessor:
             if request_ai is None:
                 return
 
-            with setup.track():
-                global_instructions = self.dal.get_global_instructions_for_account()
             if resume_only and chat_request.conversation_history:
                 # Pure tool-decision / frontend-tool-result resume. Don't append
                 # a new user message — call_stream consumes the existing history
                 # plus tool_decisions to produce the next turn.
                 messages = list(chat_request.conversation_history)
             else:
+                with setup.track():
+                    global_instructions = self.dal.get_global_instructions_for_account()
                 messages = build_chat_messages(
                     chat_request.ask,
                     chat_request.conversation_history,

@@ -93,11 +93,11 @@ class SingleFlightTTLCache:
                 self._inflight[key] = future
             generation = self._generation
 
+        # Waiting on another thread's load costs the same latency as loading, so it is a miss.
+        record_cache_lookup(hit=False)
         if not leader:
-            record_cache_lookup(hit=True)
             return future.result()
 
-        record_cache_lookup(hit=False)
         try:
             value = loader()
         except BaseException as e:

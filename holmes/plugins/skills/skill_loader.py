@@ -19,7 +19,7 @@ import yaml
 from pydantic import BaseModel
 
 from holmes.plugins.skills import RobustaSkillInstruction
-from holmes.utils.single_flight_cache import SingleFlightTTLCache
+from holmes.utils.single_flight_cache import record_cache_lookup
 
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
@@ -426,9 +426,9 @@ def load_filesystem_skills_by_name(
     return skills_by_name
 
 
-# The key embeds a stat fingerprint of every SKILL.md, so stale entries are never hit; the
-# TTL and size only bound how long superseded entries stay in memory.
-_filesystem_skills_cache = SingleFlightTTLCache(maxsize=4, ttl=60 * 60)
+# Parsed filesystem skills per custom_skill_paths, stored with the stat fingerprint they
+# were parsed under. One entry per distinct path list, which comes from config.
+_filesystem_skills_cache: Dict[Tuple[str, ...], Tuple[Tuple, Dict[str, Skill]]] = {}
 
 
 def _stat_entry(path: Path) -> Tuple:
@@ -442,16 +442,16 @@ def _stat_entry(path: Path) -> Tuple:
 def _skill_files_fingerprint(custom_skill_paths: Sequence[str]) -> Tuple:
     """Everything load_filesystem_skills_by_name's result depends on, from stat calls only.
 
-    Resolved paths are included because a git sync or ConfigMap remount flips a symlink to a
-    new tree whose files can carry identical mtimes and sizes.
+    Builtin skills ship with the package, so only their location is part of it. Resolved
+    paths are included because a git sync or ConfigMap remount flips a symlink to a new tree
+    whose files can carry identical mtimes and sizes.
     """
-    entries: List[Tuple] = []
+    entries: List[Tuple] = [("builtin", BUILTIN_SKILLS_DIR)]
 
     def on_walk_error(error: OSError) -> None:
         entries.append(("walk-error", error.filename, error.errno))
 
-    roots = [BUILTIN_SKILLS_DIR, *custom_skill_paths]
-    for raw in roots:
+    for raw in custom_skill_paths:
         path = Path(raw)
         if path.is_dir():
             directory = path.resolve()
@@ -473,10 +473,22 @@ def _load_filesystem_skills_cached(
     Returns a fresh dict on every call: load_skill_catalog adds remote skills to it.
     """
     paths = tuple(str(p) for p in custom_skill_paths or ())
-    key = (paths, _skill_files_fingerprint(paths))
-    skills = _filesystem_skills_cache.get_or_load(
-        key, lambda: load_filesystem_skills_by_name(paths)
-    )
+    fingerprint = _skill_files_fingerprint(paths)
+    cached = _filesystem_skills_cache.get(paths)
+    if cached is not None and cached[0] == fingerprint:
+        record_cache_lookup(hit=True)
+        return dict(cached[1])
+
+    record_cache_lookup(hit=False)
+    problems: List[SkillLoadProblem] = []
+    skills = load_filesystem_skills_by_name(paths, problems)
+    # A missing path is a stable state the fingerprint records, but a read failure or a file
+    # changing mid-parse is not: caching those would keep the incomplete parse until the
+    # files change again.
+    missing = sum(1 for entry in fingerprint if entry[0] == "missing")
+    unreadable = sum(1 for p in problems if p.skill_name is None)
+    if unreadable == missing and _skill_files_fingerprint(paths) == fingerprint:
+        _filesystem_skills_cache[paths] = (fingerprint, skills)
     return dict(skills)
 
 

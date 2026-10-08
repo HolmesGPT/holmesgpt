@@ -61,7 +61,14 @@ def _chat_request():
     )
 
 
-def _run(worker, ai, task=None, chat_request=None, consume_side_effect=None):
+def _run(
+    worker,
+    ai,
+    task=None,
+    chat_request=None,
+    consume_side_effect=None,
+    resume_only=False,
+):
     """Drive _run_chat_and_publish with all heavy collaborators mocked.
 
     Returns the captured (raw_stream, recorder_state, wrapped_stream) so
@@ -115,6 +122,7 @@ def _run(worker, ai, task=None, chat_request=None, consume_side_effect=None):
             task=task or _task(),
             chat_request=chat_request or _chat_request(),
             publisher=publisher,
+            resume_only=resume_only,
         )
         captured["call_stream_call"] = ai.call_stream.call_args
 
@@ -645,3 +653,15 @@ def test_setup_metrics_are_written_to_recorder_meta():
     assert meta["setup_cache_hits"] == 1
     assert meta["setup_cache_misses"] == 1
     assert isinstance(meta["setup_ms"], int) and meta["setup_ms"] >= 0
+
+
+def test_resume_turn_does_not_read_global_instructions():
+    worker, ai = _bare_worker()
+    chat_request = _chat_request()
+    chat_request.conversation_history = [{"role": "user", "content": "restart it"}]
+
+    captured = _run(worker, ai, chat_request=chat_request, resume_only=True)
+
+    sent = captured["call_stream_call"].kwargs["msgs"]
+    assert sent == chat_request.conversation_history
+    worker.dal.get_global_instructions_for_account.assert_not_called()

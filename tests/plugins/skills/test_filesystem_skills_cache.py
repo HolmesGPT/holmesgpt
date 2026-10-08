@@ -240,3 +240,57 @@ def test_cache_lookups_are_counted_in_setup_metrics(tmp_path):
         load_skill_catalog(custom_skill_paths=[str(tmp_path)])
         load_skill_catalog(custom_skill_paths=[str(tmp_path)])
     assert (setup.stats.hits, setup.stats.misses) == (1, 1)
+
+
+def test_missing_skill_path_does_not_disable_caching(tmp_path, parse_spy):
+    """A configured path that does not exist yet (e.g. a git repo before its first clone)
+    must not force a re-parse of every other path on every turn."""
+    _write_skill(tmp_path / "skills" / "alpha", "alpha")
+    paths = [str(tmp_path / "skills"), str(tmp_path / "not-cloned-yet")]
+    load_skill_catalog(custom_skill_paths=paths)
+    load_skill_catalog(custom_skill_paths=paths)
+    assert parse_spy.call_count == 1
+
+
+def test_file_changed_during_parse_is_not_cached(tmp_path):
+    path = _write_skill(tmp_path / "alpha", "alpha", content="v1")
+    real_parse = skill_loader.parse_skill_file
+
+    def parse_then_edit(*args, **kwargs):
+        skill = real_parse(*args, **kwargs)
+        path.write_text(SKILL_BODY.format(description="Skill alpha", content="v2!"))
+        return skill
+
+    with patch.object(skill_loader, "parse_skill_file", side_effect=parse_then_edit):
+        first = load_skill_catalog(custom_skill_paths=[str(tmp_path)])
+    second = load_skill_catalog(custom_skill_paths=[str(tmp_path)])
+
+    assert _by_name(first, "alpha").content == "v1"
+    assert _by_name(second, "alpha").content == "v2!"
+
+
+def test_read_failure_during_parse_is_not_cached(tmp_path, parse_spy):
+    """A directory that is readable when fingerprinted but fails while loading must not
+    leave the skills it hides missing until something else changes."""
+    _write_skill(tmp_path / "alpha", "alpha")
+    real_scan = skill_loader.scan_skill_directory
+
+    def failing_scan(directory, source, problems=None, **kwargs):
+        if problems is not None and source == skill_loader.SkillSource.USER:
+            problems.append(skill_loader.SkillLoadProblem(error="EACCES"))
+            return []
+        return real_scan(directory, source=source, problems=problems, **kwargs)
+
+    with patch.object(skill_loader, "scan_skill_directory", side_effect=failing_scan):
+        assert load_skill_catalog(custom_skill_paths=[str(tmp_path)]) is None
+    assert _names(load_skill_catalog(custom_skill_paths=[str(tmp_path)])) == ["alpha"]
+
+
+def test_builtin_skills_are_not_walked_per_turn(tmp_path):
+    _write_skill(tmp_path / "alpha", "alpha")
+    with patch.object(
+        skill_loader, "_walk_skill_files", wraps=skill_loader._walk_skill_files
+    ) as walk:
+        skill_loader._skill_files_fingerprint([str(tmp_path)])
+    walked = [Path(c.args[0]) for c in walk.call_args_list]
+    assert walked == [tmp_path.resolve()]

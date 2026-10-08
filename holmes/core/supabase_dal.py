@@ -331,7 +331,7 @@ class SupabaseDal:
         # Read on every chat request but per-account and rarely changed, so cache it briefly
         # instead of adding an AccountSettings round trip per turn.
         hierarchy_ttl = _ttl_from_env("SKILL_HIERARCHY_CACHE_TTL_SEC", allow_zero=False)
-        self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
+        self.skill_hierarchy_cache = SingleFlightTTLCache(maxsize=1, ttl=hierarchy_ttl)
         # Global instructions and global/personal skills are read before every turn's first
         # LLM call. Single-flight so concurrent turns share one query when an entry expires.
         skills_ttl = _ttl_from_env("SKILLS_CACHE_TTL_SEC", allow_zero=True)
@@ -954,14 +954,14 @@ class SupabaseDal:
         Defaults to disabled, which preserves today's behaviour (no cross-tier dedup).
         Any read failure also falls back to the default rather than changing behaviour.
         """
-        default = SkillHierarchyConfig()
         if not self.enabled:
-            return default
+            return SkillHierarchyConfig()
+        return self.skill_hierarchy_cache.get_or_load(
+            "config", self._fetch_skill_hierarchy_config
+        )
 
-        cached = self.skill_hierarchy_cache.get("config")
-        if cached is not None:
-            return cached
-
+    def _fetch_skill_hierarchy_config(self) -> SkillHierarchyConfig:
+        default = SkillHierarchyConfig()
         try:
             res = (
                 self.client.table(ACCOUNT_SETTINGS_TABLE)
@@ -970,7 +970,6 @@ class SupabaseDal:
                 .execute()
             )
             if not res.data:
-                self.skill_hierarchy_cache["config"] = default
                 return default
 
             settings = res.data[0].get("settings") or {}
@@ -993,17 +992,14 @@ class SupabaseDal:
                     f"Ignoring malformed skill_name_hierarchy_order: {order!r}"
                 )
                 order = DEFAULT_HIERARCHY_ORDER
-            config = SkillHierarchyConfig(enabled=enabled, order=order)
-            self.skill_hierarchy_cache["config"] = config
-            return config
+            return SkillHierarchyConfig(enabled=enabled, order=order)
         except Exception:
             logging.exception(
                 "Failed to fetch skill hierarchy config; falling back to disabled",
                 exc_info=True,
             )
-            # Cache the fallback too, so a persistent read failure does not retry Supabase
-            # on every single chat request.
-            self.skill_hierarchy_cache["config"] = default
+            # Returned rather than raised so the fallback is cached too, and a persistent
+            # read failure does not retry Supabase on every single chat request.
             return default
 
     def get_resource_instructions(

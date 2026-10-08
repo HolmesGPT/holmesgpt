@@ -255,3 +255,40 @@ def test_invalidate_on_disabled_dal_is_a_noop():
     assert dal.get_skill_catalog() is None
     assert dal.get_personal_skill_catalog("user-1") is None
     assert dal.get_global_instructions_for_account() is None
+
+
+def test_skill_hierarchy_cold_cache_makes_one_query_across_threads(dal):
+    execute = _stub(
+        dal, data=[{"settings": {"skill_name_hierarchy_enabled": True}}], delay=0.2
+    )
+    barrier = threading.Barrier(20)
+    results = []
+
+    def worker():
+        barrier.wait()
+        results.append(dal.get_skill_hierarchy_config())
+
+    threads = [threading.Thread(target=worker) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert [r.enabled for r in results] == [True] * 20
+    assert execute.call_count == 1
+
+
+def test_skill_hierarchy_failure_falls_back_and_is_cached(dal):
+    """Unlike the skill reads, a failed hierarchy read keeps its pre-existing behaviour:
+    the disabled default is cached so an outage is not re-queried every turn."""
+    execute = _stub(dal, error=RuntimeError("supabase down"))
+    assert dal.get_skill_hierarchy_config().enabled is False
+    assert dal.get_skill_hierarchy_config().enabled is False
+    assert execute.call_count == 1
+
+
+def test_invalidate_clears_skill_hierarchy(dal):
+    execute = _stub(dal, data=[{"settings": {}}])
+    dal.get_skill_hierarchy_config()
+    dal.invalidate_setup_caches()
+    dal.get_skill_hierarchy_config()
+    assert execute.call_count == 2

@@ -736,3 +736,35 @@ def test_api_chat_stream_records_setup_metrics(
     meta = mock_wrap.call_args.args[1].meta
     assert (meta["setup_cache_hits"], meta["setup_cache_misses"]) == (1, 1)
     assert "setup_ms" in meta
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_resume_does_not_read_global_instructions(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """A tool-decision resume reuses conversation_history, so the instructions are unused."""
+    mock_ai = MagicMock()
+    mock_ai.llm.is_robusta_model = False
+    mock_ai.call_stream.return_value = iter([])
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "ask": "",
+            "stream": True,
+            "conversation_history": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "restart the pod"},
+            ],
+            "tool_decisions": [{"tool_call_id": "t1", "approved": True}],
+        },
+    )
+
+    assert response.status_code == 200
+    sent = mock_ai.call_stream.call_args.kwargs["msgs"]
+    assert sent[-1]["content"] == "restart the pod"
+    mock_get_global_instructions.assert_not_called()

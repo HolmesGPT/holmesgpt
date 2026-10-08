@@ -249,3 +249,25 @@ def test_setup_trackers_on_different_threads_do_not_mix():
 
 def test_record_cache_lookup_without_tracker_is_a_noop():
     record_cache_lookup(hit=True)
+
+
+def test_threads_waiting_on_a_load_count_as_misses():
+    """They pay the full load latency, so counting them as hits would hide expiry spikes."""
+    cache = SingleFlightTTLCache(maxsize=4, ttl=60)
+    loader = CountingLoader(delay=0.2)
+    trackers = [SetupTracker() for _ in range(10)]
+    barrier = threading.Barrier(10)
+
+    def run(tracker):
+        with tracker.track():
+            barrier.wait()
+            cache.get_or_load("k", loader)
+
+    threads = [threading.Thread(target=run, args=(t,)) for t in trackers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert loader.calls == 1
+    assert sum(t.stats.misses for t in trackers) == 10
+    assert sum(t.stats.hits for t in trackers) == 0
