@@ -10,9 +10,11 @@ metadata:
   labels:
     app: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+  {{- with list (include "holmes.commonAnnotations" .) (include "holmes.kubernetesRemediationMcp.deploymentAuthAnnotations" .) | compact }}
   annotations:
+    {{- range . }}
     {{- . | nindent 4 }}
+    {{- end }}
   {{- end }}
 spec:
   {{- if (not .Values.autoscaling.enabled) }}
@@ -46,11 +48,8 @@ spec:
         # alone does not refresh.
         checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
         {{- end }}
-        {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
-        robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
-        {{- with .Values.mcpAddons.kubernetesRemediation.auth.existingSecret }}
-        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.existingSecretChecksum" $ }}
-        {{- end }}
+        {{- with (include "holmes.kubernetesRemediationMcp.podAuthAnnotations" .) }}
+        {{- . | nindent 8 }}
         {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}

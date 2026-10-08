@@ -48,9 +48,11 @@ metadata:
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+  {{- with list (include "holmes.commonAnnotations" .) (include "holmes.kubernetesRemediationMcp.deploymentAuthAnnotations" .) | compact }}
   annotations:
+    {{- range . }}
     {{- . | nindent 4 }}
+    {{- end }}
   {{- end }}
 spec:
   replicas: 1
@@ -73,11 +75,8 @@ spec:
         {{- . | nindent 8 }}
         {{- end }}
         checksum/config: {{ .Values.mcpAddons.kubernetesRemediation | toYaml | sha256sum }}
-        {{- if .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
-        robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
-        {{- with .Values.mcpAddons.kubernetesRemediation.auth.existingSecret }}
-        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.existingSecretChecksum" $ }}
-        {{- end }}
+        {{- with (include "holmes.kubernetesRemediationMcp.podAuthAnnotations" .) }}
+        {{- . | nindent 8 }}
         {{- end }}
     spec:
       {{- if .Values.mcpAddons.kubernetesRemediation.serviceAccount.create }}

@@ -13,21 +13,39 @@ Job, never rendered, so `helm template`/ArgoCD output is deterministic.
 {{- end -}}
 
 {{/*
-auth.rotation, rendered into both pod templates so that bumping it rolls the
-pods. The auth-bootstrap hook replaces the generated token when it changes.
+auth.rotation, as annotations for the Holmes and server Deployments. With the
+generated token it goes on the Deployment itself: the change makes Helm/ArgoCD
+run the auth-bootstrap hook, which replaces the token and restarts both pods,
+so it must not roll them a second time. With existingSecret there is no hook,
+so it goes on the pod template (next to the Secret's checksum) to roll them.
 */}}
 {{- define "holmes.kubernetesRemediationMcp.authRotation" -}}
 {{- .Values.mcpAddons.kubernetesRemediation.auth.rotation | default 0 | toString -}}
 {{- end -}}
 
+{{- define "holmes.kubernetesRemediationMcp.deploymentAuthAnnotations" -}}
+{{- $k8s := .Values.mcpAddons.kubernetesRemediation -}}
+{{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) -}}
+robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Checksum of auth.existingSecret's token, so a plain `helm upgrade` after the
-user rotates it rolls both pods. lookup is empty under `helm template`/ArgoCD,
+user changes it rolls both pods. lookup is empty under `helm template`/ArgoCD,
 where the value is a constant; bump auth.rotation there instead.
 */}}
 {{- define "holmes.kubernetesRemediationMcp.existingSecretChecksum" -}}
 {{- $secret := lookup "v1" "Secret" .Release.Namespace .Values.mcpAddons.kubernetesRemediation.auth.existingSecret | default dict -}}
 {{- dig "data" "token" "" $secret | sha256sum -}}
+{{- end -}}
+
+{{- define "holmes.kubernetesRemediationMcp.podAuthAnnotations" -}}
+{{- $k8s := .Values.mcpAddons.kubernetesRemediation -}}
+{{- if and $k8s.enabled $k8s.auth.enabled $k8s.auth.existingSecret -}}
+robusta.dev/k8s-remediation-token-rotation: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
+checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.existingSecretChecksum" . }}
+{{- end -}}
 {{- end -}}
 
 {{/*

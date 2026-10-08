@@ -4,8 +4,8 @@ it: a rendered random token differs on every clusterless render (ArgoCD,
 `helm template`) and would roll both pods on each sync. ArgoCD runs this as a
 PreSync hook.
 The Secret records auth.rotation; when the value changes, the hook replaces the
-token. Both pods carry the value as a pod-template annotation, so the release
-itself rolls them.
+token and restarts both Deployments. Rendering the value onto the Deployments
+is what makes Helm/ArgoCD run the hook for a rotation.
 */ -}}
 {{- define "holmes.kubernetesRemediationMcp.authBootstrapName" -}}
 {{- printf "%s-k8s-remediation-mcp-auth-bootstrap" .Release.Name | trunc 63 | trimSuffix "-" -}}
@@ -160,27 +160,28 @@ spec:
                   print(f"Secret {NAME} is at rotation {ROTATION}; keeping its token")
                   sys.exit(0)
               # Deleting first makes the steps below the only path that writes a
-              # token, so a crash anywhere is finished by the next run.
+              # token.
               kubectl("delete", "secret", NAME, "--ignore-not-found")
               print(f"Rotating the token in Secret {NAME} to rotation {ROTATION}")
 
-          # A Deployment already at this rotation won't be rolled by the release,
-          # yet holds a token that no longer matches. Restart it before creating
-          # the Secret: its new pods wait for the Secret instead of reading a
-          # stale one. Deployments at another rotation are rolled by the release.
+          # Pods read the token at start, so every Deployment already reading
+          # this Secret holds one that is gone. Restart before creating: the new
+          # pods wait for the Secret instead of reading a stale one, a crash at
+          # any point leaves the Secret missing for the next run to redo, and a
+          # restart always gets a fresh ReplicaSet (a rollback alone may revive
+          # an old one with the old token).
           readers = 0
           for name in os.environ["DEPLOYMENTS"].split():
               deployment = get("deployment", name)
               if deployment is None:
                   continue
-              template = deployment["spec"]["template"]
               refs = {
                   (env.get("valueFrom") or {}).get("secretKeyRef", {}).get("name")
-                  for c in template["spec"]["containers"]
+                  for c in deployment["spec"]["template"]["spec"]["containers"]
                   for env in c.get("env") or []
               }
-              readers += NAME in refs
-              if NAME in refs and rotation_of(template["metadata"]) == ROTATION:
+              if NAME in refs:
+                  readers += 1
                   print(kubectl("rollout", "restart", "deployment", name).stdout.strip())
 
           # Upgrading from the chart-rendered Secret (nothing reads this one yet)
