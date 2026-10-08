@@ -5494,6 +5494,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#litellm_cost_map_refresh_interval_seconds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#holmes_config_path" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6480,6 +6491,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#litellm_cost_map_refresh_interval_seconds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#holmes_config_path" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7126,13 +7148,13 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p>Overrides the URL LiteLLM fetches the model catalog (<code>model_prices_and_context_window.json</code>) from. LiteLLM uses that catalog to know each model's context window, max output tokens, and pricing. By default LiteLLM pulls it from <code>raw.githubusercontent.com</code>, which is unreachable from networks that block GitHub egress.</p>
 <p>Robusta hosts a mirror of the same file in each region. Pick the URL matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532_1" name="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532" type="radio">
-<input id="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532_2" name="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532" type="radio">
-<input id="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532_3" name="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532" type="radio">
+<input checked="checked" id="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496_1" name="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496" type="radio">
+<input id="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496_2" name="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496" type="radio">
+<input id="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496_3" name="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532_1">US</label>
-<label for="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532_2">EU</label>
-<label for="__tabbed_bcc24bfa_cc3f_4605_a9d4_65432d00e532_3">AP</label>
+<label for="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496_1">US</label>
+<label for="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496_2">EU</label>
+<label for="__tabbed_fc920f5b_2f0d_4be7_866a_74d87e84a496_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/litellm/model_prices_and_context_window.json</code></pre></div>
@@ -7143,13 +7165,13 @@ silently weakens the signature and lets a client forge approval tokens.</p>
 <p>The mirror is cached and falls back to its last-known-good copy if the upstream is temporarily unreachable, so pointing at it gives the same freshness as the default URL without requiring egress to <code>raw.githubusercontent.com</code>.</p>
 <p><strong>Helm example:</strong></p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396_1" name="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396" type="radio">
-<input id="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396_2" name="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396" type="radio">
-<input id="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396_3" name="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396" type="radio">
+<input checked="checked" id="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a_1" name="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a" type="radio">
+<input id="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a_2" name="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a" type="radio">
+<input id="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a_3" name="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396_1">US</label>
-<label for="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396_2">EU</label>
-<label for="__tabbed_7a3887ca_6b2e_4756_8155_e687ad067396_3">AP</label>
+<label for="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a_1">US</label>
+<label for="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a_2">EU</label>
+<label for="__tabbed_94e057d9_284a_4ce2_a468_2071b10f1c6a_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">additionalEnvVars:
@@ -7163,6 +7185,9 @@ silently weakens the signature and lets a client forge approval tokens.</p>
     value: https://api.ap.robusta.dev/litellm/model_prices_and_context_window.json</code></pre></div>
 </div>
 </div>
+<h3 id="litellm_cost_map_refresh_interval_seconds">LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS<a class="headerlink" href="#litellm_cost_map_refresh_interval_seconds" title="Permanent link">&para;</a></h3>
+<p>LiteLLM downloads its model catalog once at startup, so a model released while Holmes is running is missing from it until a restart. When a lookup for a model's context window, max output tokens, or pricing finds nothing, Holmes re-downloads the catalog, at most once per this interval.</p>
+<p><strong>Default:</strong> <code>86400</code> (once a day)</p>
 <h3 id="holmes_config_path">HOLMES_CONFIG_PATH<a class="headerlink" href="#holmes_config_path" title="Permanent link">&para;</a></h3>
 <p>Path to a custom HolmesGPT configuration file. If not set, defaults to <code>~/.holmes/config.yaml</code>.</p>
 <p><strong>Example:</strong>
