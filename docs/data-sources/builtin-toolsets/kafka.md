@@ -105,7 +105,7 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
 
 ### mTLS — certificate files (Kubernetes mounted secrets)
 
-Use this approach when certificates are mounted into the Holmes pod as Kubernetes secrets.
+Use this approach when the certificates are files: on your machine with the CLI, or in Kubernetes, mounted into the Holmes pod from a secret. Replace each `/path/to/` path with where the file is on your machine.
 
 === "Holmes CLI"
 
@@ -120,9 +120,9 @@ Use this approach when certificates are mounted into the Holmes pod as Kubernete
             - name: prod-kafka
               broker: kafka.prod.example.com:9093
               security_protocol: SSL
-              ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-              ssl_client_cert_path: /etc/kafka-tls/client.pem
-              ssl_client_key_path: /etc/kafka-tls/client.key
+              ssl_ca_cert_path: /path/to/ca.crt
+              ssl_client_cert_path: /path/to/client.pem
+              ssl_client_key_path: /path/to/client.key
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"
@@ -247,9 +247,9 @@ In Kubernetes, this also reuses the `holmes-kafka-tls` secret created in the [mT
               sasl_mechanism: SCRAM-SHA-512
               username: "{{ env.KAFKA_USERNAME }}"
               password: "{{ env.KAFKA_PASSWORD }}"
-              ssl_ca_cert_path: /etc/kafka-tls/ca.crt
-              ssl_client_cert_path: /etc/kafka-tls/client.pem
-              ssl_client_key_path: /etc/kafka-tls/client.key
+              ssl_ca_cert_path: /path/to/ca.crt
+              ssl_client_cert_path: /path/to/client.pem
+              ssl_client_key_path: /path/to/client.key
     ```
 
     --8<-- "snippets/toolset_refresh_warning.md"

@@ -251,19 +251,72 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
 If you're using AWS IAM Identity Center (SSO) with Bedrock, you can authenticate via bearer token instead of access/secret keys.
 
-Set the environment variable:
-```bash
-export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
-```
+=== "Holmes CLI"
 
-Or use `api_key` in the `modelList` config:
-```yaml
-modelList:
-  bedrock-claude-sonnet-4:
-    api_key: "{{ env.AWS_BEARER_TOKEN_BEDROCK }}"
-    aws_region_name: us-east-1
-    model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
-```
+    Set the environment variable:
+
+    ```bash
+    export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
+    ```
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-aws-bedrock-bearer \
+      --from-literal=AWS_BEARER_TOKEN_BEDROCK="your-bearer-token" \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-aws-bedrock-bearer
+
+    modelList:
+      bedrock-claude-sonnet-4:
+        api_key: "{{ env.AWS_BEARER_TOKEN_BEDROCK }}"
+        aws_region_name: us-east-1
+        model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-aws-bedrock-bearer \
+      --from-literal=AWS_BEARER_TOKEN_BEDROCK="your-bearer-token" \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-aws-bedrock-bearer
+
+      modelList:
+        bedrock-claude-sonnet-4:
+          api_key: "{{ env.AWS_BEARER_TOKEN_BEDROCK }}"
+          aws_region_name: us-east-1
+          model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Finding Your AWS Credentials
 

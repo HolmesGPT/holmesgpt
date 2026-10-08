@@ -208,7 +208,7 @@ When rendering a full dashboard, HolmesGPT captures the entire page (all rows) s
 
 ### SSL Verification
 
-For self-signed certificates, you can disable SSL verification:
+For self-signed certificates, you can disable SSL verification. Holmes then sends the API key without checking the server's certificate, so use this only for a Grafana you reach over a network you trust.
 
 In Kubernetes, this reuses the `holmes-grafanadashboards` secret created in the [Configuration](#configuration) section above.
 

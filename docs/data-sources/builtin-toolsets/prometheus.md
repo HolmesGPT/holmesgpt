@@ -67,56 +67,45 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
 
 1. Go to [Coralogix Documentation](https://coralogix.com/docs/integrations/coralogix-endpoints/#promql) and choose the relevant PromQL endpoint for your region.
 2. In Coralogix, create an API key with permissions to query metrics (Data Flow → API Keys).
-3. Create a Kubernetes secret for the API key and expose it as an environment variable in your Helm values:
 
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CORALOGIX_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: coralogix-api-key
-              key: CORALOGIX_API_KEY
-    ```
+Then configure HolmesGPT with the endpoint and the API key:
 
-4. Add the following under your toolsets in the Helm chart:
-
-    ```yaml
-    holmes:
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: coralogix
-          config:
-            prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
-            additional_headers:
-              token: "{{ env.CORALOGIX_API_KEY }}"
-            discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
-            tool_calls_return_data: true
-    ```
+```yaml-toolset-config {secret-qualifier=coralogix}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: coralogix
+    config:
+      prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
+      additional_headers:
+        token: "{{ env.CORALOGIX_API_KEY }}"
+      discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
+      tool_calls_return_data: true
+```
 
 ---
 
 ### AWS Managed Prometheus (AMP)
 
+The secret, its `extraEnvVarsSecrets` entry and the environment variables below are for static access keys only. With IRSA, or with an AWS profile in the CLI, skip the secret and the exports, and remove the `holmes-prometheus-amp` entry from `extraEnvVarsSecrets` and the `aws_access_key` and `aws_secret_access_key` lines.
+
 To connect HolmesGPT to AWS Managed Prometheus:
 
-```yaml
-holmes:
-  toolsets:
-    prometheus/metrics:
-      enabled: true
-      subtype: aws-managed-prometheus
-      config:
-        prometheus_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
-        aws_region: us-east-1
-        aws_service_name: aps  # Default value, can be omitted
-        # Optional: Specify credentials (otherwise uses default AWS credential chain)
-        aws_access_key: "{{ env.AWS_ACCESS_KEY_ID }}"
-        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        # Optional: Assume a role for cross-account access
-        assume_role_arn: "arn:aws:iam::123456789012:role/PrometheusReadRole"
-        refresh_interval_seconds: 900  # Refresh AWS credentials every 15 minutes (default)
+```yaml-toolset-config {secret-qualifier=amp}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: aws-managed-prometheus
+    config:
+      prometheus_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
+      aws_region: us-east-1
+      aws_service_name: aps  # Default value, can be omitted
+      # Optional: Specify credentials (otherwise uses default AWS credential chain)
+      aws_access_key: "{{ env.AWS_ACCESS_KEY_ID }}"
+      aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+      # Optional: Assume a role for cross-account access
+      assume_role_arn: "arn:aws:iam::123456789012:role/PrometheusReadRole"
+      refresh_interval_seconds: 900  # Refresh AWS credentials every 15 minutes (default)
 ```
 
 **Notes:**
@@ -139,15 +128,14 @@ Before configuring Holmes, make sure you have:
 
 To connect HolmesGPT to Google Cloud Managed Prometheus:
 
-```yaml
-holmes:
-  toolsets:
-    prometheus/metrics:
-      enabled: true
-      subtype: google-managed-prometheus
-      config:
-        # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
-        prometheus_url: http://frontend.default.svc.cluster.local:9090
+```yaml-toolset-config
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: google-managed-prometheus
+    config:
+      # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
+      prometheus_url: http://frontend.default.svc.cluster.local:9090
 ```
 
 **Notes:**
@@ -165,22 +153,95 @@ Before configuring Holmes, make sure you have:
 
 #### Using a service principal (client secret)
 
-```yaml
-holmes:
-  toolsets:
-    prometheus/metrics:
-      enabled: true
-      subtype: azure-managed-prometheus
-      config:
-        prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
-  additionalEnvVars:
-    - name: AZURE_CLIENT_ID
-      value: "<your-app-client-id>"
-    - name: AZURE_TENANT_ID
-      value: "<your-tenant-id>"
-    - name: AZURE_CLIENT_SECRET
-      value: "<your-client-secret>"
-```
+HolmesGPT reads the service principal from the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_CLIENT_SECRET` environment variables.
+
+=== "Holmes CLI"
+
+    Set the environment variables:
+
+    ```bash
+    export AZURE_CLIENT_ID="<your-app-client-id>"
+    export AZURE_TENANT_ID="<your-tenant-id>"
+    export AZURE_CLIENT_SECRET="<your-client-secret>"
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
+    ```yaml
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        subtype: azure-managed-prometheus
+        config:
+          prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+    ```
+
+    --8<-- "snippets/toolset_refresh_warning.md"
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-prometheus-azure \
+      --from-literal=AZURE_CLIENT_ID="<your-app-client-id>" \
+      --from-literal=AZURE_TENANT_ID="<your-tenant-id>" \
+      --from-literal=AZURE_CLIENT_SECRET="<your-client-secret>" \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-prometheus-azure
+
+    toolsets:
+      prometheus/metrics:
+        enabled: true
+        subtype: azure-managed-prometheus
+        config:
+          prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-prometheus-azure \
+      --from-literal=AZURE_CLIENT_ID="<your-app-client-id>" \
+      --from-literal=AZURE_TENANT_ID="<your-tenant-id>" \
+      --from-literal=AZURE_CLIENT_SECRET="<your-client-secret>" \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-prometheus-azure
+
+      toolsets:
+        prometheus/metrics:
+          enabled: true
+          subtype: azure-managed-prometheus
+          config:
+            prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 **Notes:**
 
@@ -405,7 +466,7 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
 
 You can further customize the Prometheus toolset with the following options:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   prometheus/metrics:
     enabled: true

@@ -7,17 +7,16 @@ By enabling this toolset, HolmesGPT will be able to fetch webpages. This tool is
 
 ## Configuration
 
-```yaml
-holmes:
-    toolsets:
-        internet:
-            enabled: true
-            config: # optional
-              additional_headers:
-                Authorization: Bearer ...
-              allowed_hosts: # optional allowlist (see SSRF protection below)
-                - docs.example.com
-              block_internal_ips: true # default; blocks internal/non-routable targets
+```yaml-toolset-config
+toolsets:
+    internet:
+        enabled: true
+        config: # optional
+          additional_headers:
+            Authorization: Bearer ...
+          allowed_hosts: # optional allowlist (see SSRF protection below)
+            - docs.example.com
+          block_internal_ips: true # default; blocks internal/non-routable targets
 ```
 
 ### SSRF protection
@@ -49,18 +48,46 @@ deployment can reach.
 
 By default, the internet toolset uses a 5-second timeout for webpage requests. If you need to increase the timeout for slower websites, you can set the `INTERNET_TOOLSET_TIMEOUT_SECONDS` environment variable:
 
-```bash
-export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
-```
+=== "Holmes CLI"
 
-For Kubernetes deployments, add it to your Helm chart configuration:
+    Set the environment variable:
 
-```yaml
-holmes:
+    ```bash
+    export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
+    ```
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
     additionalEnvVars:
+      - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
+        value: "30"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
         - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
           value: "30"
-```
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Capabilities
 
