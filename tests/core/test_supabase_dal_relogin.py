@@ -263,25 +263,60 @@ def test_client_is_swapped_only_after_the_new_one_is_signed_in(dal, fake):
     assert dal.client.postgrest.headers["Authorization"] == f"Bearer {fake.issued[-1]}"
 
 
+class _CountingLock:
+    """The DAL's reconnect lock, counting threads that reached it."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._count_lock = threading.Lock()
+        self.entered = 0
+
+    def __enter__(self):
+        with self._count_lock:
+            self.entered += 1
+        return self._lock.__enter__()
+
+    def __exit__(self, *args):
+        return self._lock.__exit__(*args)
+
+    def acquire(self, blocking=True):
+        return self._lock.acquire(blocking)
+
+    def release(self):
+        self._lock.release()
+
+
+def _wait_until(predicate, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.01)
+
+
 def test_failed_relogin_fails_fast_for_waiters_and_recovers_later(dal, fake):
     n = 5
     fake.expire_all()
-    fake.reject_barrier = threading.Barrier(n)
     fake.sign_in_status = 500
-    fake.sign_in_delay = 0.3
-    attempts_before = dal._relogin_attempts
+    lock = _CountingLock()
+    dal._reconnect_lock = lock
+    # Hold the leader's sign-in until every other thread is queued on the lock.
+    fake.sign_in_gate = threading.Event()
+    gate_opener = threading.Thread(
+        target=lambda: (_wait_until(lambda: lock.entered == n), fake.sign_in_gate.set())
+    )
+    gate_opener.start()
 
     results = _run_concurrently(n, lambda _i: _table(dal))
+    gate_opener.join(5)
 
-    assert all(isinstance(r, Exception) for r in results)
-    assert dal._relogin_attempts == attempts_before + 1
+    assert all(isinstance(r, APIError) and r.code == "PGRST301" for r in results)
+    assert dal._relogin_attempts == 1
     assert dal.relogin_count == 0
     assert dal._reconnect_lock.acquire(blocking=False)
     dal._reconnect_lock.release()
 
-    fake.reject_barrier = None
+    fake.sign_in_gate = None
     fake.sign_in_status = 200
-    fake.sign_in_delay = 0
     assert _table(dal).data == [{"id": 1}]
     assert dal.relogin_count == 1
 
@@ -289,11 +324,34 @@ def test_failed_relogin_fails_fast_for_waiters_and_recovers_later(dal, fake):
 def test_each_later_request_retries_a_failed_relogin(dal, fake):
     fake.expire_all()
     fake.sign_in_status = 500
-    with pytest.raises(Exception):
-        _table(dal)
-    with pytest.raises(Exception):
-        _table(dal)
+    for _ in range(2):
+        with pytest.raises(APIError) as exc:
+            _table(dal)
+        assert exc.value.__cause__ is not None  # the failed sign-in
     assert dal._relogin_attempts == 2
+
+
+def test_failed_sign_in_stops_the_new_clients_refresh_timer(dal, fake):
+    created = []
+    real_create_client = supabase_dal.create_client
+
+    def create_client(*args):
+        created.append(real_create_client(*args))
+        return created[-1]
+
+    def user_fails(request):
+        if request.url.path == "/auth/v1/user":
+            return httpx.Response(500, json={"msg": "boom"})
+        return fake.handler(request)
+
+    fake.expire_all()
+    dal.client.postgrest.session._transport = httpx.MockTransport(user_fails)
+    with patch.object(supabase_dal, "create_client", side_effect=create_client):
+        with pytest.raises(APIError):
+            _table(dal)
+
+    assert created
+    assert all(c.auth._refresh_token_timer is None for c in created)
 
 
 def test_jwt_error_on_the_retry_is_raised_without_looping(dal, fake):
@@ -325,18 +383,58 @@ def test_non_jwt_errors_pass_through_without_relogin(dal, fake):
     assert fake.sign_ins == 1
 
 
-def test_expired_message_without_pgrst301_also_relogs_in(dal, fake):
+@pytest.mark.parametrize(
+    "code, message",
+    [("PGRST303", "JWT expired"), ("PGRST301", "JWSError"), ("401", "JWT expired")],
+)
+def test_jwt_errors_relog_in(dal, fake, code, message):
     calls = {"n": 0}
 
-    def expired_once(request):
+    def jwt_error_once(request):
         if request.url.path.startswith("/rest/v1/") and calls["n"] == 0:
             calls["n"] += 1
-            return _pg_error(401, "PGRST303", "JWT expired")
+            return _pg_error(401, code, message)
         return fake.handler(request)
 
-    dal.client.postgrest.session._transport = httpx.MockTransport(expired_once)
+    dal.client.postgrest.session._transport = httpx.MockTransport(jwt_error_once)
     assert _table(dal).data == [{"id": 1}]
     assert dal.relogin_count == 1
+
+
+def test_rpc_error_mentioning_expired_is_not_a_jwt_error(dal, fake):
+    def lease_expired(request):
+        if "/rpc/" in request.url.path:
+            return _pg_error(400, "P0001", "lease expired")
+        return fake.handler(request)
+
+    dal.client.postgrest.session._transport = httpx.MockTransport(lease_expired)
+    with pytest.raises(APIError) as exc:
+        _rpc(dal)
+    assert exc.value.code == "P0001"
+    assert fake.sign_ins == 1
+
+
+def test_in_place_sign_in_waits_for_a_relogin_and_uses_the_new_client(dal, fake):
+    old_client = dal.client
+    fake.expire_all()
+    fake.sign_in_gate = threading.Event()
+    fake.sign_in_started.clear()
+    relogin = threading.Thread(target=_table, args=(dal,))
+    relogin.start()
+    assert fake.sign_in_started.wait(5)
+
+    realtime = threading.Thread(target=dal.sign_in)
+    realtime.start()
+    realtime.join(0.3)
+    assert realtime.is_alive()  # queued behind the re-login
+
+    fake.sign_in_gate.set()
+    relogin.join(5)
+    realtime.join(5)
+
+    assert dal.client is not old_client
+    assert old_client.auth._refresh_token_timer is None
+    assert dal.client.postgrest.headers["Authorization"] == f"Bearer {fake.issued[-1]}"
 
 
 def test_patching_twice_does_not_stack_wrappers(dal, fake):

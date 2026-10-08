@@ -259,12 +259,18 @@ class SupabaseRetryTransport(httpx.HTTPTransport):
 KEY_CACHE: TTLCache = TTLCache(maxsize=64, ttl=24 * 60 * 60)
 
 
+# PGRST301: JWT invalid/expired (older PostgREST). PGRST303: JWT claims, e.g.
+# expiry (PostgREST 12+). A bare "expired" would also match errors that RPCs raise.
+_JWT_ERROR_CODES = {"PGRST301", "PGRST303"}
+
+
 def _is_jwt_error(exc: PGAPIError) -> bool:
-    return exc.code == "PGRST301" or "expired" in (exc.message or "").lower()
+    message = (exc.message or "").lower()
+    return exc.code in _JWT_ERROR_CODES or ("jwt" in message and "expired" in message)
 
 
 def _stop_auto_refresh(client: Client) -> None:
-    # A superseded client's auth refresh timer would otherwise keep it alive and
+    # A client we stop using would otherwise stay alive on its auth refresh timer,
     # refreshing its token forever.
     try:
         timer = client.auth._refresh_token_timer
@@ -273,7 +279,7 @@ def _stop_auto_refresh(client: Client) -> None:
             client.auth._refresh_token_timer = None
     except Exception:
         logging.debug(
-            "Could not stop the old Supabase client's refresh timer", exc_info=True
+            "Could not stop a Supabase client's refresh timer", exc_info=True
         )
 
 
@@ -281,6 +287,10 @@ class SupabaseDal:
     def __init__(self, cluster: str):
         self.enabled = self.__init_config()
         self.cluster = cluster
+        self._reconnect_lock = threading.Lock()
+        self.relogin_count = 0
+        # Re-login attempts that finished, successfully or not.
+        self._relogin_attempts = 0
         if not self.enabled:
             logging.debug(
                 "Not connecting to Robusta platform - robusta token not provided - using ROBUSTA_AI will not be possible"
@@ -330,10 +340,6 @@ class SupabaseDal:
             httpx_client=httpx_client,
         )
         sentry_sdk.set_tag("db_url", self.url)
-        self._reconnect_lock = threading.Lock()
-        # Successful re-logins since startup; reported in the heartbeat.
-        self._client_generation = 0
-        self._relogin_attempts = 0
         self.__connect(options)
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
@@ -381,16 +387,16 @@ class SupabaseDal:
     def __login(self, api_key: str, options: ClientOptions):
         # Other threads keep using the old client until the new one is signed in.
         client = create_client(self.url, api_key, options)
-        user_id = self.sign_in(client)
+        try:
+            user_id = self._sign_in(client)
+        except Exception:
+            _stop_auto_refresh(client)
+            raise
         old_client = getattr(self, "client", None)
         self.client = client
         self.user_id = user_id
         if old_client is not None:
             _stop_auto_refresh(old_client)
-
-    @property
-    def relogin_count(self) -> int:
-        return getattr(self, "_client_generation", 0)
 
     def _current_authorization(self) -> Optional[str]:
         return self.client.postgrest.headers.get("Authorization")
@@ -409,10 +415,10 @@ class SupabaseDal:
                 self.__connect(self.options)
             finally:
                 self._relogin_attempts += 1
-            self._client_generation += 1
+            self.relogin_count += 1
             logging.info(
-                "Re-logged in to Supabase after a JWT error (generation %d)",
-                self._client_generation,
+                "Re-logged in to Supabase after a JWT error (re-login #%d)",
+                self.relogin_count,
             )
             return True
 
@@ -430,16 +436,21 @@ class SupabaseDal:
                         "Supabase JWT expired/invalid (%s), signing in again", exc.code
                     )
                     request = _self.request
-                    if not self._relogin_after_jwt_error(
-                        request.headers.get("Authorization")
-                    ):
+                    # Callers classify errors by type, so a failed re-login still
+                    # surfaces as the APIError they would have got without it.
+                    try:
+                        relogged_in = self._relogin_after_jwt_error(
+                            request.headers.get("Authorization")
+                        )
+                    except Exception as relogin_error:
+                        raise exc from relogin_error
+                    if not relogged_in:
                         raise
                     # The request carries the headers of the client it was built on.
-                    postgrest = self.client.postgrest
-                    request.session = postgrest.session
+                    headers = self.client.postgrest.headers
                     for header in ("apikey", "Authorization"):
-                        if header in postgrest.headers:
-                            request.headers[header] = postgrest.headers[header]
+                        if header in headers:
+                            request.headers[header] = headers[header]
                     return original_execute(_self)
 
             return execute_with_retry
@@ -527,9 +538,13 @@ class SupabaseDal:
         # valid only if all store parameters are provided
         return all([self.account_id, self.url, self.api_key, self.email, self.password])
 
-    def sign_in(self, client: Optional[Client] = None) -> str:
+    def sign_in(self) -> str:
+        """Re-sign in on the current client, serialized with JWT re-logins."""
+        with self._reconnect_lock:
+            return self._sign_in(self.client)
+
+    def _sign_in(self, client: Client) -> str:
         logging.info("Supabase dal login")
-        client = client or self.client
         try:
             res = client.auth.sign_in_with_password(
                 {"email": self.email, "password": self.password}

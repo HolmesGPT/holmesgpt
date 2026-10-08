@@ -73,7 +73,7 @@ def _build_dal(monkeypatch, ca_env=None):
             side_effect=fake_create_default_context,
         ),
         patch("holmes.core.supabase_dal.create_client") as mock_create,
-        patch.object(SupabaseDal, "sign_in", return_value="user-1"),
+        patch.object(SupabaseDal, "_sign_in", return_value="user-1"),
         patch.object(SupabaseDal, "patch_postgrest_execute"),
     ):
         dal = SupabaseDal(cluster="test-cluster")

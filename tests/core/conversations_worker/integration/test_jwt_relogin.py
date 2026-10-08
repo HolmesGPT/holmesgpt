@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from holmes.core import supabase_dal
 from holmes.core.supabase_dal import SupabaseDal
 
 pytestmark = [pytest.mark.conversation_worker, pytest.mark.integration]
@@ -26,7 +27,9 @@ def dal():
     dal = SupabaseDal(os.environ.get("CLUSTER_NAME", "rob1555-integration"))
     if not dal.enabled:
         pytest.skip("Supabase DAL not enabled")
-    return dal
+    yield dal
+    for builder, original in supabase_dal._ORIGINAL_EXECUTES.items():
+        setattr(builder, "execute", original)
 
 
 def _corrupt_jwt(dal: SupabaseDal) -> None:
