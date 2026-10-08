@@ -913,6 +913,12 @@ mcpAddons:
       configSecret:
         secretName: ""         # Name of K8s secret containing config.toml
         secretKey: "config.toml"  # Key in secret (default: "config.toml")
+      # PEM CA certificate the server trusts when calling the OAuth/OIDC provider
+      # set in `authorization_url` (e.g. Dex served from a private CA). Mounted at
+      # /etc/kubernetes-mcp-ca/ca.crt; point the server at it in serverConfig:
+      #   certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+      # Easiest from a file: --set-file mcpAddons.kubernetes.config.certificateAuthority=ca.pem
+      certificateAuthority: ""
       # OAuth settings for Holmes → k8s-mcp-server authentication.
       # Passed as-is into the Holmes mcp_servers oauth config.
       # Example for OpenShift OAuth (per-user RBAC):

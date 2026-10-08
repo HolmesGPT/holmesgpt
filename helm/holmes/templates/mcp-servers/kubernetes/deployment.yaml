@@ -14,6 +14,8 @@
 {{- end -}}
 {{- $useConfigFile := ne $configSecretName "" -}}
 {{- $configSecretKey := ternary "config.toml" (.Values.mcpAddons.kubernetes.config.configSecret.secretKey | default "config.toml") (ne $serverConfig "") -}}
+{{- /* A CA certificate is public, so it lives in the ConfigMap, not a Secret. */ -}}
+{{- $caCert := .Values.mcpAddons.kubernetes.config.certificateAuthority | default "" | trim -}}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -26,7 +28,13 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp-server
     app.kubernetes.io/part-of: holmes
+{{- if $caCert }}
+data:
+  ca.crt: |
+{{ $caCert | indent 4 }}
+{{- else }}
 data: {}
+{{- end }}
 {{- if $serverConfig }}
 ---
 apiVersion: v1
@@ -137,7 +145,7 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
-        {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile }}
+        {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile $caCert }}
         volumeMounts:
         {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
         - name: kubeconfig
@@ -149,8 +157,13 @@ spec:
           mountPath: /etc/kubernetes-mcp
           readOnly: true
         {{- end }}
+        {{- if $caCert }}
+        - name: mcp-ca
+          mountPath: /etc/kubernetes-mcp-ca
+          readOnly: true
         {{- end }}
-      {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile }}
+        {{- end }}
+      {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile $caCert }}
       volumes:
       {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
       - name: kubeconfig
@@ -169,6 +182,15 @@ spec:
           items:
           - key: {{ $configSecretKey }}
             path: config.toml
+      {{- end }}
+      {{- if $caCert }}
+      - name: mcp-ca
+        configMap:
+          name: {{ .Release.Name }}-k8s-mcp-config
+          defaultMode: 420
+          items:
+          - key: ca.crt
+            path: ca.crt
       {{- end }}
       {{- end }}
 ---
