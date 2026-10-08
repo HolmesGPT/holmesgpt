@@ -77,6 +77,7 @@ from holmes.utils.approval_tokens import (
     verify_token,
 )
 from holmes.utils.colors import AI_COLOR
+from holmes.utils.process_group import terminate_running_commands
 from holmes.utils.stream import (
     StreamEvents,
     StreamMessage,
@@ -187,6 +188,27 @@ def _try_process_oauth_decision(tool_call_id, oauth_code, request_context) -> bo
 
 # Callback type: receives a pending approval, returns (approved, optional_feedback)
 ApprovalCallback = Callable[[PendingToolApproval], tuple[bool, Optional[str]]]
+
+
+class ToolCallExecutor(concurrent.futures.ThreadPoolExecutor):
+    """Runs one batch of tool calls. Shell tools run in their own process group,
+    outside the terminal's SIGINT, so when the batch is abandoned (Ctrl+C, or
+    the stream is closed) kill the commands its threads started instead of
+    waiting for them to time out."""
+
+    def __init__(self, max_workers: int):
+        self._thread_ids: set[int] = set()
+        super().__init__(
+            max_workers=max_workers,
+            initializer=lambda: self._thread_ids.add(threading.get_ident()),
+        )
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None and issubclass(
+            exc_type, (KeyboardInterrupt, GeneratorExit)
+        ):
+            terminate_running_commands(self._thread_ids)
+        return super().__exit__(exc_type, exc_val, exc_tb)
 
 
 class LLMResult(RequestStats):
@@ -1444,7 +1466,7 @@ class ToolCallingLLM:
 
             session_prefixes_by_agent = extract_bash_session_prefixes_by_agent(messages)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+            with ToolCallExecutor(max_workers=16) as executor:
                 futures = []
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index

@@ -52,10 +52,12 @@ toolsets:
 
       # Connectivity Testing
       - name: "cilium_connectivity_test"
+        timeout_seconds: 600
         description: "Run comprehensive connectivity tests to validate network functionality (SLOW: 5+ minutes - use as last resort)"
         command: "timeout {{ config.timeout | default(600) }} cilium connectivity test --test-concurrency 1"
 
       - name: "cilium_connectivity_test_namespace"
+        timeout_seconds: 600
         description: "Run connectivity tests in a specific namespace (SLOW: 5+ minutes - use as last resort)"
         command: "timeout {{ config.timeout | default(600) }} cilium connectivity test --test-namespace {{ namespace }}"
         args:
@@ -89,11 +91,13 @@ toolsets:
 
       # System Diagnostics
       - name: "cilium_sysdump"
+        timeout_seconds: 600
         description: "Collect system information for troubleshooting Cilium issues"
         command: "cilium sysdump --output-filename cilium-sysdump-$(date +%Y%m%d-%H%M%S).zip"
 
       # Installation and Upgrade
       - name: "cilium_install_status"
+        timeout_seconds: 330
         description: "Check Cilium installation status in the cluster"
         command: "cilium status --wait"
 

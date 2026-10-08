@@ -17,7 +17,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
 from holmes.core.llm_usage import RequestStats
 from holmes.utils.stream import StreamEvents, StreamMessage
@@ -182,6 +182,9 @@ class RequestStatus(str, Enum):
     ERROR = "error"  # terminal ERROR event or unhandled exception
     RATE_LIMITED = "rate_limited"  # provider rate-limit detected by record_error
     ABORTED = "aborted"  # stream ended without any terminal event
+
+
+TOOL_TIMEOUT_NAMES_LIMIT = 5
 
 
 @dataclass
@@ -356,6 +359,12 @@ class UsageRecorderState:
     # (record_from_llm_result) instead reads len(llm_result.tool_calls).
     tool_call_count: int = 0
 
+    # Tools that hit their hard timeout (StructuredToolResult.timed_out), from
+    # both paths. Written to meta['tool_timeouts'] / meta['tool_timeout_names']
+    # (first TOOL_TIMEOUT_NAMES_LIMIT distinct names) when the row is fired.
+    tool_timeout_count: int = 0
+    tool_timeout_names: List[str] = field(default_factory=list)
+
     # Last LLM iteration's finish reason: 'stop', 'length', 'tool_calls',
     # 'content_filter', etc. Filled by the wrapper from the terminal
     # event's `metadata.finish_reason`. Earlier iterations always end in
@@ -427,6 +436,17 @@ class UsageRecorderState:
             metadata.get("finish_reason") or self.finish_reason
         )
 
+    def _capture_tool_result(self, tool_name: Optional[str], timed_out: Any) -> None:
+        if not timed_out:
+            return
+        self.tool_timeout_count += 1
+        name = tool_name or "unknown"
+        if (
+            name not in self.tool_timeout_names
+            and len(self.tool_timeout_names) < TOOL_TIMEOUT_NAMES_LIMIT
+        ):
+            self.tool_timeout_names.append(name)
+
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.
 
@@ -442,6 +462,9 @@ class UsageRecorderState:
         """
         if self.dal is None or not getattr(self.dal, "enabled", False):
             return
+        if self.tool_timeout_count:
+            self.meta["tool_timeouts"] = self.tool_timeout_count
+            self.meta["tool_timeout_names"] = list(self.tool_timeout_names)
         try:
             _RECORDER_EXECUTOR.submit(self.dal.record_usage_event, self)
         except RuntimeError:
@@ -478,6 +501,11 @@ def stream_with_usage_recording(
         for msg in stream:
             if msg.event == StreamEvents.TOOL_RESULT:
                 state.tool_call_count += 1
+                result = (msg.data or {}).get("result") or {}
+                if isinstance(result, dict):
+                    state._capture_tool_result(
+                        msg.data.get("tool_name"), result.get("timed_out")
+                    )
             elif msg.event == StreamEvents.TOKEN_COUNT:
                 # Cumulative cost broadcast after each successful LLM iteration
                 # (and after compaction). Capturing it here is the only way to
@@ -560,7 +588,13 @@ def record_from_llm_result(
         state.stats = RequestStats()
 
     state.iterations = getattr(llm_result, "num_llm_calls", None) or 1
-    state.tool_call_count = len(getattr(llm_result, "tool_calls", None) or [])
+    tool_calls = getattr(llm_result, "tool_calls", None) or []
+    state.tool_call_count = len(tool_calls)
+    for tool_call in tool_calls:
+        state._capture_tool_result(
+            getattr(tool_call, "tool_name", None),
+            getattr(getattr(tool_call, "result", None), "timed_out", None),
+        )
     state.finish_reason = getattr(llm_result, "finish_reason", None)
     state.status = RequestStatus.SUCCESS
     state._fire()

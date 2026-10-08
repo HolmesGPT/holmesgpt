@@ -249,6 +249,33 @@ See [Tool Execution Safety](../data-sources/tool-execution-safety.md) for the fu
 export TOOL_MEMORY_LIMIT_MB=2000
 ```
 
+## YAML Tool Timeouts
+
+### YAML_TOOL_TIMEOUT_SECONDS
+**Default:** `60`
+
+Timeout for each command or script run by a YAML-defined tool (for example `kubernetes/core` or a custom toolset). On timeout, Holmes kills the command's whole process group (SIGTERM, then SIGKILL after 5 seconds) and returns an error naming the command, the timeout, and any output produced so far, so the LLM can retry with a narrower query. A tool can override it in YAML with `timeout_seconds:`; built-in long-running tools (Cilium connectivity tests and sysdump, Inspektor Gadget traces) already do. The built-in kubectl tools pass `--request-timeout` 10 seconds below this value, so kubectl reports its own error first.
+
+### YAML_TOOL_MAX_TIMEOUT_SECONDS
+**Default:** `600`
+
+Upper bound for `YAML_TOOL_TIMEOUT_SECONDS` and for any per-tool `timeout_seconds:`. Larger values are clamped to this one.
+
+**Example:**
+```bash
+export YAML_TOOL_TIMEOUT_SECONDS=120
+```
+
+```yaml
+toolsets:
+  my-toolset:
+    tools:
+      - name: slow_report
+        description: "..."
+        command: "my-cli report --all"
+        timeout_seconds: 300
+```
+
 ## Conversation Worker Executors
 
 The conversation runtime (Robusta platform deployments) runs each conversation on a named **executor**. `Conversations.executor` names it: `manual` for live user asks (chat, follow-ups, a single "Investigate now") and `auto` for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Executors are created on demand and sized from the account setting `conversation_executors.<name>` (Settings → LLMs sets `manual`, Settings → Triage sets `auto`; applied live, no restart), falling back to the built-in default (`manual`=10, `auto`=2). `CONVERSATION_WORKER_MAX_CONCURRENT` (default 5) only sizes an executor whose name has no built-in default.
