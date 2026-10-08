@@ -291,6 +291,11 @@ additionalEnvVars:
     value: https://api.robusta.dev/litellm/model_prices_and_context_window.json
 ```
 
+### LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS
+LiteLLM downloads its model catalog once at startup, so a model released while Holmes is running is missing from it until a restart. When a lookup for a model's context window, max output tokens, or pricing finds nothing, Holmes re-downloads the catalog, at most once per this interval.
+
+**Default:** `86400` (once a day)
+
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
 
