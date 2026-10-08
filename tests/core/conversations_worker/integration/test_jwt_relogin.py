@@ -61,9 +61,9 @@ def test_concurrent_invalid_jwt_relogs_in_once(dal):
         except Exception as e:
             results[i] = e
 
-    real_sign_in = SupabaseDal.sign_in
+    real_sign_in = SupabaseDal._sign_in
     with patch.object(
-        SupabaseDal, "sign_in", autospec=True, side_effect=real_sign_in
+        SupabaseDal, "_sign_in", autospec=True, side_effect=real_sign_in
     ) as sign_in:
         threads = [threading.Thread(target=run, args=(i,)) for i in range(THREADS)]
         for t in threads:
