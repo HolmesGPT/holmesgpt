@@ -797,24 +797,49 @@ kubectl get secret <DEX_TLS_SECRET> -n <dex-namespace> -o jsonpath='{.data.ca\.c
 
 cert-manager only writes `ca.crt` when the issuer returns a CA, so if `dex-ca.pem` comes out empty, get the CA certificate from whoever runs the issuer.
 
-Add to the values from Step 3 (under `holmes:` for the Robusta Helm Chart). Holmes takes the CA base64-encoded (`base64 -i dex-ca.pem | tr -d '\n'`), and the MCP server takes it as PEM:
+Holmes takes the CA base64-encoded in `certificate`, and the MCP server takes it as PEM in `mcpAddons.kubernetes.config.certificateAuthority`, which the chart mounts at `/etc/kubernetes-mcp-ca/ca.crt`. Either way, point the MCP server at that file by adding this line to the `serverConfig` from Step 3:
 
-```yaml
-certificate: "<BASE64_DEX_CA>"
-
-mcpAddons:
-  kubernetes:
-    config:
-      certificateAuthority: |
-        -----BEGIN CERTIFICATE-----
-        ...
-        -----END CERTIFICATE-----
-      serverConfig: |
-        # ...the settings from Step 3, plus:
-        certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+```toml
+certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
 ```
 
-Instead of pasting the PEM, you can pass the file to `helm upgrade` with `--set-file mcpAddons.kubernetes.config.certificateAuthority=dex-ca.pem` (`holmes.mcpAddons...` for the Robusta Helm Chart). If `ca.crt` is an intermediate CA, use the root CA for Holmes's `certificate`.
+Then supply the CA in one of two ways. If `ca.crt` is an intermediate CA, use the root CA for Holmes's `certificate`.
+
+=== "Paste into values"
+
+    Add to the values from Step 3 (under `holmes:` for the Robusta Helm Chart). Get the base64 value for `certificate` with `base64 -i dex-ca.pem | tr -d '\n'`:
+
+    ```yaml
+    certificate: "<BASE64_DEX_CA>"
+
+    mcpAddons:
+      kubernetes:
+        config:
+          certificateAuthority: |
+            -----BEGIN CERTIFICATE-----
+            ...
+            -----END CERTIFICATE-----
+    ```
+
+=== "Pass the files"
+
+    Encode the CA for Holmes:
+
+    ```bash
+    base64 -i dex-ca.pem | tr -d '\n' > dex-ca.b64
+    ```
+
+    Then add both files to your `helm upgrade` command from Step 3:
+
+    ```bash
+    # Holmes Helm Chart
+    --set-file certificate=dex-ca.b64 \
+    --set-file mcpAddons.kubernetes.config.certificateAuthority=dex-ca.pem
+
+    # Robusta Helm Chart
+    --set-file holmes.certificate=dex-ca.b64 \
+    --set-file holmes.mcpAddons.kubernetes.config.certificateAuthority=dex-ca.pem
+    ```
 
 ## Common Use Cases
 
