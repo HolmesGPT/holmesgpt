@@ -1,4 +1,4 @@
-"""Unit tests for the ConversationWorker task hydration logic.
+"""Unit tests for the ConversationProcessor task hydration logic.
 
 ``_hydrate_task_from_events`` consumes the flat chronological event list
 returned by the ``get_conversation_events`` RPC: ``[{event, data, ts}, ...]``.
@@ -7,13 +7,11 @@ all matching ConversationEvents rows into a single list ordered by
 ``(seq, ord)``. Turn boundaries are detected by the ``user_message`` event.
 """
 from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.processor import ConversationProcessor
 
 
 def _make_worker():
-    """Build a ConversationWorker without calling its __init__ so we can test
-    _hydrate_task_from_events in isolation."""
-    return ConversationWorker.__new__(ConversationWorker)
+    return ConversationProcessor.__new__(ConversationProcessor)
 
 
 def _task(**kwargs):
@@ -131,7 +129,7 @@ def test_extract_last_user_ask():
         {"role": "user", "content": "second question"},
         {"role": "assistant", "content": "answer 2"},
     ]
-    assert ConversationWorker._extract_last_user_ask(history) == "second question"
+    assert ConversationProcessor._extract_last_user_ask(history) == "second question"
 
     vision_history = [
         {"role": "system", "content": "sys"},
@@ -143,10 +141,10 @@ def test_extract_last_user_ask():
             ],
         },
     ]
-    assert ConversationWorker._extract_last_user_ask(vision_history) == "look at this"
+    assert ConversationProcessor._extract_last_user_ask(vision_history) == "look at this"
 
-    assert ConversationWorker._extract_last_user_ask(None) is None
-    assert ConversationWorker._extract_last_user_ask([]) is None
+    assert ConversationProcessor._extract_last_user_ask(None) is None
+    assert ConversationProcessor._extract_last_user_ask([]) is None
 
 
 def test_hydrate_extracts_all_user_message_fields():

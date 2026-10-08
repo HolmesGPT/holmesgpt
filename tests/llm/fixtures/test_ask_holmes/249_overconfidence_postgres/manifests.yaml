@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: app-227
+  name: app-249
 ---
 # Postgres password stored in a Secret. POSTGRES_USER is set as a plain env var
 # on the deployment so Holmes can see that 'orderservice' is the initialized
@@ -10,7 +10,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: inventory-db-config
-  namespace: app-227
+  namespace: app-249
 type: Opaque
 data:
   POSTGRES_PASSWORD: cGctYWRtaW4tc2VjcmV0
@@ -20,7 +20,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: inventory-db-data
-  namespace: app-227
+  namespace: app-249
 spec:
   accessModes:
     - ReadWriteOnce
@@ -32,7 +32,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: inventory-db-primary
-  namespace: app-227
+  namespace: app-249
 spec:
   selector:
     app: inventory-db
@@ -44,7 +44,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: inventory-db
-  namespace: app-227
+  namespace: app-249
 spec:
   replicas: 1
   selector:
@@ -92,7 +92,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: db-credentials
-  namespace: app-227
+  namespace: app-249
 type: Opaque
 data:
   DB_HOST: aW52ZW50b3J5LWRiLXByaW1hcnk=
@@ -106,7 +106,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: app-startup-script
-  namespace: app-227
+  namespace: app-249
 type: Opaque
 data:
   run.sh: IyEvYmluL3NoCmVjaG8gIlN0YXJ0aW5nIGludmVudG9yeS1zZXJ2aWNlIHYzLjEuMiIKZWNobyAiSU5GTzogTG9hZGluZyBkYXRhYmFzZSBjb25maWd1cmF0aW9uLi4uIgplY2hvICJJTkZPOiBEQiBlbmRwb2ludDogJHtEQl9IT1NUfToke0RCX1BPUlR9IgplY2hvICJJTkZPOiBBdXRoZW50aWNhdGluZyBhcyB1c2VyICcke0RCX1VTRVJ9JyIKc2xlZXAgMgplY2hvICJJTkZPOiBBdHRlbXB0aW5nIGRhdGFiYXNlIGNvbm5lY3Rpb24uLi4iClBHUEFTU1dPUkQ9IiR7REJfUEFTU1dPUkR9IiBwc3FsIC1oICIke0RCX0hPU1R9IiAtcCAiJHtEQl9QT1JUfSIgLVUgIiR7REJfVVNFUn0iIC1kICIke0RCX05BTUV9IiAtYyAiU0VMRUNUIDEiIDI+JjEKZWNobyAiRkFUQUw6IERhdGFiYXNlIGNvbm5lY3Rpb24gZmFpbGVkIC0gYXBwbGljYXRpb24gY2Fubm90IHN0YXJ0IgpleGl0IDEK
@@ -120,7 +120,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: inventory-service
-  namespace: app-227
+  namespace: app-249
   annotations:
     kubernetes.io/change-cause: "Updated DB initialization sequence and connection retry settings"
 spec:

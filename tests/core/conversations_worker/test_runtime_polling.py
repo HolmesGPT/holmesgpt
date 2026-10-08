@@ -1,12 +1,12 @@
-"""Unit tests for the ConversationWorker's realtime-gated polling logic."""
+"""Unit tests for the ConversationRuntime's realtime-gated polling logic."""
 from unittest.mock import MagicMock
 
 from holmes.common.env_vars import CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.runtime import ConversationRuntime
 
 
 def _make_worker_with_rt(connected: bool):
-    worker = ConversationWorker.__new__(ConversationWorker)
+    worker = ConversationRuntime.__new__(ConversationRuntime)
     rt = MagicMock()
     rt.is_connected.return_value = connected
     worker._realtime_manager = rt
@@ -19,7 +19,7 @@ def test_realtime_connected_returns_true_when_manager_connected():
 
 
 def test_realtime_connected_false_when_no_manager():
-    worker = ConversationWorker.__new__(ConversationWorker)
+    worker = ConversationRuntime.__new__(ConversationRuntime)
     worker._realtime_manager = None
     assert worker._realtime_connected() is False
 
@@ -30,7 +30,7 @@ def test_realtime_connected_false_when_manager_disconnected():
 
 
 def test_realtime_connected_false_when_is_connected_raises():
-    worker = ConversationWorker.__new__(ConversationWorker)
+    worker = ConversationRuntime.__new__(ConversationRuntime)
     rt = MagicMock()
     rt.is_connected.side_effect = RuntimeError("boom")
     worker._realtime_manager = rt
