@@ -41,6 +41,11 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import (
 )
 
 
+
+async def invoke_parsed(tool, params, request_context=None, **kwargs):
+    tool_result = await tool._call_tool_async(params, request_context, **kwargs)
+    return tool._to_structured_result(params, tool_result)
+
 @pytest.fixture
 def suppress_migration_warnings():
     logger = logging.getLogger()
@@ -880,12 +885,10 @@ class TestExceptionGroupUnwrapping:
             "unhandled errors in a TaskGroup (1 sub-exception)", [auth_error]
         )
 
-        async def mock_invoke_async(
-            params, request_context, user_approved=False, session_approved_prefixes=None
-        ):
+        async def mock_call_tool_async(params, request_context, *args, **kwargs):
             raise group
 
-        monkeypatch.setattr(mcp_tool, "_invoke_async", mock_invoke_async)
+        monkeypatch.setattr(mcp_tool, "_call_tool_async", mock_call_tool_async)
 
         context = ToolInvokeContext.model_construct(
             tool_number=1,
@@ -994,7 +997,7 @@ class TestStreamableHttp:
         c_ctx, s_ctx = self._setup_mocks(mock_session)
         c_patch, s_patch = self._patch_clients(c_ctx, s_ctx)
         with c_patch, s_patch:
-            result = asyncio.run(tool._invoke_async({}, None))
+            result = asyncio.run(invoke_parsed(tool, {}, None))
         assert result.status == StructuredToolResultStatus.SUCCESS
         mock_session.call_tool.assert_awaited_once_with("call_az", {})
 
@@ -1288,7 +1291,7 @@ class TestStreamableHttp:
             c_ctx, s_ctx = self._setup_mocks(mock_session)
             c_patch, s_patch = self._patch_clients(c_ctx, s_ctx)
             with c_patch, s_patch:
-                res = asyncio.run(t._invoke_async({}, None))
+                res = asyncio.run(invoke_parsed(t, {}, None))
             assert res.status == StructuredToolResultStatus.SUCCESS
             mock_session.call_tool.assert_awaited_once_with(expected_raw, {})
 
@@ -1372,7 +1375,7 @@ class TestStreamableHttp:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params, None))
+            result = asyncio.run(invoke_parsed(mcp_tool, params, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert response_text in result.data
@@ -1473,7 +1476,7 @@ class TestStreamableHttp:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async({}, None))
+            result = asyncio.run(invoke_parsed(mcp_tool, {}, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert "Page has 1 image" in result.data
@@ -1521,7 +1524,7 @@ class TestStreamableHttp:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async({}, None))
+            result = asyncio.run(invoke_parsed(mcp_tool, {}, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.images is None
@@ -1560,7 +1563,7 @@ class TestStreamableHttp:
             mock_client_context, mock_session_context
         )
         with client_patch, session_patch:
-            return asyncio.run(mcp_tool._invoke_async({}, None))
+            return asyncio.run(invoke_parsed(mcp_tool, {}, None))
 
     def test_invoke_async_extracts_text_resource_contents(
         self, monkeypatch, suppress_migration_warnings
@@ -1766,7 +1769,7 @@ class TestSSE:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params, None))
+            result = asyncio.run(invoke_parsed(mcp_tool, params, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert response_text in result.data
@@ -2129,7 +2132,7 @@ class TestStdio:
         )
 
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params, None))
+            result = asyncio.run(invoke_parsed(mcp_tool, params, None))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert response_text in result.data
@@ -2806,7 +2809,7 @@ class TestRequestContextPassthrough:
                 return_value=mock_session_context,
             ):
                 request_context = {"headers": {"X-Context": "ctx-value"}}
-                result = asyncio.run(mcp_tool._invoke_async({}, request_context))
+                result = asyncio.run(invoke_parsed(mcp_tool, {}, request_context))
 
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert captured_headers is not None
@@ -3380,7 +3383,7 @@ class TestMCPStructuredContent:
             mock_client_context, mock_session_context
         )
         with client_patch, session_patch:
-            result = asyncio.run(mcp_tool._invoke_async(params or {}, None))
+            result = asyncio.run(invoke_parsed(mcp_tool, params or {}, None))
         return result, mock_session
 
     def test_structured_content_reaches_the_llm(

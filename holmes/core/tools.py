@@ -105,6 +105,9 @@ class StructuredToolResult(BaseModel):
     params: Optional[Dict] = None
     icon_url: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    # MCP only: time queued behind other calls to the same server, and the call itself.
+    mcp_wait_ms: Optional[int] = None
+    mcp_call_ms: Optional[int] = None
     # OAuth: real tools discovered by _connect placeholder, stored by the LLM layer
     oauth_tools: Optional[List[Any]] = Field(default=None, exclude=True)
 

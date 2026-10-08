@@ -430,6 +430,28 @@ mcp_servers:
 
 The setting works on any toolset, not only MCP servers.
 
+**Concurrent Calls to a Server**
+
+Conversations, investigations and scheduled prompts running at the same time in one Holmes instance share each MCP server. Calls beyond a server's limit wait for a free slot. Tool discovery and health checks count against the limit too.
+
+| Mode | Default limit |
+|------|---------------|
+| `streamable-http` | 16, or `MCP_MAX_CONCURRENT_CALLS_PER_SERVER` |
+| `sse` | 1 (some gateways, such as Supergateway 3.4 and earlier, mix up replies between concurrent SSE sessions) |
+| `stdio` | 1 (each call starts its own server process) |
+
+Set `max_concurrent_calls` on a server to change its limit, for example `1` for a streamable-http server that can't handle concurrent requests, or a higher value for an SSE server that can.
+
+```yaml
+mcp_servers:
+  legacy_tool:
+    description: "Server that handles one request at a time"
+    config:
+      url: "http://legacy-tool:8000/mcp"
+      mode: streamable-http
+      max_concurrent_calls: 1
+```
+
 ## Configuration Format Migration
 
 The MCP server configuration format has been updated. The `url` field must now be inside the `config` section.

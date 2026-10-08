@@ -2256,9 +2256,11 @@ class TestInvokeOAuthConnectReturnsTools:
             request_context={"user_id": "user-connect-test"},
         )
 
-        with patch("holmes.plugins.toolsets.mcp.toolset_mcp.asyncio") as mock_asyncio, \
-             patch("holmes.plugins.toolsets.mcp.toolset_mcp.get_server_lock", return_value=MagicMock()):
-            mock_asyncio.run.return_value = mock_tools_result
+        def run_async(coro, timing=None):
+            coro.close()
+            return mock_tools_result
+
+        with patch.object(RemoteMCPToolset, "run_async", side_effect=run_async):
             result = connect_tool._invoke_oauth_connect({}, invoke_context)
 
         assert result.status == StructuredToolResultStatus.SUCCESS
@@ -2286,9 +2288,11 @@ class TestInvokeOAuthConnectReturnsTools:
             request_context={"user_id": "user-fail"},
         )
 
-        with patch("holmes.plugins.toolsets.mcp.toolset_mcp.asyncio") as mock_asyncio, \
-             patch("holmes.plugins.toolsets.mcp.toolset_mcp.get_server_lock", return_value=MagicMock()):
-            mock_asyncio.run.side_effect = ConnectionError("MCP down")
+        def run_async(coro, timing=None):
+            coro.close()
+            raise ConnectionError("MCP down")
+
+        with patch.object(RemoteMCPToolset, "run_async", side_effect=run_async):
             result = connect_tool._invoke_oauth_connect({}, invoke_context)
 
         assert result.status == StructuredToolResultStatus.ERROR

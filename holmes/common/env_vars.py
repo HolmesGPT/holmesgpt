@@ -163,6 +163,15 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
     os.environ.get("MCP_TOOL_CALL_TIMEOUT_SEC", SSE_READ_TIMEOUT)
 )
 
+# Concurrent calls allowed per streamable-http MCP server in one Holmes process
+# (sse and stdio default to 1). Per-toolset `max_concurrent_calls` overrides it.
+MCP_MAX_CONCURRENT_CALLS_PER_SERVER = max(
+    1, int(os.environ.get("MCP_MAX_CONCURRENT_CALLS_PER_SERVER", 16))
+)
+# Reuse TCP/TLS connections to HTTP MCP servers across calls. Kill switch for
+# the shared event-loop thread that pooling requires.
+MCP_POOL_HTTP_CONNECTIONS = load_bool("MCP_POOL_HTTP_CONNECTIONS", True)
+
 LLM_REQUEST_TIMEOUT = float(os.environ.get("LLM_REQUEST_TIMEOUT", "600"))
 
 # Extra message fields to strip before sending messages to the provider API.

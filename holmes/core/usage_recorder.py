@@ -369,6 +369,13 @@ class UsageRecorderState:
     # terminal event was ever observed.
     status: RequestStatus = RequestStatus.SUCCESS
 
+    # MCP calls in this request and their timings: time queued behind other
+    # calls to the same server, and the call itself. Written to meta on fire.
+    mcp_calls: int = 0
+    mcp_wait_ms_total: int = 0
+    mcp_call_ms_total: int = 0
+    mcp_max_wait_ms: int = 0
+
     @property
     def duration_ms(self) -> int:
         """Wall-clock milliseconds since ``t_start``.
@@ -384,6 +391,16 @@ class UsageRecorderState:
     # record_from_llm_result, record_error) stay as module-level functions
     # — the stream wrapper in particular has the stream as its primary
     # input, so a "method on state" shape would invert its natural reading.
+
+    def _capture_mcp_timing(self, wait_ms: Any, call_ms: Any) -> None:
+        """Accumulate one MCP call's timings. Non-MCP results carry none."""
+        if not isinstance(call_ms, int):
+            return
+        wait_ms = wait_ms if isinstance(wait_ms, int) else 0
+        self.mcp_calls += 1
+        self.mcp_wait_ms_total += wait_ms
+        self.mcp_call_ms_total += call_ms
+        self.mcp_max_wait_ms = max(self.mcp_max_wait_ms, wait_ms)
 
     def _capture_costs(self, data: Dict[str, Any]) -> None:
         """Replace ``self.stats`` from an event's ``metadata.costs``.
@@ -442,6 +459,15 @@ class UsageRecorderState:
         """
         if self.dal is None or not getattr(self.dal, "enabled", False):
             return
+        if self.mcp_calls:
+            # Lets semaphore pressure be queried fleet-wide without a schema
+            # change. Backend values win over FE-supplied keys.
+            self.meta.update(
+                mcp_calls=self.mcp_calls,
+                mcp_wait_ms_total=self.mcp_wait_ms_total,
+                mcp_call_ms_total=self.mcp_call_ms_total,
+                mcp_max_wait_ms=self.mcp_max_wait_ms,
+            )
         try:
             _RECORDER_EXECUTOR.submit(self.dal.record_usage_event, self)
         except RuntimeError:
@@ -478,6 +504,11 @@ def stream_with_usage_recording(
         for msg in stream:
             if msg.event == StreamEvents.TOOL_RESULT:
                 state.tool_call_count += 1
+                result = (msg.data or {}).get("result")
+                if isinstance(result, dict):
+                    state._capture_mcp_timing(
+                        result.get("mcp_wait_ms"), result.get("mcp_call_ms")
+                    )
             elif msg.event == StreamEvents.TOKEN_COUNT:
                 # Cumulative cost broadcast after each successful LLM iteration
                 # (and after compaction). Capturing it here is the only way to
@@ -560,7 +591,13 @@ def record_from_llm_result(
         state.stats = RequestStats()
 
     state.iterations = getattr(llm_result, "num_llm_calls", None) or 1
-    state.tool_call_count = len(getattr(llm_result, "tool_calls", None) or [])
+    tool_calls = getattr(llm_result, "tool_calls", None) or []
+    state.tool_call_count = len(tool_calls)
+    for tool_call in tool_calls:
+        result = getattr(tool_call, "result", None)
+        state._capture_mcp_timing(
+            getattr(result, "mcp_wait_ms", None), getattr(result, "mcp_call_ms", None)
+        )
     state.finish_reason = getattr(llm_result, "finish_reason", None)
     state.status = RequestStatus.SUCCESS
     state._fire()
