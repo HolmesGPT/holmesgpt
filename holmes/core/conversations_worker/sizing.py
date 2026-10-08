@@ -14,7 +14,7 @@ from holmes.core.conversations_worker.models import AUTO_EXECUTOR, MANUAL_EXECUT
 THREAD_CEILING = 64
 
 # Used when the account settings say nothing about the name.
-BUILTIN_EXECUTOR_SIZES: Dict[str, int] = {MANUAL_EXECUTOR: 10, AUTO_EXECUTOR: 2}
+BUILTIN_EXECUTOR_SIZES: Dict[str, int] = {MANUAL_EXECUTOR: 10, AUTO_EXECUTOR: 1}
 
 
 def positive_int(value: object) -> Optional[int]:
@@ -40,7 +40,7 @@ class ExecutorSizing(BaseModel):
          .conversation_executors`` value as the DAL read it, written from the
          UI (Settings → LLMs sets 'manual', Settings → Triage sets 'auto');
          entries that are not a positive int are ignored (warned once);
-      2. the built-in default for the name (manual=10, auto=2);
+      2. the built-in default for the name (manual=10, auto=1);
       3. ``base_size`` (``CONVERSATION_WORKER_MAX_CONCURRENT``, 5) for any
          other name.
     Every result is clamped to ``thread_ceiling``.
