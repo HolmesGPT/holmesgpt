@@ -103,6 +103,13 @@ class TestConfig:
         assert ok is False
         assert "Invalid multi-tenant Prometheus configuration" in msg
 
+    @pytest.mark.parametrize("field", ["tenant_label", "tenant_header"])
+    def test_rejects_empty_tenant_label_or_header(self, field):
+        ts = MultiTenantPrometheusToolset()
+        ok, msg = ts.prerequisites_callable({"prometheus_url": BASE_URL, field: ""})
+        assert ok is False
+        assert field in msg
+
     def test_defaults(self):
         ts = _toolset()
         assert ts.config.tenant_label == "productline"
@@ -285,6 +292,18 @@ class TestHeaderRouting:
             )
             assert len(rsps.calls) == 0
         assert result.status == StructuredToolResultStatus.ERROR
+
+    def test_federated_tenant_is_rejected(self):
+        """Mimir reads `a|b` as a query across both tenants."""
+        ts = _toolset()
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            result = _tool(ts, "get_all_labels").invoke(
+                {"tenant": "corporate|retail"},
+                create_mock_tool_invoke_context(),
+            )
+            assert len(rsps.calls) == 0
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "single tenant" in result.error
 
 
 class TestInstructions:

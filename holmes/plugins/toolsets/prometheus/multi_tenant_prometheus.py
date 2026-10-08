@@ -78,6 +78,7 @@ class MultiTenantPrometheusConfig(PrometheusConfig):
     )
     tenant_label: str = Field(
         default="productline",
+        min_length=1,
         title="Tenant Label",
         description=(
             "Name of the Kubernetes label whose value selects the tenant. "
@@ -89,6 +90,7 @@ class MultiTenantPrometheusConfig(PrometheusConfig):
     )
     tenant_header: str = Field(
         default="X-Scope-OrgID",
+        min_length=1,
         title="Tenant Header",
         description=(
             "HTTP header that carries `tenant` on every request. Overrides a header "
@@ -142,6 +144,16 @@ class MultiTenantHeaderMixin:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=_missing_tenant_error(config),
+                params=params,
+            )
+        if "|" in tenant:
+            # Mimir reads `a|b` as a federated query across tenants a and b.
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=(
+                    f"'tenant' must be a single tenant ID, got '{tenant}'. '|' would query "
+                    "several tenants at once; call the tool once per tenant instead."
+                ),
                 params=params,
             )
         # The stock tools send `config.additional_headers`, so run them against a
