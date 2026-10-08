@@ -8,14 +8,23 @@ threads or claiming; an executor calls ``run(task)`` on one of its threads.
 
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from holmes.common.env_vars import CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS
+from holmes.common.env_vars import (
+    CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS,
+    CONVERSATION_WORKER_FOLLOWUP_POLL_SECONDS,
+)
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import build_chat_messages
 from holmes.core.conversations_worker.event_publisher import (
     ConversationEventPublisher,
+)
+from holmes.core.conversations_worker.followups import (
+    MidTurnFollowups,
+    TerminalMessagesCapture,
+    is_mid_turn_user_message,
 )
 from holmes.core.conversations_worker.models import (
     EVENT_USER_MESSAGE,
@@ -25,6 +34,7 @@ from holmes.core.conversations_worker.models import (
     ConversationReassignedError,
     ConversationStatus,
     ConversationTask,
+    PendingFollowupError,
     conversation_identity,
 )
 from holmes.core.models import ChatRequest
@@ -48,6 +58,21 @@ if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
 
 
+# How many times a turn is re-run after the DB refused to complete it because a
+# mid-turn follow-up was waiting (ROB-1499). Each round is a fresh call_stream
+# with the full max_steps budget. Past the bound the turn is completed anyway
+# and the user's next ordinary follow-up carries on.
+MAX_FOLLOWUP_CONTINUATIONS = 5
+
+
+class _CompletionRefused(Exception):
+    """Internal: the DB refused to complete the turn, run another round."""
+
+    def __init__(self, extra: List[Dict[str, Any]]):
+        super().__init__("completion refused, follow-ups pending")
+        self.extra = extra
+
+
 class ConversationProcessor:
     """Runs one conversation turn and writes its outcome.
 
@@ -61,6 +86,71 @@ class ConversationProcessor:
         self.dal = dal
         self.config = config
         self.holmes_id = holmes_id
+        # Mid-turn follow-ups (ROB-1499). Set by the runtime once it has probed
+        # the database and advertised the capability; until then, off.
+        self.mid_turn_followup_supported = False
+        # One wake signal per in-flight turn, keyed by active_key
+        # (conversation_id, request_sequence) so overlapping turns of one
+        # conversation never share or clobber a signal. Set by the
+        # 'conversation_followup' broadcast via notify_followup.
+        self._followup_signals: Dict[tuple, threading.Event] = {}
+        self._followup_lock = threading.Lock()
+
+    # ---- mid-turn follow-up signals ----
+
+    def notify_followup(self, conversation_id: Optional[str]) -> bool:
+        """Routing target the runtime wires into RealtimeWorker.on_followup.
+        Non-blocking: flags every running turn of the conversation so it reads
+        the new user messages at its next step boundary. The broadcast carries
+        only the conversation_id, but a conversation can have overlapping turns
+        (one per request_sequence), each with its own signal — wake all of them.
+        Returns whether this process is running that conversation."""
+        if not conversation_id:
+            return False
+        with self._followup_mutex():
+            signals = [
+                sig
+                for active_key, sig in self._followups().items()
+                if active_key[0] == conversation_id
+            ]
+        if not signals:
+            logging.debug(
+                "Follow-up broadcast for conversation %s ignored: not running here",
+                conversation_id,
+            )
+            return False
+        for sig in signals:
+            sig.set()
+        logging.info(
+            "Conversation %s: mid-turn follow-up signalled (%d turn(s))",
+            conversation_id,
+            len(signals),
+        )
+        return True
+
+    def _followups(self) -> Dict[tuple, threading.Event]:
+        """Lazily back the registry so a processor built without __init__ (tests
+        that bypass it) still answers notify_followup instead of raising."""
+        signals = getattr(self, "_followup_signals", None)
+        if signals is None:
+            signals = self._followup_signals = {}
+        return signals
+
+    def _followup_mutex(self) -> threading.Lock:
+        lock = getattr(self, "_followup_lock", None)
+        if lock is None:
+            lock = self._followup_lock = threading.Lock()
+        return lock
+
+    def _register_followup_signal(self, active_key: tuple) -> threading.Event:
+        signal = threading.Event()
+        with self._followup_mutex():
+            self._followups()[active_key] = signal
+        return signal
+
+    def _unregister_followup_signal(self, active_key: tuple) -> None:
+        with self._followup_mutex():
+            self._followups().pop(active_key, None)
 
     # ---- the turn ----
 
@@ -238,12 +328,19 @@ class ConversationProcessor:
         2. The latest terminal event (``ai_answer_end`` / ``approval_required``)
            before that user_message provides the ``messages`` array used as
            ``conversation_history``.
+        3. Mid-turn follow-ups (``data.mid_turn``) never open a turn. Those
+           after the opening user_message, still unanswered, go to
+           ``task.queued_user_messages`` (ROB-1499); ``task.consumed_seq`` is
+           the newest seq among the opening message and the queued ones, or
+           None when the RPC reports no seq.
         """
         current_user_idx: int = -1
         terminal_events = ("ai_answer_end", "approval_required")
 
         for idx, ev in enumerate(events):
-            if ev.get("event") == EVENT_USER_MESSAGE:
+            if ev.get("event") == EVENT_USER_MESSAGE and not (
+                (ev.get("data") or {}).get("mid_turn")
+            ):
                 current_user_idx = idx
 
         if current_user_idx >= 0:
@@ -253,6 +350,18 @@ class ConversationProcessor:
             )
             if not already_answered:
                 task.user_message_data = events[current_user_idx].get("data") or {}
+                queued = [
+                    ev
+                    for ev in events[current_user_idx + 1 :]
+                    if is_mid_turn_user_message(ev)
+                ]
+                task.queued_user_messages = [ev["data"] for ev in queued]
+                seqs = [
+                    ev.get("seq")
+                    for ev in [events[current_user_idx], *queued]
+                    if isinstance(ev.get("seq"), int)
+                ]
+                task.consumed_seq = max(seqs) if seqs else None
 
         upper = current_user_idx if current_user_idx >= 0 else len(events)
         for idx in range(upper - 1, -1, -1):
@@ -450,56 +559,94 @@ class ConversationProcessor:
                 request_context = request_context or {}
                 request_context["cluster_name"] = self.config.cluster_name
 
+            # Mid-turn follow-ups (ROB-1499): messages the user sends while this
+            # turn runs are fed to the model at step boundaries, and the DB
+            # refuses to complete the turn while one is still unread.
+            followups = MidTurnFollowups(
+                dal=self.dal,
+                conversation_id=task.conversation_id,
+                signal=self._register_followup_signal(task.active_key),
+                consumed_seq=task.consumed_seq,
+                queued=task.queued_user_messages,
+                enabled=self.mid_turn_followup_supported,
+                poll_interval_seconds=CONVERSATION_WORKER_FOLLOWUP_POLL_SECONDS,
+            )
+            tool_decisions = chat_request.tool_decisions
+            frontend_tool_results = chat_request.frontend_tool_results
+            rounds = 0
             try:
-                # Wrap the raw stream with the usage recorder BEFORE the
-                # publisher consumes it, so the recorder sees Holmes' native
-                # StreamMessage events (TOOL_RESULT / ANSWER_END / etc.) and
-                # can fire one HolmesUsageEvents row per worker-driven turn.
-                # Mirrors the wiring in server.py::chat() for the streaming
-                # path; without this the worker bypasses the recorder entirely.
-                recorder_state = build_chat_recorder_state(
-                    chat_request,
-                    request_ai,
-                    dal=self.dal,
-                    is_streaming=True,
-                )
-                raw_stream = request_ai.call_stream(
-                    msgs=messages,
-                    enable_tool_approval=chat_request.enable_tool_approval or False,
-                    tool_decisions=chat_request.tool_decisions,
-                    frontend_tool_results=chat_request.frontend_tool_results,
-                    response_format=chat_request.response_format,
-                    request_context=request_context,
-                    trace_span=trace_span,
-                )
-                stream = stream_with_usage_recording(raw_stream, recorder_state)
+                while True:
+                    # Wrap the raw stream with the usage recorder BEFORE the
+                    # publisher consumes it, so the recorder sees Holmes' native
+                    # StreamMessage events (TOOL_RESULT / ANSWER_END / etc.) and
+                    # can fire one HolmesUsageEvents row per worker-driven turn.
+                    # Mirrors the wiring in server.py::chat() for the streaming
+                    # path; without this the worker bypasses the recorder entirely.
+                    recorder_state = build_chat_recorder_state(
+                        chat_request,
+                        request_ai,
+                        dal=self.dal,
+                        is_streaming=True,
+                    )
+                    raw_stream = request_ai.call_stream(
+                        msgs=messages,
+                        enable_tool_approval=chat_request.enable_tool_approval or False,
+                        tool_decisions=tool_decisions,
+                        frontend_tool_results=frontend_tool_results,
+                        response_format=chat_request.response_format,
+                        request_context=request_context,
+                        trace_span=trace_span,
+                        pending_user_messages=followups.pending_user_messages,
+                    )
+                    stream = stream_with_usage_recording(raw_stream, recorder_state)
+                    capture = TerminalMessagesCapture(
+                        stream,
+                        (StreamEvents.ANSWER_END, StreamEvents.APPROVAL_REQUIRED),
+                    )
 
-                terminal = publisher.consume(stream)
-                if terminal is None:
-                    # The stream ended without a terminal event (or the
-                    # terminal batch could not be saved). Post an explanatory
-                    # error event before marking the conversation failed so
-                    # the UI shows why instead of an unexplained status flip.
-                    logging.error(
-                        "Conversation %s ended without a terminal event",
-                        task.conversation_id,
-                    )
-                    self.fail(task, "Conversation ended without a terminal event")
-                else:
+                    terminal = publisher.consume(capture)
+                    if terminal is None:
+                        # The stream ended without a terminal event (or the
+                        # terminal batch could not be saved). Post an explanatory
+                        # error event before marking the conversation failed so
+                        # the UI shows why instead of an unexplained status flip.
+                        logging.error(
+                            "Conversation %s ended without a terminal event",
+                            task.conversation_id,
+                        )
+                        self.fail(task, "Conversation ended without a terminal event")
+                        break
+
                     status = self._terminal_to_status(terminal)
-                    ok = self.dal.update_conversation_status(
-                        conversation_id=task.conversation_id,
-                        request_sequence=task.request_sequence,
-                        assignee=self.holmes_id,
-                        status=status,
-                    )
+                    try:
+                        ok = self._finish_turn(
+                            task, status, terminal, followups, rounds, capture
+                        )
+                    except _CompletionRefused as refused:
+                        # The user wrote while the model was wrapping up. Run
+                        # another round from the history the model ended on,
+                        # plus what the user said. Decisions / frontend results
+                        # were applied in the first round.
+                        rounds += 1
+                        messages = list(capture.messages or []) + refused.extra
+                        tool_decisions = None
+                        frontend_tool_results = None
+                        logging.info(
+                            "Conversation %s: completion refused, follow-up round %d with %d new message(s)",
+                            task.conversation_id,
+                            rounds,
+                            len(refused.extra),
+                        )
+                        continue
                     if not ok:
                         logging.warning(
                             "Failed to mark conversation %s complete (status=%s)",
                             task.conversation_id,
                             status,
                         )
+                    break
             finally:
+                self._unregister_followup_signal(task.active_key)
                 trace_span.end()
         except ConversationReassignedError as e:
             logging.warning(
@@ -539,6 +686,68 @@ class ConversationProcessor:
             )
         finally:
             storage.__exit__(None, None, None)
+
+    def _finish_turn(
+        self,
+        task: ConversationTask,
+        status: str,
+        terminal: Optional[StreamEvents],
+        followups: MidTurnFollowups,
+        rounds: int,
+        capture: TerminalMessagesCapture,
+    ) -> bool:
+        """Set the turn's terminal status, guarded by how far the model read.
+
+        Only a real answer is guarded: an approval pause cannot take a new user
+        message (the assistant's tool calls are still open), so a follow-up
+        queued behind it waits for the next ordinary turn. Raises
+        ``_CompletionRefused`` with the unread messages when the DB refused and
+        another round is allowed."""
+        consumed = (
+            followups.consumed_seq
+            if terminal == StreamEvents.ANSWER_END and followups.enabled
+            else None
+        )
+        try:
+            return self.dal.update_conversation_status(
+                conversation_id=task.conversation_id,
+                request_sequence=task.request_sequence,
+                assignee=self.holmes_id,
+                status=status,
+                consumed_seq=consumed,
+            )
+        except PendingFollowupError:
+            extra = followups.fetch_new()
+            if extra and rounds < MAX_FOLLOWUP_CONTINUATIONS and capture.messages:
+                raise _CompletionRefused(extra)
+            if followups.last_fetch_failed:
+                # The DB refused completion because an unread message exists, but
+                # we could not read it. An empty `extra` here is "read failed",
+                # not "nothing to deliver" — forcing an unguarded completion
+                # would drop the message. Leave the turn un-finalized (no status
+                # change) rather than force-completing past the message or marking
+                # it failed with a misleading error over a turn that did answer:
+                # the answer events are already persisted, and the turn is left
+                # for the stale-active sweep / the user's next follow-up.
+                logging.warning(
+                    "Conversation %s: completion refused for a pending follow-up "
+                    "and the follow-up read failed; leaving the turn un-finalized",
+                    task.conversation_id,
+                )
+                return False
+            logging.warning(
+                "Conversation %s: completion refused for a pending follow-up but "
+                "cannot continue (messages=%d, rounds=%d); completing anyway",
+                task.conversation_id,
+                len(extra),
+                rounds,
+            )
+            return self.dal.update_conversation_status(
+                conversation_id=task.conversation_id,
+                request_sequence=task.request_sequence,
+                assignee=self.holmes_id,
+                status=status,
+            )
 
     def _inject_frontend_tools(
         self,

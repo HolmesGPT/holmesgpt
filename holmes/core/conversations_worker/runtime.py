@@ -24,6 +24,7 @@ from typing import List, Optional, TYPE_CHECKING
 from postgrest.exceptions import APIError as PGAPIError
 
 from holmes.common.env_vars import (
+    CONVERSATION_WORKER_MID_TURN_FOLLOWUP,
     CONVERSATION_WORKER_REALTIME_ENABLED,
     CONVERSATION_WORKER_REALTIME_VERIFY_INITIAL_BACKOFF_SECONDS,
     CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS,
@@ -150,6 +151,9 @@ class ConversationRuntime:
                     holmes_id=self.holmes_id,
                     on_new_pending=self.registry.on_pending,
                     on_new_tool_calls=self._tool_call_worker.claim_pending_tool_calls,
+                    # Mid-turn follow-ups (ROB-1499): wake the processor running
+                    # the turn so it folds the new message in at the next step.
+                    on_followup=self.processor.notify_followup,
                 )
                 self._realtime_manager.start()
             except Exception:
@@ -259,6 +263,24 @@ class ConversationRuntime:
                 break
             self.processor.retire(task)
 
+    def _probe_mid_turn_followup(self) -> bool:
+        """Whether this runtime may fold mid-turn follow-ups into running turns:
+        the env flag is on and the database carries the ROB-1499 RPCs. An
+        unreachable Supabase counts as no, keeping the advertised capability
+        consistent with what the processor will actually do."""
+        if not CONVERSATION_WORKER_MID_TURN_FOLLOWUP:
+            return False
+        try:
+            supported = self.dal.supports_mid_turn_followup()
+        except Exception:
+            logging.warning(
+                "Could not probe mid-turn follow-up support; disabling it",
+                exc_info=True,
+            )
+            return False
+        logging.info("Mid-turn follow-ups %s", "enabled" if supported else "disabled")
+        return supported is True
+
     def _realtime_connected(self) -> bool:
         if self._realtime_manager is None:
             return False
@@ -321,9 +343,17 @@ class ConversationRuntime:
                     "Supabase Realtime is enabled — starting conversation "
                     "polling/subscription and updating HolmesStatus"
                 )
+                # Mid-turn follow-ups (ROB-1499) need the storage RPCs; probe
+                # once and let the processor gate on it, advertising the
+                # capability so the UI only offers it when both sides agree.
+                mid_turn_ok = self._probe_mid_turn_followup()
+                self.processor.mid_turn_followup_supported = mid_turn_ok
                 try:
                     update_holmes_status_in_db(
-                        self.dal, self.config, realtime_available=True
+                        self.dal,
+                        self.config,
+                        realtime_available=True,
+                        mid_turn_followup_available=mid_turn_ok,
                     )
                 except Exception:
                     logging.exception(

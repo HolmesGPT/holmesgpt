@@ -18,6 +18,7 @@ These tests assert the integration without re-testing the recorder itself
 """
 from unittest.mock import MagicMock, patch
 
+from holmes.core.conversations_worker.followups import TerminalMessagesCapture
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.models import ChatRequest
@@ -152,9 +153,13 @@ def test_publisher_consumes_wrapped_stream_not_raw():
     captured = _run(worker, ai)
 
     consume_args, _ = captured["publisher"].consume.call_args
-    assert consume_args[0] is captured["wrapped_stream"], (
+    # The publisher reads through TerminalMessagesCapture (ROB-1499), which
+    # remembers the final history for a follow-up continuation; what it wraps
+    # must be the recorder-wrapped stream, never the raw one.
+    assert isinstance(consume_args[0], TerminalMessagesCapture)
+    assert consume_args[0]._stream is captured["wrapped_stream"], (
         "publisher.consume() must receive the wrapped stream, not the raw one. "
-        f"Got {consume_args[0]!r}"
+        f"Got {consume_args[0]._stream!r}"
     )
 
 

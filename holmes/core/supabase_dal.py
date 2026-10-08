@@ -1699,12 +1699,55 @@ class SupabaseDal:
             )
             raise
 
+    def supports_mid_turn_followup(self) -> Optional[bool]:
+        """Whether the database carries the ROB-1499 RPCs (mid-turn follow-ups).
+
+        Probes the ``supports_mid_turn_followup()`` RPC. ``False`` when the RPC
+        does not exist (PGRST202), ``None`` when Supabase could not be reached.
+        """
+        if not self.enabled:
+            return None
+        try:
+            res = self.client.rpc("supports_mid_turn_followup", {}).execute()
+        except PGAPIError as exc:
+            code = getattr(exc, "code", None) or ""
+            message = (getattr(exc, "message", None) or "").lower()
+            if code == "PGRST202" or "could not find the function" in message:
+                logging.info(
+                    "supports_mid_turn_followup RPC does not exist — mid-turn "
+                    "follow-ups disabled"
+                )
+                return False
+            logging.warning(
+                "Supabase API error while probing mid-turn follow-up support (code=%s): %s",
+                code,
+                exc,
+            )
+            return None
+        except Exception:
+            logging.warning(
+                "Connectivity/transport error while probing mid-turn follow-up support",
+                exc_info=True,
+            )
+            return None
+        # Accept only an explicit boolean. An empty result set or any other
+        # payload shape is inconclusive (None), not "supported" — never coerce
+        # a non-empty dict/string to True, which would turn the feature on for a
+        # malformed response.
+        data = res.data
+        if isinstance(data, list):
+            if not data:
+                return None
+            data = data[0]
+        return data if isinstance(data, bool) else None
+
     def update_conversation_status(
         self,
         conversation_id: str,
         request_sequence: int,
         assignee: str,
         status: str,
+        consumed_seq: Optional[int] = None,
     ) -> bool:
         """
         Transition a conversation between active states or to terminal states.
@@ -1713,12 +1756,20 @@ class SupabaseDal:
         The RPC validates that the current status is ``queued`` or ``running``
         and that assignee + request_sequence match the row.  On terminal states
         (``completed``, ``failed``) the assignee is cleared by the RPC.
+
+        ``consumed_seq`` is the seq of the newest ConversationEvents row whose
+        user_message the model has seen. When given with ``completed``, the RPC
+        refuses with PENDING_FOLLOWUP (raised here as ``PendingFollowupError``)
+        if a newer user message is waiting, so the caller runs the model again
+        instead of ending the turn. Only sent when not None: the parameter
+        exists only on databases that carry the ROB-1499 migration.
         """
         # Lazy imports avoid a circular import: conversations_worker pulls in
         # conversations.py → config → llm → supabase_dal at module load time.
         from holmes.core.conversations_worker.models import (
             ConversationReassignedError,
             ConversationStatus,
+            PendingFollowupError,
         )
 
         if not self.enabled:
@@ -1730,36 +1781,43 @@ class SupabaseDal:
             )
             return False
 
+        params: Dict[str, object] = {
+            "_account_id": self.account_id,
+            "_conversation_id": conversation_id,
+            "_request_sequence": request_sequence,
+            "_assignee": assignee,
+            "_status": status,
+        }
+        if consumed_seq is not None:
+            params["_consumed_seq"] = consumed_seq
+
         # Retry transient infrastructure errors so a hiccup doesn't leave the
         # conversation stuck in a non-terminal state. MISMATCH means the row
         # was reassigned — never retried, raised as ConversationReassignedError.
+        # PENDING_FOLLOWUP is a decision, not an error: never retried either.
         @retry(
-            retry=retry_if_not_exception_type(ConversationReassignedError),
+            retry=retry_if_not_exception_type(
+                (ConversationReassignedError, PendingFollowupError)
+            ),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=0.5, min=0.5, max=2.0),
             reraise=True,
         )
         def _update_with_retry() -> bool:
             try:
-                res = self.client.rpc(
-                    "update_conversation_status",
-                    {
-                        "_account_id": self.account_id,
-                        "_conversation_id": conversation_id,
-                        "_request_sequence": request_sequence,
-                        "_assignee": assignee,
-                        "_status": status,
-                    },
-                ).execute()
+                res = self.client.rpc("update_conversation_status", params).execute()
                 return bool(res.data)
             except Exception as e:
-                if "mismatch" in str(e).lower():
-                    raise ConversationReassignedError(str(e)) from e
+                text = str(e)
+                if "PENDING_FOLLOWUP" in text:
+                    raise PendingFollowupError(text) from e
+                if "mismatch" in text.lower():
+                    raise ConversationReassignedError(text) from e
                 raise
 
         try:
             return _update_with_retry()
-        except ConversationReassignedError:
+        except (ConversationReassignedError, PendingFollowupError):
             raise
         except Exception:
             logging.exception(
@@ -1773,6 +1831,7 @@ class SupabaseDal:
         conversation_id: str,
         include_compacted: bool = False,
         min_seq: int = 1,
+        raise_on_error: bool = False,
     ) -> List[Dict]:
         """
         Fetch conversation events as a flat chronological list.
@@ -1820,6 +1879,12 @@ class SupabaseDal:
                 "Supabase error while fetching conversation events (after retries)",
                 exc_info=True,
             )
+            # The mid-turn completion guard must tell a failed read from a
+            # genuinely empty one: after a PENDING_FOLLOWUP refusal, an empty []
+            # from a failed read would otherwise look like "nothing to deliver"
+            # and force an unguarded completion past the unread message.
+            if raise_on_error:
+                raise
             return []
 
     def finish_scheduled_prompt_run(
