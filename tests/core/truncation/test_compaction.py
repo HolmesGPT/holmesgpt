@@ -559,43 +559,61 @@ def test_compaction_returns_original_history_when_both_attempts_unusable():
     assert result.messages_after_compaction == history
 
 
-def test_compaction_skips_fallback_when_rate_limited():
-    """The flattened fallback only works around gateway translation bugs; after
-    the primary call exhausted its rate-limit retries it would wait them out again."""
-    history = _history_with_tool_calls()
-    exc = litellm.RateLimitError(
-        message="slow down", llm_provider="openai", model="gpt-4o"
-    )
-    exc.llm_rate_limit_retries = 5
-    exc.llm_rate_limit_wait_ms = 170000
-    llm = RecordingFakeLLM([exc, _make_response(content="UNUSED")])
-    result = compact_conversation_history(
-        original_conversation_history=history,
-        llm=llm,  # type: ignore
-        tools=_TOOLS,
-    )
+@pytest.mark.parametrize(
+    "error",
+    [
+        litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        litellm.InternalServerError(
+            message='{"type": "error", "error": {"type": "overloaded_error"}}',
+            llm_provider="anthropic",
+            model="m",
+        ),
+    ],
+)
+def test_compaction_raises_rate_limits_instead_of_degrading(error):
+    """The LLM call already waited out its retry budget. Degrading would end in
+    "start a new conversation" and hide the cause, and the flattened fallback
+    would wait the budget out again."""
+    llm = RecordingFakeLLM([error, _make_response(content="UNUSED")])
+    with pytest.raises(type(error)):
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
     assert len(llm.calls) == 1
-    assert result.messages_after_compaction == history
-    assert result.fallback_used is False
-    assert result.usage.llm_rate_limit_retries == 5
-    assert result.usage.llm_rate_limit_wait_ms == 170000
 
 
-def test_compaction_counts_retries_of_a_failed_fallback():
-    history = _history_with_tool_calls()
-    exc = litellm.RateLimitError(
-        message="slow down", llm_provider="openai", model="gpt-4o"
+def test_compaction_raises_rate_limit_from_fallback():
+    llm = RecordingFakeLLM(
+        [
+            RuntimeError("400 toolConfig must be defined"),
+            litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        ]
     )
-    exc.llm_rate_limit_retries = 2
-    llm = RecordingFakeLLM([RuntimeError("400 toolConfig must be defined"), exc])
+    with pytest.raises(litellm.RateLimitError):
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    assert len(llm.calls) == 2
+
+
+def test_compaction_keeps_retry_counts_of_a_failed_attempt():
+    """A call can back off from 429s and then fail with another error."""
+    error = RuntimeError("400 toolConfig must be defined")
+    error.llm_rate_limit_retries = 2  # type: ignore[attr-defined]
+    error.llm_rate_limit_wait_ms = 5000  # type: ignore[attr-defined]
+    llm = RecordingFakeLLM([error, _make_response(content="FALLBACK SUMMARY")])
     result = compact_conversation_history(
-        original_conversation_history=history,
+        original_conversation_history=_history_with_tool_calls(),
         llm=llm,  # type: ignore
         tools=_TOOLS,
     )
-    assert len(llm.calls) == 2
-    assert result.fallback_used is True
+    assert result.summary == "FALLBACK SUMMARY"
     assert result.usage.llm_rate_limit_retries == 2
+    assert result.usage.llm_rate_limit_wait_ms == 5000
 
 
 def test_compaction_propagates_cancellation():

@@ -572,6 +572,20 @@ class TestRecordError:
         assert s.stats.llm_rate_limit_retries == 4
         assert s.stats.llm_rate_limit_wait_ms == 170000
 
+    def test_retries_found_on_a_wrapped_error(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        cause = litellm.RateLimitError(
+            message="slow down", llm_provider="openai", model="m"
+        )
+        cause.llm_rate_limit_retries = 2
+        cause.llm_rate_limit_wait_ms = 4000
+        wrapped = RuntimeError("interrupted")
+        wrapped.__cause__ = cause
+        record_error(state, wrapped)
+        assert _state_arg(state).stats.llm_rate_limit_retries == 2
+        assert _state_arg(state).stats.llm_rate_limit_wait_ms == 4000
+
     def test_overloaded_is_an_error_with_its_status(self, monkeypatch):
         _patch_inline_thread(monkeypatch)
         state = _make_state()

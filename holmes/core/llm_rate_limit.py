@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
-    ContextManager,
     Dict,
     Iterator,
     Mapping,
@@ -163,24 +162,33 @@ def _wait(retry_state: RetryCallState) -> float:
 
 def _stop(max_wait_seconds: float) -> Callable[[RetryCallState], bool]:
     # Only time spent backing off counts; request time and waiting for a
-    # concurrency slot do not.
+    # concurrency slot do not. Written so that a NaN budget stops.
     def stop(retry_state: RetryCallState) -> bool:
         upcoming = retry_state.upcoming_sleep or 0.0
-        return (
-            max_wait_seconds <= 0 or retry_state.idle_for + upcoming > max_wait_seconds
-        )
+        within_budget = retry_state.idle_for + upcoming <= max_wait_seconds
+        return max_wait_seconds <= 0 or not within_budget
 
     return stop
 
 
-def _sleep(cancel_event: Optional[threading.Event]) -> Callable[[float], None]:
-    def sleep(seconds: float) -> None:
-        if cancel_event is None:
-            time.sleep(seconds)
-        elif cancel_event.wait(seconds):
-            raise LLMRetryCancelled()
+class _Sleeper:
+    """tenacity sleep that wakes early on cancel and records the time actually
+    slept (tenacity counts a cut-short sleep in full)."""
 
-    return sleep
+    def __init__(self, cancel_event: Optional[threading.Event]) -> None:
+        self.cancel_event = cancel_event
+        self.slept = 0.0
+
+    def __call__(self, seconds: float) -> None:
+        if self.cancel_event is None:
+            time.sleep(seconds)
+            self.slept += seconds
+            return
+        started = time.monotonic()
+        if self.cancel_event.wait(seconds):
+            self.slept += time.monotonic() - started
+            raise LLMRetryCancelled()
+        self.slept += seconds
 
 
 def _log_retry(model: str) -> Callable[[RetryCallState], None]:
@@ -198,16 +206,24 @@ def _log_retry(model: str) -> Callable[[RetryCallState], None]:
     return log
 
 
-def _model_slot(model: str) -> ContextManager[Any]:
+@contextlib.contextmanager
+def _model_slot(model: str, cancel_event: Optional[threading.Event]) -> Iterator[None]:
     cap = env_vars.LLM_MAX_CONCURRENT_CALLS_PER_MODEL
     if cap <= 0:
-        return contextlib.nullcontext()
+        yield
+        return
     with _model_semaphores_lock:
         semaphore = _model_semaphores.get((model, cap))
         if semaphore is None:
             semaphore = threading.BoundedSemaphore(cap)
             _model_semaphores[(model, cap)] = semaphore
-    return semaphore
+    while not semaphore.acquire(timeout=1):
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMRetryCancelled()
+    try:
+        yield
+    finally:
+        semaphore.release()
 
 
 def _annotate(target: Any, retries: int, wait_s: float) -> None:
@@ -222,18 +238,31 @@ def _annotate(target: Any, retries: int, wait_s: float) -> None:
 
 
 def retry_counts(obj: Any) -> Dict[str, int]:
-    """Retry counters recorded on an LLM response or a raised exception."""
+    """Retry counters recorded on an LLM response or a raised exception.
+
+    For an exception, the chain is searched too, since callers re-raise the LLM
+    error wrapped (``raise LLMInterruptedError() from e``).
+    """
+    keys = (RETRIES_KEY, WAIT_MS_KEY)
     hidden = getattr(obj, "_hidden_params", None)
     if isinstance(hidden, dict):
-        return {key: int(hidden.get(key) or 0) for key in (RETRIES_KEY, WAIT_MS_KEY)}
-    return {key: int(getattr(obj, key, 0) or 0) for key in (RETRIES_KEY, WAIT_MS_KEY)}
+        return {key: int(hidden.get(key) or 0) for key in keys}
+    seen = set()
+    exc = obj if isinstance(obj, BaseException) else None
+    while exc is not None and id(exc) not in seen:
+        counts = {key: int(getattr(exc, key, 0) or 0) for key in keys}
+        if any(counts.values()):
+            return counts
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    return {key: 0 for key in keys}
 
 
 def call_with_rate_limit_retry(fn: Callable[[], T], model: str) -> T:
     """Run ``fn``, retrying rate-limit / overloaded errors within the wait budget.
 
     The per-model concurrency slot is held only while ``fn`` runs, not while
-    backing off. For a streamed call that is until the stream is opened.
+    backing off. For a streamed call that is until ``completion()`` returns.
     """
     scope = _retry_scope.get()
     max_wait = (
@@ -241,28 +270,23 @@ def call_with_rate_limit_retry(fn: Callable[[], T], model: str) -> T:
         if scope.max_wait_seconds is not None
         else env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS
     )
+    sleeper = _Sleeper(scope.cancel_event)
     retrying = Retrying(
         retry=retry_if_exception(is_retryable_llm_error),
         wait=_wait,
         stop=_stop(max_wait),
-        sleep=_sleep(scope.cancel_event),
+        sleep=sleeper,
         before_sleep=_log_retry(model),
         reraise=True,
     )
+    attempts = 0
     try:
         for attempt in retrying:
-            with attempt, _model_slot(model):
+            with attempt, _model_slot(model, scope.cancel_event):
+                attempts += 1
                 result = fn()
     except Exception as e:
-        _annotate(
-            e,
-            retrying.statistics.get("attempt_number", 1) - 1,
-            retrying.statistics.get("idle_for", 0.0),
-        )
+        _annotate(e, max(attempts - 1, 0), sleeper.slept)
         raise
-    _annotate(
-        result,
-        retrying.statistics.get("attempt_number", 1) - 1,
-        retrying.statistics.get("idle_for", 0.0),
-    )
+    _annotate(result, attempts - 1, sleeper.slept)
     return result

@@ -583,3 +583,72 @@ def test_changing_the_cap_takes_effect(budget, cap):
     for t in threads:
         t.join(timeout=10)
     assert not barrier.broken
+
+
+class TestCancellationAndAccounting:
+    def test_nan_budget_stops(self, clock, budget, cap):
+        budget(float("nan"))
+        fn = scripted(rate_limit(), "ok")
+        with pytest.raises(litellm.RateLimitError):
+            call_with_rate_limit_retry(fn, model="m")
+        assert len(fn.calls) == 1
+
+    def test_cancelled_backoff_records_time_actually_waited(self, budget, cap):
+        cancel = threading.Event()
+        threading.Timer(0.1, cancel.set).start()
+        with rate_limit_retry_scope(cancel_event=cancel):
+            with pytest.raises(LLMRetryCancelled) as info:
+                call_with_rate_limit_retry(
+                    scripted(rate_limit({"Retry-After": "30"})), model="m"
+                )
+        assert retry_counts(info.value)["llm_rate_limit_retries"] == 0
+        assert retry_counts(info.value)["llm_rate_limit_wait_ms"] < 5000
+
+    def test_waiting_for_a_slot_is_cancellable(self, budget, cap):
+        cap(1)
+        release = threading.Event()
+        holding = threading.Event()
+
+        def hold_slot():
+            holding.set()
+            release.wait(10)
+
+        holder = threading.Thread(
+            target=lambda: call_with_rate_limit_retry(hold_slot, model="m")
+        )
+        holder.start()
+        holding.wait(5)
+
+        cancel = threading.Event()
+        threading.Timer(0.1, cancel.set).start()
+        fn = scripted("ok")
+        try:
+            with rate_limit_retry_scope(cancel_event=cancel):
+                with pytest.raises(LLMRetryCancelled):
+                    call_with_rate_limit_retry(fn, model="m")
+        finally:
+            release.set()
+            holder.join(timeout=5)
+        assert fn.calls == []
+
+    def test_retry_counts_ignore_non_exception_objects(self):
+        assert retry_counts(MagicMock()) == {
+            "llm_rate_limit_retries": 0,
+            "llm_rate_limit_wait_ms": 0,
+        }
+        assert RequestStats.from_response(MagicMock()).llm_rate_limit_retries == 0
+
+    def test_retry_counts_follow_the_exception_chain(self):
+        cause = rate_limit()
+        cause.llm_rate_limit_retries = 3  # type: ignore[attr-defined]
+        cause.llm_rate_limit_wait_ms = 9000  # type: ignore[attr-defined]
+        try:
+            try:
+                raise cause
+            except litellm.RateLimitError as e:
+                raise RuntimeError("wrapped") from e
+        except RuntimeError as wrapped:
+            assert retry_counts(wrapped) == {
+                "llm_rate_limit_retries": 3,
+                "llm_rate_limit_wait_ms": 9000,
+            }

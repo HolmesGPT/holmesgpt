@@ -14,7 +14,8 @@ from pydantic import BaseModel
 from holmes.core.llm import LLM
 from holmes.core.llm_rate_limit import (
     LLMRetryCancelled,
-    is_retryable_llm_error,
+    is_overloaded_error,
+    is_rate_limit_error,
     retry_counts,
 )
 from holmes.core.llm_usage import RequestStats
@@ -172,6 +173,12 @@ def _flatten_tool_messages_for_compaction(messages: list[dict]) -> list[dict]:
     return flattened
 
 
+def _is_provider_capacity_error(e: Exception) -> bool:
+    # Rate limits, quota and overload have already been retried by the LLM call.
+    # Degrading would surface as "start a new conversation" and hide the cause.
+    return is_rate_limit_error(e) or is_overloaded_error(e)
+
+
 def _get_response_message(response: Optional[ModelResponse]) -> Optional[Any]:
     """Return the first choice's message from a completion response, if any."""
     if (
@@ -261,7 +268,6 @@ def compact_conversation_history(
 
     response_message = None
     fallback_reason: Optional[str] = None
-    rate_limited = False
     try:
         if tools:
             response: Optional[ModelResponse] = llm.completion(
@@ -285,13 +291,12 @@ def compact_conversation_history(
     except LLMRetryCancelled:
         raise
     except Exception as e:
+        if _is_provider_capacity_error(e):
+            raise
         compaction_usage += RequestStats(**retry_counts(e))
         fallback_reason = f"summarization request failed: {e}"
-        # The fallback works around gateways that mistranslate tool messages;
-        # it would hit the same rate limit and wait out the budget again.
-        rate_limited = is_retryable_llm_error(e)
 
-    if fallback_reason and not rate_limited:
+    if fallback_reason:
         # Compatibility fallback: some gateways mis-translate tool blocks / tools
         # (ROB-424 was reported on Kong AI Gateway and vanilla LiteLLM proxies).
         # Flattening tool messages to text and sending no tools is accepted by
@@ -311,6 +316,8 @@ def compact_conversation_history(
         except LLMRetryCancelled:
             raise
         except Exception as e:
+            if _is_provider_capacity_error(e):
+                raise
             compaction_usage += RequestStats(**retry_counts(e))
             # Both attempts failed — degrade gracefully via the empty-summary
             # path below (original history returned unchanged) instead of
@@ -328,7 +335,7 @@ def compact_conversation_history(
         return CompactionResult(
             messages_after_compaction=original_conversation_history,
             usage=compaction_usage,
-            fallback_used=bool(fallback_reason) and not rate_limited,
+            fallback_used=bool(fallback_reason),
             fallback_reason=fallback_reason,
         )
 

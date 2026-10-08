@@ -772,8 +772,9 @@ class DefaultLLM(LLM):
                 }
             ]
 
-        # With stream=True only opening the stream is retried; an error while
-        # reading chunks propagates, so a partial answer is never replayed.
+        # With stream=True only errors raised by completion() itself are
+        # retried; an error while reading chunks propagates, so a partial answer
+        # is never replayed. Some providers send the request on the first chunk.
         result = call_with_rate_limit_retry(
             lambda: litellm_to_use.completion(
                 model=litellm_model_name,

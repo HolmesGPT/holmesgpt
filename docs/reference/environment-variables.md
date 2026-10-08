@@ -68,9 +68,9 @@ Not retried:
 - Quota exhaustion (a Robusta AI account limit, OpenAI `insufficient_quota`), since waiting does not clear it.
 - Tool-output summarization by the fast model, which falls back to the unsummarized output instead.
 
-Cancelling a chat stops the backoff.
+Interrupting the CLI (Esc) stops the backoff. Server requests run until the budget is used up.
 
-When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded errors as HTTP 500.
+When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded errors as HTTP 500. This includes a rate limit hit while compacting the conversation history.
 
 Some providers' SDKs (OpenAI, Azure) also retry a rate limit once or twice within each attempt. That time does not count towards the budget.
 
