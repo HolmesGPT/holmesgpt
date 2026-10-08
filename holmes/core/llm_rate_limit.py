@@ -74,8 +74,17 @@ def rate_limit_retry_scope(
     cancel_event: Optional[threading.Event] = None,
 ) -> Iterator[None]:
     """Override the wait budget or make backoff cancellable for LLM calls made
-    inside this block, without threading arguments through ``LLM.completion``."""
-    token = _retry_scope.set(_RetryScope(max_wait_seconds, cancel_event))
+    inside this block, without threading arguments through ``LLM.completion``.
+    Settings left as None are inherited from an enclosing scope."""
+    outer = _retry_scope.get()
+    token = _retry_scope.set(
+        _RetryScope(
+            max_wait_seconds
+            if max_wait_seconds is not None
+            else outer.max_wait_seconds,
+            cancel_event if cancel_event is not None else outer.cancel_event,
+        )
+    )
     try:
         yield
     finally:
@@ -85,14 +94,14 @@ def rate_limit_retry_scope(
 def error_status_code(e: BaseException) -> Optional[int]:
     # litellm maps Anthropic's 529 to InternalServerError and overwrites the
     # status with 500; the error type in the message is all that survives.
-    if "overloaded_error" in str(e):
-        return 529
     code = getattr(e, "status_code", None)
-    if isinstance(code, int):
-        return code
-    if isinstance(code, str) and code.isdigit():
-        return int(code)
-    return None
+    if isinstance(code, str):
+        code = int(code) if code.isdigit() else None
+    if not isinstance(code, int):
+        code = None
+    if code in (None, 500) and "overloaded_error" in str(e):
+        return 529
+    return code
 
 
 def is_rate_limit_error(e: BaseException) -> bool:
@@ -109,6 +118,11 @@ def is_quota_exhausted_error(e: BaseException) -> bool:
 
 def is_overloaded_error(e: BaseException) -> bool:
     return error_status_code(e) == 529
+
+
+def is_provider_capacity_error(e: BaseException) -> bool:
+    """Rate limit, quota or overload: the provider refused for lack of capacity."""
+    return is_rate_limit_error(e) or is_overloaded_error(e)
 
 
 def is_retryable_llm_error(e: BaseException) -> bool:

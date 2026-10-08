@@ -1883,3 +1883,19 @@ class TestRateLimitRetryInLoop:
                     )
                 )
         mock_llm.completion.assert_not_called()
+
+    def test_retries_of_a_skipped_compaction_are_counted(self, make_ai, mock_llm):
+        def skipped_compaction(messages, **_kwargs):
+            output = _make_context_limiter_passthrough(messages)
+            output.compaction_usage = RequestStats(
+                llm_rate_limit_retries=2, llm_rate_limit_wait_ms=7000
+            )
+            return output
+
+        mock_llm.completion.return_value = _make_llm_response(content="done")
+        with patch(LIMIT_PATCH, side_effect=skipped_compaction):
+            events = list(make_ai().call_stream(msgs=[{"role": "user", "content": "q"}]))
+
+        costs = _events_of_type(events, StreamEvents.ANSWER_END)[0].data["costs"]
+        assert costs["llm_rate_limit_retries"] == 2
+        assert costs["llm_rate_limit_wait_ms"] == 7000

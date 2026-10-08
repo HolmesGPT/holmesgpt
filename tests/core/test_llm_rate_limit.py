@@ -652,3 +652,37 @@ class TestCancellationAndAccounting:
                 "llm_rate_limit_retries": 3,
                 "llm_rate_limit_wait_ms": 9000,
             }
+
+
+def test_nested_scopes_inherit_unset_settings(clock, budget, cap):
+    cancel = threading.Event()
+    with rate_limit_retry_scope(cancel_event=cancel):
+        with rate_limit_retry_scope(max_wait_seconds=0):
+            scope = llm_rate_limit._retry_scope.get()
+            assert scope.cancel_event is cancel
+            assert scope.max_wait_seconds == 0
+        assert llm_rate_limit._retry_scope.get().max_wait_seconds is None
+
+
+def test_overloaded_text_on_another_status_is_not_overload():
+    error = litellm.BadRequestError(
+        message="cannot parse log line: overloaded_error",
+        model="m",
+        llm_provider="openai",
+    )
+    assert error_status_code(error) == 400
+    assert not is_retryable_llm_error(error)
+
+
+def test_azure_ad_token_is_fetched_per_attempt(clock, budget, cap):
+    llm = _make_llm()
+    llm.model = "azure/gpt-4o"
+    with patch("holmes.core.llm.AZURE_AD_TOKEN_AUTH", True), patch(
+        "holmes.core.llm.get_azure_ad_token", side_effect=["token-1", "token-2"]
+    ), patch(
+        "holmes.core.llm.litellm.completion",
+        side_effect=[rate_limit({"Retry-After": "3"}), model_response()],
+    ) as completion:
+        llm.completion(messages=[{"role": "user", "content": "hi"}])
+    tokens = [c.kwargs["azure_ad_token"] for c in completion.call_args_list]
+    assert tokens == ["token-1", "token-2"]

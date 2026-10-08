@@ -1263,6 +1263,9 @@ class ToolCallingLLM:
                     f"Compaction cost (streaming): ${compaction.total_cost:.6f} | "
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
                 )
+            elif compaction:
+                # A skipped or failed compaction can still have backed off.
+                stats += compaction
 
             if (
                 limit_result.conversation_history_compacted

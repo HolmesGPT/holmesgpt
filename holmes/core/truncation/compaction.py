@@ -14,8 +14,7 @@ from pydantic import BaseModel
 from holmes.core.llm import LLM
 from holmes.core.llm_rate_limit import (
     LLMRetryCancelled,
-    is_overloaded_error,
-    is_rate_limit_error,
+    is_provider_capacity_error,
     retry_counts,
 )
 from holmes.core.llm_usage import RequestStats
@@ -173,12 +172,6 @@ def _flatten_tool_messages_for_compaction(messages: list[dict]) -> list[dict]:
     return flattened
 
 
-def _is_provider_capacity_error(e: Exception) -> bool:
-    # Rate limits, quota and overload have already been retried by the LLM call.
-    # Degrading would surface as "start a new conversation" and hide the cause.
-    return is_rate_limit_error(e) or is_overloaded_error(e)
-
-
 def _get_response_message(response: Optional[ModelResponse]) -> Optional[Any]:
     """Return the first choice's message from a completion response, if any."""
     if (
@@ -291,7 +284,9 @@ def compact_conversation_history(
     except LLMRetryCancelled:
         raise
     except Exception as e:
-        if _is_provider_capacity_error(e):
+        # Already retried by the LLM call, and the fallback would only wait out
+        # the same limit again. The caller decides whether the turn can go on.
+        if is_provider_capacity_error(e):
             raise
         compaction_usage += RequestStats(**retry_counts(e))
         fallback_reason = f"summarization request failed: {e}"
@@ -316,7 +311,7 @@ def compact_conversation_history(
         except LLMRetryCancelled:
             raise
         except Exception as e:
-            if _is_provider_capacity_error(e):
+            if is_provider_capacity_error(e):
                 raise
             compaction_usage += RequestStats(**retry_counts(e))
             # Both attempts failed — degrade gracefully via the empty-summary

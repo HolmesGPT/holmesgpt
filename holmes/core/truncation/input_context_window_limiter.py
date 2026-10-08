@@ -18,8 +18,12 @@ from holmes.core.llm import (
     ContextWindowUsage,
     get_context_window_compaction_threshold_pct,
 )
+from holmes.core.llm_rate_limit import is_provider_capacity_error, retry_counts
 from holmes.core.llm_usage import RequestStats
-from holmes.core.truncation.compaction import compact_conversation_history
+from holmes.core.truncation.compaction import (
+    CompactionResult,
+    compact_conversation_history,
+)
 from holmes.utils.stream import StreamEvents, StreamMessage
 
 
@@ -95,9 +99,23 @@ def compact_if_necessary(
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
-        compaction_result = compact_conversation_history(
-            original_conversation_history=messages, llm=llm, tools=tools
-        )
+        compaction_skipped = False
+        try:
+            compaction_result = compact_conversation_history(
+                original_conversation_history=messages, llm=llm, tools=tools
+            )
+        except Exception as e:
+            # A rate-limited compaction only fails the turn when the history
+            # no longer fits; otherwise skip compacting until the next turn.
+            fits = initial_tokens.total_tokens + maximum_output_token <= max_context_size
+            if not (is_provider_capacity_error(e) and fits):
+                raise
+            logging.warning(f"Skipping compaction, the provider refused the request: {e}")
+            compaction_skipped = True
+            compaction_result = CompactionResult(
+                messages_after_compaction=messages,
+                usage=RequestStats(**retry_counts(e)),
+            )
         compaction_usage = compaction_result.usage
         compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
         compacted_total_tokens = compacted_tokens.total_tokens
@@ -155,7 +173,7 @@ def compact_if_necessary(
                     data={"content": compaction_message},
                 )
             )
-        else:
+        elif not compaction_skipped:
             logging.error(
                 f"Failed to reduce token count when compacting conversation history. Original tokens:{initial_tokens.total_tokens}. Compacted tokens:{compacted_total_tokens}"
             )

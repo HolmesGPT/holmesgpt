@@ -55,6 +55,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.llm_rate_limit import is_rate_limit_error
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
@@ -872,6 +873,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
     except litellm.exceptions.RateLimitError as e:
         raise HTTPException(status_code=429, detail=e.message)
     except Exception as e:
+        if is_rate_limit_error(e):
+            raise HTTPException(status_code=429, detail=str(e))
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
