@@ -629,6 +629,18 @@ kubectl -n <dex-namespace> rollout restart deployment/dex
 kubectl -n <dex-namespace> rollout status deployment/dex
 ```
 
+??? info "API server uses a different Dex client ID (for example, Dex is already used for `kubectl` login)?"
+    The API server only accepts Dex tokens whose audience includes its own OIDC client ID, and Holmes's tokens carry `mcp-k8s`. To keep the API server unchanged, let Holmes request tokens for that client too:
+
+    1. In your Dex config, add `trustedPeers: ["mcp-k8s"]` to the client the API server uses (for example `kubernetes`), and restart Dex.
+    2. In Step 3, add `"audience:server:client_id:kubernetes"` to Holmes's `oauth.scopes`.
+
+    Dex then issues tokens with both `kubernetes` and `mcp-k8s` in `aud`, so the API server and the MCP server both accept them. To find the client ID your API server uses (kubeadm):
+
+    ```bash
+    kubectl get pod -n kube-system -l component=kube-apiserver -o yaml | grep oidc-client-id
+    ```
+
 ### Step 2: Store the client secret
 
 Create a Kubernetes secret, in the namespace Holmes runs in, with the client secret from Step 1:
@@ -782,6 +794,8 @@ With cert-manager, the CA is in the `ca.crt` key of Dex's certificate Secret:
 ```bash
 kubectl get secret <DEX_TLS_SECRET> -n <dex-namespace> -o jsonpath='{.data.ca\.crt}' | base64 -d > dex-ca.pem
 ```
+
+cert-manager only writes `ca.crt` when the issuer returns a CA, so if `dex-ca.pem` comes out empty, get the CA certificate from whoever runs the issuer.
 
 Add to the values from Step 3 (under `holmes:` for the Robusta Helm Chart). Holmes takes the CA base64-encoded (`base64 -i dex-ca.pem | tr -d '\n'`), and the MCP server takes it as PEM:
 
