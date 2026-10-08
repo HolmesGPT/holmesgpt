@@ -773,6 +773,35 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
+### Optional: Dex behind a private CA
+
+If Dex's certificate comes from a private CA (for example a cert-manager `Issuer` backed by Vault), the MCP server fails to start with `x509: certificate signed by unknown authority`. Both the MCP server and Holmes call Dex, so give both the CA. A CA certificate is public, so it is safe to keep in your values; never copy the private key (`tls.key`).
+
+With cert-manager, the CA is in the `ca.crt` key of Dex's certificate Secret:
+
+```bash
+kubectl get secret <DEX_TLS_SECRET> -n <dex-namespace> -o jsonpath='{.data.ca\.crt}' | base64 -d > dex-ca.pem
+```
+
+Add to the values from Step 3 (under `holmes:` for the Robusta Helm Chart). Holmes takes the CA base64-encoded (`base64 -i dex-ca.pem | tr -d '\n'`), and the MCP server takes it as PEM:
+
+```yaml
+certificate: "<BASE64_DEX_CA>"
+
+mcpAddons:
+  kubernetes:
+    config:
+      certificateAuthority: |
+        -----BEGIN CERTIFICATE-----
+        ...
+        -----END CERTIFICATE-----
+      serverConfig: |
+        # ...the settings from Step 3, plus:
+        certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+```
+
+Instead of pasting the PEM, you can pass the file to `helm upgrade` with `--set-file mcpAddons.kubernetes.config.certificateAuthority=dex-ca.pem` (`holmes.mcpAddons...` for the Robusta Helm Chart). If `ca.crt` is an intermediate CA, use the root CA for Holmes's `certificate`.
+
 ## Common Use Cases
 
 ```bash
