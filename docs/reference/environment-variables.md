@@ -254,7 +254,7 @@ export TOOL_MEMORY_LIMIT_MB=2000
 ### YAML_TOOL_TIMEOUT_SECONDS
 **Default:** `60`
 
-Timeout for each command or script run by a YAML-defined tool (for example `kubernetes/core` or a custom toolset). On timeout, Holmes kills the command's whole process group (SIGTERM, then SIGKILL after 5 seconds) and returns an error naming the command, the timeout, and any output produced so far, so the LLM can retry with a narrower query. A tool can override it in YAML with `timeout_seconds:`.
+Timeout for each command or script run by a YAML-defined tool (for example `kubernetes/core` or a custom toolset). On timeout, Holmes kills the command's whole process group (SIGTERM, then SIGKILL after 5 seconds) and returns an error naming the command, the timeout, and any output produced so far, so the LLM can retry with a narrower query. A tool can override it in YAML with `timeout_seconds:`; built-in long-running tools (Cilium connectivity tests and sysdump, Inspektor Gadget traces) already do. The built-in kubectl tools pass `--request-timeout` 10 seconds below this value, so kubectl reports its own error first.
 
 ### YAML_TOOL_MAX_TIMEOUT_SECONDS
 **Default:** `600`

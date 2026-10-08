@@ -17,7 +17,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
 from holmes.core.llm_usage import RequestStats
 from holmes.utils.stream import StreamEvents, StreamMessage
@@ -359,6 +359,12 @@ class UsageRecorderState:
     # (record_from_llm_result) instead reads len(llm_result.tool_calls).
     tool_call_count: int = 0
 
+    # Tools that hit their hard timeout (StructuredToolResult.timed_out), from
+    # both paths. Written to meta['tool_timeouts'] / meta['tool_timeout_names']
+    # (first TOOL_TIMEOUT_NAMES_LIMIT distinct names) when the row is fired.
+    tool_timeout_count: int = 0
+    tool_timeout_names: List[str] = field(default_factory=list)
+
     # Last LLM iteration's finish reason: 'stop', 'length', 'tool_calls',
     # 'content_filter', etc. Filled by the wrapper from the terminal
     # event's `metadata.finish_reason`. Earlier iterations always end in
@@ -431,15 +437,15 @@ class UsageRecorderState:
         )
 
     def _capture_tool_result(self, tool_name: Optional[str], timed_out: Any) -> None:
-        """Count timed-out tools in ``meta.tool_timeouts`` and keep the first
-        few distinct names in ``meta.tool_timeout_names``."""
         if not timed_out:
             return
-        self.meta["tool_timeouts"] = self.meta.get("tool_timeouts", 0) + 1
-        names = self.meta.setdefault("tool_timeout_names", [])
+        self.tool_timeout_count += 1
         name = tool_name or "unknown"
-        if name not in names and len(names) < TOOL_TIMEOUT_NAMES_LIMIT:
-            names.append(name)
+        if (
+            name not in self.tool_timeout_names
+            and len(self.tool_timeout_names) < TOOL_TIMEOUT_NAMES_LIMIT
+        ):
+            self.tool_timeout_names.append(name)
 
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.
@@ -456,6 +462,9 @@ class UsageRecorderState:
         """
         if self.dal is None or not getattr(self.dal, "enabled", False):
             return
+        if self.tool_timeout_count:
+            self.meta["tool_timeouts"] = self.tool_timeout_count
+            self.meta["tool_timeout_names"] = list(self.tool_timeout_names)
         try:
             _RECORDER_EXECUTOR.submit(self.dal.record_usage_event, self)
         except RuntimeError:

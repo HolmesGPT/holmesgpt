@@ -54,6 +54,7 @@ from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.process_group import terminate_all_process_groups
 from holmes.checks.checks_cli import checks_app
 from holmes.common.cli_commons import (
     opt_api_key,
@@ -1095,7 +1096,12 @@ def run():
     # Default to "ask" command when no subcommand is given
     if len(sys.argv) == 1:
         sys.argv.insert(1, "ask")
-    app()
+    try:
+        app()
+    finally:
+        # Tool commands run in their own process group, so Ctrl+C does not
+        # reach them; kill them before shutdown waits on their threads.
+        terminate_all_process_groups()
 
 
 if __name__ == "__main__":

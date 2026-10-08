@@ -486,6 +486,7 @@ HolmesGPT supports two types of variables in commands:
 - **`${VARIABLE}`**: Environment variables (not visible to the LLM)
 - **`{{ request_context.headers['Header-Name'] }}`**: Headers from the incoming HTTP request (see [HTTP Header Propagation](header-propagation.md))
 - **`{{ env.VAR_NAME }}`**: Environment variables accessible via Jinja2 templates
+- **`{{ request_timeout_seconds }}`**: The tool's timeout minus 10 seconds, for a client's own request timeout (e.g. `kubectl --request-timeout={{ request_timeout_seconds }}s`) so it fails with its own error before Holmes kills the command
 
 ### Tags
 

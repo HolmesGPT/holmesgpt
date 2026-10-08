@@ -18,6 +18,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import holmes.utils.process_group as process_group
+from holmes.core.models import ToolCallResult
+from holmes.core.tool_calling_llm import LLMResult
+from holmes.core.tools import (
+    StructuredToolResult,
+    StructuredToolResultStatus,
+    YAMLTool,
+)
 from holmes.core.usage_recorder import (
     UsageRecorderState,
     record_error,
@@ -25,6 +33,7 @@ from holmes.core.usage_recorder import (
     stream_with_usage_recording,
 )
 from holmes.utils.stream import StreamEvents, StreamMessage
+from tests.conftest import create_mock_tool_invoke_context
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -630,12 +639,7 @@ class TestToolTimeoutMeta:
         assert "tool_timeout_names" not in recorded.meta
 
     def test_stream_with_real_yaml_tool_timeout(self, monkeypatch):
-        import holmes.core.tools as tools_module
-        from holmes.core.models import ToolCallResult
-        from holmes.core.tools import YAMLTool
-        from tests.conftest import create_mock_tool_invoke_context
-
-        monkeypatch.setattr(tools_module, "YAML_TOOL_TERMINATE_GRACE_SECONDS", 1)
+        monkeypatch.setattr(process_group, "TERMINATE_GRACE_SECONDS", 1)
         _patch_inline_thread(monkeypatch)
         tool = YAMLTool(
             name="kubectl_hang", description="d", command="sleep 30", timeout_seconds=1
@@ -657,10 +661,6 @@ class TestToolTimeoutMeta:
         assert recorded.meta["tool_timeout_names"] == ["kubectl_hang"]
 
     def test_non_streaming_counts_timeouts(self, monkeypatch):
-        from holmes.core.models import ToolCallResult
-        from holmes.core.tool_calling_llm import LLMResult
-        from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
-
         _patch_inline_thread(monkeypatch)
 
         def tc(name, timed_out):
@@ -684,3 +684,23 @@ class TestToolTimeoutMeta:
         assert recorded.tool_call_count == 3
         assert recorded.meta["tool_timeouts"] == 2
         assert recorded.meta["tool_timeout_names"] == ["a", "c"]
+
+    def test_backend_values_win_over_fe_supplied_keys(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state(meta={"tool_timeouts": "1", "tool_timeout_names": "x"})
+        events = [
+            _tool_result_event("slow", True),
+            StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({})),
+        ]
+        list(stream_with_usage_recording(_stream(*events), state))
+        recorded = state.dal.record_usage_event.call_args.args[0]
+        assert recorded.meta["tool_timeouts"] == 1
+        assert recorded.meta["tool_timeout_names"] == ["slow"]
+
+    def test_fe_supplied_keys_kept_without_timeouts(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state(meta={"tool_timeouts": "fe"})
+        events = [StreamMessage(event=StreamEvents.ANSWER_END, data=_terminal_data({}))]
+        list(stream_with_usage_recording(_stream(*events), state))
+        recorded = state.dal.record_usage_event.call_args.args[0]
+        assert recorded.meta == {"tool_timeouts": "fe"}
