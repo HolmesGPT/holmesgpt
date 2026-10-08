@@ -10,9 +10,10 @@ import re
 import threading
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
-from typing import Any, ClassVar, Dict, List, Optional, TextIO, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Optional, Set, TextIO, Tuple, Type, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -20,6 +21,7 @@ from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.types import CallToolResult
 from mcp.types import Tool as MCP_Tool
 from pydantic import AnyUrl, BaseModel, Field, model_validator
 
@@ -85,11 +87,12 @@ def _extract_root_error_message(exc: Exception) -> str:
     return str(current)
 
 
-# Bounds concurrent calls per MCP server, since some servers (stdio,
-# customer-built) can't handle many at once. Keyed by size too, so a changed
-# max_concurrent_calls takes effect on toolset reload.
+# Bounds concurrent sessions per MCP server. Keyed by size too, so a changed
+# max_concurrent_calls takes effect on toolset reload; toolsets sharing a URL
+# with different limits therefore get separate bounds.
 _server_semaphores: Dict[Tuple[str, int], threading.BoundedSemaphore] = {}
 _locks_lock = threading.Lock()
+_opened_mcp_logs: Set[str] = set()
 
 
 def get_server_semaphore(lock_key: str, size: int) -> threading.BoundedSemaphore:
@@ -113,6 +116,7 @@ class _PooledTransport(httpx.AsyncBaseTransport):
     def __init__(self, pool: httpx.AsyncClient):
         self._pool = pool
 
+    # Private httpx API; current_pool() skips pooling if a release drops it.
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         return await self._pool._transport_for_url(request.url).handle_async_request(
             request
@@ -135,6 +139,7 @@ class _LoopThread:
 
     def __init__(self) -> None:
         self.pid = os.getpid()
+        self.closing = False
         self.loop = asyncio.new_event_loop()
         self.pools: Dict[Tuple[str, bool], httpx.AsyncClient] = {}
         self.thread = threading.Thread(
@@ -153,7 +158,12 @@ class _LoopThread:
         with cls._instance_lock:
             # A forked child inherits the object but not the thread.
             inst = cls._instance
-            if inst is None or inst.pid != os.getpid() or not inst.thread.is_alive():
+            if (
+                inst is None
+                or inst.pid != os.getpid()
+                or inst.closing
+                or not inst.thread.is_alive()
+            ):
                 cls._instance = cls()
             return cls._instance
 
@@ -161,7 +171,11 @@ class _LoopThread:
     def current_pool(cls, url: str, verify_ssl: bool) -> Optional[httpx.AsyncClient]:
         """The pooled client for this server, or None off the loop thread."""
         inst = cls._instance
-        if inst is None or threading.current_thread() is not inst.thread:
+        if (
+            inst is None
+            or threading.current_thread() is not inst.thread
+            or not hasattr(httpx.AsyncClient, "_transport_for_url")
+        ):
             return None
         key = (url, verify_ssl)
         if key not in inst.pools:
@@ -173,23 +187,42 @@ class _LoopThread:
         return inst.pools[key]
 
     def run(self, coro):
+        if threading.current_thread() is self.thread:
+            coro.close()
+            raise RuntimeError("MCP calls can't block the MCP event loop thread")
+        if self.closing:
+            # A coroutine scheduled on a stopped loop would never run.
+            coro.close()
+            raise RuntimeError("MCP event loop is shut down")
         # Run in the caller's contextvars, as asyncio.run would.
         ctx = contextvars.copy_context()
 
         async def in_caller_context():
             return await ctx.run(asyncio.ensure_future, coro)
 
-        return asyncio.run_coroutine_threadsafe(in_caller_context(), self.loop).result()
+        future = asyncio.run_coroutine_threadsafe(in_caller_context(), self.loop)
+        try:
+            return future.result()
+        except BaseException:
+            # The caller gave up (e.g. KeyboardInterrupt) and is releasing its
+            # semaphore slot; don't leave the call running past it.
+            future.cancel()
+            raise
 
     def close(self) -> None:
-        async def _close_pools():
+        async def _shutdown():
+            current = asyncio.current_task()
+            for task in asyncio.all_tasks():
+                if task is not current:
+                    task.cancel()
             for pool in self.pools.values():
                 await pool.aclose()
             self.pools.clear()
 
+        self.closing = True
         if self.thread.is_alive():
             try:
-                asyncio.run_coroutine_threadsafe(_close_pools(), self.loop).result(5)
+                asyncio.run_coroutine_threadsafe(_shutdown(), self.loop).result(5)
             except Exception:
                 logger.debug("Failed to close MCP connection pools", exc_info=True)
             self.loop.call_soon_threadsafe(self.loop.stop)
@@ -229,6 +262,12 @@ def create_mcp_http_client_factory(
         return httpx.AsyncClient(**kwargs)
 
     return factory
+
+
+@dataclass
+class MCPCallTiming:
+    wait_ms: Optional[int] = None  # queued behind other calls to the server
+    call_ms: Optional[int] = None
 
 
 class MCPMode(str, Enum):
@@ -314,10 +353,10 @@ class MCPConfig(ToolsetConfig):
         default=None,
         ge=1,
         title="Max Concurrent Calls",
-        description="Maximum concurrent tool calls to this server from one Holmes instance. "
-        "Defaults to MCP_MAX_CONCURRENT_CALLS_PER_SERVER (16). Set to 1 for servers that "
-        "can only handle one request at a time.",
-        examples=[1],
+        description="Maximum concurrent calls to this server from one Holmes instance. "
+        "Defaults to MCP_MAX_CONCURRENT_CALLS_PER_SERVER (16) for streamable-http and to 1 "
+        "for sse, since some SSE gateways can't serve concurrent sessions.",
+        examples=[1, 8],
     )
 
     @model_validator(mode="after")
@@ -333,6 +372,16 @@ class MCPConfig(ToolsetConfig):
 
     def get_lock_string(self) -> str:
         return str(self.url)
+
+    def get_concurrency_limit(self) -> int:
+        if self.max_concurrent_calls is not None:
+            return self.max_concurrent_calls
+        if self.mode == MCPMode.SSE:
+            # A single-child gateway such as Supergateway <= 3.4 broadcasts
+            # every reply to all open SSE sessions, so concurrent sessions
+            # read each other's responses.
+            return 1
+        return MCP_MAX_CONCURRENT_CALLS_PER_SERVER
 
 
 class StdioMCPConfig(ToolsetConfig):
@@ -379,14 +428,16 @@ class StdioMCPConfig(ToolsetConfig):
         default=None,
         ge=1,
         title="Max Concurrent Calls",
-        description="Maximum concurrent tool calls to this server from one Holmes instance. "
-        "Defaults to MCP_MAX_CONCURRENT_CALLS_PER_SERVER (16). Set to 1 for servers that "
-        "can only handle one request at a time.",
-        examples=[1],
+        description="Maximum concurrent calls to this server from one Holmes instance. "
+        "Each call starts its own server process. Defaults to 1.",
+        examples=[4],
     )
 
     def get_lock_string(self) -> str:
-        return str(self.command)
+        return " ".join([self.command, *(self.args or [])])
+
+    def get_concurrency_limit(self) -> int:
+        return self.max_concurrent_calls or 1
 
 
 def _get_mcp_log_file(server_name: str) -> TextIO:
@@ -399,13 +450,34 @@ def _get_mcp_log_file(server_name: str) -> TextIO:
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"{server_name}.log")
     display_logger.info(f"MCP server '{server_name}' logs: {log_path}")
-    return open(log_path, "w")
+    # Truncate once per process; concurrent calls append instead of
+    # clobbering each other's output.
+    with _locks_lock:
+        mode = "a" if log_path in _opened_mcp_logs else "w"
+        _opened_mcp_logs.add(log_path)
+    return open(log_path, mode)
 
+
+
+_RENDER_HEADERS: Any = object()
+
+
+async def _session_headers(
+    toolset: "RemoteMCPToolset",
+    request_context: Optional[Dict[str, Any]],
+    rendered_headers: Any,
+) -> Optional[Dict[str, str]]:
+    if rendered_headers is not _RENDER_HEADERS:
+        return rendered_headers
+    # Rendering can mint tokens over the network; keep it off the loop.
+    return await asyncio.to_thread(toolset._render_headers, request_context)
 
 
 @asynccontextmanager
 async def get_initialized_mcp_session(
-    toolset: "RemoteMCPToolset", request_context: Optional[Dict[str, Any]] = None
+    toolset: "RemoteMCPToolset",
+    request_context: Optional[Dict[str, Any]] = None,
+    rendered_headers: Any = _RENDER_HEADERS,
 ):
     if toolset._mcp_config is None:
         raise ValueError("MCP config is not initialized")
@@ -433,13 +505,10 @@ async def get_initialized_mcp_session(
         httpx_factory = create_mcp_http_client_factory(
             verify_ssl, _LoopThread.current_pool(url, verify_ssl)
         )
-        # Header rendering can mint tokens over the network; keep it off the loop.
-        rendered_headers = await asyncio.to_thread(
-            toolset._render_headers, request_context
-        )
+        headers = await _session_headers(toolset, request_context, rendered_headers)
         async with sse_client(
             url,
-            rendered_headers,
+            headers,
             sse_read_timeout=MCP_TOOL_CALL_TIMEOUT_SEC,
             httpx_client_factory=httpx_factory,
         ) as (
@@ -459,12 +528,10 @@ async def get_initialized_mcp_session(
         httpx_factory = create_mcp_http_client_factory(
             verify_ssl, _LoopThread.current_pool(url, verify_ssl)
         )
-        rendered_headers = await asyncio.to_thread(
-            toolset._render_headers, request_context
-        )
+        headers = await _session_headers(toolset, request_context, rendered_headers)
         async with streamablehttp_client(
             url,
-            headers=rendered_headers,
+            headers=headers,
             sse_read_timeout=MCP_TOOL_CALL_TIMEOUT_SEC,
             httpx_client_factory=httpx_factory,
         ) as (
@@ -573,55 +640,58 @@ class RemoteMCPTool(Tool):
         return (self.mcp_tool_name or self.name) == self.toolset.connect_tool_name
 
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        timing = MCPCallTiming()
+        # For OAuth placeholder tools: load real tools after authentication
+        if self._is_placeholder_connect_tool():
+            result = self._invoke_oauth_connect(params, context, timing)
+        else:
+            result = self._call_tool(params, context, timing)
+        result.mcp_wait_ms = timing.wait_ms
+        result.mcp_call_ms = timing.call_ms
+        return result
+
+    def _call_tool(
+        self, params: dict, context: ToolInvokeContext, timing: MCPCallTiming
+    ) -> StructuredToolResult:
         try:
-            # For OAuth placeholder tools: load real tools after authentication
-            if self._is_placeholder_connect_tool():
-                return self._invoke_oauth_connect(params, context)
-
-            if not self.toolset._mcp_config:
-                raise ValueError("MCP config not initialized")
-
-            requested = time.monotonic()
-            with self.toolset.server_semaphore():
-                started = time.monotonic()
-                try:
-                    result = self.toolset.run_async(
-                        self._invoke_async(
-                            params,
-                            context.request_context,
-                            context.user_approved,
-                            context.session_approved_prefixes,
-                        )
-                    )
-                except Exception as e:
-                    result = StructuredToolResult(
-                        status=StructuredToolResultStatus.ERROR,
-                        error=_extract_root_error_message(e),
-                        params=params,
-                        invocation=f"MCPtool {self.name} with params {params}",
-                    )
-            result.mcp_wait_ms = int((started - requested) * 1000)
-            result.mcp_call_ms = int((time.monotonic() - started) * 1000)
-            return result
+            # Rendered here, not on the shared loop's small executor, so one
+            # slow token mint can't hold up calls to other servers.
+            headers = self.toolset._render_headers(context.request_context)
+            tool_result = self.toolset.run_async(
+                self._call_tool_async(
+                    params,
+                    context.request_context,
+                    context.user_approved,
+                    context.session_approved_prefixes,
+                    rendered_headers=headers,
+                ),
+                timing,
+            )
+            # Off the shared loop: large payloads would stall every MCP call.
+            return self._to_structured_result(params, tool_result)
         except Exception as e:
-            error_detail = _extract_root_error_message(e)
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
-                error=error_detail,
+                error=_extract_root_error_message(e),
                 params=params,
                 invocation=f"MCPtool {self.name} with params {params}",
             )
 
-    def _invoke_oauth_connect(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+    def _invoke_oauth_connect(
+        self,
+        params: dict,
+        context: ToolInvokeContext,
+        timing: Optional[MCPCallTiming] = None,
+    ) -> StructuredToolResult:
         """Handle the OAuth placeholder tool: load real tools from the MCP server after authentication."""
         try:
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            with self.toolset.server_semaphore():
-                tools_result = self.toolset.run_async(
-                    self.toolset._get_server_tools_with_context(context.request_context)
-                )
+            tools_result = self.toolset.run_async(
+                self.toolset._get_server_tools_with_context(context.request_context),
+                timing,
+            )
 
             real_tools = [
                 RemoteMCPTool.create(
@@ -765,13 +835,14 @@ class RemoteMCPTool(Tool):
             pass
         return f"{merged_text}\n{structured_text}"
 
-    async def _invoke_async(
+    async def _call_tool_async(
         self,
         params: Dict,
         request_context: Optional[Dict[str, Any]],
         user_approved: bool = False,
         session_approved_prefixes: Optional[List[str]] = None,
-    ) -> StructuredToolResult:
+        rendered_headers: Any = _RENDER_HEADERS,
+    ) -> CallToolResult:
         is_remote = self.is_remote
         call_params = self._strip_omitted_optional_params(params)
         if is_remote and user_approved:
@@ -783,12 +854,15 @@ class RemoteMCPTool(Tool):
             }
 
         async with get_initialized_mcp_session(
-            self.toolset, request_context
+            self.toolset, request_context, rendered_headers
         ) as session:
-            tool_result = await session.call_tool(
+            return await session.call_tool(
                 self.mcp_tool_name or self.name, call_params
             )
 
+    def _to_structured_result(
+        self, params: Dict, tool_result: CallToolResult
+    ) -> StructuredToolResult:
         text_chunks = [
             self._extract_text_from_content_block(c) for c in tool_result.content
         ]
@@ -1134,23 +1208,31 @@ class RemoteMCPToolset(Toolset):
             return None
         return self._mcp_config.oauth.model_dump(exclude_none=True)
 
-    def server_semaphore(self) -> threading.BoundedSemaphore:
-        assert self._mcp_config is not None
-        return get_server_semaphore(
-            self._mcp_config.get_lock_string(),
-            self._mcp_config.max_concurrent_calls
-            or MCP_MAX_CONCURRENT_CALLS_PER_SERVER,
-        )
-
-    def run_async(self, coro):
-        """Run an MCP coroutine to completion from a sync thread.
+    def run_async(self, coro, timing: Optional[MCPCallTiming] = None):
+        """Run an MCP coroutine to completion from a sync thread, within the
+        server's concurrency limit.
 
         HTTP servers run on the shared loop to reuse connections; stdio
         servers start a subprocess per call, so there is nothing to pool.
         """
-        if MCP_POOL_HTTP_CONNECTIONS and isinstance(self._mcp_config, MCPConfig):
-            return _LoopThread.get().run(coro)
-        return asyncio.run(coro)
+        if self._mcp_config is None:
+            coro.close()
+            raise ValueError("MCP config not initialized")
+        semaphore = get_server_semaphore(
+            self._mcp_config.get_lock_string(),
+            self._mcp_config.get_concurrency_limit(),
+        )
+        requested = time.monotonic()
+        with semaphore:
+            started = time.monotonic()
+            try:
+                if MCP_POOL_HTTP_CONNECTIONS and isinstance(self._mcp_config, MCPConfig):
+                    return _LoopThread.get().run(coro)
+                return asyncio.run(coro)
+            finally:
+                if timing is not None:
+                    timing.wait_ms = int((started - requested) * 1000)
+                    timing.call_ms = int((time.monotonic() - started) * 1000)
 
     def _load_remote_tools(self, request_context: Optional[Dict[str, Any]] = None) -> List["RemoteMCPTool"]:
         """Load tools from the MCP server and return as RemoteMCPTool instances."""

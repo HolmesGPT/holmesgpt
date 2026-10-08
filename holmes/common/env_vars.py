@@ -163,8 +163,8 @@ MCP_TOOL_CALL_TIMEOUT_SEC = float(
     os.environ.get("MCP_TOOL_CALL_TIMEOUT_SEC", SSE_READ_TIMEOUT)
 )
 
-# Concurrent tool calls allowed per MCP server (keyed by URL, or command for
-# stdio) in one Holmes process. Per-toolset `max_concurrent_calls` overrides it.
+# Concurrent calls allowed per streamable-http MCP server in one Holmes process
+# (sse and stdio default to 1). Per-toolset `max_concurrent_calls` overrides it.
 MCP_MAX_CONCURRENT_CALLS_PER_SERVER = max(
     1, int(os.environ.get("MCP_MAX_CONCURRENT_CALLS_PER_SERVER", 16))
 )

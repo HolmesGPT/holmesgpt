@@ -2256,7 +2256,7 @@ class TestInvokeOAuthConnectReturnsTools:
             request_context={"user_id": "user-connect-test"},
         )
 
-        def run_async(coro):
+        def run_async(coro, timing=None):
             coro.close()
             return mock_tools_result
 
@@ -2288,7 +2288,7 @@ class TestInvokeOAuthConnectReturnsTools:
             request_context={"user_id": "user-fail"},
         )
 
-        def run_async(coro):
+        def run_async(coro, timing=None):
             coro.close()
             raise ConnectionError("MCP down")
 

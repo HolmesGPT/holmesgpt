@@ -1,7 +1,7 @@
 """Parser tests for how the caller's RemoteMCPTool handles the responses a
 remote bash tool produces across the approval flow.
 
-These exercise the caller-side MCP parser (`RemoteMCPTool._invoke_async`) only:
+These exercise the caller-side MCP parser (`RemoteMCPTool._call_tool_async` + `_to_structured_result`) only:
 given the JSON a remote executor returns (via relay), assert the parser maps it
 to the right `StructuredToolResult`. The target-side behavior (returning
 APPROVAL_REQUIRED, running once approved) is covered by
@@ -16,6 +16,11 @@ import pytest
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
 
+
+
+async def invoke_parsed(tool, params, request_context=None, **kwargs):
+    tool_result = await tool._call_tool_async(params, request_context, **kwargs)
+    return tool._to_structured_result(params, tool_result)
 
 def _session_returning(payload: dict) -> AsyncMock:
     block = MagicMock(type="text", text=json.dumps(payload))
@@ -59,7 +64,7 @@ async def test_parses_approval_required_and_surfaces_caller_params():
         "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
     ) as get_session:
         get_session.return_value = _session_returning(approval_response)
-        result = await tool._invoke_async(params=input_params, request_context=None)
+        result = await invoke_parsed(tool, params=input_params, request_context=None)
 
     assert result.status == StructuredToolResultStatus.APPROVAL_REQUIRED
     assert "Command requires approval" in result.error
@@ -89,7 +94,7 @@ async def test_parses_success_response_after_approval():
         "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
     ) as get_session:
         get_session.return_value = _session_returning(final_response)
-        result = await tool._invoke_async(
+        result = await invoke_parsed(tool, 
             params={"command": "rm -rf /usr/local/bin/some-package"},
             request_context=None,
         )

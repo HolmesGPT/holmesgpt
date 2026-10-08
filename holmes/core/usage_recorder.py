@@ -369,6 +369,13 @@ class UsageRecorderState:
     # terminal event was ever observed.
     status: RequestStatus = RequestStatus.SUCCESS
 
+    # MCP calls in this request and their timings: time queued behind other
+    # calls to the same server, and the call itself. Written to meta on fire.
+    mcp_calls: int = 0
+    mcp_wait_ms_total: int = 0
+    mcp_call_ms_total: int = 0
+    mcp_max_wait_ms: int = 0
+
     @property
     def duration_ms(self) -> int:
         """Wall-clock milliseconds since ``t_start``.
@@ -385,22 +392,15 @@ class UsageRecorderState:
     # — the stream wrapper in particular has the stream as its primary
     # input, so a "method on state" shape would invert its natural reading.
 
-    def _capture_mcp_timing(
-        self, wait_ms: Optional[int], call_ms: Optional[int]
-    ) -> None:
-        """Accumulate MCP semaphore-wait and call timings into ``meta``.
-
-        Lets semaphore pressure be queried fleet-wide from HolmesUsageEvents
-        without a schema change. Non-MCP tool results carry no timings.
-        """
-        if call_ms is None:
+    def _capture_mcp_timing(self, wait_ms: Any, call_ms: Any) -> None:
+        """Accumulate one MCP call's timings. Non-MCP results carry none."""
+        if not isinstance(call_ms, int):
             return
-        wait_ms = wait_ms or 0
-        meta = self.meta
-        meta["mcp_calls"] = meta.get("mcp_calls", 0) + 1
-        meta["mcp_wait_ms_total"] = meta.get("mcp_wait_ms_total", 0) + wait_ms
-        meta["mcp_call_ms_total"] = meta.get("mcp_call_ms_total", 0) + call_ms
-        meta["mcp_max_wait_ms"] = max(meta.get("mcp_max_wait_ms", 0), wait_ms)
+        wait_ms = wait_ms if isinstance(wait_ms, int) else 0
+        self.mcp_calls += 1
+        self.mcp_wait_ms_total += wait_ms
+        self.mcp_call_ms_total += call_ms
+        self.mcp_max_wait_ms = max(self.mcp_max_wait_ms, wait_ms)
 
     def _capture_costs(self, data: Dict[str, Any]) -> None:
         """Replace ``self.stats`` from an event's ``metadata.costs``.
@@ -459,6 +459,15 @@ class UsageRecorderState:
         """
         if self.dal is None or not getattr(self.dal, "enabled", False):
             return
+        if self.mcp_calls:
+            # Lets semaphore pressure be queried fleet-wide without a schema
+            # change. Backend values win over FE-supplied keys.
+            self.meta.update(
+                mcp_calls=self.mcp_calls,
+                mcp_wait_ms_total=self.mcp_wait_ms_total,
+                mcp_call_ms_total=self.mcp_call_ms_total,
+                mcp_max_wait_ms=self.mcp_max_wait_ms,
+            )
         try:
             _RECORDER_EXECUTOR.submit(self.dal.record_usage_event, self)
         except RuntimeError:

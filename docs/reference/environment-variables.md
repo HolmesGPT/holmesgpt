@@ -437,7 +437,7 @@ export MCP_TOOL_CALL_TIMEOUT_SEC=60
 ### MCP_MAX_CONCURRENT_CALLS_PER_SERVER
 **Default:** `16`
 
-Maximum concurrent tool calls from one Holmes instance to a single MCP server (keyed by URL, or by command for stdio servers). Calls beyond the limit wait for a free slot. A server's `max_concurrent_calls` config overrides it. See [Limiting Concurrent Calls to a Server](../data-sources/remote-mcp-servers.md#advanced-configuration).
+Maximum concurrent calls from one Holmes instance to a single `streamable-http` MCP server. Calls beyond the limit wait for a free slot. `sse` and `stdio` servers default to 1. A server's `max_concurrent_calls` config overrides it. See [Concurrent Calls to a Server](../data-sources/remote-mcp-servers.md#advanced-configuration).
 
 **Example:**
 ```bash

@@ -9,6 +9,11 @@ from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
 
 
+
+async def invoke_parsed(tool, params, request_context=None, **kwargs):
+    tool_result = await tool._call_tool_async(params, request_context, **kwargs)
+    return tool._to_structured_result(params, tool_result)
+
 @pytest.mark.asyncio
 async def test_mcp_tool_parses_approval_required_response():
     """Verify that MCP tools correctly parse APPROVAL_REQUIRED responses from RemoteToolsProvider."""
@@ -59,7 +64,7 @@ async def test_mcp_tool_parses_approval_required_response():
     ) as mock_get_session:
         mock_get_session.return_value = mock_session
 
-        result = await tool._invoke_async(
+        result = await invoke_parsed(tool, 
             params={"test_param": "value"},
             request_context=None,
         )
@@ -106,7 +111,7 @@ async def test_mcp_tool_parses_normal_success_response():
     ) as mock_get_session:
         mock_get_session.return_value = mock_session
 
-        result = await tool._invoke_async(
+        result = await invoke_parsed(tool, 
             params={"test_param": "value"},
             request_context=None,
         )
@@ -152,7 +157,7 @@ async def test_mcp_tool_handles_malformed_json_gracefully():
     ) as mock_get_session:
         mock_get_session.return_value = mock_session
 
-        result = await tool._invoke_async(
+        result = await invoke_parsed(tool, 
             params={"test_param": "value"},
             request_context=None,
         )
@@ -193,7 +198,7 @@ async def test_invoke_forwards_user_approved_as_reserved_arg():
         get_session.return_value = session
 
         # approved -> reserved arg injected
-        await tool._invoke_async(
+        await invoke_parsed(tool, 
             params={"command": "curl x"}, request_context=None, user_approved=True
         )
         approved_args = session.call_tool.call_args.args[1]
@@ -202,7 +207,7 @@ async def test_invoke_forwards_user_approved_as_reserved_arg():
 
         # not approved -> reserved arg absent (generic MCP servers never see it)
         session.call_tool.reset_mock()
-        await tool._invoke_async(
+        await invoke_parsed(tool, 
             params={"command": "curl x"}, request_context=None, user_approved=False
         )
         assert REMOTE_TOOL_APPROVED_PARAM not in session.call_tool.call_args.args[1]
@@ -239,7 +244,7 @@ async def test_invoke_never_sends_reserved_arg_to_local_mcp_server():
     ) as get_session:
         get_session.return_value = session
 
-        await tool._invoke_async(
+        await invoke_parsed(tool, 
             params={"args": ["scale", "deploy/x", "--replicas=2"]},
             request_context=None,
             user_approved=True,
@@ -387,7 +392,7 @@ async def test_is_remote_field_gates_session_prefix_injection():
         "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
     ) as get_session:
         get_session.return_value = remote_session
-        await remote_tool._invoke_async(
+        await invoke_parsed(remote_tool, 
             params={"command": "curl http://svc"},
             request_context=None,
             session_approved_prefixes=["curl"],
@@ -400,7 +405,7 @@ async def test_is_remote_field_gates_session_prefix_injection():
         "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session"
     ) as get_session:
         get_session.return_value = local_session
-        await local_tool._invoke_async(
+        await invoke_parsed(local_tool, 
             params={"command": "curl http://svc"},
             request_context=None,
             session_approved_prefixes=["curl"],
