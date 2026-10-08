@@ -35,6 +35,7 @@ expected_output:
   - "Must report that the page heading is 'Example Domain'"
 
 tags:
+  - advanced
   - network
   - question-answer
   - easy

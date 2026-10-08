@@ -231,9 +231,9 @@ def parse_args():
     )
     parser.add_argument(
         "--benchmark-type",
-        choices=["fast-benchmark", "full-benchmark"],
+        choices=["fast-benchmark", "full-benchmark", "advanced-benchmark"],
         default=None,
-        help="Type of benchmark (fast-benchmark or full-benchmark)",
+        help="Type of benchmark (fast-benchmark, full-benchmark or advanced-benchmark)",
     )
     return parser.parse_args()
 
@@ -1338,6 +1338,9 @@ def main():
     elif benchmark_type == "full-benchmark":
         benchmark_label = "Full Benchmark"
         benchmark_icon = ""
+    elif benchmark_type == "advanced-benchmark":
+        benchmark_label = "Advanced Benchmark"
+        benchmark_icon = ""
     else:
         benchmark_label = "Benchmark"
         benchmark_icon = ""
@@ -1457,6 +1460,14 @@ def main():
         report_lines.append("    **Schedule**: Manual / On-demand<br>")
         report_lines.append(
             "    **Purpose**: Comprehensive testing across all difficulty levels"
+        )
+        report_lines.append("")
+    elif benchmark_type == "advanced-benchmark":
+        report_lines.append('!!! info "Advanced Benchmark"')
+        report_lines.append("    **Markers**: `regression or benchmark or advanced`<br>")
+        report_lines.append("    **Schedule**: Manual / On-demand<br>")
+        report_lines.append(
+            "    **Purpose**: Evals that separate stronger from weaker models"
         )
         report_lines.append("")
 

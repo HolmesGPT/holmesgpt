@@ -1,5 +1,8 @@
 """Tests for custom-model pricing registration in LLMModelRegistry."""
 
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import MagicMock
 
 import litellm
@@ -373,3 +376,392 @@ class TestUnknownModelWarning:
             if "no entry in litellm's cost map" in r.getMessage()
         ]
         assert warnings == []
+
+
+def _fake_bundled(name: str, in_cost: float, out_cost: float) -> None:
+    litellm.model_cost[name] = {
+        "input_cost_per_token": in_cost,
+        "output_cost_per_token": out_cost,
+        "litellm_provider": "bedrock",
+        "mode": "chat",
+    }
+
+
+class TestRobustaUpstreamNameShapes:
+    """ROB-1237: every shape of upstream name relay's catalog serves must
+    resolve to a priced, collision-free litellm name."""
+
+    @pytest.mark.parametrize(
+        "upstream, expected",
+        [
+            ("gpt-4o", "gpt-4o"),
+            (
+                "bedrock/us.anthropic.claude-opus-4-7",
+                "openai/us.anthropic.claude-opus-4-7",
+            ),
+            ("openai/claude-opus-4-8", "openai/claude-opus-4-8"),
+            (
+                "bedrock/converse/us.anthropic.claude-fable-5",
+                "openai/us.anthropic.claude-fable-5",
+            ),
+            (
+                "bedrock/mantle/anthropic.claude-fable-5",
+                "openai/anthropic.claude-fable-5",
+            ),
+            ("novita/openai/gpt-oss-120b", "openai/gpt-oss-120b"),
+        ],
+    )
+    def test_completion_name_matches_pricing_name(self, upstream, expected):
+        from holmes.core.llm import DefaultLLM, _litellm_name_for_entry
+
+        entry = ModelEntry(model=upstream, name="Robusta/x", is_robusta_model=True)
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.model = upstream
+        llm.is_robusta_model = True
+
+        assert _litellm_name_for_entry(entry) == expected
+        assert llm.get_litellm_corrected_name_for_robusta_ai() == expected
+
+    def test_openai_prefixed_upstream_gets_bundled_pricing(
+        self, mock_config, mock_dal, monkeypatch, _snapshot_litellm_model_cost
+    ):
+        """A gateway entry whose upstream is already `openai/<id>` used to skip
+        the auto-lookup and always record cost 0."""
+        _fake_bundled("fake-gateway-opus", 5e-06, 2.5e-05)
+        entry = ModelEntry(
+            model="openai/fake-gateway-opus", name="g", is_robusta_model=True
+        )
+        _patch_models_file(monkeypatch, {"Robusta/gw": entry})
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/fake-gateway-opus"]
+        assert registered["input_cost_per_token"] == pytest.approx(5e-06)
+        assert registered["output_cost_per_token"] == pytest.approx(2.5e-05)
+
+    def test_route_segment_upstreams_get_distinct_pricing(
+        self, mock_config, mock_dal, monkeypatch, _snapshot_litellm_model_cost
+    ):
+        """`bedrock/converse/<id>` and `bedrock/mantle/<id>` used to collapse to
+        `openai/converse` / `openai/mantle`: unpriced, and shared by every model
+        on that route."""
+        _fake_bundled("us.fake.fable-a", 1e-06, 2e-06)
+        _fake_bundled("fake.fable-b", 3e-06, 4e-06)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/a": ModelEntry(
+                    model="bedrock/converse/us.fake.fable-a", is_robusta_model=True
+                ),
+                "Robusta/b": ModelEntry(
+                    model="bedrock/mantle/fake.fable-b", is_robusta_model=True
+                ),
+            },
+        )
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        a = litellm.model_cost["openai/us.fake.fable-a"]
+        b = litellm.model_cost["openai/fake.fable-b"]
+        assert (a["input_cost_per_token"], a["output_cost_per_token"]) == (1e-06, 2e-06)
+        assert (b["input_cost_per_token"], b["output_cost_per_token"]) == (3e-06, 4e-06)
+        assert "openai/converse" not in litellm.model_cost
+        assert "openai/mantle" not in litellm.model_cost
+
+    def test_full_upstream_name_wins_over_bare_id(
+        self, mock_config, mock_dal, monkeypatch, _snapshot_litellm_model_cost
+    ):
+        """A provider-specific price (e.g. Novita's) beats the generic one."""
+        _fake_bundled("novita/openai/fake-oss", 1e-07, 2e-07)
+        _fake_bundled("fake-oss", 9e-07, 9e-07)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/oss": ModelEntry(
+                    model="novita/openai/fake-oss", is_robusta_model=True
+                )
+            },
+        )
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/fake-oss"]
+        assert registered["input_cost_per_token"] == pytest.approx(1e-07)
+
+    def test_unpriced_longer_match_falls_through_to_priced_id(
+        self, mock_config, mock_dal, monkeypatch, _snapshot_litellm_model_cost
+    ):
+        litellm.model_cost["converse/us.fake.no-price"] = {
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        _fake_bundled("us.fake.no-price", 2e-06, 8e-06)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/np": ModelEntry(
+                    model="bedrock/converse/us.fake.no-price", is_robusta_model=True
+                )
+            },
+        )
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/us.fake.no-price"]
+        assert registered["input_cost_per_token"] == pytest.approx(2e-06)
+
+    def test_upstream_price_overrides_unpriced_corrected_name(
+        self, mock_config, mock_dal, monkeypatch, caplog, _snapshot_litellm_model_cost
+    ):
+        litellm.model_cost["openai/us.fake.stub"] = {
+            "litellm_provider": "openai",
+            "mode": "chat",
+        }
+        _fake_bundled("us.fake.stub", 3e-06, 9e-06)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/s": ModelEntry(
+                    model="bedrock/us.fake.stub", is_robusta_model=True
+                )
+            },
+        )
+
+        with caplog.at_level("INFO", logger="root"):
+            LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/us.fake.stub"]
+        assert registered["input_cost_per_token"] == pytest.approx(3e-06)
+        assert not any(
+            "no entry in litellm's cost map" in r.getMessage() for r in caplog.records
+        )
+
+    def test_upstream_price_overrides_generic_corrected_name_price(
+        self, mock_config, mock_dal, monkeypatch, _snapshot_litellm_model_cost
+    ):
+        """`novita/openai/<id>` is completed as `openai/<id>`; Novita's price
+        must win over a generic price already registered under that name."""
+        litellm.model_cost["openai/fake-generic-oss"] = {
+            "input_cost_per_token": 9e-07,
+            "output_cost_per_token": 9e-07,
+            "litellm_provider": "openai",
+            "mode": "chat",
+        }
+        _fake_bundled("novita/openai/fake-generic-oss", 1e-07, 2e-07)
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/oss": ModelEntry(
+                    model="novita/openai/fake-generic-oss", is_robusta_model=True
+                )
+            },
+        )
+
+        LLMModelRegistry(mock_config, mock_dal)
+
+        registered = litellm.model_cost["openai/fake-generic-oss"]
+        assert registered["input_cost_per_token"] == pytest.approx(1e-07)
+        assert registered["output_cost_per_token"] == pytest.approx(2e-07)
+
+    def test_unpriced_corrected_name_entry_still_warns(
+        self, mock_config, mock_dal, monkeypatch, caplog, _snapshot_litellm_model_cost
+    ):
+        litellm.model_cost["openai/fake-priceless"] = {
+            "litellm_provider": "openai",
+            "mode": "chat",
+        }
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/p": ModelEntry(
+                    model="azure/fake-priceless", is_robusta_model=True
+                )
+            },
+        )
+
+        with caplog.at_level("INFO", logger="root"):
+            LLMModelRegistry(mock_config, mock_dal)
+
+        assert any(
+            "openai/fake-priceless" in r.getMessage()
+            and "no entry in litellm's cost map" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_unpriced_upstream_still_warns(
+        self, mock_config, mock_dal, monkeypatch, caplog, _snapshot_litellm_model_cost
+    ):
+        _patch_models_file(
+            monkeypatch,
+            {
+                "Robusta/x": ModelEntry(
+                    model="azure/fake-unpriced-deployment", is_robusta_model=True
+                )
+            },
+        )
+
+        with caplog.at_level("INFO", logger="root"):
+            LLMModelRegistry(mock_config, mock_dal)
+
+        assert "openai/fake-unpriced-deployment" not in litellm.model_cost
+        assert any(
+            "openai/fake-unpriced-deployment" in r.getMessage()
+            and "no entry in litellm's cost map" in r.getMessage()
+            for r in caplog.records
+        )
+
+
+@pytest.fixture
+def fake_relay(monkeypatch):
+    """OpenAI-compatible stand-in for relay's /llm/<model> proxy."""
+    requests_seen: list = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests_seen.append(body)
+            payload = json.dumps(
+                {
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": body["model"],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": "hi"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1000,
+                        "completion_tokens": 500,
+                        "total_tokens": 1500,
+                    },
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    for var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    yield f"http://127.0.0.1:{server.server_port}", requests_seen
+    server.shutdown()
+
+
+class TestRobustaCostEndToEnd:
+    """A completion through the Robusta proxy records the upstream model's
+    price, for every upstream name shape relay serves."""
+
+    @pytest.mark.parametrize(
+        "upstream, model_id",
+        [
+            ("bedrock/us.fake.e2e-opus", "us.fake.e2e-opus"),
+            ("openai/fake-e2e-gateway", "fake-e2e-gateway"),
+            ("bedrock/converse/us.fake.e2e-fable", "us.fake.e2e-fable"),
+            ("novita/openai/fake-e2e-oss", "fake-e2e-oss"),
+        ],
+    )
+    def test_completion_records_upstream_price(
+        self,
+        upstream,
+        model_id,
+        fake_relay,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        from holmes.core.llm import DefaultLLM
+        from holmes.core.llm_usage import RequestStats
+
+        base_url, requests_seen = fake_relay
+        _fake_bundled(model_id, 1e-06, 2e-06)
+        _patch_models_file(
+            monkeypatch,
+            {"Robusta/m": ModelEntry(model=upstream, is_robusta_model=True)},
+        )
+        LLMModelRegistry(mock_config, mock_dal)
+
+        llm = DefaultLLM(
+            model=upstream,
+            api_key="acct token",
+            api_base=base_url,
+            is_robusta_model=True,
+        )
+        response = llm.completion(messages=[{"role": "user", "content": "hi"}])
+
+        stats = RequestStats.from_response(response)
+        assert stats.total_tokens == 1500
+        assert stats.total_cost == pytest.approx(1000 * 1e-06 + 500 * 2e-06)
+        assert requests_seen[0]["model"] == model_id
+
+
+class TestTokenLimitLookupVariants:
+    def test_route_segment_model_matches_limit_stored_under_bare_id(
+        self, _snapshot_litellm_model_cost
+    ):
+        from holmes.core.llm import DefaultLLM
+
+        litellm.model_cost["us.fake.limits"] = {
+            "max_input_tokens": 123456,
+            "litellm_provider": "bedrock",
+            "mode": "chat",
+        }
+        llm = DefaultLLM.__new__(DefaultLLM)
+        llm.model = "bedrock/converse/us.fake.limits"
+        llm.max_context_size = None
+
+        assert "us.fake.limits" in llm._get_model_name_variants_for_lookup()
+        assert llm.get_context_window_size() == 123456
+
+
+class TestRobustaSharedIdPricing:
+    def test_entries_sharing_an_id_each_record_their_own_price(
+        self,
+        fake_relay,
+        mock_config,
+        mock_dal,
+        monkeypatch,
+        _snapshot_litellm_model_cost,
+    ):
+        """`bedrock/converse/<id>` and `novita/<id>` are both completed as
+        `openai/<id>`; each call must still be priced as its own upstream."""
+        from holmes.core.llm_usage import RequestStats
+
+        base_url, _ = fake_relay
+        _fake_bundled("bedrock/converse/fake-shared", 1e-06, 2e-06)
+        _fake_bundled("novita/fake-shared", 3e-06, 4e-06)
+        _patch_models_file(
+            monkeypatch,
+            {
+                name: ModelEntry(
+                    model=upstream, base_url=base_url, is_robusta_model=True
+                )
+                for name, upstream in (
+                    ("Robusta/a", "bedrock/converse/fake-shared"),
+                    ("Robusta/b", "novita/fake-shared"),
+                )
+            },
+        )
+        registry = LLMModelRegistry(mock_config, mock_dal)
+        mock_config.llm_model_registry = registry
+        mock_config.dal.get_ai_credentials.return_value = ("acct", "token")
+        mock_config._model_source = None
+
+        costs = {}
+        for name in ("Robusta/a", "Robusta/b"):
+            llm = Config._get_llm(mock_config, name)
+            response = llm.completion(messages=[{"role": "user", "content": "hi"}])
+            costs[name] = RequestStats.from_response(response).total_cost
+
+        assert costs["Robusta/a"] == pytest.approx(1000 * 1e-06 + 500 * 2e-06)
+        assert costs["Robusta/b"] == pytest.approx(1000 * 3e-06 + 500 * 4e-06)
