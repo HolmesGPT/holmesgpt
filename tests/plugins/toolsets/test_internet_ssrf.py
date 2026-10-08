@@ -325,7 +325,8 @@ def _redirect_and_land(responses, start, location, landing=None):
     "start,location",
     [
         ("https://trusted.example/a", "http://trusted.example/b"),  # downgrade
-        ("http://trusted.example/a", "https://trusted.example/b"),  # upgrade
+        ("http://trusted.example/a", "https://trusted.example:8443/b"),
+        ("http://trusted.example:8080/a", "https://trusted.example/b"),
         ("https://trusted.example/a", "https://trusted.example:8443/b"),  # port
         ("https://trusted.example:8443/a", "https://trusted.example/b"),
         ("http://trusted.example/a", "http://trusted.example:8080/b"),
@@ -388,9 +389,11 @@ def test_scrape_strips_credentials_on_cross_origin_redirect(
             "https://trusted.example:8443/b",
             "https://trusted.example:8443/b",
         ),
+        ("http://trusted.example/a", "https://trusted.example/b", None),
+        ("http://trusted.example:80/a", "https://trusted.example:443/b", None),
     ],
 )
-def test_scrape_keeps_credentials_on_same_origin_redirect(
+def test_scrape_keeps_credentials_on_same_origin_or_https_upgrade_redirect(
     start, location, landing, public_dns, responses
 ):
     _redirect_and_land(responses, start, location, landing)
@@ -477,7 +480,8 @@ def test_fetch_webpage_tool_strips_auth_on_scheme_downgrade(public_dns, response
         ("HTTPS://H.Example:443/x", ("https", "h.example", 443)),
         ("https://h.example:8443", ("https", "h.example", 8443)),
         ("http://[::1]:8080/", ("http", "::1", 8080)),
-        ("https://h.example:notaport/", ("https", "h.example", 443)),
+        ("https://h.example:notaport/", ("https", "h.example", None)),
+        ("https://h.example:99999/", ("https", "h.example", None)),
         ("ftp://h.example/", ("ftp", "h.example", None)),
     ],
 )
@@ -588,7 +592,7 @@ def test_scrape_secret_in_a_safe_header_name_does_not_cross_an_origin(
     assert second["User-Agent"] == internet.INTERNET_TOOLSET_USER_AGENT
 
 
-def test_scrape_netrc_credentials_not_reapplied_after_scheme_downgrade(
+def test_scrape_never_sends_netrc_credentials(
     tmp_path, monkeypatch, public_dns, responses
 ):
     netrc = tmp_path / "netrc"
@@ -604,5 +608,25 @@ def test_scrape_netrc_credentials_not_reapplied_after_scheme_downgrade(
     )
 
     assert content == "landed"
-    assert responses.calls[0].request.headers["Authorization"].startswith("Basic ")
-    assert "Authorization" not in responses.calls[1].request.headers
+    for call in responses.calls:
+        assert "Authorization" not in call.request.headers
+
+
+@pytest.mark.parametrize(
+    "current,target,expected",
+    [
+        ("https://h.example/a", "https://h.example/b", True),
+        ("https://h.example/a", "https://H.example:443/b", True),
+        ("http://h.example/a", "https://h.example/b", True),
+        ("http://h.example:80/a", "https://h.example:443/b", True),
+        ("https://h.example/a", "http://h.example/b", False),
+        ("http://h.example:8080/a", "https://h.example/b", False),
+        ("http://h.example/a", "https://h.example:8443/b", False),
+        ("http://h.example/a", "https://other.example/b", False),
+        ("https://h.example/a", "https://h.example:8443/b", False),
+        ("http://h.example/a", "https://h.example:99999/b", False),
+        ("https://h.example/a", "https://h.example:70000/b", False),
+    ],
+)
+def test_credentials_may_follow(current, target, expected):
+    assert ssrf.credentials_may_follow(current, target) is expected

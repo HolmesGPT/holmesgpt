@@ -35,8 +35,8 @@ from holmes.plugins.toolsets.internet.ssrf import (
     SCHEME_DEFAULT_PORTS,
     SSRFValidationError,
     build_pinned_adapter,
+    credentials_for_redirect,
     no_auth,
-    strip_credentials,
     url_origin,
     validate_url,
 )
@@ -59,9 +59,8 @@ REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 # Bound the manual redirect chain, mirroring requests' default.
 MAX_REDIRECTS = 5
 
-# The only headers that survive a redirect crossing an origin, and only with
-# these exact values. requests' own rebuild_auth() strips just 'Authorization',
-# and only when the hostname changes.
+# Also the only headers kept when a redirect drops credentials, and only with
+# these exact values (see credentials_for_redirect).
 DEFAULT_REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
@@ -613,13 +612,15 @@ class HttpToolset(Toolset):
 
         return headers
 
-    def get_request_auth(self, endpoint: EndpointConfig) -> Optional[Any]:
+    def get_request_auth(self, endpoint: EndpointConfig) -> Any:
         if endpoint.auth.username and endpoint.auth.password:
             if endpoint.auth.type == "basic":
                 return (endpoint.auth.username, endpoint.auth.password)
             if endpoint.auth.type == "digest":
                 return HTTPDigestAuth(endpoint.auth.username, endpoint.auth.password)
-        return None
+        # Not None: requests would then attach ~/.netrc credentials, replacing
+        # bearer/header auth set in the headers.
+        return no_auth
 
     def _send(
         self, method: str, url: str, request_kwargs: Dict[str, Any]
@@ -726,11 +727,13 @@ class HttpToolset(Toolset):
                     f"Allowed methods: {next_endpoint.get_methods()}"
                 )
 
-            if url_origin(current_url) != url_origin(next_url):
-                kwargs["headers"] = strip_credentials(
-                    kwargs.get("headers") or {}, DEFAULT_REQUEST_HEADERS
-                )
-                kwargs["auth"] = no_auth
+            kwargs["headers"], kwargs["auth"] = credentials_for_redirect(
+                current_url,
+                next_url,
+                kwargs.get("headers") or {},
+                kwargs.get("auth"),
+                own_headers=DEFAULT_REQUEST_HEADERS,
+            )
 
             current_url = next_url
             current_method = next_method

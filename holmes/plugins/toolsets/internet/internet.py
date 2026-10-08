@@ -23,9 +23,8 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.internet.ssrf import (
     SSRFValidationError,
     build_pinned_adapter,
+    credentials_for_redirect,
     no_auth,
-    strip_credentials,
-    url_origin,
     validate_url,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
@@ -104,7 +103,7 @@ def scrape(
     Every hop (including redirects) is validated against the SSRF policy and the
     connection is pinned to the exact IP that was validated, defeating DNS
     rebinding. Credential headers are stripped when a redirect changes the
-    origin (scheme, host or port).
+    origin (scheme, host or port), except a same-host http -> https upgrade.
     """
     content = None
     mime_type = None
@@ -115,7 +114,9 @@ def scrape(
 
     current_url = url
     current_headers = headers
-    current_auth: Optional[Callable[..., Any]] = None
+    # Credentials come only from `headers`, never from ~/.netrc: the URL is
+    # model-chosen, and netrc would bypass the allowed_hosts rule for auth.
+    current_auth: Callable[..., Any] = no_auth
 
     try:
         for _ in range(MAX_REDIRECTS + 1):
@@ -150,11 +151,13 @@ def scrape(
                 if not location:
                     break
                 next_url = urljoin(current_url, location)
-                if url_origin(next_url) != url_origin(current_url):
-                    current_headers = strip_credentials(
-                        current_headers, {"User-Agent": INTERNET_TOOLSET_USER_AGENT}
-                    )
-                    current_auth = no_auth
+                current_headers, current_auth = credentials_for_redirect(
+                    current_url,
+                    next_url,
+                    current_headers,
+                    current_auth,
+                    own_headers={"User-Agent": INTERNET_TOOLSET_USER_AGENT},
+                )
                 current_url = next_url
                 continue
 

@@ -21,7 +21,7 @@ This module centralises the defense so every caller of ``scrape()`` is protected
 
 import ipaddress
 import socket
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 from urllib.parse import urlparse
 
 from requests import PreparedRequest
@@ -37,16 +37,20 @@ IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
 def url_origin(url: str) -> Tuple[str, str, Optional[int]]:
-    """(scheme, host, effective port) — the origin a credential is scoped to."""
+    """(scheme, host, effective port) — the origin a credential is scoped to.
+
+    An unparseable port yields None, which never equals a real port.
+    """
     parsed = urlparse(url)
     scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
     try:
         port = parsed.port
     except ValueError:
-        port = None
+        return scheme, host, None
     if port is None:
         port = SCHEME_DEFAULT_PORTS.get(scheme)
-    return scheme, (parsed.hostname or "").lower(), port
+    return scheme, host, port
 
 
 def strip_credentials(
@@ -63,9 +67,38 @@ def strip_credentials(
 
 
 def no_auth(request: PreparedRequest) -> PreparedRequest:
-    """`auth` for hops after credentials were dropped: requests only reads
-    ~/.netrc when `auth` is falsy, and would otherwise re-attach it."""
+    """An `auth` that sends nothing. requests reads ~/.netrc whenever `auth`
+    is falsy, so passing None would attach netrc credentials instead."""
     return request
+
+
+def credentials_may_follow(current_url: str, next_url: str) -> bool:
+    """Whether a redirect stays within the origin credentials were sent to.
+
+    A same-host http:80 -> https:443 upgrade counts as staying, as in requests'
+    should_strip_auth(); any other change of scheme, host or port does not.
+    """
+    current, target = url_origin(current_url), url_origin(next_url)
+    if current == target:
+        return True
+    return (
+        current[1] == target[1]
+        and (current[0], current[2]) == ("http", 80)
+        and (target[0], target[2]) == ("https", 443)
+    )
+
+
+def credentials_for_redirect(
+    current_url: str,
+    next_url: str,
+    headers: Dict[str, str],
+    auth: Any,
+    own_headers: Mapping[str, str],
+) -> Tuple[Dict[str, str], Any]:
+    """The headers and `auth` to send on the hop from `current_url` to `next_url`."""
+    if credentials_may_follow(current_url, next_url):
+        return headers, auth
+    return strip_credentials(headers, own_headers), no_auth
 
 
 class SSRFValidationError(Exception):
