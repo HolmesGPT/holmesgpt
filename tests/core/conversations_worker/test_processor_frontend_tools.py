@@ -1,9 +1,8 @@
-"""Tests for ConversationWorker frontend-tool injection."""
-import threading
+"""Tests for ConversationProcessor frontend-tool injection."""
 from unittest.mock import MagicMock
 
 from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.worker import ConversationWorker
+from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.models import (
     ChatRequest,
     FrontendToolDefinition,
@@ -16,25 +15,10 @@ from holmes.core.tools_utils.frontend_tools import (
 
 
 def _bare_worker():
-    w = ConversationWorker.__new__(ConversationWorker)
-    w.dal = MagicMock()
-    w.dal.enabled = True
-    w.dal.update_conversation_status = MagicMock(return_value=True)
-    w.config = MagicMock()
-    w.chat_function = MagicMock()
-    w.holmes_id = "h-test"
-    w._running = True
-    w._claim_thread = None
-    w._notify_event = threading.Event()
-    w._saturated_since = None
-    w._saturation_logged = False
-    w._last_stuck_warn = None
-    w._executor = MagicMock()
-    w._active_conversation_ids = {}
-    w._active_lock = threading.Lock()
-    w._dispatch_lock = threading.Lock()
-    w._realtime_manager = None
-    return w
+    dal = MagicMock()
+    dal.enabled = True
+    dal.update_conversation_status = MagicMock(return_value=True)
+    return ConversationProcessor(dal=dal, config=MagicMock(), holmes_id="h-test")
 
 
 def _task():

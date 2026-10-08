@@ -29,9 +29,16 @@ jobs:
           # branch name cannot be interpreted as shell. A PR author picks
           # this value, and git permits $, (, ) and {} in ref names.
           HEAD_REF: ${{ github.head_ref }}
+          # A fork can name its branch anything, including automated/benchmark-*.
+          # Only a branch pushed to this repo (needs write access) may skip tests.
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           # Skip tests for automated benchmark result branches
-          if [[ "$HEAD_REF" == automated/benchmark-* ]]; then
+          if [[ "$HEAD_REF" == automated/benchmark-* && "$HEAD_REPO" == "$BASE_REPO" ]]; then
             echo "Automated benchmark branch — skipping tests"
             echo "should_test=false" >> $GITHUB_OUTPUT
             exit 0
@@ -49,12 +56,12 @@ jobs:
             "docs/reference/http-api.md"   # contains curl tests validated by tests/test_http_docs.py
           )
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "should_test=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.sha }})
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
 
           SHOULD_TEST=false
           while IFS= read -r file; do
@@ -242,20 +249,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check results
+        env:
+          CHECK_CHANGES_RESULT: ${{ needs.check-changes.result }}
+          SHOULD_TEST: ${{ needs.check-changes.outputs.should_test }}
+          TEST_RESULT: ${{ needs.test.result }}
+          BUILD_RESULT: ${{ needs.build-binary.result }}
         run: |
-          if [ "${{ needs.check-changes.result }}" != "success" ]; then
+          if [ "$CHECK_CHANGES_RESULT" != "success" ]; then
             echo "check-changes job failed!"
             exit 1
           fi
-          if [ "${{ needs.check-changes.outputs.should_test }}" != "true" ]; then
+          # Accept a skip only on an explicit docs-only verdict, and only when
+          # the test jobs really were skipped. A missing or unexpected
+          # should_test value fails the gate instead of passing it.
+          if [ "$SHOULD_TEST" = "false" ]; then
+            if [ "$TEST_RESULT" != "skipped" ] || [ "$BUILD_RESULT" != "skipped" ]; then
+              echo "Docs-only verdict, but test=$TEST_RESULT build-binary=$BUILD_RESULT"
+              exit 1
+            fi
             echo "No source changes detected (docs-only) - skipping tests"
             exit 0
           fi
-          if [ "${{ needs.test.result }}" != "success" ]; then
+          if [ "$SHOULD_TEST" != "true" ]; then
+            echo "Unexpected should_test value: '$SHOULD_TEST'"
+            exit 1
+          fi
+          if [ "$TEST_RESULT" != "success" ]; then
             echo "Tests failed!"
             exit 1
           fi
-          if [ "${{ needs.build-binary.result }}" != "success" ]; then
+          if [ "$BUILD_RESULT" != "success" ]; then
             echo "Binary build failed!"
             exit 1
           fi

@@ -3,8 +3,9 @@ tags:
   - skills
   - kubernetes
   - network
-  - easy
-  - regression
+  # Unreliable: needs a NetworkPolicy engine (e.g. Calico)
+  # - easy
+  # - regression
 expected_output:
   - Frontend getting timeouts because NetworkPolicy on backend only allows ingress from pods with tier backend label not frontend
 before_test: |

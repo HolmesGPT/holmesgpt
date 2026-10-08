@@ -18,6 +18,7 @@ from typing import List, Optional
 BENCHMARK_TYPES = {
     "fast-benchmark": "regression or benchmark",
     "full-benchmark": "easy or medium or hard or regression or benchmark",
+    "advanced-benchmark": "regression or benchmark or advanced",
 }
 
 
@@ -332,6 +333,7 @@ def parse_args():
 Benchmark Types:
   fast-benchmark  - Quick regression tests (markers: regression or benchmark)
   full-benchmark  - Comprehensive tests (markers: easy or medium or hard or regression or benchmark)
+  advanced-benchmark - Evals that separate stronger from weaker models (markers: regression or benchmark or advanced)
 
 Examples:
   %(prog)s --models gpt-4o                              # Test gpt-4o with fast-benchmark (default)
