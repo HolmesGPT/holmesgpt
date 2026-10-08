@@ -9,8 +9,10 @@ expected_output:
 #  - "Should mention that data was limited or aggregated due to high cardinality"
   - "Should include a prometheus graph visualization"
 
+# Needs a big node, cannot run in CI
+skip: true
+skip_reason: "needs a big node (many pods / high cpu requests), cannot run in CI"
 tags:
-  - advanced
   - kubernetes
   - context_window
   - medium

@@ -9,8 +9,10 @@ description: |
   Each pod has 5000 INFO logs followed by exactly 1 ERROR log.
   Pod 79 has a different error message - Holmes should identify both patterns.
 
+# Needs a big node, cannot run in CI
+skip: true
+skip_reason: "needs a big node (many pods / high cpu requests), cannot run in CI"
 tags:
-  - advanced
   - kubernetes
   - logs
   - question-answer
