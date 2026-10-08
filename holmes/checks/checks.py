@@ -3,6 +3,7 @@
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -210,7 +211,8 @@ def execute_check(
 
     start_time = time.time()
     try:
-        response = _execute_ai_check(check, ai)
+        with recorder_state.track() if recorder_state else nullcontext():
+            response = _execute_ai_check(check, ai)
         if recorder_state is not None:
             # Fire the usage recorder. response IS-A LLMResult (RequestStats
             # subclass) so cost/token fields come straight off it.

@@ -21,13 +21,13 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import TOOLSET_CONFIG_MISSING_ERROR
 from holmes.plugins.toolsets.datadog.datadog_api import (
-    MAX_RETRY_COUNT_ON_RATE_LIMIT,
     DataDogRequestError,
     enhance_error_message,
     execute_datadog_http_request,
     fetch_openapi_spec,
     get_headers,
     preprocess_time_fields,
+    rate_limit_error_message,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogGeneralConfig,
@@ -482,7 +482,7 @@ class DatadogAPIGet(BaseDatadogGeneralTool):
             logging.exception(e, exc_info=True)
 
             if e.status_code == 429:
-                error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                error_msg = rate_limit_error_message(e)
             elif e.status_code == 403:
                 error_msg = (
                     f"Permission denied. Check API key permissions. Error: {str(e)}"
@@ -679,7 +679,7 @@ class DatadogAPIPostSearch(BaseDatadogGeneralTool):
             logging.exception(e, exc_info=True)
 
             if e.status_code == 429:
-                error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                error_msg = rate_limit_error_message(e)
             elif e.status_code == 403:
                 error_msg = (
                     f"Permission denied. Check API key permissions. Error: {str(e)}"

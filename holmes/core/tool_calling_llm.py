@@ -1,4 +1,5 @@
 import concurrent.futures
+import contextvars
 import json
 from json import tool
 import logging
@@ -1449,7 +1450,9 @@ class ToolCallingLLM:
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index
 
+                    # Tools see the caller's ContextVars (per-request counters).
                     future = executor.submit(
+                        contextvars.copy_context().run,
                         self._invoke_llm_tool_call,
                         tool_to_call=t,  # type: ignore
                         previous_tool_calls=tool_calls,
