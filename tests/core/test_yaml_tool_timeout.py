@@ -16,6 +16,7 @@ import holmes.common.env_vars as env_vars
 import holmes.core.tools as tools_module
 import holmes.main as holmes_main
 import holmes.utils.process_group as process_group
+from holmes.core.tool_calling_llm import ToolCallExecutor
 from holmes.core.tools import StructuredToolResultStatus, YAMLTool, YAMLToolset
 from tests.conftest import create_mock_tool_invoke_context
 
@@ -310,9 +311,9 @@ class TestTimeoutExecution:
             _invoke(tool)
         assert time.monotonic() - start < 10
         assert _alive(marker) == []
-        assert process_group._running == set()
+        assert process_group._running == {}
 
-    def test_terminate_all_process_groups_unblocks_running_tool(self):
+    def test_terminate_running_commands_unblocks_running_tool(self):
         marker = _marker()
         tool = YAMLTool(
             name="running",
@@ -324,11 +325,57 @@ class TestTimeoutExecution:
         worker = threading.Thread(target=lambda: results.append(_invoke(tool)))
         worker.start()
         _wait_until_alive(marker)
-        process_group.terminate_all_process_groups()
+        process_group.terminate_running_commands()
         worker.join(timeout=5)
         assert not worker.is_alive()
         assert results[0].status == StructuredToolResultStatus.ERROR
         assert _alive(marker) == []
+
+    def test_terminate_scoped_to_thread_ids(self):
+        marker = _marker()
+        tool = YAMLTool(
+            name="running",
+            description="d",
+            command=f"sleep {marker}",
+            timeout_seconds=30,
+        )
+        results = []
+        worker = threading.Thread(target=lambda: results.append(_invoke(tool)))
+        worker.start()
+        _wait_until_alive(marker)
+        process_group.terminate_running_commands({threading.get_ident()})
+        time.sleep(0.3)
+        assert _alive(marker) != []
+        process_group.terminate_running_commands({worker.ident})
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert _alive(marker) == []
+
+    @pytest.mark.parametrize("interrupt", [KeyboardInterrupt, GeneratorExit])
+    def test_tool_call_executor_kills_its_commands_when_abandoned(self, interrupt):
+        marker = _marker()
+        tool = YAMLTool(
+            name="hang", description="d", command=f"sleep {marker}", timeout_seconds=30
+        )
+        start = time.monotonic()
+        with pytest.raises(interrupt):
+            with ToolCallExecutor(max_workers=2) as executor:
+                future = executor.submit(_invoke, tool)
+                _wait_until_alive(marker)
+                raise interrupt()
+        assert time.monotonic() - start < 10
+        assert future.result().status == StructuredToolResultStatus.ERROR
+        assert _alive(marker) == []
+
+    def test_tool_call_executor_waits_on_other_errors(self):
+        tool = YAMLTool(
+            name="quick", description="d", command="sleep 1; echo done", timeout_seconds=30
+        )
+        with pytest.raises(ValueError):
+            with ToolCallExecutor(max_workers=1) as executor:
+                future = executor.submit(_invoke, tool)
+                raise ValueError()
+        assert future.result().data == "done"
 
     def test_cli_exit_terminates_running_tools(self, monkeypatch):
         calls = []
@@ -338,7 +385,7 @@ class TestTimeoutExecution:
 
         monkeypatch.setattr(holmes_main, "app", aborted)
         monkeypatch.setattr(
-            holmes_main, "terminate_all_process_groups", lambda: calls.append(1)
+            holmes_main, "terminate_running_commands", lambda: calls.append(1)
         )
         monkeypatch.setattr(holmes_main.sys, "argv", ["holmes", "ask", "q"])
         with pytest.raises(SystemExit):
@@ -361,7 +408,7 @@ class TestTimeoutExecution:
         assert result.data == "ok"
         assert result.error is None
         assert result.timed_out is None
-        assert process_group._running == set()
+        assert process_group._running == {}
 
     def test_failing_command_unaffected(self):
         tool = YAMLTool(

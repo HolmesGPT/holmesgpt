@@ -6,11 +6,12 @@ import os
 import signal
 import subprocess
 import threading
-from typing import Any, Optional, Set, Tuple
+from typing import Any, Collection, Dict, Optional, Tuple
 
 TERMINATE_GRACE_SECONDS = 5
 
-_running: Set[subprocess.Popen] = set()
+# Running commands, mapped to the ident of the thread that started them.
+_running: Dict[subprocess.Popen, int] = {}
 _running_lock = threading.Lock()
 
 
@@ -28,7 +29,7 @@ def run_shell_in_process_group(cmd: str, timeout: int) -> Tuple[str, Optional[in
         start_new_session=True,
     )
     with _running_lock:
-        _running.add(process)
+        _running[process] = threading.get_ident()
     try:
         stdout, _ = process.communicate(timeout=timeout)
         return stdout or "", process.returncode
@@ -39,15 +40,22 @@ def run_shell_in_process_group(cmd: str, timeout: int) -> Tuple[str, Optional[in
         raise
     finally:
         with _running_lock:
-            _running.discard(process)
+            _running.pop(process, None)
 
 
-def terminate_all_process_groups() -> None:
-    """Kill every command started by run_shell_in_process_group that is still
-    running. Commands sit outside the terminal's foreground group, so Ctrl+C
-    does not reach them; callers that catch KeyboardInterrupt call this."""
+def terminate_running_commands(
+    thread_ids: Optional[Collection[int]] = None,
+) -> None:
+    """Kill commands started by run_shell_in_process_group that are still
+    running: all of them, or only those started by ``thread_ids``. Commands sit
+    outside the terminal's foreground group, so Ctrl+C does not reach them;
+    callers that are interrupted call this."""
     with _running_lock:
-        processes = list(_running)
+        processes = [
+            process
+            for process, owner in _running.items()
+            if thread_ids is None or owner in thread_ids
+        ]
     for process in processes:
         _signal_process_group(process, signal.SIGKILL)
 
