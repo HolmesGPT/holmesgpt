@@ -70,7 +70,9 @@ Not retried:
 
 Interrupting the CLI (Esc) stops the backoff. Server requests run until the budget is used up.
 
-When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded errors as HTTP 500. This includes a rate limit hit while compacting the conversation history.
+When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded errors as HTTP 500.
+
+Conversation-history compaction is not retried while the history still fits the context window. If the provider refuses it, compaction is skipped and tried again on the next step. Once the history no longer fits, compaction gets the full budget, and an exhausted budget is returned as the errors above.
 
 Some providers' SDKs (OpenAI, Azure) also retry a rate limit once or twice within each attempt. That time does not count towards the budget.
 
@@ -82,7 +84,7 @@ export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=300
 ### LLM_MAX_CONCURRENT_CALLS_PER_MODEL
 **Default:** `0` (no limit)
 
-Maximum number of LLM calls in flight at once per model in one HolmesGPT process. Extra calls wait for a free slot. A call backing off from a rate limit does not hold a slot, and a streamed call holds one only until its stream is opened. Use this to keep many concurrent investigations from bursting one model deployment past its rate limit.
+Maximum number of LLM calls in flight at once per model in one HolmesGPT process. Extra calls wait for a free slot, with no time limit. A call backing off from a rate limit does not hold a slot, and a streamed call holds one only until its stream is opened. Calls to the same model name on different `api_base` URLs have separate slots. Use this to keep many concurrent investigations from bursting one model deployment past its rate limit.
 
 **Example:**
 ```bash

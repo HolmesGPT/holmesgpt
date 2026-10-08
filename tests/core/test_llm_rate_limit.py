@@ -686,3 +686,21 @@ def test_azure_ad_token_is_fetched_per_attempt(clock, budget, cap):
         llm.completion(messages=[{"role": "user", "content": "hi"}])
     tokens = [c.kwargs["azure_ad_token"] for c in completion.call_args_list]
     assert tokens == ["token-1", "token-2"]
+
+
+def test_deployments_of_one_model_have_separate_slots(budget, cap):
+    cap(1)
+    barrier = threading.Barrier(2, timeout=5)
+    threads = [
+        threading.Thread(
+            target=lambda base=base: call_with_rate_limit_retry(
+                barrier.wait, model="azure/gpt-4o", api_base=base
+            )
+        )
+        for base in ("https://a.openai.azure.com", "https://b.openai.azure.com")
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert not barrier.broken

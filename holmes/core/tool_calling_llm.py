@@ -1317,7 +1317,12 @@ class ToolCallingLLM:
                         otel_metrics.token_usage.add(response_stats.prompt_tokens, {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "input"})
                     if response_stats.completion_tokens > 0:
                         otel_metrics.token_usage.add(response_stats.completion_tokens, {**model_attrs, DIM_GEN_AI_TOKEN_TYPE: "output"})
-                    llm_duration = time.time() - _llm_call_start
+                    # Rate-limit backoff is not provider latency.
+                    llm_duration = (
+                        time.time()
+                        - _llm_call_start
+                        - response_stats.llm_rate_limit_wait_ms / 1000
+                    )
                     otel_metrics.llm_call_duration.record(llm_duration, model_attrs)
 
                 # Log GenAI semantic convention attributes on the LLM child span

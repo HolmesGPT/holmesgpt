@@ -4,11 +4,12 @@ from pathlib import Path
 
 import litellm
 import pytest
-from litellm.types.utils import Choices, Message, ModelResponse
+from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from holmes.core.llm import DefaultLLM
 from holmes.core.llm_rate_limit import LLMRetryCancelled
 from holmes.core.truncation.compaction import (
+    CompactionRefusedError,
     _count_image_tokens_in_messages,
     _flatten_tool_messages_for_compaction,
     _strip_images_for_compaction,
@@ -570,34 +571,41 @@ def test_compaction_returns_original_history_when_both_attempts_unusable():
         ),
     ],
 )
-def test_compaction_raises_rate_limits_instead_of_degrading(error):
-    """The LLM call already waited out its retry budget. Degrading would end in
-    "start a new conversation" and hide the cause, and the flattened fallback
-    would wait the budget out again."""
+def test_compaction_reports_provider_refusal_instead_of_degrading(error):
+    """The LLM call already waited out its retry budget, and the flattened
+    fallback would only hit the same limit again; the caller decides whether
+    the turn can go on without compacting."""
+    error.llm_rate_limit_retries = 2
     llm = RecordingFakeLLM([error, _make_response(content="UNUSED")])
-    with pytest.raises(type(error)):
+    with pytest.raises(CompactionRefusedError) as info:
         compact_conversation_history(
             original_conversation_history=_history_with_tool_calls(),
             llm=llm,  # type: ignore
             tools=_TOOLS,
         )
     assert len(llm.calls) == 1
+    assert info.value.provider_error is error
+    assert info.value.usage.llm_rate_limit_retries == 2
 
 
-def test_compaction_raises_rate_limit_from_fallback():
+def test_compaction_refusal_in_fallback_keeps_primary_usage():
+    """The primary call is billed even when its answer is unusable."""
+    primary = _make_response(tool_calls=[{"id": "t", "type": "function", "function": {"name": "x", "arguments": "{}"}}])
+    primary.usage = Usage(prompt_tokens=500, completion_tokens=20, total_tokens=520)
     llm = RecordingFakeLLM(
         [
-            RuntimeError("400 toolConfig must be defined"),
+            primary,
             litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
         ]
     )
-    with pytest.raises(litellm.RateLimitError):
+    with pytest.raises(CompactionRefusedError) as info:
         compact_conversation_history(
             original_conversation_history=_history_with_tool_calls(),
             llm=llm,  # type: ignore
             tools=_TOOLS,
         )
     assert len(llm.calls) == 2
+    assert info.value.usage.total_tokens == 520
 
 
 def test_compaction_keeps_retry_counts_of_a_failed_attempt():

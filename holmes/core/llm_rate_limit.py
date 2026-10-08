@@ -48,7 +48,7 @@ _QUOTA_EXHAUSTED_MARKERS = (
     "insufficient_quota",
 )
 
-_model_semaphores: Dict[Tuple[str, int], threading.BoundedSemaphore] = {}
+_model_semaphores: Dict[Tuple[str, Optional[str], int], threading.BoundedSemaphore] = {}
 _model_semaphores_lock = threading.Lock()
 
 
@@ -126,9 +126,7 @@ def is_provider_capacity_error(e: BaseException) -> bool:
 
 
 def is_retryable_llm_error(e: BaseException) -> bool:
-    if is_quota_exhausted_error(e):
-        return False
-    return is_rate_limit_error(e) or is_overloaded_error(e)
+    return is_provider_capacity_error(e) and not is_quota_exhausted_error(e)
 
 
 def _headers(e: BaseException) -> Mapping[str, str]:
@@ -221,16 +219,20 @@ def _log_retry(model: str) -> Callable[[RetryCallState], None]:
 
 
 @contextlib.contextmanager
-def _model_slot(model: str, cancel_event: Optional[threading.Event]) -> Iterator[None]:
+def _model_slot(
+    model: str, api_base: Optional[str], cancel_event: Optional[threading.Event]
+) -> Iterator[None]:
     cap = env_vars.LLM_MAX_CONCURRENT_CALLS_PER_MODEL
     if cap <= 0:
         yield
         return
+    # api_base tells apart deployments of one model name (e.g. two Azure resources).
+    key = (model, api_base, cap)
     with _model_semaphores_lock:
-        semaphore = _model_semaphores.get((model, cap))
+        semaphore = _model_semaphores.get(key)
         if semaphore is None:
             semaphore = threading.BoundedSemaphore(cap)
-            _model_semaphores[(model, cap)] = semaphore
+            _model_semaphores[key] = semaphore
     while not semaphore.acquire(timeout=1):
         if cancel_event is not None and cancel_event.is_set():
             raise LLMRetryCancelled()
@@ -272,7 +274,9 @@ def retry_counts(obj: Any) -> Dict[str, int]:
     return {key: 0 for key in keys}
 
 
-def call_with_rate_limit_retry(fn: Callable[[], T], model: str) -> T:
+def call_with_rate_limit_retry(
+    fn: Callable[[], T], model: str, api_base: Optional[str] = None
+) -> T:
     """Run ``fn``, retrying rate-limit / overloaded errors within the wait budget.
 
     The per-model concurrency slot is held only while ``fn`` runs, not while
@@ -296,7 +300,7 @@ def call_with_rate_limit_retry(fn: Callable[[], T], model: str) -> T:
     attempts = 0
     try:
         for attempt in retrying:
-            with attempt, _model_slot(model, scope.cancel_event):
+            with attempt, _model_slot(model, api_base, scope.cancel_event):
                 attempts += 1
                 result = fn()
     except Exception as e:

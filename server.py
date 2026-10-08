@@ -984,8 +984,10 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     return resp
 
 
+# async so it runs on the event loop: the threadpool can be full of chats
+# waiting on the LLM, and a liveness probe that times out restarts the pod.
 @app.get("/healthz")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
 

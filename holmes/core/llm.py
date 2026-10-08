@@ -798,7 +798,9 @@ class DefaultLLM(LLM):
         # With stream=True only errors raised by completion() itself are
         # retried; an error while reading chunks propagates, so a partial answer
         # is never replayed. Some providers send the request on the first chunk.
-        result = call_with_rate_limit_retry(call_provider, model=litellm_model_name)
+        result = call_with_rate_limit_retry(
+            call_provider, model=litellm_model_name, api_base=self.api_base
+        )
 
         if isinstance(result, ModelResponse):
             return result
