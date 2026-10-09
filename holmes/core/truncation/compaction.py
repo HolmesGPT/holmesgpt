@@ -6,7 +6,7 @@ docs/reference/context-management.md
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
@@ -197,6 +197,7 @@ def compact_conversation_history(
     original_conversation_history: list[dict],
     llm: LLM,
     tools: Optional[list[dict[str, Any]]] = None,
+    request_context: Optional[Dict[str, Any]] = None,
 ) -> CompactionResult:
     """
     Summarize the conversation and replace it with:
@@ -263,10 +264,13 @@ def compact_conversation_history(
                 tools=tools,
                 tool_choice="auto",
                 drop_params=True,
+                request_context=request_context,
             )  # type: ignore
         else:
             response = llm.completion(
-                messages=conversation_history + [instructions_message], drop_params=True
+                messages=conversation_history + [instructions_message],
+                drop_params=True,
+                request_context=request_context,
             )  # type: ignore
         compaction_usage += RequestStats.from_response(response)
         response_message = _get_response_message(response)
@@ -292,7 +296,9 @@ def compact_conversation_history(
         flattened_history = _flatten_tool_messages_for_compaction(flattened_history)
         try:
             response = llm.completion(
-                messages=flattened_history + [instructions_message], drop_params=True
+                messages=flattened_history + [instructions_message],
+                drop_params=True,
+                request_context=request_context,
             )  # type: ignore
             compaction_usage += RequestStats.from_response(response)
             response_message = _get_response_message(response)
