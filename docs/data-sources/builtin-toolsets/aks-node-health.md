@@ -12,71 +12,34 @@ By enabling this toolset, HolmesGPT will be able to perform specialized health c
 3. Access to the target AKS cluster
 4. Node-level access permissions
 
+This toolset runs only in the Holmes CLI. It is tagged `cli`, so the Holmes server, which is what runs in Kubernetes, does not load it, even when it is enabled. In Kubernetes, use the [Azure MCP](azure-mcp.md) integration instead.
+
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, ensure you're authenticated with Azure:
 
-    First, ensure you're authenticated with Azure:
+  ```bash
+  az login
+  az account set --subscription "<your subscription id>"
+  ```
 
-    ```bash
-    az login
-    az account set --subscription "<your subscription id>"
-    ```
+  Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+    aks/node-health:
+      enabled: true
+      config:
+        subscription_id: "<your Azure subscription ID>"
+        resource_group: "<your AKS resource group>"
+        cluster_name: "<your AKS cluster name>"
+  ```
 
-    ```yaml
-    toolsets:
-      aks/node-health:
-        enabled: true
-        config:
-          subscription_id: "<your Azure subscription ID>"
-          resource_group: "<your AKS resource group>"
-          cluster_name: "<your AKS cluster name>"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    toolsets:
-      aks/node-health:
-        enabled: true
-        config:
-          subscription_id: "<your Azure subscription ID>"
-          resource_group: "<your AKS resource group>"
-          cluster_name: "<your AKS cluster name>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      toolsets:
-        aks/node-health:
-          enabled: true
-          config:
-            subscription_id: "<your Azure subscription ID>"
-            resource_group: "<your AKS resource group>"
-            cluster_name: "<your AKS cluster name>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Advanced Configuration
 
