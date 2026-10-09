@@ -82,8 +82,7 @@ Above a yaml-helm-values fence, which has no CLI tab, it reads "Reuses the ...".
 Fields, declared in `ToolsetConfigFields` and `HelmValuesFields`. Each is optional, and a field
 that is written has a value.
 
-- `secret`: `--from-literal=X=<value>` and `--from-file=X=<path>` arguments of the group's secret,
-  each value or path in a form `SECRET_VALUE_FORMS` lists.
+- `secret`: `--from-literal=X=<value>` and `--from-file=X=<path>` arguments of the group's secret.
   One for a derived key sets the value the page shows; one for a key the values never reference as
   `{{ env.X }}` (a variable the tool reads from the environment) adds it, after the derived keys.
 - `named-secrets`: secrets the values name themselves, which are not listed in
@@ -289,19 +288,6 @@ FIELDS_SEPARATOR = "---"
 SECRET_ARGUMENT_RE = re.compile(
     r"--from-(?P<kind>literal|file)=(?P<key>[A-Za-z0-9_.-]+)=(?P<value>\S.*)"
 )
-# The forms of a secret argument's value the pages write, per kind, each one word to the shell. A
-# literal form with a `text` group passes kubectl that text; the shell computes the other one's value,
-# and kubectl reads a file's.
-SECRET_VALUE_FORMS = {
-    "literal": (
-        re.compile(r"(?P<text>[^\s\"'\\$`]+)"),
-        re.compile(r"'(?P<text>[^']*)'"),
-        re.compile(r"\"(?P<text>[^\"$`\\]*)\""),
-        # A command substitution, after a prefix, holding no parenthesis and only closed quotes.
-        re.compile(r"\"[^\"$`\\]*\$\((?:[^\"'()]|\"[^\"]*\"|'[^']*')*\)\""),
-    ),
-    "file": (re.compile(r"(?:\$HOME/)?[^\s\"'\\$`]+"),),
-}
 # The chart values that are also Holmes config, which a derived CLI tab shows.
 CLI_CONFIG_KEYS = frozenset({"toolsets", "mcp_servers"})
 # The chart-specific names a Helm tab can state, and the lines that state them.
@@ -442,27 +428,16 @@ def _multi_instance_section(body: str, page: str):
 
 def _secret_keys(arguments) -> Dict[str, Tuple[str, str]]:
     """{key: (kind, value)} for a list of `--from-literal=K=V` / `--from-file=K=PATH`
-    arguments, in their order, each V or PATH as written, in a form `SECRET_VALUE_FORMS` lists."""
+    arguments, in their order."""
     if not isinstance(arguments, list) or not arguments:
         raise ValueError("a secret's keys are a list of --from-literal / --from-file arguments")
     keys: Dict[str, Tuple[str, str]] = {}
     for argument in arguments:
         match = SECRET_ARGUMENT_RE.fullmatch(argument) if isinstance(argument, str) else None
-        if match is None or match["key"] in keys or _secret_text(match["kind"], match["value"]) is None:
+        if match is None or match["key"] in keys:
             raise ValueError(f"not a --from-literal=KEY=VALUE or --from-file=KEY=PATH argument of a new key: {argument!r}")
         keys[match["key"]] = (match["kind"], match["value"])
     return keys
-
-
-def _secret_text(kind: str, value: str) -> Optional[str]:
-    """What a secret key holds in the pod for a value of a form the pages write: a literal's text, or
-    `value` for a value the shell computes or a file's content, which the page does not show. None for
-    any other form."""
-    for form in SECRET_VALUE_FORMS[kind]:
-        match = form.fullmatch(value)
-        if match:
-            return match.groupdict().get("text", "value")
-    return None
 
 
 SecretKeys = Annotated[Dict[str, Tuple[str, str]], BeforeValidator(_secret_keys)]
@@ -633,7 +608,7 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
             secret += f"-{opening['qualifier']}"
     elif opening["option"]:
         return None
-    environment = {key: _secret_text(kind, value) for key, (kind, value) in keys.items()}
+    environment = {key: "value" for key in keys}
     environment.update({entry["name"]: entry.get("value", "") for entry in _env_vars(values)})
     return DeploymentBody(values_text, values, fields, secret, keys, environment)
 

@@ -307,7 +307,7 @@ def _model_errors(model_list: dict) -> List[str]:
 
 def _holmes_errors(render: str, environment: Dict[str, str]) -> List[str]:
     """What Holmes refuses in the `custom-toolsets-configmap` ConfigMap of the render, with only
-    `environment`, its placeholders replaced too, set while Holmes's code runs."""
+    `environment` set while Holmes's code runs."""
     data = next(
         (
             document["data"]
@@ -324,7 +324,7 @@ def _holmes_errors(render: str, environment: Dict[str, str]) -> List[str]:
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "custom_toolset.yaml"
         path.write_text(yaml.safe_dump(custom_toolset))
-        with _environment(_filled(environment)):
+        with _environment(environment):
             return _toolset_errors(path, custom_toolset) + _model_errors(model_list)
 
 
