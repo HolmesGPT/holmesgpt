@@ -25,7 +25,7 @@ from typing import Dict, Iterator, List, Optional, Set, Tuple
 import yaml  # type: ignore
 from pydantic import BaseModel, ValidationError
 
-from docs.custom_fences import key_path
+from docs.custom_fences import empty_value, key_path
 from holmes.core.llm import ModelEntry
 from holmes.core.tools import Toolset, ToolsetStatusEnum
 from holmes.core.toolset_manager import ToolsetManager, handle_deprecated_toolset_name
@@ -78,7 +78,7 @@ def _differing(lines: List[str], other: List[str]) -> Set[int]:
 
 def _leaves(node, path: tuple = ()) -> Iterator[Tuple[tuple, object]]:
     """(key path, value) of every scalar under the mapping or list `node`, at any depth, list
-    items included. The page-text check refuses an empty mapping, list or null in the values."""
+    items included. `check_fence` refuses an empty mapping, list or null before this runs."""
     for key, value in node.items() if isinstance(node, dict) else enumerate(node):
         if isinstance(value, (dict, list)):
             yield from _leaves(value, path + (key,))
@@ -333,11 +333,14 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
     values, as the Holmes Helm Chart tab shows them; `environment` is the variables the group
     gives Holmes, its secret's keys and its `additionalEnvVars`.
 
-    The values must render with `helm template`, every leaf must change the render when it
-    changes (else the render does not depend on its value), every rendered object must
-    match its Kubernetes schema, and Holmes must load what the render passes on to it. A line
-    that differs between two renders of `values`, such as a random token or the time, is not
-    counted as a change."""
+    No value may be empty (a list entry `""` excepted), as on the pages. The values must
+    render with `helm template`, every leaf must change the render when it changes (else the
+    render does not depend on its value), every rendered object must match its Kubernetes
+    schema, and Holmes must load what the render passes on to it. A line that differs between
+    two renders of `values`, such as a random token or the time, is not counted as a change."""
+    empty = empty_value(values)
+    if empty:
+        return [f"`{key_path(empty)}` has no value"]
     result = _render(values, chart_dir)
     if result.returncode != 0:
         return [f"helm template fails: {result.stderr.strip()}"]

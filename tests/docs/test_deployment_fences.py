@@ -383,6 +383,19 @@ def test_a_value_the_chart_or_kubernetes_refuses_is_an_error(values, error):
     assert len(errors) == 1 and re.match(error, errors[0]), errors
 
 
+@pytest.mark.parametrize(
+    "values, path",
+    [
+        ({"serviceAccount": {"annotations": {}}}, "serviceAccount.annotations"),
+        ({"createServiceAccount": None}, "createServiceAccount"),
+        ({"additionalEnvVars": [None]}, "additionalEnvVars[0]"),
+    ],
+    ids=["empty-mapping", "null", "null-list-entry"],
+)
+def test_an_empty_value_is_an_error_off_the_pages_too(values, path):
+    assert fence_checks.check_fence(values, {}, CHART) == [f"`{path}` has no value"]
+
+
 def chart(directory: Path, template: str) -> Path:
     """A chart in `directory` with one template."""
     (directory / "templates").mkdir()
