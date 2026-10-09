@@ -98,9 +98,15 @@ After configuring your data sources, verify everything is connected:
 # List all enabled toolsets
 holmes toolset list
 
+# Inspect one toolset: status, tools, parameters, and redacted config
+holmes toolset inspect helm/core
+holmes toolset inspect prometheus/metrics --json
+
 # Test with a real investigation
 holmes ask "what is the health of my environment?"
 ```
+
+`holmes toolset inspect` accepts an exact name or a unique prefix/substring. Secret fields such as API keys are replaced with `***`.
 
 ## Next Steps
 
