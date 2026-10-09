@@ -665,6 +665,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             model=chat_request.model,
             tracer=server_tracer,
             tool_results_dir=tool_results_dir,
+            conversation_id=chat_request.conversation_id,
         )
 
         global_instructions = dal.get_global_instructions_for_account()

@@ -675,6 +675,7 @@ class Config(RobustaBaseConfig):
         tracer=None,
         tool_results_dir: Optional[Path] = None,
         on_event: EventCallback = None,
+        conversation_id: Optional[str] = None,
     ) -> "ToolCallingLLM":
         """
         Create a ToolCallingLLM with explicit behavioral controls.
@@ -682,6 +683,10 @@ class Config(RobustaBaseConfig):
         Executor parameters (toolset_tag_filter, enable_all_toolsets_possible,
         prerequisite_cache, reuse_executor) are forwarded to
         :meth:`create_tool_executor`.
+
+        ``conversation_id`` names the chat this turn belongs to. A Robusta-hosted
+        model sends it to relay on every completion of the turn; see
+        :meth:`_get_llm`.
 
         Migration from removed helpers
         ------------------------------
@@ -714,7 +719,12 @@ class Config(RobustaBaseConfig):
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         # Create LLM first so model info appears during toolset loading
-        llm = self._get_llm(model_key=model, tracer=tracer, on_event=on_event)
+        llm = self._get_llm(
+            model_key=model,
+            tracer=tracer,
+            on_event=on_event,
+            conversation_id=conversation_id,
+        )
         tool_executor = self.create_tool_executor(
             dal=dal,
             toolset_tag_filter=toolset_tag_filter,
@@ -855,7 +865,14 @@ class Config(RobustaBaseConfig):
         model_key: Optional[str] = None,
         tracer=None,
         on_event: EventCallback = None,
+        conversation_id: Optional[str] = None,
     ) -> "DefaultLLM":
+        """Build a fresh DefaultLLM for ``model_key``.
+
+        ``conversation_id`` is sent as ``X-Robusta-Conversation-Id`` on a
+        Robusta-hosted model's completions, so relay can gate admin-only models
+        by the chat's owner. A customer-defined model never receives it.
+        """
         sentry_sdk.set_tag("requested_model", model_key)
         model_entry = self.llm_model_registry.get_model_params(model_key)
         model_params = model_entry.model_dump(exclude_none=True)
@@ -890,6 +907,7 @@ class Config(RobustaBaseConfig):
             tracer=tracer,
             name=model_name,
             is_robusta_model=is_robusta_model,
+            conversation_id=conversation_id,
         )  # type: ignore
         context_size = self._format_token_count(llm.get_context_window_size())
         max_response = self._format_token_count(llm.get_maximum_output_token())
