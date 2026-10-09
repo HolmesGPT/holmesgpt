@@ -1,6 +1,5 @@
 import concurrent.futures
 import json
-from json import tool
 import logging
 import re
 import threading
