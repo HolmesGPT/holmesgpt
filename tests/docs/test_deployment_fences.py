@@ -603,6 +603,18 @@ def test_holmes_reads_a_config_value_after_substituting_the_fence_environment(ti
     assert [error.split("\n    For further information")[0] for error in fence_checks.check_fence(fence.values, fence.environment, CHART)] == errors
 
 
+def test_a_placeholder_in_a_variable_is_replaced_as_in_the_values():
+    """`url` is a URL, which `http://grafana.<namespace>:8000/mcp` is only once its placeholder is
+    replaced, as a reader replaces it."""
+    fence = fence_of(
+        "```yaml-toolset-config\n"
+        "additionalEnvVars:\n  - name: GRAFANA_MCP_URL\n    value: \"http://grafana.<namespace>:8000/mcp\"\n"
+        "mcp_servers:\n  grafana:\n    description: Grafana\n    config:\n"
+        "      url: \"{{ env.GRAFANA_MCP_URL }}\"\n      mode: streamable-http\n```\n"
+    )
+    assert fence_checks.check_fence(fence.values, fence.environment, CHART) == []
+
+
 def test_holmes_runs_with_only_the_fence_environment_which_is_then_restored(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "from the test process")
     environ = dict(os.environ)
