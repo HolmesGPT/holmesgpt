@@ -210,7 +210,7 @@ def coerce_params(
     coerced: Optional[Dict[str, Any]] = None  # lazy-copy on first change
 
     for name, param_schema in schema.items():
-        if name not in params:
+        if params.get(name) is None:
             continue
 
         value = params[name]
