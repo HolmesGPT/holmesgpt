@@ -149,6 +149,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.mypy]
 ignore_missing_imports = true
 scripts_are_modules = true
+# Name files from the repo root, so docs/custom_fences.py (docs/ has no __init__.py) is docs.custom_fences, the module mkdocs.yml and the fence tests import.
+explicit_package_bases = true
 exclude = [
     "tests/llm/fixtures/.*",
     "dist/.*",
@@ -207,6 +209,7 @@ markers = [
     # - Fast execution to avoid slowing CI/CD pipelines
     "regression: Critical regression tests that must always pass",
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
+    "advanced: Evals that separate stronger from weaker models (failed by haiku or opus)",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",

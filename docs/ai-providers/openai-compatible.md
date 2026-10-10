@@ -29,18 +29,16 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
-    # values.yaml
     additionalEnvVars:
       - name: OPENAI_API_BASE
         value: "http://your-inference-server:8000/v1"
       - name: OPENAI_API_KEY
         value: "none"  # Or any placeholder if endpoint doesn't need auth
-        # If authentication is required, use a secret instead:
-        # valueFrom:
-        #   secretKeyRef:
-        #     name: holmes-secrets
-        #     key: openai-api-key
+      - name: MODEL
+        value: "my-model"
 
     # Optional: Custom CA certificate (base64-encoded)
     # certificate: "LS0tLS1CRUdJTi..."
@@ -51,26 +49,27 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
         api_base: "{{ env.OPENAI_API_BASE }}"
         model: openai/your-model-name
         temperature: 1
+    ```
 
-    config:
-      model: "my-model"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    # values.yaml
     holmes:
       additionalEnvVars:
         - name: OPENAI_API_BASE
           value: "http://your-inference-server:8000/v1"
         - name: OPENAI_API_KEY
           value: "none"  # Or any placeholder if endpoint doesn't need auth
-          # If authentication is required, use a secret instead:
-          # valueFrom:
-          #   secretKeyRef:
-          #     name: robusta-holmes-secret
-          #     key: openai-api-key
+        - name: MODEL
+          value: "my-model"
 
       # Optional: Custom CA certificate (base64-encoded)
       # certificate: "LS0tLS1CRUdJTi..."
@@ -81,9 +80,95 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
           api_base: "{{ env.OPENAI_API_BASE }}"
           model: openai/your-model-name
           temperature: 1
+    ```
 
-      config:
-        model: "my-model"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+### If Authentication Is Required
+
+If authentication is required, keep the API key in a secret instead of the `OPENAI_API_KEY` value above.
+
+=== "Holmes Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-openai-compatible \
+      --from-literal=OPENAI_API_KEY="your-api-key" \
+      -n <namespace>
+    ```
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    extraEnvVarsSecrets:
+      - holmes-openai-compatible
+
+    additionalEnvVars:
+      - name: OPENAI_API_BASE
+        value: "http://your-inference-server:8000/v1"
+      - name: MODEL
+        value: "my-model"
+
+    # Optional: Custom CA certificate (base64-encoded)
+    # certificate: "LS0tLS1CRUdJTi..."
+
+    modelList:
+      my-model:
+        api_key: "{{ env.OPENAI_API_KEY }}"
+        api_base: "{{ env.OPENAI_API_BASE }}"
+        model: openai/your-model-name
+        temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-openai-compatible \
+      --from-literal=OPENAI_API_KEY="your-api-key" \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      extraEnvVarsSecrets:
+        - holmes-openai-compatible
+
+      additionalEnvVars:
+        - name: OPENAI_API_BASE
+          value: "http://your-inference-server:8000/v1"
+        - name: MODEL
+          value: "my-model"
+
+      # Optional: Custom CA certificate (base64-encoded)
+      # certificate: "LS0tLS1CRUdJTi..."
+
+      modelList:
+        my-model:
+          api_key: "{{ env.OPENAI_API_KEY }}"
+          api_base: "{{ env.OPENAI_API_BASE }}"
+          model: openai/your-model-name
+          temperature: 1
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ## Known Limitations

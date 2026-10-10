@@ -6,6 +6,8 @@ repo_name: HolmesGPT/holmesgpt
 edit_uri: edit/master/docs/
 exclude_docs: |
     _*
+    /custom_fences.py
+    /overrides/
     snippets/
     README.md
     data-sources/permissions.md
@@ -78,7 +80,6 @@ nav:
                 - "Internet": data-sources/builtin-toolsets/internet.md
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
-                - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "Kubernetes Remediation (MCP)": data-sources/builtin-toolsets/kubernetes-remediation-mcp.md
                 - "KubeVela": data-sources/builtin-toolsets/kubevela.md
                 - "MariaDB": data-sources/builtin-toolsets/database-mariadb.md
@@ -237,18 +238,9 @@ markdown_extensions:
               - name: mermaid
                 class: mermaid
                 format: !!python/name:pymdownx.superfences.fence_code_format
-              - name: yaml-helm-values
-                class: yaml
-                format: !!python/name:docs.custom_fences.helm_tabs_fence_format
-              - name: yaml-toolset-config
-                class: yaml
-                format: !!python/name:docs.custom_fences.toolset_config_fence_format
               - name: robusta-region
                 class: robusta-region
                 format: !!python/name:docs.custom_fences.robusta_region_fence_format
-              - name: multi-instance
-                class: multi-instance
-                format: !!python/name:docs.custom_fences.multi_instance_fence_format
     - pymdownx.tabbed:
           alternate_style: true
           combine_header_slug: true
@@ -258,6 +250,11 @@ markdown_extensions:
     - pymdownx.tasklist:
           custom_checkbox: true
     - pymdownx.tilde
+    # The fences that expand to markdown (yaml-toolset-config, multi-instance); the hook below tells them which page they are on.
+    - docs.custom_fences
+
+hooks:
+    - docs/custom_fences.py
 
 extra_css:
     - stylesheets/extra.css

@@ -48,6 +48,12 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export GRAFANA_TEMPO_API_KEY=your-grafana-service-account-token
+    ```
+
     Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
     ```yaml
@@ -56,7 +62,7 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
         enabled: true
         config:
           api_url: <your grafana url>  # e.g. http://grafana.monitoring.svc.cluster.local
-          api_key: <your grafana service account token>
+          api_key: "{{ env.GRAFANA_TEMPO_API_KEY }}"
           grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
@@ -70,25 +76,19 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
 
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Grafana service account token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic grafana-tempo-api-key \
-      --from-literal=api-key=your-grafana-service-account-token \
-      -n holmes
+    kubectl create secret generic holmes-grafanatempo \
+      --from-literal=GRAFANA_TEMPO_API_KEY=your-grafana-service-account-token \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: GRAFANA_TEMPO_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: grafana-tempo-api-key
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-grafanatempo
 
     toolsets:
       grafana/tempo:
@@ -99,28 +99,29 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
           grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Grafana service account token:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic grafana-tempo-api-key \
-      --from-literal=api-key=your-grafana-service-account-token \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-grafanatempo \
+      --from-literal=GRAFANA_TEMPO_API_KEY=your-grafana-service-account-token \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: GRAFANA_TEMPO_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: grafana-tempo-api-key
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-grafanatempo
+
       toolsets:
         grafana/tempo:
           enabled: true
@@ -130,11 +131,17 @@ curl -s -u <username>:<password> http://localhost:3000/api/datasources | jq '.[]
             grafana_datasource_uid: <the UID of the tempo data source in Grafana>
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ### Self-Hosted Tempo - Direct Connection
 
 HolmesGPT connects directly to a self-hosted Tempo API endpoint without going through Grafana.
+
+In Kubernetes, no secret is needed in this mode — direct Tempo connections don't carry an API key.
 
 === "Holmes CLI"
 
@@ -154,7 +161,7 @@ HolmesGPT connects directly to a self-hosted Tempo API endpoint without going th
 
 === "Holmes Helm Chart"
 
-    No Kubernetes secret is needed in this mode — direct Tempo connections don't carry an API key.
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     toolsets:
@@ -166,9 +173,15 @@ HolmesGPT connects directly to a self-hosted Tempo API endpoint without going th
             X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Tempo
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
-    No Kubernetes secret is needed in this mode — direct Tempo connections don't carry an API key.
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
@@ -179,6 +192,12 @@ HolmesGPT connects directly to a self-hosted Tempo API endpoint without going th
             api_url: http://tempo.monitoring.svc.cluster.local:3200
             additional_headers:
               X-Scope-OrgID: "<tenant id>"  # Only needed for multi-tenant Tempo
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 ### Grafana Cloud
@@ -203,37 +222,41 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
 
 === "Holmes CLI"
 
+    Set the environment variable:
+
+    ```bash
+    export GRAFANA_CLOUD_TEMPO_API_KEY=your-grafana-cloud-service-account-token
+    ```
+
+    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+
     ```yaml
     toolsets:
       grafana/tempo:
         enabled: true
         config:
           api_url: https://<your-stack>.grafana.net
-          api_key: <grafana cloud service account token>
+          api_key: "{{ env.GRAFANA_CLOUD_TEMPO_API_KEY }}"
           grafana_datasource_uid: <the UID of the Tempo datasource>
     ```
 
+    --8<-- "snippets/toolset_refresh_warning.md"
+
 === "Holmes Helm Chart"
 
-    First, create a Kubernetes secret with your Grafana Cloud service account token:
+    Create a Kubernetes secret in the namespace Holmes runs in:
 
     ```bash
-    kubectl create secret generic grafana-cloud-tempo-api-key \
-      --from-literal=api-key=your-grafana-cloud-service-account-token \
-      -n holmes
+    kubectl create secret generic holmes-grafanatempo-cloud \
+      --from-literal=GRAFANA_CLOUD_TEMPO_API_KEY=your-grafana-cloud-service-account-token \
+      -n <namespace>
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
-    additionalEnvVars:
-      - name: GRAFANA_CLOUD_TEMPO_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: grafana-cloud-tempo-api-key
-            key: api-key
+    extraEnvVarsSecrets:
+      - holmes-grafanatempo-cloud
 
     toolsets:
       grafana/tempo:
@@ -244,28 +267,29 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
           grafana_datasource_uid: <the UID of the Tempo datasource>
     ```
 
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Grafana Cloud service account token:
+    Apply the configuration:
 
     ```bash
-    kubectl create secret generic grafana-cloud-tempo-api-key \
-      --from-literal=api-key=your-grafana-cloud-service-account-token \
-      -n default
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
-    --8<-- "snippets/secret_namespace_note.md"
+=== "Robusta Helm Chart"
 
-    Then add to your Robusta Helm values:
+    Create a Kubernetes secret in the namespace Holmes runs in:
+
+    ```bash
+    kubectl create secret generic holmes-grafanatempo-cloud \
+      --from-literal=GRAFANA_CLOUD_TEMPO_API_KEY=your-grafana-cloud-service-account-token \
+      -n <namespace>
+    ```
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
     holmes:
-      additionalEnvVars:
-        - name: GRAFANA_CLOUD_TEMPO_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: grafana-cloud-tempo-api-key
-              key: api-key
+      extraEnvVarsSecrets:
+        - holmes-grafanatempo-cloud
+
       toolsets:
         grafana/tempo:
           enabled: true
@@ -275,7 +299,11 @@ curl -s -H "Authorization: Bearer <service-account-token>" https://<your-stack>.
             grafana_datasource_uid: <the UID of the Tempo datasource>
     ```
 
-    --8<-- "snippets/helm_upgrade_command.md"
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 ## Multiple Instances
 

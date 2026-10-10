@@ -10,6 +10,7 @@ description: |
   Pod 79 has a different error message - Holmes should identify both patterns.
 
 tags:
+  - advanced
   - kubernetes
   - logs
   - question-answer

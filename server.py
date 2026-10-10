@@ -15,6 +15,7 @@ import ssl
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -28,6 +29,7 @@ import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from litellm.exceptions import AuthenticationError
 from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
@@ -245,11 +247,11 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
-    if conversation_worker is not None:
+    if conversation_runtime is not None:
         try:
-            conversation_worker.start()
+            conversation_runtime.start()
         except Exception:
-            logging.error("Failed to start conversation worker", exc_info=True)
+            logging.error("Failed to start conversation runtime", exc_info=True)
     if not ENABLED_SCHEDULED_PROMPTS:
         return
     # No need to check if dal is enabled again, done at the start of this function
@@ -260,12 +262,16 @@ def sync_before_server_start():
 
 
 def _has_failed_mcp_toolsets() -> bool:
-    """Check if any MCP toolsets are in FAILED state."""
+    """Check if any MCP toolsets that the shortened backoff cycles would
+    re-check are in FAILED state. A toolset with its own status refresh
+    interval is re-checked on that interval, not on backoff cycles."""
     executor = config.cached_tool_executor  # thread-safe property
     if not executor:
         return False
     return any(
-        t.type == ToolsetType.MCP and t.status == ToolsetStatusEnum.FAILED
+        t.type == ToolsetType.MCP
+        and t.status == ToolsetStatusEnum.FAILED
+        and t.status_refresh_interval_seconds is None
         for t in executor.toolsets
     )
 
@@ -416,7 +422,33 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             "Skipping sentry initialization - not an official release and DEVELOPMENT_MODE not enabled"
         )
 
-app = FastAPI()
+
+def stop_conversation_runtime():
+    """Retire in-flight conversations before the process goes away.
+
+    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
+    a graceful shutdown, which runs this via the app lifespan. Without it the
+    daemon executor threads are simply frozen at interpreter exit and every
+    conversation the pod was mid-turn on stays 'running' with a dead assignee
+    until the stale-conversation sweep retires it. SIGKILL / OOM kill still
+    bypass this — the pg_cron sweep stays the backstop.
+    """
+    if conversation_runtime is None:
+        return
+    try:
+        conversation_runtime.stop()
+    except Exception:
+        logging.error("Failed to stop conversation runtime", exc_info=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # stop() blocks on Supabase writes and thread joins; keep it off the event loop.
+    await run_in_threadpool(stop_conversation_runtime)
+
+
+app = FastAPI(lifespan=lifespan)
 _SERVER_START_TIME = time.time()
 
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
@@ -846,37 +878,11 @@ scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
 )
 
-conversation_worker = None
+conversation_runtime = None
 if ENABLE_CONVERSATION_WORKER:
-    from holmes.core.conversations_worker import ConversationWorker
+    from holmes.core.conversations_worker import ConversationRuntime
 
-    conversation_worker = ConversationWorker(
-        dal=dal, config=config, chat_function=chat
-    )
-
-
-@app.on_event("shutdown")
-def stop_conversation_worker():
-    """Retire in-flight conversations before the process goes away.
-
-    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
-    a graceful shutdown, which runs this hook. Without it nothing ever called
-    ConversationWorker.stop(): the worker threads are daemons, so they were
-    simply frozen at interpreter exit and every conversation the pod was
-    mid-turn on stayed 'running' with a dead assignee until the stale-conversation
-    sweep retired it — up to hours of spinner in the UI. stop() now marks those
-    rows 'timeout' with a "Holmes Restarted" error event first.
-
-    Declared as a sync def on purpose: Starlette runs it in a threadpool, and
-    the body is blocking (Supabase writes plus bounded thread joins). SIGKILL /
-    OOM kill still bypass all of this — the pg_cron sweep stays the backstop.
-    """
-    if conversation_worker is None:
-        return
-    try:
-        conversation_worker.stop()
-    except Exception:
-        logging.error("Failed to stop conversation worker", exc_info=True)
+    conversation_runtime = ConversationRuntime(dal=dal, config=config)
 
 
 @app.get("/api/model")

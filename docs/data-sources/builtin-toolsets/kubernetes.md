@@ -153,6 +153,8 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
     crdPermissions:
       argo: true
@@ -166,10 +168,17 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
       externalSecrets: true
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    enableHolmesGPT: true
     holmes:
       crdPermissions:
         argo: true
@@ -181,6 +190,12 @@ HolmesGPT includes read-only permissions for common Kubernetes operators and too
         gatewayApi: true
         velero: true
         externalSecrets: true
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 #### Adding Custom Permissions
@@ -198,7 +213,7 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
 
 === "Holmes Helm Chart"
 
-    **Update your `values.yaml`:**
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
 
     ```yaml
     customClusterRoleRules:
@@ -207,18 +222,17 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
         verbs: ["get", "list", "watch"]
     ```
 
-    **Apply the configuration:**
+    Apply the configuration:
 
     ```bash
-    helm upgrade holmes holmes/holmes --values=values.yaml
+    helm upgrade holmes robusta/holmes -f values.yaml
     ```
 
 === "Robusta Helm Chart"
 
-    **Update your `generated_values.yaml`** (note: add the `holmes:` prefix):
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
 
     ```yaml
-    enableHolmesGPT: true
     holmes:
       customClusterRoleRules:
         - apiGroups: ["cert-manager.io"]
@@ -226,10 +240,10 @@ To enable HolmesGPT to analyze cert-manager certificates and issuers (not includ
           verbs: ["get", "list", "watch"]
     ```
 
-    **Apply the configuration:**
+    Apply the configuration:
 
     ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
 
 #### Using an Existing ServiceAccount
@@ -238,16 +252,31 @@ If you prefer to use an existing ServiceAccount with custom permissions instead 
 
 === "Holmes Helm Chart"
 
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
     ```yaml
     createServiceAccount: false
     customServiceAccountName: "your-existing-service-account"
     ```
 
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
 === "Robusta Helm Chart"
 
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
     ```yaml
-    enableHolmesGPT: true
     holmes:
       createServiceAccount: false
       customServiceAccountName: "your-existing-service-account"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
