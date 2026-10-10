@@ -1,0 +1,946 @@
+{
+  "endpoints": {
+    "GET /api/model": {
+      "request": null,
+      "response": null,
+      "returned_dict_keys": [
+        "model_name"
+      ]
+    },
+    "POST /api/chat": {
+      "request": "ChatRequest",
+      "response": null,
+      "returned_dict_keys": []
+    },
+    "POST /api/oauth/callback": {
+      "request": "OAuthCallbackRequest",
+      "response": "OAuthCallbackResponse",
+      "returned_dict_keys": []
+    }
+  },
+  "schemas": {
+    "ChatRequest": {
+      "$defs": {
+        "FrontendToolDefinition": {
+          "description": "A tool defined by the frontend client for the LLM to call.\n\nmode=\"pause\" (default): Holmes pauses the stream and asks the client to\nexecute the tool, returning results in the next request.\n\nmode=\"noop\": Holmes returns a canned response immediately and the LLM\ncontinues without pausing. The client sees the tool call in SSE events\nand can execute it as a fire-and-forget side effect.",
+          "properties": {
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/FrontendToolMode",
+              "default": "pause",
+              "description": "'pause' (default): stream pauses, client executes and returns results. 'noop': server returns canned response immediately, client executes as side effect."
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "noop_response": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Custom canned response for noop-mode tools. Defaults to 'The action was performed successfully in the user's browser.'",
+              "title": "Noop Response"
+            },
+            "parameters": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "JSON Schema object describing the tool's parameters (OpenAI function calling format)",
+              "title": "Parameters"
+            }
+          },
+          "required": [
+            "name",
+            "description"
+          ],
+          "title": "FrontendToolDefinition",
+          "type": "object"
+        },
+        "FrontendToolMode": {
+          "enum": [
+            "pause",
+            "noop"
+          ],
+          "title": "FrontendToolMode",
+          "type": "string"
+        },
+        "FrontendToolResult": {
+          "description": "Result of a frontend-executed tool, sent by the client to resume the stream.",
+          "properties": {
+            "result": {
+              "title": "Result",
+              "type": "string"
+            },
+            "tool_call_id": {
+              "title": "Tool Call Id",
+              "type": "string"
+            },
+            "tool_name": {
+              "title": "Tool Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool_call_id",
+            "tool_name",
+            "result"
+          ],
+          "title": "FrontendToolResult",
+          "type": "object"
+        },
+        "ToolApprovalDecision": {
+          "description": "Represents a user's or Holmes decision on a tool approval.",
+          "properties": {
+            "approved": {
+              "title": "Approved",
+              "type": "boolean"
+            },
+            "decision": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Decision"
+            },
+            "feedback": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Feedback"
+            },
+            "save_prefixes": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Save Prefixes"
+            },
+            "tool_call_id": {
+              "title": "Tool Call Id",
+              "type": "string"
+            },
+            "verified": {
+              "default": true,
+              "title": "Verified",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "tool_call_id",
+            "approved"
+          ],
+          "title": "ToolApprovalDecision",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "additional_system_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Additional System Prompt"
+        },
+        "ask": {
+          "title": "Ask",
+          "type": "string"
+        },
+        "behavior_controls": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override prompt components (e.g., {'todowrite_instructions': false}). Env var ENABLED_PROMPTS takes precedence.",
+          "title": "Behavior Controls"
+        },
+        "conversation_history": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversation History"
+        },
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stable id grouping multi-turn chats. Soft reference (NOT a FK): matches Conversations.conversation_id when worker handles the chat, or the FE-owned ChatHistory id for direct /api/chat traffic. NULL for single-turn / non-UI flows.",
+          "title": "Conversation Id"
+        },
+        "conversation_link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL of the surface where this request originated: a Slack thread permalink, an MS Teams message link, a platform Ask Holmes chat URL, or a triggered-workflow run URL. Unlike the analytics-only fields above, this IS rendered into the system prompt so that artifacts Holmes creates outside the conversation (pull requests, issues) can link back to the request that initiated them.",
+          "title": "Conversation Link"
+        },
+        "conversation_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Discriminator telling dashboards which table conversation_id targets: 'conversations' (worker path) or 'chat_history' (direct /api/chat). Worker sets it explicitly; chat() defaults to 'chat_history' when conversation_id is non-NULL and not already set.",
+          "title": "Conversation Source"
+        },
+        "enable_tool_approval": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "title": "Enable Tool Approval"
+        },
+        "frontend_tool_results": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FrontendToolResult"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Results from frontend-executed tools, sent to resume a paused stream.",
+          "title": "Frontend Tool Results"
+        },
+        "frontend_tools": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FrontendToolDefinition"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tools defined by the frontend client. When the LLM calls one, Holmes pauses and asks the client to execute it.",
+          "title": "Frontend Tools"
+        },
+        "images": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "List of images to analyze with vision-enabled models. Each item can be:\n- A string: URL (https://...) or base64 data URI (data:image/jpeg;base64,...)\n- A dict with keys:\n  - url (required): URL or base64 data URI\n  - detail (optional): 'low', 'high', or 'auto' (OpenAI-specific)\n  - format (optional): MIME type like 'image/jpeg' (for providers that need it)",
+          "title": "Images"
+        },
+        "is_internal": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Marks server-internal calls (title generation, classification, summarization, etc.) so dashboards can filter them out of user-facing metrics. FE sets True for those. When unset, the server defaults it to True if request_source starts with 'internal_' (backwards compat with the prefix convention) \u2014 otherwise False.",
+          "title": "Is Internal"
+        },
+        "meta": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Forward-compatibility metadata bag. FE-supplied opaque dict; the server shallow-merges with backend-derived keys (backend wins on collision). Keep small; promote stable keys to real columns over time. Do NOT put PII / large strings (prompts, completions, tool outputs) here.",
+          "title": "Meta"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "request_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "FE-supplied UI flow label, free-form. Examples: 'freeform', 'followup_logs', 'manual_investigation', 'resource_chat'. Taxonomy: relay repo, relay/pkg/model/conversation_request_type.py.",
+          "title": "Request Source"
+        },
+        "request_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Backend-set classification: 'user_chat' (default for /api/chat), 'scheduled_prompt' (set by ScheduledPromptsExecutor), 'agui_chat' (set by AG-UI handler), 'health_check' (set by /api/checks/execute).",
+          "title": "Request Type"
+        },
+        "response_format": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional JSON schema for structured output. Format: {'type': 'json_schema', 'json_schema': {'name': 'ResultName', 'strict': true, 'schema': {...}}}",
+          "title": "Response Format"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "FE-supplied opaque pointer to the entity the chat is about (e.g. an issue id when request_source='alert_investigation'). Meaning is implied by request_source.",
+          "title": "Source Ref"
+        },
+        "stream": {
+          "default": false,
+          "title": "Stream",
+          "type": "boolean"
+        },
+        "tool_decisions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ToolApprovalDecision"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Decisions"
+        },
+        "trace_span": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Span"
+        },
+        "user_email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Email"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
+        }
+      },
+      "required": [
+        "ask"
+      ],
+      "title": "ChatRequest",
+      "type": "object"
+    },
+    "ChatResponse": {
+      "$defs": {
+        "FollowUpAction": {
+          "properties": {
+            "action_label": {
+              "title": "Action Label",
+              "type": "string"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "pre_action_notification_text": {
+              "title": "Pre Action Notification Text",
+              "type": "string"
+            },
+            "prompt": {
+              "title": "Prompt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "action_label",
+            "pre_action_notification_text",
+            "prompt"
+          ],
+          "title": "FollowUpAction",
+          "type": "object"
+        },
+        "PendingToolApproval": {
+          "description": "Represents a tool call that requires user approval.",
+          "properties": {
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": true,
+              "title": "Params",
+              "type": "object"
+            },
+            "tool_call_id": {
+              "title": "Tool Call Id",
+              "type": "string"
+            },
+            "tool_name": {
+              "title": "Tool Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool_call_id",
+            "tool_name",
+            "description",
+            "params"
+          ],
+          "title": "PendingToolApproval",
+          "type": "object"
+        },
+        "StructuredToolResult": {
+          "properties": {
+            "data": {
+              "anyOf": [
+                {},
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Data"
+            },
+            "elapsed_seconds": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Elapsed Seconds"
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Error"
+            },
+            "icon_url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Icon Url"
+            },
+            "images": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Images"
+            },
+            "invocation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invocation"
+            },
+            "oauth_tools": {
+              "anyOf": [
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Oauth Tools"
+            },
+            "params": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Params"
+            },
+            "return_code": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Return Code"
+            },
+            "schema_version": {
+              "default": "robusta:v1.0.0",
+              "title": "Schema Version",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/StructuredToolResultStatus"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Url"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "title": "StructuredToolResult",
+          "type": "object"
+        },
+        "StructuredToolResultStatus": {
+          "enum": [
+            "success",
+            "error",
+            "no_data",
+            "approval_required",
+            "frontend_pause"
+          ],
+          "title": "StructuredToolResultStatus",
+          "type": "string"
+        },
+        "ToolCallResult": {
+          "properties": {
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/$defs/StructuredToolResult"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            },
+            "tool_call_id": {
+              "title": "Tool Call Id",
+              "type": "string"
+            },
+            "tool_name": {
+              "title": "Tool Name",
+              "type": "string"
+            },
+            "toolset_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Toolset Name"
+            }
+          },
+          "required": [
+            "tool_call_id",
+            "tool_name",
+            "description",
+            "result"
+          ],
+          "title": "ToolCallResult",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "analysis": {
+          "title": "Analysis",
+          "type": "string"
+        },
+        "conversation_history": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Conversation History",
+          "type": "array"
+        },
+        "follow_up_actions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FollowUpAction"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": [],
+          "title": "Follow Up Actions"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metadata"
+        },
+        "pending_approvals": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/PendingToolApproval"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Approvals"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ToolCallResult"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": [],
+          "title": "Tool Calls"
+        }
+      },
+      "required": [
+        "analysis",
+        "conversation_history"
+      ],
+      "title": "ChatResponse",
+      "type": "object"
+    },
+    "OAuthCallbackRequest": {
+      "properties": {
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Secret"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "code_verifier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code Verifier"
+        },
+        "redirect_uri": {
+          "title": "Redirect Uri",
+          "type": "string"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resource"
+        },
+        "toolset_name": {
+          "title": "Toolset Name",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
+        }
+      },
+      "required": [
+        "toolset_name",
+        "code",
+        "redirect_uri"
+      ],
+      "title": "OAuthCallbackRequest",
+      "type": "object"
+    },
+    "OAuthCallbackResponse": {
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "success"
+      ],
+      "title": "OAuthCallbackResponse",
+      "type": "object"
+    }
+  },
+  "stream_events": [
+    "ai_answer_end",
+    "ai_message",
+    "approval_required",
+    "conversation_history_compacted",
+    "conversation_history_compaction_start",
+    "error",
+    "start_tool_calling",
+    "token_count",
+    "tool_calling_result"
+  ]
+}

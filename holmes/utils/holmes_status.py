@@ -12,6 +12,7 @@ from holmes.common.env_vars import (
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
 from holmes.config import Config
+from holmes.core.holmes_key import get_public_key
 from holmes.core.supabase_dal import SupabaseDal
 
 # Default in-pod path mounted by Kubernetes for every Pod with a service
@@ -68,6 +69,14 @@ class HolmesMetadata:
     # older agent has no such key, and an agent that never reads the catalog
     # (see LLMModelRegistry.reads_robusta_catalog) says so with False.
     honors_robusta_ai_disabled: bool = False
+    # The tool-call worker serves the platform UI's internal request kinds
+    # "oauth_callback" and "holmes_logs". Older agents reject them as unknown
+    # tools, so the UI checks these first. They follow
+    # supports_realtime_conversations: the worker runs only on that path.
+    supports_oauth_via_realtime: bool = False
+    supports_holmes_logs: bool = False
+    # X25519 public key (base64) the platform encrypts data for this Holmes with.
+    holmes_public_key: Optional[str] = None
 
 
 # Last realtime_available value passed to update_holmes_status_in_db. The
@@ -121,6 +130,9 @@ def update_holmes_status_in_db(
         requires_realtime_broadcast=requires_broadcast,
         namespace=_detect_runner_namespace(),
         honors_robusta_ai_disabled=config.llm_model_registry.reads_robusta_catalog(),
+        supports_oauth_via_realtime=supports_realtime,
+        supports_holmes_logs=supports_realtime,
+        holmes_public_key=get_public_key(),
     )
 
     dal.upsert_holmes_status(

@@ -12,6 +12,11 @@ writes tool_response + terminal status in one atomic UPDATE
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
 never compete with user chats for the conversation executors' slots.
 
+Rows whose metadata carries a ``kind`` are internal requests from the
+platform UI (``oauth_callback``, ``holmes_logs``), not tool calls: they skip
+the caller-version guard and tool lookup, since their payloads are stable
+request models rather than tool schemas, and are never offered to an LLM.
+
 Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
 
@@ -24,6 +29,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from pydantic import ValidationError
+
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITHOUT_REALTIME,
@@ -32,6 +39,11 @@ from holmes.common.env_vars import (
     TOOL_CALLER_MAX_CONCURRENT,
 )
 from holmes.core.conversations_worker.models import RemoteToolCallStatus
+from holmes.core.holmes_key import open_sealed
+from holmes.core.models import OAuthCallbackRequest
+from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
+from holmes.core.oauth_server_callbacks import handle_oauth_callback
+from holmes.core.self_logs import HolmesLogsRequest, get_holmes_logs
 from holmes.core.tools import (
     PrerequisiteCacheMode,
     StructuredToolResult,
@@ -111,6 +123,29 @@ def serialize_tool_response(
             payload["data"] = None
 
     return payload
+
+
+INTERNAL_KIND_OAUTH_CALLBACK = "oauth_callback"
+INTERNAL_KIND_HOLMES_LOGS = "holmes_logs"
+
+
+def _validation_error_summary(e: ValidationError) -> str:
+    # Field locations and messages only: the inputs may be OAuth secrets.
+    parts = [
+        f"{'.'.join(str(p) for p in err.get('loc', ())) or '<payload>'}: {err.get('msg')}"
+        for err in e.errors(include_input=False, include_url=False)
+    ]
+    return "; ".join(parts)
+
+
+def _internal_success(data: Any, elapsed_seconds: float) -> Dict[str, Any]:
+    # Through serialize_tool_response so the size cap and gzip rules match
+    # tool results; relay's existing inflate logic then applies unchanged.
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=json.dumps(data, ensure_ascii=False),
+    )
+    return serialize_tool_response(result, elapsed_seconds)
 
 
 # Saturation must persist continuously this long before the INFO line fires
@@ -312,6 +347,9 @@ class ToolCallWorker:
     def _execute(self, row: Dict[str, Any]) -> Dict[str, Any]:
         tool_request = row.get("tool_request") or {}
         metadata = row.get("metadata") or {}
+        kind = metadata.get("kind")
+        if kind is not None:
+            return self._execute_internal(kind, row)
         tool_name = tool_request.get("tool_name")
         tool_params = dict(tool_request.get("tool_params") or {})
         instance = tool_request.get("instance")
@@ -411,6 +449,102 @@ class ToolCallWorker:
         # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
         result.images = None
         return serialize_tool_response(result, elapsed)
+
+    # ---- internal request kinds ----
+
+    def _execute_internal(self, kind: Any, row: Dict[str, Any]) -> Dict[str, Any]:
+        tool_request = row.get("tool_request") or {}
+        payload = tool_request.get("payload")
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            return _error_response(
+                f"internal request '{kind}': payload must be an object"
+            )
+        if kind == INTERNAL_KIND_OAUTH_CALLBACK:
+            return self._execute_oauth_callback(row, payload)
+        if kind == INTERNAL_KIND_HOLMES_LOGS:
+            return self._execute_holmes_logs(payload)
+        return _error_response(
+            f"unknown internal request kind '{kind}'; supported kinds: "
+            f"{INTERNAL_KIND_OAUTH_CALLBACK}, {INTERNAL_KIND_HOLMES_LOGS}"
+        )
+
+    def _execute_oauth_callback(
+        self, row: Dict[str, Any], payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        user_id = row.get("user_id")
+        if not user_id:
+            # Tokens are stored per user; without one they would land on the
+            # shared default user.
+            return _error_response("oauth_callback: row has no user_id")
+        fields = {k: v for k, v in payload.items() if k != "user_id"}
+        sealed = fields.pop("sealed", None)
+        if sealed is not None:
+            try:
+                fields.update(json.loads(open_sealed(sealed)))
+            except Exception as e:
+                return _error_response(
+                    f"oauth_callback: cannot decrypt the payload: {type(e).__name__}"
+                )
+        try:
+            request = OAuthCallbackRequest(**fields, user_id=user_id)
+        except ValidationError as e:
+            return _error_response(
+                f"oauth_callback: invalid payload: {_validation_error_summary(e)}"
+            )
+        except TypeError as e:
+            return _error_response(f"oauth_callback: invalid payload: {e}")
+
+        logging.info(
+            "ToolCallWorker: oauth_callback %s toolset=%s client_id=%s "
+            "client_secret_present=%s code_present=%s code_verifier_present=%s",
+            row.get("id"),
+            request.toolset_name,
+            request.client_id,
+            bool(request.client_secret),
+            bool(request.code),
+            bool(request.code_verifier),
+        )
+        started = time.monotonic()
+        try:
+            response = handle_oauth_callback(request, self.config, self.dal)
+        except OAuthConfigLookupError as e:
+            logging.error(
+                "oauth_callback config error for '%s': %s",
+                request.toolset_name,
+                e.detail,
+            )
+            return _error_response(f"OAuth config error: {e.detail}")
+        except OAuthTokenExchangeError as e:
+            logging.error(
+                "oauth_callback token exchange failed for '%s': %s",
+                request.toolset_name,
+                e,
+            )
+            return _error_response(str(e))
+        except Exception as e:
+            logging.error(
+                "oauth_callback failed for '%s'",
+                request.toolset_name,
+                exc_info=True,
+            )
+            return _error_response(f"OAuth callback failed: {e}")
+        return _internal_success(response.model_dump(), time.monotonic() - started)
+
+    def _execute_holmes_logs(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            request = HolmesLogsRequest(**payload)
+        except (ValidationError, ValueError, TypeError) as e:
+            detail = (
+                _validation_error_summary(e)
+                if isinstance(e, ValidationError)
+                else str(e)
+            )
+            return _error_response(f"holmes_logs: invalid payload: {detail}")
+        started = time.monotonic()
+        data = get_holmes_logs(request)
+        return _internal_success(data, time.monotonic() - started)
 
     # ---- helpers ----
 
