@@ -26,6 +26,8 @@ async def initialize() -> OperatorConfig:
     This should be called once during operator startup. Loads operator
     configuration, Kubernetes configuration (in-cluster or kubeconfig),
     creates the Kubernetes API client, and initializes the Holmes API client.
+    Starts the scheduler, including the periodic cleanup of finished
+    HealthChecks when cleanup_completed_checks is enabled.
 
     Returns:
         OperatorConfig: The loaded operator configuration
@@ -69,6 +71,11 @@ async def initialize() -> OperatorConfig:
         k8s_api=k8s_api,
     )
     await scheduler_manager.start()
+
+    if config.cleanup_completed_checks:
+        scheduler_manager.schedule_completed_check_cleanup(
+            ttl_hours=config.completed_check_ttl_hours
+        )
 
     return config
 

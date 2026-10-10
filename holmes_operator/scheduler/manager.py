@@ -6,12 +6,19 @@ from typing import Dict
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from kubernetes import client
 
+from holmes_operator.cleanup import cleanup_completed_checks
 from holmes_operator.models import ScheduledHealthCheckSpec
 from holmes_operator.scheduler.job_executor import execute_scheduled_check
 
 logger = logging.getLogger(__name__)
+
+# Job id of the periodic cleanup of finished HealthChecks. ScheduledHealthCheck
+# jobs are keyed "namespace/name", so an id without a slash cannot collide.
+CLEANUP_JOB_ID = "completed-healthcheck-cleanup"
+CLEANUP_INTERVAL_MINUTES = 15
 
 
 class SchedulerManager:
@@ -58,6 +65,31 @@ class SchedulerManager:
         logger.info("Stopping scheduler...")
         self.scheduler.shutdown(wait=True)
         logger.info("Scheduler stopped successfully")
+
+    def schedule_completed_check_cleanup(self, ttl_hours: int) -> None:
+        """
+        Periodically delete Completed/Failed HealthChecks older than ttl_hours.
+
+        The first pass runs right away, so checks that piled up while cleanup
+        was disabled (or the operator was down) are removed on startup.
+
+        Args:
+            ttl_hours: How long a finished HealthCheck is kept before deletion
+        """
+        self.scheduler.add_job(
+            func=cleanup_completed_checks,
+            trigger=IntervalTrigger(minutes=CLEANUP_INTERVAL_MINUTES),
+            args=(self.k8s_api, ttl_hours),
+            id=CLEANUP_JOB_ID,
+            replace_existing=True,
+            name="Completed HealthCheck cleanup",
+            next_run_time=datetime.now(timezone.utc),
+        )
+        logger.info(
+            f"Completed HealthCheck cleanup enabled: deleting Completed/Failed "
+            f"HealthChecks {ttl_hours}h after they finish, checking every "
+            f"{CLEANUP_INTERVAL_MINUTES} minutes"
+        )
 
     async def add_schedule(
         self,
