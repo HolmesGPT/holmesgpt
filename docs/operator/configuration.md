@@ -147,6 +147,7 @@ Whether to automatically delete completed HealthCheck resources.
 
 - Default: `false`
 - When `true`, completed checks are deleted after `completedCheckTTLHours`
+- The operator looks for expired checks when it starts and then every 15 minutes, and logs how many it deleted
 - Useful for managing cluster resource usage
 - Historical data is preserved in ScheduledHealthCheck history
 
