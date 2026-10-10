@@ -11,10 +11,10 @@ def _sizing(base=5, ceiling=64):
     return ExecutorSizing(base_size=base, thread_ceiling=ceiling)
 
 
-def test_builtin_defaults_manual_10_auto_2_others_base():
+def test_builtin_defaults_manual_10_auto_1_others_base():
     sizing = _sizing(base=5)
     assert sizing.size_for("manual") == 10
-    assert sizing.size_for("auto") == 2
+    assert sizing.size_for("auto") == 1
     assert sizing.size_for("nightly") == 5
 
 
@@ -25,7 +25,7 @@ def test_lookup_order_account_then_builtin_then_base():
     assert sizing.size_for("nightly", {"nightly": 3}) == 3
     # 2. built-in default when the account says nothing about the name
     assert sizing.size_for("manual", {"auto": 1}) == 10
-    assert sizing.size_for("auto") == 2
+    assert sizing.size_for("auto") == 1
     # 3. base size for unknown names
     assert sizing.size_for("other") == 5
 
@@ -60,7 +60,7 @@ def test_malformed_account_setting_shape_is_ignored_with_one_warning(caplog):
     sizing = _sizing()
     with caplog.at_level(logging.WARNING):
         assert sizing.size_for("manual", [1, 2]) == 10
-        assert sizing.size_for("auto", "nope") == 2
+        assert sizing.size_for("auto", "nope") == 1
     hits = [r for r in caplog.records if "malformed" in r.getMessage()]
     assert len(hits) == 1
 
@@ -68,4 +68,4 @@ def test_malformed_account_setting_shape_is_ignored_with_one_warning(caplog):
 def test_defaults_match_the_module_constants():
     sizing = ExecutorSizing()
     assert sizing.thread_ceiling == THREAD_CEILING
-    assert sizing.size_for("manual") == 10 and sizing.size_for("auto") == 2
+    assert sizing.size_for("manual") == 10 and sizing.size_for("auto") == 1

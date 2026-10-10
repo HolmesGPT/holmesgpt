@@ -126,6 +126,21 @@ def _extract_text_from_content(content: Any) -> str:
     return ""
 
 
+def _merge_choices(response: Any) -> None:
+    """Fold multi-choice responses (e.g. Responses API) into choices[0]."""
+    choices = response.choices
+    if len(choices) < 2:
+        return
+    merged = choices[0]
+    tool_calls = [tc for choice in choices for tc in choice.message.tool_calls or []]
+    merged.message.content = "".join(choice.message.content or "" for choice in choices) or None
+    if tool_calls:
+        merged.message.tool_calls = tool_calls
+        merged.finish_reason = "tool_calls"
+    logging.info("Merged %d LLM choices into one (tool_calls=%d)", len(choices), len(tool_calls))
+    response.choices = [merged]
+
+
 # Scope key for the local (caller) cluster in the agent-keyed prefix map.
 _LOCAL_BASH_PREFIX_SCOPE = ""
 
@@ -1290,6 +1305,7 @@ class ToolCallingLLM:
                     stream=False,
                     drop_params=True,
                 )
+                _merge_choices(full_response)
 
                 # Accumulate cost information for this iteration
                 response_stats = RequestStats.from_response(full_response)
