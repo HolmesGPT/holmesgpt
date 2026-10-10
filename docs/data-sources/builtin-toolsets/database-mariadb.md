@@ -30,168 +30,63 @@ mysql+pymysql://[username]:[password]@[host]:[port]/[database]
 
 Note: MariaDB uses MySQL wire protocol, so use `mysql+pymysql://` in the connection URL.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  app-mariadb:
+    type: database
+    config:
+      connection_url: "{{ env.MARIADB_URL }}"
+    llm_instructions: "Application database with user and session data"
+---
+secret:
+  - --from-literal=MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    app-mariadb:
+      type: database
+      config:
+        connection_url: "mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb"
+      llm_instructions: "Application database with user and session data"
 
-    ```yaml
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb"
-        llm_instructions: "Application database with user and session data"
+    cache-mariadb:
+      type: database
+      config:
+        connection_url: "mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache"
+      llm_instructions: "Cache database for session storage"
+  ```
 
-      cache-mariadb:
-        type: database
-        config:
-          connection_url: "mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache"
-        llm_instructions: "Cache database for session storage"
-    ```
+  **Using environment variables:**
 
-    **Using environment variables:**
-
-    ```yaml
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.MARIADB_URL }}"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-mariadb \
-      --from-literal=MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-mariadb
-
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.MARIADB_URL }}"
-        llm_instructions: "Application database with user and session data"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-mariadb \
-      --from-literal=MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-mariadb
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.MARIADB_URL }}"
-          llm_instructions: "Application database with user and session data"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```yaml
+  toolsets:
+    app-mariadb:
+      type: database
+      config:
+        connection_url: "{{ env.MARIADB_URL }}"
+  ```
+```
 
 ### Multiple instances
 
-=== "Holmes Helm Chart"
+```yaml-helm-values {secret-qualifier=instances}
+toolsets:
+  app-mariadb:
+    type: database
+    config:
+      connection_url: "{{ env.APP_MARIADB_URL }}"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-mariadb-instances \
-      --from-literal=APP_MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      --from-literal=CACHE_MARIADB_URL='mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-mariadb-instances
-
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.APP_MARIADB_URL }}"
-
-      cache-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.CACHE_MARIADB_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-mariadb-instances \
-      --from-literal=APP_MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      --from-literal=CACHE_MARIADB_URL='mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-mariadb-instances
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.APP_MARIADB_URL }}"
-
-        cache-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.CACHE_MARIADB_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  cache-mariadb:
+    type: database
+    config:
+      connection_url: "{{ env.CACHE_MARIADB_URL }}"
+---
+secret:
+  - --from-literal=APP_MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb'
+  - --from-literal=CACHE_MARIADB_URL='mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache'
+```
 
 ## Configuration Options
 
