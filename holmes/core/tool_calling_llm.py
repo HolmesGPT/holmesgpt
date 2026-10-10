@@ -1219,6 +1219,7 @@ class ToolCallingLLM:
 
         messages: list[dict] = list(msgs) if msgs else []
         tool_calls: list[dict] = []
+        guarded_tool_call_ids: set[str] = set()
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
@@ -1279,7 +1280,13 @@ class ToolCallingLLM:
                 limit_result.conversation_history_compacted
                 and RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION
             ):
-                tool_calls = []
+                # Outputs that overflowed the history would overflow it again if
+                # fetched again, compacting in a loop until max_steps (ROB-1519).
+                # Keep those calls, and the ones kept by earlier compactions, so
+                # repeating one is refused and the agent narrows its query; every
+                # other call may run again as before.
+                guarded_tool_call_ids.update(limit_result.compaction_overflowing_tool_call_ids)
+                tool_calls = [call for call in tool_calls if call.get("tool_call_id") in guarded_tool_call_ids]
 
             logging.debug(f"sending messages={messages}\n\ntools={tools}")
 
