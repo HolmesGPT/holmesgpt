@@ -130,6 +130,7 @@ We encourage those interested to contribute code and also appreciate when issues
 - Keep pull requests small and focused—if you have multiple changes, open a separate PR for each
 - All new features require unit tests
 - New toolsets require integration tests
+- For dependency upgrades or new dependencies, only use versions that have been publicly available for at least two weeks to reduce supply-chain security risks
 - Maintain 40% minimum test coverage
 - Use `git commit -s --no-verify` when committing to skip local pre-commit hooks (they will run in CI)
 - Always create commits and merge (never force push or rebase)
