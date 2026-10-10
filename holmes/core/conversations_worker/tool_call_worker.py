@@ -39,6 +39,7 @@ from holmes.common.env_vars import (
     TOOL_CALLER_MAX_CONCURRENT,
 )
 from holmes.core.conversations_worker.models import RemoteToolCallStatus
+from holmes.core.holmes_key import open_sealed
 from holmes.core.models import OAuthCallbackRequest
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import handle_oauth_callback
@@ -478,6 +479,14 @@ class ToolCallWorker:
             # shared default user.
             return _error_response("oauth_callback: row has no user_id")
         fields = {k: v for k, v in payload.items() if k != "user_id"}
+        sealed = fields.pop("sealed", None)
+        if sealed is not None:
+            try:
+                fields.update(json.loads(open_sealed(sealed)))
+            except Exception as e:
+                return _error_response(
+                    f"oauth_callback: cannot decrypt the payload: {type(e).__name__}"
+                )
         try:
             request = OAuthCallbackRequest(**fields, user_id=user_id)
         except ValidationError as e:

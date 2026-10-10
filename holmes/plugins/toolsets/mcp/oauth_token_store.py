@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.core.config import config_path_dir
-from holmes.utils.env import get_env_replacement
+from holmes.core.holmes_key import get_signing_key
 
 logger = logging.getLogger(__name__)
 
@@ -331,25 +331,8 @@ class DalTokenStore(TokenStore):
 
     # ── Encryption helpers ─────────────────────────────────────────────
 
-    @staticmethod
-    def _get_signing_key() -> Optional[str]:
-        from holmes.config import Config
-        key = Config.get_robusta_global_config_value("signing_key")
-        if not key:
-            return None
-        # Generated values set signing_key to "{{ env.SIGNING_KEY }}"; without
-        # resolving it every such install would share that literal as its key.
-        try:
-            return get_env_replacement(key)
-        except ValueError:
-            logger.warning(
-                "global_config.signing_key references an env var that is not set; "
-                "OAuth tokens will not be stored"
-            )
-            return None
-
     def _get_signing_key_hash(self) -> Optional[str]:
-        key = self._get_signing_key()
+        key = get_signing_key()
         if not key:
             return None
         return hashlib.sha256(key.encode()).hexdigest()
@@ -362,13 +345,13 @@ class DalTokenStore(TokenStore):
         )
 
     def _encrypt_token(self, token_data: Dict[str, Any]) -> Optional[str]:
-        signing_key = self._get_signing_key()
+        signing_key = get_signing_key()
         if not signing_key:
             return None
         return Fernet(self._derive_fernet_key(signing_key)).encrypt(json.dumps(token_data).encode()).decode()
 
     def _decrypt_token(self, encrypted: str) -> Optional[Dict[str, Any]]:
-        signing_key = self._get_signing_key()
+        signing_key = get_signing_key()
         if not signing_key:
             return None
         try:

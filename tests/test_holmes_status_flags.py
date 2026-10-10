@@ -6,6 +6,7 @@ from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
 from holmes.utils.holmes_status import HolmesMetadata, update_holmes_status_in_db
+from tests.core.test_holmes_key import PUBLIC_KEY
 
 
 def _config():
@@ -63,4 +64,14 @@ def test_metadata_keys_are_additive():
         "honors_robusta_ai_disabled",
         "supports_oauth_via_realtime",
         "supports_holmes_logs",
+        "holmes_public_key",
     } == keys
+
+
+def test_public_key_published_from_the_signing_key():
+    with patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="test-signing-key",
+    ):
+        metadata = _published_metadata(realtime_available=True)
+    assert metadata["holmes_public_key"] == PUBLIC_KEY

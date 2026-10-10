@@ -20,6 +20,7 @@ from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeE
 from holmes.core.self_logs import HolmesLogsRequest
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.version import get_version
+from tests.core.test_holmes_key import SEALED, SEALED_SECRETS
 
 _WORKER = "holmes.core.conversations_worker.tool_call_worker"
 
@@ -85,6 +86,39 @@ def test_oauth_callback_dispatches_with_user_id_from_row():
     assert request.client_secret == _SECRET_CLIENT_SECRET
     assert request.resource == "https://mcp.example"
     assert config is worker.config and dal is worker.dal
+
+
+def test_oauth_callback_opens_a_sealed_payload():
+    worker = _worker()
+    row = _oauth_row(sealed=SEALED)
+    for name in ("code", "code_verifier", "client_secret"):
+        del row["tool_request"]["payload"][name]
+    with patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="test-signing-key",
+    ), patch(
+        f"{_WORKER}.handle_oauth_callback",
+        return_value=OAuthCallbackResponse(success=True),
+    ) as handler:
+        resp = worker._execute(row)
+
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    request = handler.call_args[0][0]
+    assert request.code == SEALED_SECRETS["code"]
+    assert request.code_verifier == SEALED_SECRETS["code_verifier"]
+    assert request.client_secret == SEALED_SECRETS["client_secret"]
+
+
+def test_oauth_callback_with_unreadable_sealed_payload_is_rejected():
+    worker = _worker()
+    with patch(
+        "holmes.config.Config.get_robusta_global_config_value",
+        return_value="other-key",
+    ), patch(f"{_WORKER}.handle_oauth_callback") as handler:
+        resp = worker._execute(_oauth_row(sealed=SEALED))
+    assert resp["status"] == StructuredToolResultStatus.ERROR.value
+    assert "decrypt" in resp["error"]
+    handler.assert_not_called()
 
 
 def test_oauth_callback_ignores_user_id_in_payload():
