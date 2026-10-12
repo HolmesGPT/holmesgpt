@@ -60,6 +60,20 @@ RUN cd /tmp \
     && rm -f kubectl.sha256 \
     && kubectl version --client
 
+# flux: official release binary from GitHub releases, checksum-verified the same
+# way as kubectl above. Unlike argocd/helm, this is not going through the
+# CVE-rebuild pipeline in scripts/build_go_binaries.sh - flagging that as a
+# decision for a maintainer to confirm/revisit rather than assuming it unilaterally.
+ARG FLUX_VERSION=2.9.2
+RUN cd /tmp \
+    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz" \
+    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
+    && grep " flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz" flux \
+    && mv flux /usr/local/bin/flux && chmod +x /usr/local/bin/flux \
+    && rm -f "flux_${FLUX_VERSION}_linux_${TARGETARCH}.tar.gz" "flux_${FLUX_VERSION}_checksums.txt" \
+    && flux --version
+
 # ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz.sha256 /tmp/argocd.gz.sha256
@@ -136,6 +150,10 @@ RUN apk upgrade --no-cache && apk add --no-cache \
 # Set up kubectl
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 RUN kubectl version --client
+
+# Set up flux
+COPY --from=builder /usr/local/bin/flux /usr/local/bin/flux
+RUN flux --version
 
 # Set up ArgoCD
 COPY --from=builder /argocd /usr/local/bin/argocd
