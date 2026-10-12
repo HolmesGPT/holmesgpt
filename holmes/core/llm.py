@@ -538,6 +538,15 @@ class DefaultLLM(LLM):
             if not model_requirements["missing_keys"]:
                 model_requirements["keys_in_environment"] = True
 
+        elif provider == "vertex_ai" and (
+            (args.get("vertex_project") and args.get("vertex_location"))
+            or args.get("vertex_credentials")
+        ):
+            # Vertex project/location/credentials passed via model args aren't
+            # visible to litellm.validate_environment (it only checks the
+            # VERTEXAI_* env vars), so treat the args as satisfying it.
+            # If they're absent, fall through to the env-var check below.
+            return
         else:
             model_requirements = litellm.validate_environment(
                 model=model, api_key=api_key, api_base=api_base
