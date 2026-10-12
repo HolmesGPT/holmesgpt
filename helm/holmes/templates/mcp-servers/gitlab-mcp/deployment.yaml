@@ -94,6 +94,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.gitlabMcp.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.gitlabMcp.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: gitlab-mcp
         image: "{{ .Values.mcpAddons.gitlabMcp.registry }}/{{ .Values.mcpAddons.gitlabMcp.image }}"
@@ -127,6 +131,10 @@ spec:
             name: {{ .Release.Name }}-gitlab-mcp-config
         resources:
           {{- toYaml .Values.mcpAddons.gitlabMcp.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.gitlabMcp.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: 8000
