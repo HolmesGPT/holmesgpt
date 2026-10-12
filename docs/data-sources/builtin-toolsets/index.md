@@ -34,6 +34,14 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 
 </div>
 
+### Security & Networking
+
+<div class="grid cards" markdown>
+
+-   [:material-shield-outline:{ .lg .middle } **F5 Distributed Cloud**](f5-distributed-cloud.md)
+
+</div>
+
 ### Databases
 
 <div class="grid cards" markdown>
