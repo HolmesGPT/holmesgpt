@@ -3,12 +3,23 @@ import os
 import re
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Sequence, TYPE_CHECKING, Union
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import yaml
 from pydantic import BaseModel
 
 from holmes.plugins.skills import RobustaSkillInstruction
+from holmes.utils.single_flight_cache import record_cache_lookup
 
 if TYPE_CHECKING:
     from holmes.core.supabase_dal import SupabaseDal
@@ -199,6 +210,25 @@ class SkillLoadProblem(BaseModel):
     source: Optional[SkillSource] = None
 
 
+def _walk_skill_files(
+    directory: Path, max_depth: int, onerror: Optional[Callable[[OSError], None]] = None
+) -> Iterator[Path]:
+    """Yield every SKILL.md under an already-resolved `directory`, up to max_depth deep.
+
+    followlinks=True so we traverse Kubernetes ConfigMap mounts, which surface each key as
+    `<dir>/<name>` -> `..data/<name>` -> a real file under a timestamped `..NNN/` directory.
+    Depth is computed against the walked (unresolved) path so the symlink-traversed path is
+    at depth 1, not depth 2 from the resolved `..NNN/` real dir.
+    """
+    for root, dirs, files in os.walk(directory, followlinks=True, onerror=onerror):
+        depth = len(Path(root).relative_to(directory).parts)
+        if depth >= max_depth:
+            dirs.clear()
+            continue
+        if SKILL_FILENAME in files:
+            yield Path(root) / SKILL_FILENAME
+
+
 def scan_skill_directory(
     directory: Path,
     source: SkillSource = SkillSource.USER,
@@ -240,42 +270,28 @@ def scan_skill_directory(
                 )
             )
 
-    # followlinks=True so we traverse Kubernetes ConfigMap mounts, which
-    # surface each key as `<dir>/<name>` -> `..data/<name>` -> a real file
-    # under a timestamped `..NNN/` directory. Depth is computed against the
-    # walked (unresolved) path so the symlink-traversed path is at depth 1,
-    # not depth 2 from the resolved `..NNN/` real dir.
     seen_paths: set[str] = set()
-    for root, dirs, files in os.walk(
-        directory, followlinks=True, onerror=on_walk_error
-    ):
-        depth = len(Path(root).relative_to(directory).parts)
-        if depth >= max_depth:
-            dirs.clear()
+    for skill_path in _walk_skill_files(directory, max_depth, on_walk_error):
+        resolved = str(skill_path.resolve())
+        if resolved in seen_paths:
             continue
-
-        if SKILL_FILENAME in files:
-            skill_path = Path(root) / SKILL_FILENAME
-            resolved = str(skill_path.resolve())
-            if resolved in seen_paths:
-                continue
-            seen_paths.add(resolved)
-            try:
-                skill = parse_skill_file(skill_path, source=source)
-                skills.append(skill)
-            except Exception as e:
-                logging.error(f"Failed to parse {skill_path}: {e}")
-                if problems is not None:
-                    problems.append(
-                        SkillLoadProblem(
-                            error=str(e),
-                            # The dir name is what parse_skill_file falls back to, so the
-                            # failed row keys exactly as the successful one would have.
-                            skill_name=normalize_skill_name(Path(root).name),
-                            source_path=str(skill_path),
-                            source=source,
-                        )
+        seen_paths.add(resolved)
+        try:
+            skill = parse_skill_file(skill_path, source=source)
+            skills.append(skill)
+        except Exception as e:
+            logging.error(f"Failed to parse {skill_path}: {e}")
+            if problems is not None:
+                problems.append(
+                    SkillLoadProblem(
+                        error=str(e),
+                        # The dir name is what parse_skill_file falls back to, so the
+                        # failed row keys exactly as the successful one would have.
+                        skill_name=normalize_skill_name(skill_path.parent.name),
+                        source_path=str(skill_path),
+                        source=source,
                     )
+                )
 
     return skills
 
@@ -410,6 +426,76 @@ def load_filesystem_skills_by_name(
     return skills_by_name
 
 
+# Parsed filesystem skills per custom_skill_paths, stored with the stat fingerprint they
+# were parsed under. One entry per distinct path list, which comes from config.
+_filesystem_skills_cache: Dict[Tuple[str, ...], Tuple[Tuple, Dict[str, Skill]]] = {}
+
+
+def _stat_entry(path: Path) -> Tuple:
+    try:
+        st = path.stat()
+        return (str(path), str(path.resolve()), st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError as e:
+        return (str(path), "error", e.errno)
+
+
+def _skill_files_fingerprint(custom_skill_paths: Sequence[str]) -> Tuple:
+    """Everything load_filesystem_skills_by_name's result depends on, from stat calls only.
+
+    Builtin skills ship with the package, so only their location is part of it. Resolved
+    paths are included because a git sync or ConfigMap remount flips a symlink to a new tree
+    whose files can carry identical mtimes and sizes.
+    """
+    entries: List[Tuple] = [("builtin", BUILTIN_SKILLS_DIR)]
+
+    def on_walk_error(error: OSError) -> None:
+        entries.append(("walk-error", error.filename, error.errno))
+
+    for raw in custom_skill_paths:
+        path = Path(raw)
+        if path.is_dir():
+            directory = path.resolve()
+            entries.append(("dir", raw, str(directory)))
+            for skill_path in _walk_skill_files(directory, 2, on_walk_error):
+                entries.append(_stat_entry(skill_path))
+        elif path.is_file():
+            entries.append(_stat_entry(path))
+        else:
+            entries.append(("missing", raw))
+    return tuple(entries)
+
+
+def _load_filesystem_skills_cached(
+    custom_skill_paths: Optional[Sequence[Union[str, Path]]],
+) -> Dict[str, Skill]:
+    """load_filesystem_skills_by_name, re-parsing only when a SKILL.md changed.
+
+    Returns a fresh dict on every call: load_skill_catalog adds remote skills to it.
+    """
+    paths = tuple(str(p) for p in custom_skill_paths or ())
+    fingerprint = _skill_files_fingerprint(paths)
+    cached = _filesystem_skills_cache.get(paths)
+    if cached is not None and cached[0] == fingerprint:
+        record_cache_lookup(hit=True)
+        return dict(cached[1])
+
+    record_cache_lookup(hit=False)
+    problems: List[SkillLoadProblem] = []
+    skills = load_filesystem_skills_by_name(paths, problems)
+    # A missing path is a stable state the fingerprint records, but a read failure or a file
+    # changing mid-parse is not: caching those would keep the incomplete parse until the
+    # files change again.
+    missing = sum(1 for entry in fingerprint if entry[0] == "missing")
+    unreadable = sum(1 for p in problems if p.skill_name is None)
+    if unreadable == missing and _skill_files_fingerprint(paths) == fingerprint:
+        _filesystem_skills_cache[paths] = (fingerprint, skills)
+    return dict(skills)
+
+
+def clear_filesystem_skills_cache() -> None:
+    _filesystem_skills_cache.clear()
+
+
 def load_filesystem_skills(
     custom_skill_paths: Optional[Sequence[Union[str, Path]]] = None,
 ) -> FilesystemSkills:
@@ -519,7 +605,7 @@ def load_skill_catalog(
     nothing is filtered.
     """
     # 1 + 2. Builtin skills, then filesystem skills (which override builtins by name)
-    skills_by_name = load_filesystem_skills_by_name(custom_skill_paths)
+    skills_by_name = _load_filesystem_skills_cached(custom_skill_paths)
 
     # 3. Load remote (global) skills from Supabase
     if dal:

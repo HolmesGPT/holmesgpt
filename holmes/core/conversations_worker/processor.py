@@ -41,6 +41,7 @@ from holmes.core.usage_recorder import (
     build_chat_recorder_state,
     stream_with_usage_recording,
 )
+from holmes.utils.single_flight_cache import SetupTracker
 from holmes.utils.stream import StreamEvents
 
 if TYPE_CHECKING:
@@ -346,6 +347,7 @@ class ConversationProcessor:
         Mirrors server.py::chat() for the streaming path but hands raw StreamMessages
         to the publisher instead of SSE-wrapping.
         """
+        setup = SetupTracker()
         server_tracer = TracingFactory.create_tracer(
             trace_type=os.environ.get("HOLMES_TRACE_BACKEND")
         )
@@ -353,10 +355,11 @@ class ConversationProcessor:
         # chat_request.user_id is the already-resolved "user Holmes may act on behalf of" --
         # the same value the per-user OAuth resolver keys on, so a conversation that opted out
         # via metadata.oauth_enabled = false loads no personal skills either.
-        skills = self.config.get_skill_catalog(
-            user_id=chat_request.user_id,
-            alert_name=self._resolve_alert_name(task, chat_request),
-        )
+        with setup.track():
+            skills = self.config.get_skill_catalog(
+                user_id=chat_request.user_id,
+                alert_name=self._resolve_alert_name(task, chat_request),
+            )
 
         prompt_component_overrides = None
         if chat_request.behavior_controls:
@@ -387,13 +390,14 @@ class ConversationProcessor:
             if request_ai is None:
                 return
 
-            global_instructions = self.dal.get_global_instructions_for_account()
             if resume_only and chat_request.conversation_history:
                 # Pure tool-decision / frontend-tool-result resume. Don't append
                 # a new user message — call_stream consumes the existing history
                 # plus tool_decisions to produce the next turn.
                 messages = list(chat_request.conversation_history)
             else:
+                with setup.track():
+                    global_instructions = self.dal.get_global_instructions_for_account()
                 messages = build_chat_messages(
                     chat_request.ask,
                     chat_request.conversation_history,
@@ -463,6 +467,7 @@ class ConversationProcessor:
                     dal=self.dal,
                     is_streaming=True,
                 )
+                recorder_state.meta.update(setup.meta())
                 raw_stream = request_ai.call_stream(
                     msgs=messages,
                     enable_tool_approval=chat_request.enable_tool_approval or False,

@@ -31,6 +31,7 @@ from holmes.plugins.skills.git_skill_repos import (
 )
 from holmes.plugins.skills.skill_loader import (
     SkillCatalog,
+    clear_filesystem_skills_cache,
     load_skill_catalog,
 )
 
@@ -624,6 +625,9 @@ class Config(RobustaBaseConfig):
             self._toolset_manager = None
             self._cached_tool_executor = None
             self._cached_executor_key = None
+        clear_filesystem_skills_cache()
+        if self._dal is not None:
+            self._dal.invalidate_setup_caches()
         if fresh is None:
             logging.warning(
                 "reload_toolsets called without a usable config file (%s); only caches cleared",

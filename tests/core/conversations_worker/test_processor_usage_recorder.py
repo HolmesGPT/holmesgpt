@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.models import ChatRequest
+from holmes.utils.single_flight_cache import record_cache_lookup
 
 
 def _bare_worker():
@@ -60,7 +61,14 @@ def _chat_request():
     )
 
 
-def _run(worker, ai, task=None, chat_request=None, consume_side_effect=None):
+def _run(
+    worker,
+    ai,
+    task=None,
+    chat_request=None,
+    consume_side_effect=None,
+    resume_only=False,
+):
     """Drive _run_chat_and_publish with all heavy collaborators mocked.
 
     Returns the captured (raw_stream, recorder_state, wrapped_stream) so
@@ -114,6 +122,7 @@ def _run(worker, ai, task=None, chat_request=None, consume_side_effect=None):
             task=task or _task(),
             chat_request=chat_request or _chat_request(),
             publisher=publisher,
+            resume_only=resume_only,
         )
         captured["call_stream_call"] = ai.call_stream.call_args
 
@@ -619,3 +628,40 @@ def test_a_relay_refusal_fails_the_conversation_with_its_own_code():
     w.dal.update_conversation_status.assert_called_once_with(
         conversation_id="c1", request_sequence=1, assignee="h-test", status="failed"
     )
+
+
+
+def test_setup_metrics_are_written_to_recorder_meta():
+    """ROB-1554: the worker writes setup_ms and the setup cache hits/misses of this turn."""
+    worker, ai = _bare_worker()
+
+    def skills(**kwargs):
+        record_cache_lookup(hit=False)
+        return []
+
+    def instructions():
+        record_cache_lookup(hit=True)
+        return None
+
+    worker.config.get_skill_catalog = MagicMock(side_effect=skills)
+    worker.dal.get_global_instructions_for_account = MagicMock(side_effect=instructions)
+
+    captured = _run(worker, ai)
+
+    # _run hands the worker a MagicMock recorder state, so read what was merged into meta.
+    meta = captured["recorder_state"].meta.update.call_args.args[0]
+    assert meta["setup_cache_hits"] == 1
+    assert meta["setup_cache_misses"] == 1
+    assert isinstance(meta["setup_ms"], int) and meta["setup_ms"] >= 0
+
+
+def test_resume_turn_does_not_read_global_instructions():
+    worker, ai = _bare_worker()
+    chat_request = _chat_request()
+    chat_request.conversation_history = [{"role": "user", "content": "restart it"}]
+
+    captured = _run(worker, ai, chat_request=chat_request, resume_only=True)
+
+    sent = captured["call_stream_call"].kwargs["msgs"]
+    assert sent == chat_request.conversation_history
+    worker.dal.get_global_instructions_for_account.assert_not_called()
