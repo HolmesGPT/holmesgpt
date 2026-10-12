@@ -1,0 +1,18 @@
+{
+  "leaders": [],
+  "pending": [],
+  "evidence": {
+    "logs": {
+      "backends/inventory-worker-6c47b9d8f5-h2ltq": "2026-06-30T09:05:00Z INFO  worker  inventory-worker build 1a2b3c started, heap limit 512Mi\n2026-06-30T09:08:30Z INFO  worker  processing reconcile loop iteration 4200; heap in use 402Mi\n2026-06-30T09:11:10Z WARN  worker  heap in use 498Mi and climbing; GC not reclaiming (suspected leak in SkuCache, ref OOM-INV-3391)\n2026-06-30T09:12:41Z ERROR worker  java.lang.OutOfMemoryError: Java heap space\n2026-06-30T09:12:43Z FATAL worker  container OOMKilled (exit 137)",
+      "backends/notification-worker-59f8c6b7d4-k9xmp": "2026-06-30T09:15:12Z INFO  worker  notification-worker build 9z8y7x starting\n2026-06-30T09:15:13Z ERROR worker  configuration validation failed: CONFIG-ERR-7742 required environment variable SMTP_RELAY_URL is not set\n2026-06-30T09:15:13Z ERROR worker  cannot initialize notification dispatcher without SMTP_RELAY_URL; aborting\n2026-06-30T09:15:14Z FATAL worker  startup failed, exiting with code 2"
+    },
+    "describe": {
+      "Pod/backends/inventory-worker-6c47b9d8f5-h2ltq": "Name: inventory-worker-6c47b9d8f5-h2ltq\nNamespace: backends\nContainers:\n  worker:\n    State: Waiting (CrashLoopBackOff)\n    Last State: Terminated (Reason: OOMKilled, Exit Code: 137)\n    Limits: memory: 512Mi\nNote: last termination was OOMKilled; memory limit reached.",
+      "Pod/backends/notification-worker-59f8c6b7d4-k9xmp": "Name: notification-worker-59f8c6b7d4-k9xmp\nNamespace: backends\nContainers:\n  worker:\n    State: Waiting (CrashLoopBackOff)\n    Last State: Terminated (Reason: Error, Exit Code: 2)\n    Env:\n      SMTP_RELAY_URL: (not set)\nNote: last termination was a startup Error (exit 2), not OOM. Missing required env var."
+    },
+    "events": {
+      "backends/inventory-worker-6c47b9d8f5-h2ltq": "09:12:43  Warning  BackOff    Back-off restarting failed container worker\n09:12:43  Warning  OOMKilling System OOM encountered, container worker exceeded memory limit",
+      "backends/notification-worker-59f8c6b7d4-k9xmp": "09:15:14  Warning  BackOff    Back-off restarting failed container worker\n09:15:13  Warning  Failed     Error: configuration invalid (missing SMTP_RELAY_URL)"
+    }
+  }
+}

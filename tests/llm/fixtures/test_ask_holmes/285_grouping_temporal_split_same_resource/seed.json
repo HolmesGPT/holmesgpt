@@ -1,0 +1,16 @@
+{
+  "leaders": [],
+  "pending": [],
+  "evidence": {
+    "logs": {
+      "analytics/report-generator-844b7f9c6d-tt7v2": "2026-06-28T02:10:00Z INFO  gen  report-generator run started for nightly batch BATCH-0628-XL (row count 41,900,000 — 6x the usual volume)\n2026-06-28T02:13:59Z WARN  gen  working set 1.9Gi approaching limit 2Gi while materializing BATCH-0628-XL\n2026-06-28T02:14:04Z ERROR gen  OOMKilled while aggregating BATCH-0628-XL\n2026-06-28T03:05:40Z INFO  gen  retried with smaller partitions; batch BATCH-0628-XL completed; run healthy again",
+      "analytics/report-generator-9f5d2a1b83-mn4kd": "2026-06-30T11:40:00Z INFO  gen  report-generator build deploy DEPLOY-0630-mem256 rolled out (memory limit changed 2Gi -> 256Mi)\n2026-06-30T11:47:05Z WARN  gen  working set 251Mi of new limit 256Mi on a normal-sized batch\n2026-06-30T11:47:11Z ERROR gen  OOMKilled on standard batch; new 256Mi limit from DEPLOY-0630-mem256 is far too low\n2026-06-30T11:52:30Z ERROR gen  OOMKilled again; crash looping under the reduced memory limit"
+    },
+    "describe": {
+      "Deployment/analytics/report-generator": "Name: report-generator\nNamespace: analytics\nReplicas: 1 desired | 1 available\nContainer gen memory limit: 256Mi (changed from 2Gi by rollout DEPLOY-0630-mem256 on 2026-06-30T11:40)\nHistory:\n  - 2026-06-28 02:14: one OOMKill during oversized nightly batch BATCH-0628-XL, self-recovered by 03:05 same day.\n  - 2026-06-30 11:47+: repeated OOMKills after the memory limit was cut to 256Mi; currently crash looping."
+    },
+    "events": {
+      "analytics/report-generator": "Jun 30 11:52  Warning  OOMKilling  container gen exceeded memory limit (256Mi)\nJun 30 11:47  Warning  OOMKilling  container gen exceeded memory limit (256Mi)\nJun 28 02:14  Warning  OOMKilling  container gen exceeded memory limit (2Gi) during nightly batch"
+    }
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "description": "Under-grouping trap: two alerts on different workloads look independent from their text, but their logs both trace to one stuck DB migration. Correct grouping = ONE incident, discoverable only by pulling evidence (anti-hallucination code MIG-7731).",
+  "tags": [
+    "grouping",
+    "medium",
+    "mcp",
+    "chain-of-causation",
+    "logs"
+  ],
+  "alerts": [
+    {
+      "id": "a1-checkout-crashloop",
+      "aggregation_key": "KubePodCrashLooping",
+      "subject_type": "Pod",
+      "subject_name": "checkout-api-7d9c8b6f4-2xk9p",
+      "subject_namespace": "storefront",
+      "cluster": "prod-us-central",
+      "starts_at": "2026-06-30T14:22:10Z",
+      "ends_at": null,
+      "priority": "warning",
+      "source": "prometheus",
+      "title": "Pod checkout-api is crash looping",
+      "description": "Pod storefront/checkout-api-7d9c8b6f4-2xk9p (container api) has restarted 8 times in the last 15 minutes.",
+      "labels": {
+        "namespace": "storefront",
+        "pod": "checkout-api-7d9c8b6f4-2xk9p",
+        "workload": "checkout-api",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "checkout-api pod is restarting repeatedly"
+      }
+    },
+    {
+      "id": "a2-payments-5xx",
+      "aggregation_key": "HighErrorRate",
+      "subject_type": "Deployment",
+      "subject_name": "payments-gateway",
+      "subject_namespace": "storefront",
+      "cluster": "prod-us-central",
+      "starts_at": "2026-06-30T14:24:02Z",
+      "ends_at": null,
+      "priority": "critical",
+      "source": "prometheus",
+      "title": "Elevated 5xx error rate on payments-gateway",
+      "description": "storefront/payments-gateway is returning HTTP 503 for ~40% of requests over the last 10 minutes.",
+      "labels": {
+        "namespace": "storefront",
+        "workload": "payments-gateway",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "payments-gateway error rate above threshold"
+      }
+    }
+  ],
+  "evidence": {
+    "logs": {
+      "storefront/checkout-api-7d9c8b6f4-2xk9p": "2026-06-30T14:21:58Z INFO  api  starting checkout-api build 3f9a1c\n2026-06-30T14:22:01Z INFO  api  connecting to dependency payments-gateway.storefront.svc:8080\n2026-06-30T14:22:03Z ERROR api  downstream call failed: payments-gateway returned 503 (Service Unavailable)\n2026-06-30T14:22:03Z ERROR api  readiness dependency check failed: payments unavailable, aborting startup\n2026-06-30T14:22:04Z WARN  api  upstream detail from payments-gateway: could not acquire connection to payments-db:5432 (pool exhausted, blocked on lock LOCK-8842 held by migration job MIG-7731)\n2026-06-30T14:22:04Z FATAL api  liveness failing; exiting with code 1",
+      "storefront/payments-gateway-5f8a9c7b6-qd4m2": "2026-06-30T14:23:50Z INFO  gw   payments-gateway build 8c21de accepting traffic\n2026-06-30T14:23:57Z ERROR gw   db query failed: could not acquire connection to payments-db:5432 within 5s\n2026-06-30T14:23:58Z ERROR gw   payments-db connection pool exhausted; all 20 connections waiting\n2026-06-30T14:24:00Z ERROR gw   payments-db reports advisory lock LOCK-8842 held by migration job MIG-7731 (schema migration in progress, not yet committed)\n2026-06-30T14:24:00Z ERROR gw   returning HTTP 503 to callers: payments backend unavailable"
+    },
+    "describe": {
+      "Deployment/storefront/payments-gateway": "Name: payments-gateway\nNamespace: storefront\nReplicas: 3 desired | 3 updated | 3 available\nSelector: app=payments-gateway\nPod Template:\n  Containers:\n   gw:\n    Image: registry.internal/payments-gateway:8c21de\n    Env: PAYMENTS_DB_HOST=payments-db.storefront.svc\nConditions:\n  Available   True\nNote: pods healthy at the process level but returning 503 due to failing calls to payments-db.",
+      "Deployment/storefront/payments-db": "Name: payments-db\nNamespace: storefront\nReplicas: 1 desired | 1 updated | 1 available\nConditions:\n  Available   True\nRecent activity: schema migration job MIG-7731 started 2026-06-30T14:20:31Z and is still running; it holds advisory lock LOCK-8842 on the accounts table, blocking all writer connections. Connection pool for dependents is exhausted while the lock is held.",
+      "Job/storefront/MIG-7731": "Name: MIG-7731\nNamespace: storefront\nStatus: Active (1 running)\nStarted: 2026-06-30T14:20:31Z\nDetail: long-running ALTER TABLE accounts migration; holds advisory lock LOCK-8842 for the duration. Has not committed."
+    },
+    "events": {
+      "storefront/checkout-api-7d9c8b6f4-2xk9p": "14:22:04  Warning  BackOff    Back-off restarting failed container api\n14:22:04  Warning  Unhealthy  Liveness probe failed: connection refused\n14:22:03  Warning  Unhealthy  Readiness probe failed: dependency payments unavailable",
+      "storefront/payments-gateway": "14:24:00  Warning  Unhealthy  Readiness probe degraded: payments-db unreachable\n14:24:00  Normal   Pulled     Container image already present"
+    }
+  },
+  "expected_output": [
+    "Must place BOTH alerts (a1-checkout-crashloop and a2-payments-5xx) into a SINGLE incident — either one create_incident call whose related_alerts contains both ids, or a create_incident followed by attach_alerts_to_incident that results in one incident containing both.",
+    "Must NOT create two separate incidents (one per alert) for these two alerts.",
+    "Must have investigated before grouping: called the evidence tools (get_pod_logs and/or kubectl_describe / get_resource_events) for BOTH checkout-api and payments-gateway.",
+    "Must identify the shared root cause as the payments-db dependency being blocked by the in-progress schema migration job MIG-7731 (holding advisory lock LOCK-8842), which cascaded to both the payments-gateway 503s and the checkout-api crash loop.",
+    "Must provide grouping_reasoning for both alerts."
+  ]
+}
