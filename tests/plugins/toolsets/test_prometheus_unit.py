@@ -1,9 +1,13 @@
 import logging
+from unittest.mock import MagicMock
 
 import pytest
 
 from holmes.plugins.toolsets.prometheus.prometheus import (
+    DEFAULT_QUERY_TIMEOUT_SECONDS,
     AzurePrometheusConfig,
+    ExecuteInstantQuery,
+    ExecuteRangeQuery,
     PrometheusConfig,
     PrometheusToolset,
     adjust_step_for_max_points,
@@ -329,3 +333,74 @@ class TestIsAzureConfig:
             )
         assert cls is PrometheusConfig
         assert "Partial Azure" in caplog.text
+
+
+class TestNullTimeout:
+    """Regression: explicit null timeout from the LLM must not raise TypeError."""
+
+    def _make_toolset(self) -> PrometheusToolset:
+        toolset = PrometheusToolset()
+        toolset.config = PrometheusConfig(
+            prometheus_url="http://prometheus.example:9090"
+        )
+        return toolset
+
+    def _fake_response(self):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {
+            "status": "success",
+            "data": {"resultType": "vector", "result": []},
+        }
+        return resp
+
+    def test_instant_query_null_timeout_falls_back_to_default(self, monkeypatch):
+        toolset = self._make_toolset()
+        tool = ExecuteInstantQuery(toolset)
+
+        captured: dict = {}
+
+        def fake_do_request(*args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            return self._fake_response()
+
+        monkeypatch.setattr(
+            "holmes.plugins.toolsets.prometheus.prometheus.do_request",
+            fake_do_request,
+        )
+
+        result = tool._invoke(
+            {"query": "up", "description": "test", "timeout": None},
+            context=MagicMock(),
+        )
+
+        assert "timeout" in captured
+        assert captured["timeout"] == DEFAULT_QUERY_TIMEOUT_SECONDS
+
+    def test_range_query_null_timeout_falls_back_to_default(self, monkeypatch):
+        toolset = self._make_toolset()
+        tool = ExecuteRangeQuery(toolset)
+
+        captured: dict = {}
+
+        def fake_do_request(*args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            return self._fake_response()
+
+        monkeypatch.setattr(
+            "holmes.plugins.toolsets.prometheus.prometheus.do_request",
+            fake_do_request,
+        )
+
+        result = tool._invoke(
+            {
+                "query": "up",
+                "description": "test",
+                "output_type": "Plain",
+                "timeout": None,
+            },
+            context=MagicMock(),
+        )
+
+        assert "timeout" in captured
+        assert captured["timeout"] == DEFAULT_QUERY_TIMEOUT_SECONDS
