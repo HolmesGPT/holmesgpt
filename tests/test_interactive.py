@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import re
 import shutil
 import tempfile
@@ -950,6 +951,71 @@ class TestRunInteractiveLoop(unittest.TestCase):
                 "/feedback" in call_str for call_str in help_calls
             )
             self.assertFalse(has_feedback_in_help)
+
+    @patch("holmes.interactive.subprocess.Popen")
+    @patch("holmes.interactive.check_version_async")
+    @patch("holmes.interactive.PromptSession")
+    @patch("holmes.interactive.build_initial_ask_messages")
+    @patch(
+        "holmes.interactive.config_path_dir", new_callable=lambda: tempfile.gettempdir()
+    )
+    def test_run_interactive_loop_lifecycle_hooks(
+        self,
+        mock_config_dir,
+        mock_build_messages,
+        mock_prompt_session_class,
+        mock_check_version,
+        mock_popen,
+    ):
+        """Test that lifecycle hooks are executed during the interactive loop."""
+        mock_session = Mock()
+        mock_prompt_session_class.return_value = mock_session
+        # "hello" simulates a conversation turn, "/exit" ends the loop
+        mock_session.prompt.side_effect = ["hello", "/exit"]
+        
+        mock_build_messages.return_value = []
+        
+        # Create a mock configuration with hooks
+        mock_config = Mock()
+        mock_config.hooks = {
+            "on_waiting_for_input": [{"command": "echo 'waiting'"}],
+            "on_turn_complete": [{"command": "echo 'completed'"}],
+        }
+
+        # Mock tracer
+        mock_tracer = Mock()
+        mock_tracer.start_trace.return_value.__enter__ = Mock()
+        mock_tracer.start_trace.return_value.__exit__ = Mock()
+        mock_tracer.get_trace_url.return_value = None
+        
+        run_interactive_loop(
+            ai=self.mock_ai,
+            console=self.mock_console,
+            initial_user_input=None,
+            include_files=None,
+            show_tool_output=False,
+            check_version=False,
+            tracer=mock_tracer,
+            config=mock_config,
+        )
+        
+        # Verify that on_waiting_for_input hook fired
+        mock_popen.assert_any_call(
+            "echo 'waiting'",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        # Verify that on_turn_complete hook fired
+        mock_popen.assert_any_call(
+            "echo 'completed'",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+
 
 
 class TestRendererEndToEnd(unittest.TestCase):
