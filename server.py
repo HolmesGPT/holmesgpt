@@ -791,12 +791,13 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     })
 
                 _inv_start = time.time()
-                llm_call = request_ai.call(
-                    messages=messages,
-                    trace_span=trace_span,
-                    response_format=chat_request.response_format,
-                    request_context=request_context,
-                )
+                with recorder_state.track():
+                    llm_call = request_ai.call(
+                        messages=messages,
+                        trace_span=trace_span,
+                        response_format=chat_request.response_format,
+                        request_context=request_context,
+                    )
 
                 # Record usage event for non-streaming path (fire-and-forget).
                 record_from_llm_result(recorder_state, llm_call)

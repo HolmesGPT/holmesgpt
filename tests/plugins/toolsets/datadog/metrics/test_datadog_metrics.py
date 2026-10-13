@@ -252,8 +252,8 @@ class TestDatadogMetricsToolset:
         result = tool._invoke(params, context=create_mock_tool_invoke_context())
 
         assert result.status == StructuredToolResultStatus.ERROR
-        assert "rate limit exceeded" in result.error.lower()
-        assert "5 retry attempts" in result.error
+        assert "Datadog API rate limit exceeded (HTTP 429): Rate limit exceeded" in result.error
+        assert mock_get.call_count == 5
 
     @patch("holmes.plugins.toolsets.datadog.datadog_api.requests.get")
     def test_healthcheck_success(self, mock_get):

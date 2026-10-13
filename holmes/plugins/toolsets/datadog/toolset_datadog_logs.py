@@ -16,10 +16,10 @@ from holmes.core.tools import (
 )
 from holmes.plugins.toolsets.consts import STANDARD_END_DATETIME_TOOL_PARAM_DESCRIPTION
 from holmes.plugins.toolsets.datadog.datadog_api import (
-    MAX_RETRY_COUNT_ON_RATE_LIMIT,
     DataDogRequestError,
     execute_datadog_http_request,
     get_headers,
+    rate_limit_error_message,
 )
 from holmes.plugins.toolsets.datadog.datadog_models import (
     DatadogLogsConfig,
@@ -263,7 +263,7 @@ class GetLogs(Tool):
         except DataDogRequestError as e:
             logging.exception(e, exc_info=True)
             if e.status_code == 429:
-                error_msg = f"Datadog API rate limit exceeded. Failed after {MAX_RETRY_COUNT_ON_RATE_LIMIT} retry attempts."
+                error_msg = rate_limit_error_message(e)
             elif e.status_code == 403:
                 error_msg = (
                     f"Permission denied. Ensure your Datadog Application Key has the 'apm_read' "
