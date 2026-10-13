@@ -160,6 +160,14 @@ class ConversationTask(BaseModel):
     # Hydrated post-construction from events; not part of the validated row schema.
     _user_message_data: Dict[str, Any] = PrivateAttr(default_factory=dict)
     _conversation_history: Optional[List[Dict[str, Any]]] = PrivateAttr(default=None)
+    # Mid-turn follow-ups that were already in the DB when the turn was
+    # claimed (sent between the claim and the first event read). Each is the
+    # raw ``data`` dict of a ``user_message`` event. Fed to the model before
+    # its first LLM call.
+    _queued_user_messages: List[Dict[str, Any]] = PrivateAttr(default_factory=list)
+    # Seq of the newest ConversationEvents row whose user_message the model
+    # has seen. None when the RPC does not report seq (older database).
+    _consumed_seq: Optional[int] = PrivateAttr(default=None)
 
     @property
     def user_message_data(self) -> Dict[str, Any]:
@@ -179,9 +187,30 @@ class ConversationTask(BaseModel):
     def conversation_history(self, value: Optional[List[Dict[str, Any]]]) -> None:
         self._conversation_history = value
 
+    @property
+    def queued_user_messages(self) -> List[Dict[str, Any]]:
+        return self._queued_user_messages
+
+    @queued_user_messages.setter
+    def queued_user_messages(self, value: List[Dict[str, Any]]) -> None:
+        self._queued_user_messages = value
+
+    @property
+    def consumed_seq(self) -> Optional[int]:
+        return self._consumed_seq
+
+    @consumed_seq.setter
+    def consumed_seq(self, value: Optional[int]) -> None:
+        self._consumed_seq = value
+
 
 class ConversationReassignedError(Exception):
     """Raised when the conversation's assignee/request_sequence no longer matches ours."""
+
+
+class PendingFollowupError(Exception):
+    """Raised when the DB refuses to complete a turn because a user message
+    newer than the one the model last saw is waiting (ROB-1499)."""
 
 
 EVENT_USER_MESSAGE = "user_message"

@@ -9,6 +9,7 @@ from typing import Optional
 from holmes import get_version  # type: ignore
 from holmes.common.env_vars import (
     ENABLE_CONVERSATION_WORKER,
+    CONVERSATION_WORKER_MID_TURN_FOLLOWUP,
     CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
 )
 from holmes.config import Config
@@ -60,6 +61,9 @@ class HolmesMetadata:
     supports_additional_system_prompt: bool = True
     supports_realtime_conversations: bool = False
     requires_realtime_broadcast: bool = False
+    # A user message posted while a turn runs is folded into that turn
+    # (ROB-1499). The UI offers mid-turn sending only to agents that say so.
+    supports_mid_turn_followup: bool = False
     namespace: Optional[str] = None
     # This agent reads `robusta_ai_disabled` from the platform's model catalog
     # and drops its Robusta-hosted models when the account has opted out. The
@@ -74,19 +78,26 @@ class HolmesMetadata:
 # periodic heartbeat (refresh_holmes_status) re-upserts with this value so it
 # never clobbers supports_realtime_conversations after the worker verified it.
 _last_realtime_available: bool = False
+_last_mid_turn_followup_available: bool = False
 
 
 def refresh_holmes_status(dal: SupabaseDal, config: Config) -> None:
     """Periodic heartbeat: re-upsert HolmesStatus so updated_at acts as a
     liveness signal (platform-mcp filters clusters on updated_at recency),
     preserving the last verified realtime flag."""
-    update_holmes_status_in_db(dal, config, realtime_available=_last_realtime_available)
+    update_holmes_status_in_db(
+        dal,
+        config,
+        realtime_available=_last_realtime_available,
+        mid_turn_followup_available=_last_mid_turn_followup_available,
+    )
 
 
 def update_holmes_status_in_db(
     dal: SupabaseDal,
     config: Config,
     realtime_available: bool = False,
+    mid_turn_followup_available: bool = False,
 ):
     """
     Upsert the Holmes status row.
@@ -97,8 +108,9 @@ def update_holmes_status_in_db(
     This avoids advertising realtime support before we've verified the
     project actually has it turned on.
     """
-    global _last_realtime_available
+    global _last_realtime_available, _last_mid_turn_followup_available
     _last_realtime_available = realtime_available
+    _last_mid_turn_followup_available = mid_turn_followup_available
 
     logging.info("Updating status of holmes")
 
@@ -119,6 +131,11 @@ def update_holmes_status_in_db(
         is_robusta_ai_enabled=config.should_try_robusta_ai,
         supports_realtime_conversations=supports_realtime,
         requires_realtime_broadcast=requires_broadcast,
+        supports_mid_turn_followup=bool(
+            supports_realtime
+            and mid_turn_followup_available
+            and CONVERSATION_WORKER_MID_TURN_FOLLOWUP
+        ),
         namespace=_detect_runner_namespace(),
         honors_robusta_ai_disabled=config.llm_model_registry.reads_robusta_catalog(),
     )

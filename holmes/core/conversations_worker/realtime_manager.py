@@ -235,12 +235,16 @@ class RealtimeWorker:
         holmes_id: str,
         on_new_pending: Callable[[Optional[str]], None],
         on_new_tool_calls: Optional[Callable[[], None]] = None,
+        on_followup: Optional[Callable[[Optional[str]], None]] = None,
         use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
     ) -> None:
         self.dal = dal
         self.holmes_id = holmes_id
         self.on_new_pending = on_new_pending
         self.on_new_tool_calls = on_new_tool_calls
+        # 'conversation_followup' -> processor.notify_followup(conversation_id),
+        # wired by the runtime. None disables the subscription.
+        self.on_followup = on_followup
         self._use_broadcast = use_broadcast
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -675,6 +679,24 @@ class RealtimeWorker:
 
         logging.info("RealtimeWorker connected: mode=pgchanges topic=%s", topic)
 
+    def _on_followup_broadcast(self, payload: Dict[str, Any]) -> None:
+        """A user message landed on a conversation that is mid-turn. The
+        payload names the conversation; only the Holmes running that turn has
+        a signal registered for it, every other replica ignores the wake."""
+        try:
+            body = payload.get("payload")
+            if not isinstance(body, dict):
+                body = payload
+            conversation_id = body.get("conversation_id")
+            logging.info(
+                "RealtimeWorker: conversation_followup notification for %s",
+                conversation_id,
+            )
+            if self.on_followup is not None:
+                self.on_followup(conversation_id)
+        except Exception:
+            logging.exception("Error in conversation_followup callback", exc_info=True)
+
     async def _subscribe_via_broadcast(self) -> None:
         """Option 2: Broadcast channel per account + cluster.
 
@@ -726,6 +748,12 @@ class RealtimeWorker:
             self._channel.on_broadcast(
                 event="pending_tool_calls",
                 callback=_on_tool_calls_broadcast,
+            )
+
+        if self.on_followup is not None:
+            self._channel.on_broadcast(
+                event="conversation_followup",
+                callback=self._on_followup_broadcast,
             )
 
         subscribed = asyncio.Event()

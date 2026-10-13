@@ -233,7 +233,9 @@ def test_realtime_verify_loop_updates_status_and_starts_workers_on_true():
     ) as mock_update:
         w._realtime_verify_loop()
 
-    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=True)
+    mock_update.assert_called_once_with(
+        w.dal, w.config, realtime_available=True, mid_turn_followup_available=False
+    )
     w._start_active_workers.assert_called_once_with()
     assert w._running is True
     w.dal.is_realtime_enabled.assert_called_once_with()
@@ -272,7 +274,9 @@ def test_realtime_verify_loop_retries_on_connectivity_errors():
         w._realtime_verify_loop()
 
     assert w.dal.is_realtime_enabled.call_count == 4
-    mock_update.assert_called_once_with(w.dal, w.config, realtime_available=True)
+    mock_update.assert_called_once_with(
+        w.dal, w.config, realtime_available=True, mid_turn_followup_available=False
+    )
 
 
 def test_realtime_verify_loop_exits_when_stop_event_set():
@@ -396,7 +400,9 @@ def test_start_runs_discovery_but_creates_no_executors_after_definitive_true():
             w.start()
             w._realtime_verify_thread.join(timeout=3)
             assert not w._realtime_verify_thread.is_alive()
-            mock_update.assert_called_once_with(dal, w.config, realtime_available=True)
+            mock_update.assert_called_once_with(
+                dal, w.config, realtime_available=True, mid_turn_followup_available=False
+            )
             assert w.registry._discovery_thread is not None
             assert w.registry.names() == []
             # A pending row naming an executor creates it, sized from settings.
