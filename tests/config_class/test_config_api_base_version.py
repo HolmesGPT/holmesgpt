@@ -125,6 +125,7 @@ def test_config_get_llm_with_model_list_api_base_version(monkeypatch, tmp_path):
             tracer=None,
             name="test-model",
             is_robusta_model=False,
+            conversation_id=None,
         )
         assert result == mock_llm_instance
 
@@ -165,6 +166,7 @@ def test_config_get_llm_model_list_overrides_config_values(monkeypatch, tmp_path
             tracer=None,
             name="test-model",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 
@@ -203,6 +205,7 @@ def test_config_get_llm_model_list_defaults_to_config_values(monkeypatch, tmp_pa
             tracer=None,
             name="test-model",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 
@@ -255,6 +258,7 @@ def test_config_get_llm_with_non_none_model_list_first_model_fallback(
             tracer=None,
             name="gpt-4",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 
@@ -314,6 +318,7 @@ def test_config_get_llm_with_specific_model_from_model_list(monkeypatch, tmp_pat
             tracer=None,
             name="openai-gpt35",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 
@@ -353,6 +358,7 @@ def test_config_get_llm_with_base_url_only(monkeypatch, tmp_path):
             tracer=None,
             name="test-model",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 
@@ -393,6 +399,7 @@ def test_config_get_llm_api_base_overrides_base_url(monkeypatch, tmp_path):
             tracer=None,
             name="test-model",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 
@@ -434,6 +441,7 @@ def test_config_get_llm_neither_api_base_nor_base_url_uses_config(
             tracer=None,
             name="test-model",
             is_robusta_model=False,
+            conversation_id=None,
         )
 
 

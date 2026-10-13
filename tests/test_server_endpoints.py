@@ -95,6 +95,34 @@ def test_api_chat_stream_carries_a_relay_refusal_in_the_error_event(
 
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_never_names_the_chat_to_relay(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """/api/chat's conversation_id is caller-supplied, so it never reaches the
+    LLM; see ROBUSTA_CONVERSATION_ID_HEADER."""
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.return_value = MagicMock(
+        result="ok", tool_calls=[], messages=[], metadata={}, num_llm_calls=1
+    )
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    client.post(
+        "/api/chat",
+        json={
+            "ask": "what is wrong?",
+            "conversation_id": "5b0c3f2e-8a4d-4c1e-9f7a-2d6b8e1c4a90",
+        },
+    )
+
+    mock_create_toolcalling_llm.assert_called_once()
+    assert "conversation_id" not in mock_create_toolcalling_llm.call_args.kwargs
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
 def test_api_chat_all_fields(
     mock_get_global_instructions,
     mock_create_toolcalling_llm,

@@ -380,6 +380,7 @@ class ConversationProcessor:
                 model=chat_request.model,
                 tracer=server_tracer,
                 tool_results_dir=tool_results_dir,
+                conversation_id=task.conversation_id,
             )
             is_robusta_model = ai.llm.is_robusta_model
 

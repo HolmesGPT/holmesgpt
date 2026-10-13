@@ -59,6 +59,15 @@ def test_server_config_get_llm_with_robusta_model_returns_updated_api_key(
     assert llm.api_key == "mock_account_id new_session_token"
 
 
+def test_server_config_get_llm_robusta_model_keeps_conversation_id(
+    server_config: Config,
+):
+    llm: DefaultLLM = server_config._get_llm(
+        ROBUSTA_SONNET_4_MODEL, conversation_id="conv-1"
+    )
+    assert llm.conversation_id == "conv-1"
+
+
 def test_cli_config_get_llm_loads_default_gpt_4o(monkeypatch):
     monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", "")
     monkeypatch.setenv("OPENAI_API_KEY", "openai_api_key")

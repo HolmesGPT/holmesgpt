@@ -56,6 +56,12 @@ MODEL_LIST_FILE_LOCATION = os.environ.get(
 OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
 OVERRIDE_MAX_CONTENT_SIZE = environ_get_safe_int("OVERRIDE_MAX_CONTENT_SIZE")
 
+#: Names the conversation a Robusta-hosted completion belongs to. Relay serves
+#: an admin-only model only when that conversation's owner is an account
+#: admin, so only an id from a claimed Conversations row (the conversations
+#: worker) may be sent, never a caller-supplied one.
+ROBUSTA_CONVERSATION_ID_HEADER = "X-Robusta-Conversation-Id"
+
 _warned_missing_model_lookups: set[tuple[str, str]] = set()
 _last_cost_map_refresh = time.monotonic()
 
@@ -396,6 +402,7 @@ class DefaultLLM(LLM):
     api_version: Optional[str]
     args: Dict
     is_robusta_model: bool
+    conversation_id: Optional[str] = None
     allowed_openai_params: Optional[List[str]] = None
 
     def __init__(
@@ -408,6 +415,7 @@ class DefaultLLM(LLM):
         tracer: Optional[Any] = None,
         name: Optional[str] = None,
         is_robusta_model: bool = False,
+        conversation_id: Optional[str] = None,
     ):
         self.model = model
         self.api_key = api_key
@@ -417,6 +425,8 @@ class DefaultLLM(LLM):
         self.tracer = tracer
         self.name = name
         self.is_robusta_model = is_robusta_model
+        # Only relay may learn which chat a completion belongs to.
+        self.conversation_id = conversation_id if is_robusta_model else None
         self.update_custom_args()
         self.check_llm(
             self.model, self.api_key, self.api_base, self.api_version, self.args
@@ -732,6 +742,12 @@ class DefaultLLM(LLM):
 
         if EXTRA_HEADERS:
             self.args.setdefault("extra_headers", json.loads(EXTRA_HEADERS))
+
+        if self.conversation_id:
+            self.args["extra_headers"] = {
+                **(self.args.get("extra_headers") or {}),
+                ROBUSTA_CONVERSATION_ID_HEADER: self.conversation_id,
+            }
 
         litellm.modify_params = True
 
