@@ -325,6 +325,10 @@ SSE transport is deprecated. Use `streamable-http` for new integrations.
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
 
+## AWS MCP Server
+
+The hosted AWS MCP Server needs SigV4-signed requests. Use `mode: aws` instead of `streamable-http` and Holmes signs with its AWS credentials; see [AWS (MCP)](builtin-toolsets/aws.md).
+
 ## OAuth Authentication
 
 For MCP servers that require OAuth authentication (e.g. Atlassian, Notion), see the dedicated [OAuth MCP Servers](oauth-mcp-servers.md) page.

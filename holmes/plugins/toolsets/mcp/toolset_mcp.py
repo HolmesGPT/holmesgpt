@@ -120,6 +120,7 @@ class MCPMode(str, Enum):
     SSE = "sse"
     STREAMABLE_HTTP = "streamable-http"
     STDIO = "stdio"
+    AWS = "aws"
 
 
 # Well-known, read-only "who am I" tools used to verify MCP authentication when
@@ -296,7 +297,7 @@ async def get_initialized_mcp_session(
             errlog.close()
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        httpx_factory = toolset._http_client_factory()
         rendered_headers = toolset._render_headers(request_context)
         async with sse_client(
             url,
@@ -316,7 +317,7 @@ async def get_initialized_mcp_session(
                 yield session
     else:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        httpx_factory = toolset._http_client_factory()
         rendered_headers = toolset._render_headers(request_context)
         async with streamablehttp_client(
             url,
@@ -941,6 +942,9 @@ class RemoteMCPTool(Tool):
         if params and params.get("cli_command"):
             return f"{params.get('cli_command')}"
 
+        if (self.mcp_tool_name or self.name) == "aws___run_script" and params and isinstance(params.get("code"), str):
+            return f"aws run_script: {params['code'].strip().splitlines()[0][:120]}"
+
         # gcloud MCP run_gcloud_command
         if (self.mcp_tool_name or self.name) == "run_gcloud_command" and params and "args" in params:
             args = params.get("args", [])
@@ -1110,16 +1114,7 @@ class RemoteMCPToolset(Toolset):
                     f'Invalid mode "{mode_value}", allowed modes are {", ".join(allowed_modes)}',
                 )
 
-            if mode_value == MCPMode.STDIO.value:
-                self._mcp_config = StdioMCPConfig(**config)
-            else:
-                self._mcp_config = MCPConfig(**config)
-                clean_url_str = str(self._mcp_config.url).rstrip("/")
-
-                if self._mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith(
-                    "/sse"
-                ):
-                    self._mcp_config.url = AnyUrl(clean_url_str + "/sse")
+            self._mcp_config = self._build_mcp_config(config)
 
             # For OAuth-protected servers, skip full MCP session init (it will 401).
             # Just verify the server is reachable and register a placeholder tool
@@ -1154,6 +1149,18 @@ class RemoteMCPToolset(Toolset):
                 f"Failed to load mcp server {self.name}: {error_detail}"
                 ". If the server is still starting up, Holmes will retry automatically",
             )
+
+    def _build_mcp_config(self, config: dict) -> Union[MCPConfig, StdioMCPConfig]:
+        if config.get("mode") == MCPMode.STDIO.value:
+            return StdioMCPConfig(**config)
+        mcp_config = MCPConfig(**config)
+        clean_url_str = str(mcp_config.url).rstrip("/")
+        if mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith("/sse"):
+            mcp_config.url = AnyUrl(clean_url_str + "/sse")
+        return mcp_config
+
+    def _http_client_factory(self):
+        return create_mcp_http_client_factory(self._mcp_config.verify_ssl)  # type: ignore[union-attr]
 
     def _auto_detect_health_check_tool(self) -> Optional[str]:
         """Pick a default health-check tool from a known allowlist of read-only

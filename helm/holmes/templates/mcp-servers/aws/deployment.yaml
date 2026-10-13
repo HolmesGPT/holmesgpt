@@ -1,4 +1,4 @@
-{{- if .Values.mcpAddons.aws.enabled }}
+{{- if and .Values.mcpAddons.aws.enabled (not .Values.mcpAddons.aws.hosted.enabled) }}
 ---
 apiVersion: v1
 kind: ConfigMap

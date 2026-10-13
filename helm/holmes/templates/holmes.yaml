@@ -261,6 +261,10 @@ spec:
           - name: SKILL_REPOS_DIR
             value: /var/holmes/skill-repos
           {{- end }}
+          {{- if include "holmes.awsMcp.multiAccount" . }}
+          - name: AWS_CONFIG_FILE
+            value: /etc/holmes/aws/config
+          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}
@@ -325,6 +329,14 @@ spec:
             mountPath: /etc/holmes/skills
             readOnly: true
           {{- end }}
+          {{- if include "holmes.awsMcp.multiAccount" . }}
+          - name: aws-mcp-config
+            mountPath: /etc/holmes/aws
+            readOnly: true
+          - name: aws-mcp-token
+            mountPath: /var/run/secrets/eks.amazonaws.com/serviceaccount
+            readOnly: true
+          {{- end }}
           {{- if .Values.additionalVolumeMounts -}}
           {{ toYaml .Values.additionalVolumeMounts | nindent 10 }}
           {{- end }}
@@ -384,6 +396,18 @@ spec:
               - key: {{ $name }}.SKILL.md
                 path: {{ $name }}/SKILL.md
               {{- end }}
+        {{- end }}
+        {{- if include "holmes.awsMcp.multiAccount" . }}
+        - name: aws-mcp-config
+          configMap:
+            name: {{ .Release.Name }}-aws-mcp-config
+        - name: aws-mcp-token
+          projected:
+            sources:
+            - serviceAccountToken:
+                path: token
+                expirationSeconds: 86400
+                audience: sts.amazonaws.com
         {{- end }}
         {{- if .Values.additionalVolumes -}}
         {{ toYaml .Values.additionalVolumes | nindent 8 }}

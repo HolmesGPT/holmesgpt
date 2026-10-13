@@ -272,6 +272,15 @@ mcpAddons:
   aws:
     enabled: false
 
+    # Connect to the hosted AWS MCP Server (https://aws-mcp.<region>.api.aws/mcp) instead of
+    # deploying the deprecated aws-api-mcp-server pod below. Holmes signs requests with its own
+    # credentials, so annotate Holmes' service account for IRSA (serviceAccount.annotations:
+    # eks.amazonaws.com/role-arn). Read-only access comes from the IAM policy. IAM setup scripts:
+    # https://github.com/robusta-dev/holmes-mcp-integrations/tree/master/servers/aws
+    hosted:
+      enabled: false
+      profile: ""  # Optional AWS profile for single-account mode (see multiAccount.profiles)
+
     # Service account configuration for IRSA (IAM Roles for Service Accounts)
     serviceAccount:
       create: true
@@ -295,7 +304,10 @@ mcpAddons:
       namespace: ""        # Kubernetes namespace (defaults to release namespace if empty)
 
     # Multi-account configuration
-    # When multiAccount.profiles is defined, the chart will use EKS token projection
+    # When multiAccount.profiles is defined, the chart will use EKS token projection.
+    # With hosted.enabled each profile becomes its own MCP server (aws_<profile>); a profile
+    # may set description, and source_profile or credential_source to assume its role_arn
+    # from other credentials instead of the projected token.
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
       image: "multi-aws-api-mcp-server:2.1.0"
