@@ -646,3 +646,88 @@ def test_requests_are_never_sent_with_redirects_enabled(responses, monkeypatch):
     )
 
     assert seen == [False]
+
+
+@pytest.mark.parametrize(
+    "tool_kwargs",
+    [
+        {"default_headers": {"Accept": "super-secret"}},
+        {"auth": AuthConfig(type="header", name="Accept", value="super-secret")},
+        {"auth": AuthConfig(type="header", name="Content-Type", value="super-secret")},
+        {"extra_headers": {"Accept-Language": "super-secret"}},
+    ],
+)
+def test_secret_in_a_safe_header_name_does_not_cross_an_origin(tool_kwargs, responses):
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "https://other.example.com/collect"},
+    )
+    responses.get("https://other.example.com/collect", status=200, json={"ok": True})
+
+    tool = build_tool(
+        extra_endpoints=[
+            EndpointConfig(hosts=["other.example.com"], auth=AuthConfig(type="none"))
+        ],
+        **tool_kwargs,
+    )
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    assert "super-secret" in responses.calls[0].request.headers.values()
+    assert "super-secret" not in responses.calls[1].request.headers.values()
+
+
+def test_netrc_credentials_never_sent(tmp_path, monkeypatch, responses):
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine api.example.com login netrc-user password netrc-pass\n")
+    netrc.chmod(0o600)
+    monkeypatch.setenv("NETRC", str(netrc))
+    responses.get(
+        "https://api.example.com/go",
+        status=302,
+        headers={"Location": "http://api.example.com/plain"},
+    )
+    responses.get("http://api.example.com/plain", status=200, json={"ok": True})
+
+    tool = build_tool()
+    tool._invoke(
+        {"url": "https://api.example.com/go"}, create_mock_tool_invoke_context()
+    )
+
+    for call in responses.calls:
+        assert "Authorization" not in call.request.headers
+
+
+def test_netrc_does_not_replace_configured_bearer(tmp_path, monkeypatch, responses):
+    netrc = tmp_path / "netrc"
+    netrc.write_text("machine api.example.com login netrc-user password netrc-pass\n")
+    netrc.chmod(0o600)
+    monkeypatch.setenv("NETRC", str(netrc))
+    responses.get("https://api.example.com/a", status=200, json={"ok": True})
+
+    tool = build_tool(auth=AuthConfig(type="bearer", token="super-secret"))
+    tool._invoke(
+        {"url": "https://api.example.com/a"}, create_mock_tool_invoke_context()
+    )
+
+    assert responses.calls[0].request.headers["Authorization"] == "Bearer super-secret"
+
+
+@pytest.mark.parametrize(
+    "target,kept",
+    [
+        ("https://api.example.com/b", True),
+        ("https://api.example.com:8443/b", False),
+    ],
+)
+def test_bearer_on_https_upgrade_redirect(target, kept, responses):
+    responses.get("http://api.example.com/a", status=301, headers={"Location": target})
+    responses.get(target, status=200, json={"ok": True})
+
+    tool = build_tool(auth=AuthConfig(type="bearer", token="super-secret"))
+    tool._invoke({"url": "http://api.example.com/a"}, create_mock_tool_invoke_context())
+
+    forwarded = responses.calls[1].request.headers.get("Authorization")
+    assert forwarded == ("Bearer super-secret" if kept else None)
