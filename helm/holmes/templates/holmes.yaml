@@ -38,8 +38,8 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
+        # Rolls the pod when the toolset configmap it mounts, or the skill settings, change.
+        checksum/toolset-config: {{ list (include (print $.Template.BasePath "/toolset-config.yaml") .) .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
         {{- if .Values.skillRepos }}
         # Rolls the pod when a skill repo credential Secret's DATA rotates —
         # the token env vars come from secretKeyRef, which a Secret update
