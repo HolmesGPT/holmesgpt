@@ -89,6 +89,8 @@ def test_api_chat_stream_carries_a_relay_refusal_in_the_error_event(
             "error_code": RELAY_REFUSAL_ERROR_CODES[status_code],
             "msg": message,
             "success": False,
+            "error_class": "RelayRefusal",
+            "provider_status": status_code,
         }
     ]
 
