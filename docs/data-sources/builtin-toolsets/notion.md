@@ -25,130 +25,32 @@ Enabling this toolset allows HolmesGPT to fetch pages from Notion, making it use
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export NOTION_AUTH="<your Notion integration secret>"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      notion:
-        enabled: true
-        config:
-          additional_headers:
-            Authorization: Bearer {{ env.NOTION_AUTH }}
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-notion \
-      --from-literal=NOTION_AUTH="<your Notion integration secret>" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-notion
-
-    toolsets:
-      notion:
-        enabled: true
-        config:
-          additional_headers:
-            Authorization: Bearer {{ env.NOTION_AUTH }}
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-notion \
-      --from-literal=NOTION_AUTH="<your Notion integration secret>" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-notion
-
-      toolsets:
-        notion:
-          enabled: true
-          config:
-            additional_headers:
-              Authorization: Bearer {{ env.NOTION_AUTH }}
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  notion:
+    enabled: true
+    config:
+      additional_headers:
+        Authorization: Bearer {{ env.NOTION_AUTH }}
+---
+secret:
+  - --from-literal=NOTION_AUTH="<your Notion integration secret>"
+```
 
 ### Timeout Configuration
 
 By default, the Notion toolset uses a 5-second timeout for webpage requests. If you need to increase the timeout for slower Notion API responses, you can set the `INTERNET_TOOLSET_TIMEOUT_SECONDS` environment variable:
 
-=== "Holmes CLI"
-
-    ```bash
-    export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalEnvVars:
-      - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
-        value: "30"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
-          value: "30"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+additionalEnvVars:
+  - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
+    value: "30"
+---
+cli: |
+  ```bash
+  export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
+  ```
+```
 
 ## Capabilities
 
