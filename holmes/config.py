@@ -578,7 +578,7 @@ class Config(RobustaBaseConfig):
 
         If neither condition holds, the cached executor is left in place.
         """
-        logging.info(
+        logging.debug(
             "Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s",
             toolset_tag_filter,
             enable_all_toolsets_possible,

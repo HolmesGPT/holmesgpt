@@ -6,6 +6,8 @@ from typing import List, Optional
 from rich.console import Console
 from rich.logging import RichHandler
 
+from holmes.utils.log import suppress_noisy_third_party_logs
+
 
 class Verbosity(Enum):
     NORMAL = 0
@@ -26,8 +28,8 @@ def cli_flags_to_verbosity(verbose_flags: List[bool]) -> Verbosity:
 
 
 def suppress_noisy_logs():
-    # disable INFO logs from OpenAI
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    # disable INFO logs from httpx (OpenAI) and the MCP client, and repeated urllib3 TLS warnings
+    suppress_noisy_third_party_logs()
     # disable INFO logs from LiteLLM
     logging.getLogger("LiteLLM").setLevel(logging.WARNING)
     # disable INFO logs from AWS (relevant when using bedrock)

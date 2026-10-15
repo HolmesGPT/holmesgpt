@@ -86,6 +86,7 @@ from holmes.utils.log import (
     JSON_LOG_FMT,
     JSON_LOG_RENAME_FIELDS,
     build_json_formatter,
+    suppress_noisy_third_party_logs,
 )
 from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
@@ -128,9 +129,7 @@ def init_logging():
         )
     logging.getLogger().setLevel(logging_level)
 
-    httpx_logger = logging.getLogger("httpx")
-    if httpx_logger:
-        httpx_logger.setLevel(logging.WARNING)
+    suppress_noisy_third_party_logs()
 
     litellm_logger = logging.getLogger("LiteLLM")
     if litellm_logger:
@@ -261,19 +260,20 @@ def sync_before_server_start():
         logging.error("Failed to start scheduled prompts executor", exc_info=True)
 
 
-def _has_failed_mcp_toolsets() -> bool:
-    """Check if any MCP toolsets that the shortened backoff cycles would
-    re-check are in FAILED state. A toolset with its own status refresh
-    interval is re-checked on that interval, not on backoff cycles."""
+def _failed_mcp_toolset_names() -> List[str]:
+    """Names of the MCP toolsets in FAILED state that the shortened backoff
+    cycles would re-check. A toolset with its own status refresh interval is
+    re-checked on that interval, not on backoff cycles."""
     executor = config.cached_tool_executor  # thread-safe property
     if not executor:
-        return False
-    return any(
-        t.type == ToolsetType.MCP
+        return []
+    return [
+        t.name
+        for t in executor.toolsets
+        if t.type == ToolsetType.MCP
         and t.status == ToolsetStatusEnum.FAILED
         and t.status_refresh_interval_seconds is None
-        for t in executor.toolsets
-    )
+    ]
 
 
 def _get_next_refresh_interval(
@@ -305,12 +305,13 @@ def _toolset_status_refresh_loop():
 
         while True:
             # Use shorter intervals when MCP servers are failing
+            failed_mcp = _failed_mcp_toolset_names()
             sleep_time, backoff_index = _get_next_refresh_interval(
-                _has_failed_mcp_toolsets(), backoff_index, interval
+                bool(failed_mcp), backoff_index, interval
             )
             if sleep_time < interval:
                 logging.info(
-                    f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
+                    f"Failed MCP server(s) detected: {', '.join(failed_mcp)}, retrying in {sleep_time} seconds"
                 )
 
             time.sleep(sleep_time)

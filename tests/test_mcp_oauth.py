@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import secrets
 import threading
 import time
@@ -2687,3 +2688,21 @@ class TestUserIdGuard:
 
 
 # ---------------------------------------------------------------------------
+# DB-backed token store
+# ---------------------------------------------------------------------------
+class TestSetDal:
+    def test_dal_initialized_is_logged_once(self, caplog):
+        """set_dal runs on every executor build; only the first switch to the DB store is logged."""
+        from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+
+        manager = OAuthTokenManager()
+        manager._shutdown_event.set()
+        dal = MagicMock(enabled=True)
+
+        with caplog.at_level(logging.INFO, logger="holmes.plugins.toolsets.mcp.oauth_token_manager"):
+            for _ in range(3):
+                manager.set_dal(dal)
+
+        assert isinstance(manager._store, DalTokenStore)
+        assert caplog.text.count("DAL initialized for cross-cluster token storage") == 1
+        manager.shutdown()

@@ -1216,7 +1216,7 @@ class RemoteMCPToolset(Toolset):
                     f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
                     f"failed - {error_text or 'unknown error'}",
                 )
-            logging.info("MCP server %s health check passed (tool: %s)", self.name, tool_name)
+            logging.debug("MCP server %s health check passed (tool: %s)", self.name, tool_name)
             return (True, "")
         except Exception as e:
             error_detail = _extract_root_error_message(e)

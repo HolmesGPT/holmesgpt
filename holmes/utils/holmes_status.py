@@ -109,7 +109,7 @@ def update_holmes_status_in_db(
     global _last_realtime_available
     _last_realtime_available = realtime_available
 
-    logging.info("Updating status of holmes")
+    logging.debug("Updating status of holmes")
 
     if not config.cluster_name:
         raise Exception(
