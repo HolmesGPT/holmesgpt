@@ -22,183 +22,138 @@ You'll also need:
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcpAddons:
+  confluenceMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-confluence-mcp"
+    config:
+      url: "https://your-company.atlassian.net/wiki"
+---
+named-secrets:
+  - name: holmes-confluence-mcp
+    keys:
+      - --from-literal=confluence-username=<YOUR_EMAIL>
+      - --from-literal=confluence-api-token=<YOUR_API_TOKEN>
+cli: |
+  For CLI usage, you need to deploy the Confluence MCP server first, then configure Holmes to connect to it.
 
-    For CLI usage, you need to deploy the Confluence MCP server first, then configure Holmes to connect to it.
+  **Step 1: Create the Confluence Credentials Secret**
 
-    **Step 1: Create the Confluence Credentials Secret**
+  ```bash
+  kubectl create namespace holmes-mcp
 
-    ```bash
-    kubectl create namespace holmes-mcp
+  kubectl create secret generic confluence-mcp-credentials \
+    --from-literal=confluence-username=<YOUR_EMAIL> \
+    --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
+    -n holmes-mcp
+  ```
 
-    kubectl create secret generic confluence-mcp-credentials \
-      --from-literal=confluence-username=<YOUR_EMAIL> \
-      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
-      -n holmes-mcp
-    ```
+  **Step 2: Deploy the Confluence MCP Server**
 
-    **Step 2: Deploy the Confluence MCP Server**
+  Create a file named `confluence-mcp-deployment.yaml`:
 
-    Create a file named `confluence-mcp-deployment.yaml`:
-
-    ```yaml
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: confluence-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: confluence-mcp-server
-      template:
-        metadata:
-          labels:
-            app: confluence-mcp-server
-        spec:
-          containers:
-          - name: confluence-mcp
-            image: ghcr.io/sooperset/mcp-atlassian:latest
-            imagePullPolicy: IfNotPresent
-            ports:
-            - containerPort: 8000
-              name: http
-            env:
-            - name: TRANSPORT
-              value: "sse"
-            - name: CONFLUENCE_URL
-              value: "https://your-company.atlassian.net/wiki"
-            - name: CONFLUENCE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: confluence-mcp-credentials
-                  key: confluence-username
-            - name: CONFLUENCE_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: confluence-mcp-credentials
-                  key: confluence-api-token
-            - name: ENABLED_TOOLS
-              value: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
-            - name: READ_ONLY_MODE
-              value: "true"
-            resources:
-              requests:
-                memory: "128Mi"
-                cpu: "100m"
-              limits:
-                memory: "256Mi"
-            readinessProbe:
-              httpGet:
-                path: /healthz
-                port: 8000
-              initialDelaySeconds: 5
-              periodSeconds: 10
-            livenessProbe:
-              httpGet:
-                path: /healthz
-                port: 8000
-              initialDelaySeconds: 10
-              periodSeconds: 30
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: confluence-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: confluence-mcp-server
+    namespace: holmes-mcp
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
         app: confluence-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        protocol: TCP
-        name: http
-    ```
+    template:
+      metadata:
+        labels:
+          app: confluence-mcp-server
+      spec:
+        containers:
+        - name: confluence-mcp
+          image: ghcr.io/sooperset/mcp-atlassian:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8000
+            name: http
+          env:
+          - name: TRANSPORT
+            value: "sse"
+          - name: CONFLUENCE_URL
+            value: "https://your-company.atlassian.net/wiki"
+          - name: CONFLUENCE_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: confluence-mcp-credentials
+                key: confluence-username
+          - name: CONFLUENCE_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: confluence-mcp-credentials
+                key: confluence-api-token
+          - name: ENABLED_TOOLS
+            value: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
+          - name: READ_ONLY_MODE
+            value: "true"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: confluence-mcp-server
+    namespace: holmes-mcp
+  spec:
+    selector:
+      app: confluence-mcp-server
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  ```
 
-    Deploy it to your cluster:
+  Deploy it to your cluster:
 
-    ```bash
-    kubectl apply -f confluence-mcp-deployment.yaml
-    ```
+  ```bash
+  kubectl apply -f confluence-mcp-deployment.yaml
+  ```
 
-    **Step 3: Configure Holmes CLI**
+  **Step 3: Configure Holmes CLI**
 
-    Add the MCP server configuration to **~/.holmes/config.yaml**:
+  Add the MCP server configuration to **~/.holmes/config.yaml**:
 
-    ```yaml
-    mcp_servers:
-      confluence:
-        description: "Confluence documentation search and retrieval"
-        config:
-          url: "http://confluence-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
-          mode: sse
-        llm_instructions: |
-          Use the Confluence MCP to search and retrieve documentation.
-          Before every investigation, search Confluence for matching runbooks.
-    ```
+  ```yaml
+  mcp_servers:
+    confluence:
+      description: "Confluence documentation search and retrieval"
+      config:
+        url: "http://confluence-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+        mode: sse
+      llm_instructions: |
+        Use the Confluence MCP to search and retrieve documentation.
+        Before every investigation, search Confluence for matching runbooks.
+  ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-confluence-mcp \
-      --from-literal=confluence-username=<YOUR_EMAIL> \
-      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      confluenceMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-confluence-mcp"
-        config:
-          url: "https://your-company.atlassian.net/wiki"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-confluence-mcp \
-      --from-literal=confluence-username=<YOUR_EMAIL> \
-      --from-literal=confluence-api-token=<YOUR_API_TOKEN> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        confluenceMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-confluence-mcp"
-          config:
-            url: "https://your-company.atlassian.net/wiki"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ### Custom LLM Instructions
 
@@ -206,52 +161,18 @@ Reuses the `holmes-confluence-mcp` secret created in the [Configuration](#config
 
 To customize how Holmes uses Confluence, you can provide your own LLM instructions:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      confluenceMcp:
-        enabled: true
-        auth:
-          secretName: "holmes-confluence-mcp"
-        config:
-          url: "https://your-company.atlassian.net/wiki"
-        llmInstructions: |
-          Use the Confluence MCP to search and retrieve documentation.
-          Before every investigation, search Confluence for matching runbooks.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        confluenceMcp:
-          enabled: true
-          auth:
-            secretName: "holmes-confluence-mcp"
-          config:
-            url: "https://your-company.atlassian.net/wiki"
-          llmInstructions: |
-            Use the Confluence MCP to search and retrieve documentation.
-            Before every investigation, search Confluence for matching runbooks.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  confluenceMcp:
+    enabled: true
+    auth:
+      secretName: "holmes-confluence-mcp"
+    config:
+      url: "https://your-company.atlassian.net/wiki"
+    llmInstructions: |
+      Use the Confluence MCP to search and retrieve documentation.
+      Before every investigation, search Confluence for matching runbooks.
+```
 
 ## Available Tools
 

@@ -31,169 +31,35 @@ Templates can reference:
 
 ### MCP Servers
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    mcp_servers:
-      customer_data:
-        description: "Customer data API"
-        config:
-          url: "http://customer-api:8000/mcp"
-          mode: streamable-http
-          extra_headers:
-            X-Tenant-Id: "{{ request_context.headers['X-Tenant-Id'] }}"
-            X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcp_servers:
-      customer_data:
-        description: "Customer data API"
-        config:
-          url: "http://customer-api:8000/mcp"
-          mode: streamable-http
-          extra_headers:
-            X-Tenant-Id: "{{ request_context.headers['X-Tenant-Id'] }}"
-            X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        customer_data:
-          description: "Customer data API"
-          config:
-            url: "http://customer-api:8000/mcp"
-            mode: streamable-http
-            extra_headers:
-              X-Tenant-Id: "{{ request_context.headers['X-Tenant-Id'] }}"
-              X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  customer_data:
+    description: "Customer data API"
+    config:
+      url: "http://customer-api:8000/mcp"
+      mode: streamable-http
+      extra_headers:
+        X-Tenant-Id: "{{ request_context.headers['X-Tenant-Id'] }}"
+        X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+```
 
 See [MCP Servers -- Dynamic Headers](remote-mcp-servers.md#advanced-configuration) for the full MCP configuration reference.
 
 ### HTTP Connectors
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export INTERNAL_API_KEY=your-internal-api-key
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      internal-api:
-        type: http
-        enabled: true
-        config:
-          extra_headers:
-            X-Request-Id: "{{ request_context.headers['X-Request-Id'] }}"
-            X-Api-Key: "{{ env.INTERNAL_API_KEY }}"
-          endpoints:
-            - hosts: ["internal-api.corp.net"]
-              methods: ["GET"]
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-header-propagation \
-      --from-literal=INTERNAL_API_KEY=your-internal-api-key \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-header-propagation
-
-    toolsets:
-      internal-api:
-        type: http
-        enabled: true
-        config:
-          extra_headers:
-            X-Request-Id: "{{ request_context.headers['X-Request-Id'] }}"
-            X-Api-Key: "{{ env.INTERNAL_API_KEY }}"
-          endpoints:
-            - hosts: ["internal-api.corp.net"]
-              methods: ["GET"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-header-propagation \
-      --from-literal=INTERNAL_API_KEY=your-internal-api-key \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-header-propagation
-
-      toolsets:
-        internal-api:
-          type: http
-          enabled: true
-          config:
-            extra_headers:
-              X-Request-Id: "{{ request_context.headers['X-Request-Id'] }}"
-              X-Api-Key: "{{ env.INTERNAL_API_KEY }}"
-            endpoints:
-              - hosts: ["internal-api.corp.net"]
-                methods: ["GET"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  internal-api:
+    type: http
+    enabled: true
+    config:
+      extra_headers:
+        X-Request-Id: "{{ request_context.headers['X-Request-Id'] }}"
+        X-Api-Key: "{{ env.INTERNAL_API_KEY }}"
+      endpoints:
+        - hosts: ["internal-api.corp.net"]
+          methods: ["GET"]
+```
 
 The rendered headers are merged into every outgoing request after the endpoint's own authentication headers, so they can override defaults when needed.
 
@@ -203,64 +69,32 @@ See [HTTP Connectors](api-toolsets.md) for the full HTTP connector configuration
 
 YAML tool commands and scripts are Jinja2 templates. The variables `request_context` and `env` are available directly — no extra config key needed. Use `request_context.headers['Header-Name']` to access incoming request headers and `env.VAR_NAME` to access environment variables.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  internal-api:
+    description: "Fetch data from the internal API"
+    tools:
+      - name: "fetch_data"
+        description: "Fetch data from internal API"
+        command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
+---
+cli: |
+  **Configuration File (`toolsets.yaml`):**
 
-    **Configuration File (`toolsets.yaml`):**
+  ```yaml
+  toolsets:
+    internal-api:
+      description: "Fetch data from the internal API"
+      tools:
+        - name: "fetch_data"
+          description: "Fetch data from internal API"
+          command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
+  ```
 
-    ```yaml
-    toolsets:
-      internal-api:
-        description: "Fetch data from the internal API"
-        tools:
-          - name: "fetch_data"
-            description: "Fetch data from internal API"
-            command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
-    ```
-
-    ```bash
-    holmes ask "fetch data from the internal API" --custom-toolsets=toolsets.yaml
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    toolsets:
-      internal-api:
-        description: "Fetch data from the internal API"
-        tools:
-          - name: "fetch_data"
-            description: "Fetch data from internal API"
-            command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      toolsets:
-        internal-api:
-          description: "Fetch data from the internal API"
-          tools:
-            - name: "fetch_data"
-              description: "Fetch data from internal API"
-              command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```bash
+  holmes ask "fetch data from the internal API" --custom-toolsets=toolsets.yaml
+  ```
+```
 
 See [Custom Toolsets](custom-toolsets.md) for the full YAML toolset reference.
 
@@ -270,90 +104,15 @@ Each built-in Python toolset decides individually whether to support `extra_head
 
 The following example shows how ServiceNow Tables, one toolset that supports header propagation, is configured:
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export SERVICENOW_API_KEY=your-servicenow-api-key
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      servicenow/tables:
-        config:
-          extra_headers:
-            X-Correlation-Id: "{{ request_context.headers['X-Correlation-Id'] }}"
-          api_key: "{{ env.SERVICENOW_API_KEY }}"
-          api_url: "https://instance.service-now.com"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-header-propagation-servicenow \
-      --from-literal=SERVICENOW_API_KEY=your-servicenow-api-key \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-header-propagation-servicenow
-
-    toolsets:
-      servicenow/tables:
-        config:
-          extra_headers:
-            X-Correlation-Id: "{{ request_context.headers['X-Correlation-Id'] }}"
-          api_key: "{{ env.SERVICENOW_API_KEY }}"
-          api_url: "https://instance.service-now.com"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-header-propagation-servicenow \
-      --from-literal=SERVICENOW_API_KEY=your-servicenow-api-key \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-header-propagation-servicenow
-
-      toolsets:
-        servicenow/tables:
-          config:
-            extra_headers:
-              X-Correlation-Id: "{{ request_context.headers['X-Correlation-Id'] }}"
-            api_key: "{{ env.SERVICENOW_API_KEY }}"
-            api_url: "https://instance.service-now.com"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config {secret-qualifier=servicenow}
+toolsets:
+  servicenow/tables:
+    config:
+      extra_headers:
+        X-Correlation-Id: "{{ request_context.headers['X-Correlation-Id'] }}"
+      api_key: "{{ env.SERVICENOW_API_KEY }}"
+      api_url: "https://instance.service-now.com"
+```
 
 For a reference implementation showing how to add `extra_headers` support to a Python toolset, see [`servicenow_tables.py`](https://github.com/HolmesGPT/holmesgpt/blob/master/holmes/plugins/toolsets/servicenow_tables/servicenow_tables.py).
 
