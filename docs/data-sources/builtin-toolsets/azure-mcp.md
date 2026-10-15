@@ -135,7 +135,7 @@ This script creates a managed identity, assigns RBAC roles, configures federated
 
 Choose an authentication method based on your environment.
 
-For additional options, see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L162).
+For additional options, see `mcpAddons.azure` in the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml).
 
 #### Workload Identity (Recommended for AKS)
 

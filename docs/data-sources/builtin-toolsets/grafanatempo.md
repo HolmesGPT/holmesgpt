@@ -322,7 +322,7 @@ config: |
 
 For self-signed certificates, you can disable SSL verification:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   grafana/tempo:
     enabled: true
@@ -335,7 +335,7 @@ toolsets:
 
 Only applies to the **Self-Hosted Tempo via Grafana Proxy** setup. If HolmesGPT reaches Grafana through an internal URL but you want the clickable "View in Grafana" links in responses to use a public URL:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   grafana/tempo:
     enabled: true
@@ -350,7 +350,7 @@ toolsets:
 
 Tempo uses resource attributes to identify Kubernetes resources. If your setup uses non-default attribute names, you can customize the mappings:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   grafana/tempo:
     enabled: true

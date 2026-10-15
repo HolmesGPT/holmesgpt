@@ -15,11 +15,10 @@ oc version --client
 
 ### Configuration
 
-```yaml
-holmes:
-    toolsets:
-        openshift/core:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    openshift/core:
+        enabled: true
 ```
 
 ### Capabilities
@@ -63,11 +62,10 @@ oc version --client
 
 ### Configuration
 
-```yaml
-holmes:
-    toolsets:
-        openshift/logs:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    openshift/logs:
+        enabled: true
 ```
 
 ### Capabilities
@@ -98,11 +96,10 @@ oc adm top nodes
 
 ### Configuration
 
-```yaml
-holmes:
-    toolsets:
-        openshift/live-metrics:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    openshift/live-metrics:
+        enabled: true
 ```
 
 ### Capabilities
@@ -124,11 +121,10 @@ oc version --client
 
 ### Configuration
 
-```yaml
-holmes:
-    toolsets:
-        openshift/security:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    openshift/security:
+        enabled: true
 ```
 
 ### Capabilities
