@@ -1,0 +1,34 @@
+# A Dagster step pod is OOMKilled and deleted within seconds. Kubernetes keeps
+# no trace of the kill, the step's last log line is an innocuous warning,
+# Prometheus's last sample before the kill is 1.86 GiB of the 8 GiB limit, and
+# Dagster reports only that the step's Kubernetes job failed. The Robusta
+# platform recorded a PodOOMKilled finding for the pod; it is the only source
+# that names the cause.
+#
+# The trap is reading the silence as evidence: "memory peaked far below the
+# limit and nothing in the logs says OOM, so it was not an OOM kill" and then
+# inventing a cause (a JVM heap limit, a native crash). The account's Dagster
+# skill invites it: it points to Loki and Prometheus for OOM evidence and never
+# to the alert history.
+
+user_prompt: |
+  Dagster run a3f9c2e1-7b4d-4e8a-9c21-5d6e7f8a9b0c of daily_metrics_job failed at
+  11:50 UTC on step warehouse/events/sessionized_events. The step's pod died
+  suddenly, without any log. Why did it fail?
+
+test_type: server
+mocked_date: "2026-07-15T12:05:00Z"
+cluster_name: "prod-eu-1"
+
+include_tool_calls: true
+
+expected_output:
+  - "Calls fetch_resource_issues_metadata and finds the PodOOMKilled finding for pod dagster-step-4b9e1f7c2a8d6e3f5c1b9a7d4e2f8c6a-x7k2p"
+  - "States as the cause that the step pod's container was OOMKilled, as a finding, not as one possibility among others"
+  - "Does NOT state or imply that the failure was not an out-of-memory kill, and does NOT give a JVM heap limit, a native crash or an unknown silent exit as the cause"
+
+tags:
+  - kubernetes
+  - skills
+  - mcp
+  - medium

@@ -1,0 +1,30 @@
+toolsets:
+  kubernetes/core: { enabled: false }
+  kubernetes/logs: { enabled: false }
+  kubernetes/live-metrics: { enabled: false }
+  helm/core: { enabled: false }
+  internet: { enabled: false }
+  connectivity_check: { enabled: false }
+  bash: { enabled: false }
+  skills: { enabled: true }
+  robusta: { enabled: true }
+
+mcp_servers:
+  # Kubernetes, Loki, Prometheus and the Dagster+ API as the investigation saw
+  # them: nothing but the platform's alert history shows the OOM kill.
+  observability:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args:
+        - tests/llm/fixtures/test_ask_holmes/296_dagster_step_oom_from_issues_history/environment_mock.py
+  robusta_platform_mcp:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args:
+        - tests/llm/fixtures/shared/robusta_platform_mcp_mock.py
+        - tests/llm/fixtures/test_ask_holmes/296_dagster_step_oom_from_issues_history
+        - --cluster=prod-eu-1

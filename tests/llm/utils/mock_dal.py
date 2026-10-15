@@ -43,6 +43,10 @@ class TestSupabaseDal(SupabaseDal):
     def get_issue_data(self, issue_id: Optional[str]) -> Optional[Dict]:
         if self._issue_data is not None:
             return self._issue_data
+        file_path = self._get_fixture_file_path(f"finding_{issue_id}")
+        if file_path.exists():
+            with open(file_path, "r") as f:
+                return json.load(f)
         return super().get_issue_data(issue_id)
 
     def get_resource_instructions(
