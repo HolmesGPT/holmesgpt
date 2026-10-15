@@ -16,150 +16,68 @@ Configure HolmesGPT to use local models with Ollama.
 !!! note "Ollama Service"
     In Kubernetes, you'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: OLLAMA_API_BASE
+    value: "http://ollama-service:11434"
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "ollama-llama3"  # This refers to the key name in modelList below
 
-    ```bash
-    export OLLAMA_API_BASE="http://localhost:11434"
-    holmes ask "what pods are failing?" --model="ollama_chat/<your-ollama-model>"
+# Configure at least one model using modelList
+modelList:
+  ollama-llama3:
+    api_base: "{{ env.OLLAMA_API_BASE }}"
+    model: ollama_chat/llama3
+    temperature: 1
 
-    # Or use MODEL environment variable instead of --model flag
-    export MODEL="ollama_chat/<your-ollama-model>"
-    holmes ask "what pods are failing?"
-    ```
+  ollama-codellama:
+    api_base: "{{ env.OLLAMA_API_BASE }}"
+    model: ollama_chat/codellama
+    temperature: 1
+---
+cli: |
+  ```bash
+  export OLLAMA_API_BASE="http://localhost:11434"
+  holmes ask "what pods are failing?" --model="ollama_chat/<your-ollama-model>"
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalEnvVars:
-      - name: OLLAMA_API_BASE
-        value: "http://ollama-service:11434"
-      # Optional: Set default model (use modelList key name)
-      - name: MODEL
-        value: "ollama-llama3"  # This refers to the key name in modelList below
-
-    # Configure at least one model using modelList
-    modelList:
-      ollama-llama3:
-        api_base: "{{ env.OLLAMA_API_BASE }}"
-        model: ollama_chat/llama3
-        temperature: 1
-
-      ollama-codellama:
-        api_base: "{{ env.OLLAMA_API_BASE }}"
-        model: ollama_chat/codellama
-        temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: OLLAMA_API_BASE
-          value: "http://ollama-service:11434"
-        # Optional: Set default model (use modelList key name)
-        - name: MODEL
-          value: "ollama-llama3"  # This refers to the key name in modelList below
-
-      # Configure at least one model using modelList
-      modelList:
-        ollama-llama3:
-          api_base: "{{ env.OLLAMA_API_BASE }}"
-          model: ollama_chat/llama3
-          temperature: 1
-
-        ollama-codellama:
-          api_base: "{{ env.OLLAMA_API_BASE }}"
-          model: ollama_chat/codellama
-          temperature: 1
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  # Or use MODEL environment variable instead of --model flag
+  export MODEL="ollama_chat/<your-ollama-model>"
+  holmes ask "what pods are failing?"
+  ```
+```
 
 ### Alternative (OpenAI-compatible gateway)
 
 If you hit compatibility issues with certain Ollama models via LiteLLM, you can use Ollama's OpenAI-compatible API endpoint:
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: OPENAI_API_BASE
+    value: "http://ollama-service:11434/v1"
+  - name: OPENAI_API_KEY
+    value: "YOUR_BEARER_TOKEN_HERE"
+  # Optional
+  - name: MODEL
+    value: "ollama-alt"
 
-    ```bash
-    export OPENAI_API_BASE="http://localhost:11434/v1"
-    export OPENAI_API_KEY="dummy-key"  # Required but can be any value
-    holmes ask "what pods are failing?" --model="openai/<your-ollama-model>"
+modelList:
+  ollama-alt:
+    api_base: "{{ env.OPENAI_API_BASE }}"
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    model: openai/OLLAMA_MODEL_NAME
+---
+cli: |
+  ```bash
+  export OPENAI_API_BASE="http://localhost:11434/v1"
+  export OPENAI_API_KEY="dummy-key"  # Required but can be any value
+  holmes ask "what pods are failing?" --model="openai/<your-ollama-model>"
 
-    # Or use MODEL environment variable instead of --model flag
-    export MODEL="openai/<your-ollama-model>"
-    holmes ask "what pods are failing?"
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalEnvVars:
-      - name: OPENAI_API_BASE
-        value: "http://ollama-service:11434/v1"
-      - name: OPENAI_API_KEY
-        value: "YOUR_BEARER_TOKEN_HERE"
-      # Optional
-      - name: MODEL
-        value: "ollama-alt"
-
-    modelList:
-      ollama-alt:
-        api_base: "{{ env.OPENAI_API_BASE }}"
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        model: openai/OLLAMA_MODEL_NAME
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENAI_API_BASE
-          value: "http://ollama-service:11434/v1"
-        - name: OPENAI_API_KEY
-          value: "YOUR_BEARER_TOKEN_HERE"
-        # Optional
-        - name: MODEL
-          value: "ollama-alt"
-
-      modelList:
-        ollama-alt:
-          api_base: "{{ env.OPENAI_API_BASE }}"
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/OLLAMA_MODEL_NAME
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  # Or use MODEL environment variable instead of --model flag
+  export MODEL="openai/<your-ollama-model>"
+  holmes ask "what pods are failing?"
+  ```
+```
 
 ## Additional Resources
 
