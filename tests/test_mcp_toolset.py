@@ -6,6 +6,7 @@ import logging
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -25,6 +26,7 @@ if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
 
 import holmes.utils.env as env_utils
+from holmes.plugins.toolsets import load_toolsets_from_config
 from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
@@ -522,6 +524,182 @@ class TestMCPGeneral:
         monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
         mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
         assert len(list(mcp_toolset.tools)) == 1
+
+    @staticmethod
+    def _three_tool_server():
+        async def mock_get_server_tools():
+            schema = {"type": "object", "properties": {}, "required": []}
+            return ListToolsResult(
+                tools=[
+                    Tool(name="incident_list", inputSchema=schema),
+                    Tool(name="incident_update", inputSchema=schema),
+                    Tool(name="insights_dashboard_add_chart", inputSchema=schema),
+                ]
+            )
+
+        return mock_get_server_tools
+
+    def test_allowed_tools_drops_unlisted_tools(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            config={"url": "http://0.0.0.0/3005"},
+            allowed_tools=["incident_*"],
+        )
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", self._three_tool_server())
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert sorted(t.name for t in mcp_toolset.tools) == [
+            "incident_list",
+            "incident_update",
+        ]
+
+    def test_allowed_tools_exact_names(self, monkeypatch, suppress_migration_warnings):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            config={"url": "http://0.0.0.0/3005"},
+            allowed_tools=["incident_list", "not_on_server"],
+        )
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", self._three_tool_server())
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert [t.name for t in mcp_toolset.tools] == ["incident_list"]
+
+    def test_empty_allowed_tools_loads_everything(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp", config={"url": "http://0.0.0.0/3005"}
+        )
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", self._three_tool_server())
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert len(mcp_toolset.tools) == 3
+
+    def test_allowed_tools_read_from_mcp_servers_config(self):
+        toolsets = load_toolsets_from_config(
+            {
+                "incident_io": {
+                    "type": "mcp",
+                    "config": {"url": "http://0.0.0.0/3005"},
+                    "allowed_tools": ["incident_*"],
+                    "approval_required_tools": ["incident_update"],
+                }
+            }
+        )
+
+        assert toolsets[0].allowed_tools == ["incident_*"]
+        assert toolsets[0].approval_required_tools == ["incident_update"]
+
+    @staticmethod
+    def _github_like_server():
+        async def mock_get_server_tools():
+            schema = {"type": "object", "properties": {}}
+            return ListToolsResult(
+                tools=[
+                    Tool(name="list_repos", inputSchema=schema),
+                    Tool(name="get_me", inputSchema=schema),
+                ]
+            )
+
+        return mock_get_server_tools
+
+    def test_auto_health_check_runs_on_tool_excluded_by_allowed_tools(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Filtering get_me out of the LLM's tools must not skip the auth check."""
+        toolset = RemoteMCPToolset(
+            name="github",
+            config={"url": "http://localhost:8000"},
+            allowed_tools=["list_repos"],
+        )
+        monkeypatch.setattr(toolset, "_get_server_tools", self._github_like_server())
+        called_with = {}
+
+        async def mock_call_health_check(tool_name):
+            called_with["tool_name"] = tool_name
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text="401 Unauthorized")],
+            )
+
+        monkeypatch.setattr(
+            toolset, "_call_health_check_tool_async", mock_call_health_check
+        )
+
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+
+        assert ok is False
+        assert called_with["tool_name"] == "get_me"
+        assert "401 Unauthorized" in msg
+        assert [t.name for t in toolset.tools] == ["list_repos"]
+
+    def test_configured_health_check_tool_need_not_be_allowed(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        toolset = RemoteMCPToolset(
+            name="github",
+            config={"url": "http://localhost:8000", "health_check_tool": "get_me"},
+            allowed_tools=["list_repos"],
+        )
+        monkeypatch.setattr(toolset, "_get_server_tools", self._github_like_server())
+
+        async def mock_call_health_check(tool_name):
+            return CallToolResult(
+                isError=False, content=[TextContent(type="text", text="ok")]
+            )
+
+        monkeypatch.setattr(
+            toolset, "_call_health_check_tool_async", mock_call_health_check
+        )
+
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+
+        assert ok is True, msg
+        assert [t.name for t in toolset.tools] == ["list_repos"]
+
+    def test_oauth_connect_applies_allowed_tools(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        toolset = RemoteMCPToolset(
+            name="incident_io",
+            config={"url": "http://localhost:8000/mcp", "mode": "streamable-http"},
+            allowed_tools=["incident_*"],
+        )
+        toolset._mcp_config = MCPConfig(
+            url="http://localhost:8000/mcp", mode=MCPMode.STREAMABLE_HTTP
+        )
+        server = self._three_tool_server()
+
+        async def mock_get_server_tools_with_context(request_context):
+            return await server()
+
+        monkeypatch.setattr(
+            toolset,
+            "_get_server_tools_with_context",
+            mock_get_server_tools_with_context,
+        )
+        connect = RemoteMCPTool.create(
+            Tool(
+                name=toolset.connect_tool_name,
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            toolset,
+        )
+
+        result = connect._invoke_oauth_connect(
+            {}, SimpleNamespace(request_context={})
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+        assert sorted(t.name for t in result.oauth_tools) == [
+            "incident_list",
+            "incident_update",
+        ]
 
     def test_toolset_returns_configured_headers(
         self, monkeypatch, suppress_migration_warnings

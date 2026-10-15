@@ -113,7 +113,8 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         else:
             tools_result = asyncio.run(self._get_server_tools())
         return [
-            RobustaPlatformMCPTool.create(tool, self) for tool in tools_result.tools
+            RobustaPlatformMCPTool.create(tool, self)
+            for tool in self._filter_allowed_tools(tools_result.tools)
         ]
 
     def _render_headers(
