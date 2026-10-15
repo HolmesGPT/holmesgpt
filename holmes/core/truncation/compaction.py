@@ -15,8 +15,23 @@ from pydantic import BaseModel
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from holmes.core.llm import LLM
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import (
+    LLMRetryCancelled,
+    is_provider_capacity_error,
+    retry_counts,
+)
+from holmes.core.llm_usage import RequestStats, attach_unrecorded_usage
 from holmes.plugins.prompts import load_and_render_prompt
+
+
+class CompactionRefusedError(Exception):
+    """The provider refused the summarization for lack of capacity (rate limit,
+    quota, overload or 503). Carries the usage of attempts made so far."""
+
+    def __init__(self, provider_error: Exception, usage: RequestStats):
+        super().__init__(str(provider_error))
+        self.provider_error = provider_error
+        self.usage = usage
 
 
 class CompactionResult(BaseModel):
@@ -217,6 +232,9 @@ _CONTEXT_LENGTH_ERROR = re.compile(
 
 def _is_context_length_error(error: BaseException) -> bool:
     """Whether a provider rejected the request for exceeding its context window."""
+    # Bedrock throttling says "Too many tokens, please wait before trying again."
+    if is_provider_capacity_error(error):
+        return False
     return isinstance(error, ContextWindowExceededError) or bool(
         _CONTEXT_LENGTH_ERROR.search(str(error))
     )
@@ -349,6 +367,18 @@ def _summarize_in_chunks(
     return summary, requests
 
 
+def _raise_if_cancelled_or_refused(error: Exception, usage: RequestStats) -> None:
+    """Count the failed call's retries, then re-raise a cancellation, or a
+    capacity refusal: the call already retried it, and the fallback would only
+    hit the same limit again. The caller decides whether the turn can go on."""
+    usage += RequestStats(**retry_counts(error))
+    if isinstance(error, LLMRetryCancelled):
+        attach_unrecorded_usage(error, usage)
+        raise error
+    if is_provider_capacity_error(error):
+        raise CompactionRefusedError(error, usage) from error
+
+
 def compact_conversation_history(
     original_conversation_history: list[dict],
     llm: LLM,
@@ -453,6 +483,7 @@ def compact_conversation_history(
             else:
                 summarization_requests = 1
         except Exception as e:
+            _raise_if_cancelled_or_refused(e, compaction_usage)
             fallback_reason = f"summarization request failed: {e}"
             history_overflowed = _is_context_length_error(e)
 
@@ -476,6 +507,7 @@ def compact_conversation_history(
                 flattened_history, llm, input_budget, instructions_message, compaction_usage
             )
         except Exception as e:
+            _raise_if_cancelled_or_refused(e, compaction_usage)
             # Degrade gracefully via the empty-summary path below (original
             # history returned unchanged) instead of aborting the whole turn.
             fallback_reason = f"{fallback_reason}; fallback summarization failed: {e}"

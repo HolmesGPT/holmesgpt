@@ -56,6 +56,31 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
 
+## LLM Rate Limits
+
+### LLM_RATE_LIMIT_MAX_WAIT_SECONDS
+**Default:** `30`
+
+Maximum time a single LLM call may spend backing off from provider rate-limit errors (HTTP 429, Bedrock throttling), Anthropic overloaded errors (HTTP 529) and service-unavailable errors (HTTP 503, e.g. Bedrock `ServiceUnavailableException`) before the error is returned. HolmesGPT waits at least as long as the provider's `Retry-After` header asks, and otherwise backs off exponentially with jitter from 2 to 60 seconds. A retry never starts if its wait would go over the budget. Only the failing LLM call is retried, so tool calls already made during an investigation are kept. Set to `0` to disable these retries.
+
+Not retried:
+
+- A Robusta AI account that has reached its limit, since waiting does not clear it. Other providers' quota errors look like ordinary rate limits (Gemini words its per-minute limit the same way as OpenAI's out-of-credit error), so they are retried until the budget runs out.
+- Tool-output summarization by the fast model, which falls back to the unsummarized output instead.
+
+Interrupting the CLI (Esc) stops the backoff. Server requests run until the budget is used up.
+
+When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded and service-unavailable errors as HTTP 500.
+
+Conversation-history compaction is not retried while the history still fits the context window. If the provider refuses it, compaction is skipped and tried again on the next step. Once the history no longer fits, all of compaction's requests (it may summarize in several) share one budget, and an exhausted budget is returned as the errors above.
+
+Some providers' SDKs (OpenAI, Azure) also retry a rate limit once or twice within each attempt. That time does not count towards the budget.
+
+**Example:**
+```bash
+export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=180
+```
+
 ## Server Security
 
 ### HOLMES_API_KEY

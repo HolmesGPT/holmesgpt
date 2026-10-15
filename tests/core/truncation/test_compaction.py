@@ -2,14 +2,18 @@ import json
 import os
 from pathlib import Path
 
+import litellm
 import pytest
-from litellm.types.utils import Choices, Message, ModelResponse
+from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from holmes.core.llm import DefaultLLM
+from holmes.core.llm_rate_limit import LLMRetryCancelled
+from holmes.core.llm_usage import unrecorded_usage
 from holmes.core.truncation import compaction
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.core.truncation.compaction import (
     MESSAGE_PART_LABEL,
+    CompactionRefusedError,
     _count_image_tokens_in_messages,
     _is_context_length_error,
     _flatten_tool_messages_for_compaction,
@@ -563,6 +567,81 @@ def test_compaction_returns_original_history_when_both_attempts_unusable():
     assert result.messages_after_compaction == history
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        litellm.InternalServerError(
+            message='{"type": "error", "error": {"type": "overloaded_error"}}',
+            llm_provider="anthropic",
+            model="m",
+        ),
+    ],
+)
+def test_compaction_reports_provider_refusal_instead_of_degrading(error):
+    """The LLM call already waited out its retry budget, and the flattened
+    fallback would only hit the same limit again; the caller decides whether
+    the turn can go on without compacting."""
+    error.llm_rate_limit_retries = 2
+    llm = RecordingFakeLLM([error, _make_response(content="UNUSED")])
+    with pytest.raises(CompactionRefusedError) as info:
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    assert len(llm.calls) == 1
+    assert info.value.provider_error is error
+    assert info.value.usage.llm_rate_limit_retries == 2
+
+
+def test_compaction_refusal_in_fallback_keeps_primary_usage():
+    """The primary call is billed even when its answer is unusable."""
+    primary = _make_response(tool_calls=[{"id": "t", "type": "function", "function": {"name": "x", "arguments": "{}"}}])
+    primary.usage = Usage(prompt_tokens=500, completion_tokens=20, total_tokens=520)
+    llm = RecordingFakeLLM(
+        [
+            primary,
+            litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        ]
+    )
+    with pytest.raises(CompactionRefusedError) as info:
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    assert len(llm.calls) == 2
+    assert info.value.usage.total_tokens == 520
+
+
+def test_compaction_keeps_retry_counts_of_a_failed_attempt():
+    """A call can back off from 429s and then fail with another error."""
+    error = RuntimeError("400 toolConfig must be defined")
+    error.llm_rate_limit_retries = 2  # type: ignore[attr-defined]
+    error.llm_rate_limit_wait_ms = 5000  # type: ignore[attr-defined]
+    llm = RecordingFakeLLM([error, _make_response(content="FALLBACK SUMMARY")])
+    result = compact_conversation_history(
+        original_conversation_history=_history_with_tool_calls(),
+        llm=llm,  # type: ignore
+        tools=_TOOLS,
+    )
+    assert result.summary == "FALLBACK SUMMARY"
+    assert result.usage.llm_rate_limit_retries == 2
+    assert result.usage.llm_rate_limit_wait_ms == 5000
+
+
+def test_compaction_propagates_cancellation():
+    llm = RecordingFakeLLM([LLMRetryCancelled(), _make_response(content="UNUSED")])
+    with pytest.raises(LLMRetryCancelled):
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    assert len(llm.calls) == 1
+
+
 # --- Fitting the summarization request into the context window (ROB-1519) ---
 
 
@@ -843,3 +922,48 @@ def test_images_kept_for_the_primary_are_stripped_before_chunking():
     assert "data:image/png" in json.dumps(llm.calls[0]["messages"])
     assert "data:image/png" not in json.dumps([c["messages"] for c in llm.calls[1:]])
     assert result.summary is not None
+
+
+def _unavailable():
+    return litellm.ServiceUnavailableError(
+        message="BedrockException - unable to process", llm_provider="bedrock", model="m"
+    )
+
+
+def test_compaction_503_is_a_refusal():
+    llm = RecordingFakeLLM([_unavailable(), _make_response(content="UNUSED")])
+    with pytest.raises(CompactionRefusedError):
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    assert len(llm.calls) == 1
+
+
+def test_throttling_is_not_mistaken_for_a_context_length_rejection():
+    """Bedrock's throttling text matches the context-length pattern."""
+    throttled = litellm.RateLimitError(
+        message="BedrockException - Too many tokens, please wait before trying again.",
+        llm_provider="bedrock",
+        model="m",
+    )
+    assert not _is_context_length_error(throttled)
+    assert _is_context_length_error(Exception("prompt is too long: 250000 tokens"))
+
+
+def test_cancelled_compaction_keeps_the_cancelled_calls_retries():
+    """A cancel during backoff ends compaction; the retries before it were spent."""
+    cancelled = LLMRetryCancelled()
+    cancelled.llm_rate_limit_retries = 3  # type: ignore[attr-defined]
+    cancelled.llm_rate_limit_wait_ms = 7000  # type: ignore[attr-defined]
+    llm = RecordingFakeLLM([cancelled])
+    with pytest.raises(LLMRetryCancelled) as info:
+        compact_conversation_history(
+            original_conversation_history=_history_with_tool_calls(),
+            llm=llm,  # type: ignore
+            tools=_TOOLS,
+        )
+    pending = unrecorded_usage(info.value)
+    assert pending.llm_rate_limit_retries == 3
+    assert pending.llm_rate_limit_wait_ms == 7000

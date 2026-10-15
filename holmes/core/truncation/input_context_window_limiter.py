@@ -12,14 +12,20 @@ from typing import Any, Optional
 import sentry_sdk
 from pydantic import BaseModel
 
+from holmes.common import env_vars
 from holmes.common.env_vars import ENABLE_CONVERSATION_HISTORY_COMPACTION
 from holmes.core.llm import (
     LLM,
     ContextWindowUsage,
     get_context_window_compaction_threshold_pct,
 )
-from holmes.core.llm_usage import RequestStats
-from holmes.core.truncation.compaction import compact_conversation_history
+from holmes.core.llm_rate_limit import rate_limit_retry_scope
+from holmes.core.llm_usage import RequestStats, attach_unrecorded_usage
+from holmes.core.truncation.compaction import (
+    CompactionRefusedError,
+    CompactionResult,
+    compact_conversation_history,
+)
 from holmes.utils.stream import StreamEvents, StreamMessage
 
 
@@ -77,6 +83,8 @@ class ContextWindowLimiterOutput(BaseModel):
     conversation_history_compacted: bool
     compaction_usage: Optional["RequestStats"] = None
     compaction_overflowing_tool_call_ids: list[str] = []
+    # The provider refused compaction while the history still fit; retried next step.
+    compaction_skipped: bool = False
 
 
 @sentry_sdk.trace
@@ -91,15 +99,40 @@ def compact_if_necessary(
     max_context_size = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
     conversation_history_compacted = False
+    compaction_skipped = False
     compaction_overflowing_tool_call_ids: list[str] = []
     compaction_usage = RequestStats()
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
-        compaction_result = compact_conversation_history(
-            original_conversation_history=messages, llm=llm, tools=tools
-        )
+        # While the history still fits, compaction is not worth waiting out a
+        # refusal for: skip it and try again on the next iteration. Otherwise
+        # all its requests (one per chunk) share one budget.
+        fits = initial_tokens.total_tokens + maximum_output_token <= max_context_size
+        try:
+            with rate_limit_retry_scope(
+                max_wait_seconds=0 if fits else None,
+                total_max_wait_seconds=None
+                if fits
+                else env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS,
+            ):
+                compaction_result = compact_conversation_history(
+                    original_conversation_history=messages, llm=llm, tools=tools
+                )
+        except CompactionRefusedError as e:
+            if not fits:
+                # Raised as the provider's own error so callers map it to 429
+                # etc.; the usage of chunks already summarized rides along.
+                attach_unrecorded_usage(e.provider_error, e.usage)
+                raise e.provider_error from e
+            logging.warning(
+                f"Skipping compaction, the provider refused the request: {e}"
+            )
+            compaction_skipped = True
+            compaction_result = CompactionResult(
+                messages_after_compaction=messages, usage=e.usage
+            )
         compaction_usage = compaction_result.usage
         compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
         compacted_total_tokens = compacted_tokens.total_tokens
@@ -159,7 +192,7 @@ def compact_if_necessary(
                     data={"content": compaction_message},
                 )
             )
-        else:
+        elif not compaction_skipped:
             logging.error(
                 f"Failed to reduce token count when compacting conversation history. Original tokens:{initial_tokens.total_tokens}. Compacted tokens:{compacted_total_tokens}"
             )
@@ -187,7 +220,10 @@ def compact_if_necessary(
                 data={"content": failure_msg},
             )
         )
-        raise CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
+        error = CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
+        if compaction_usage is not None:
+            attach_unrecorded_usage(error, compaction_usage)
+        raise error
 
     elapsed_ms = (time.monotonic() - t0) * 1000
     logging.debug(f"compact_if_necessary: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
@@ -202,4 +238,5 @@ def compact_if_necessary(
         conversation_history_compacted=conversation_history_compacted,
         compaction_usage=compaction_usage,
         compaction_overflowing_tool_call_ids=compaction_overflowing_tool_call_ids,
+        compaction_skipped=compaction_skipped,
     )

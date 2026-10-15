@@ -6,7 +6,17 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+    Type,
+    Union,
+)
 
 # Named logger for user-facing display messages (tool progress, AI messages, etc.)
 # In interactive mode this logger is silenced; the CLI renders from stream events instead.
@@ -26,7 +36,13 @@ from holmes.common.env_vars import (
     load_bool,
 )
 from holmes.core.llm import LLM
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import LLMRetryCancelled, rate_limit_retry_scope
+from holmes.core.llm_usage import (
+    RequestStats,
+    attach_request_usage,
+    failure_usage,
+    request_usage,
+)
 from holmes.core.models import (
     FrontendToolResult,
     PendingFrontendToolCall,
@@ -124,6 +140,19 @@ def _extract_text_from_content(content: Any) -> str:
                 return item.get("text", "")
 
     return ""
+
+
+def _with_prior_usage(
+    stream: Iterator[StreamMessage], prior: RequestStats
+) -> Generator[StreamMessage, None, None]:
+    """Add the usage of earlier approval rounds to an error escaping ``stream``."""
+    try:
+        yield from stream
+    except Exception as e:
+        total = prior.model_copy()
+        total += request_usage(e) or RequestStats()
+        attach_request_usage(e, total)
+        raise
 
 
 def _merge_choices(response: Any) -> None:
@@ -730,7 +759,7 @@ class ToolCallingLLM:
             start_tool_count = 0
             saw_tool_results = False
 
-            for event in stream:
+            for event in _with_prior_usage(stream, accumulated_stats):
                 # Log blank line when a tool batch ends (transition away from TOOL_RESULT)
                 if saw_tool_results and event.event != StreamEvents.TOOL_RESULT:
                     display_logger.info("")
@@ -1180,6 +1209,43 @@ class ToolCallingLLM:
         stream with an APPROVAL_REQUIRED event containing pending_frontend_tool_calls.
         The client executes the tool and resumes by sending frontend_tool_results.
         """
+        stats = RequestStats()
+        try:
+            yield from self._call_stream(
+                stats,
+                response_format=response_format,
+                msgs=msgs,
+                enable_tool_approval=enable_tool_approval,
+                tool_decisions=tool_decisions,
+                frontend_tool_results=frontend_tool_results,
+                request_context=request_context,
+                trace_span=trace_span,
+                cancel_event=cancel_event,
+                tool_number_offset=tool_number_offset,
+                iteration_offset=iteration_offset,
+            )
+        except Exception as e:
+            # `stats` dies with the raise and the usage recorder only sees the
+            # error, so the request's usage so far travels on it.
+            total = stats.model_copy()
+            total += failure_usage(e)
+            attach_request_usage(e, total)
+            raise
+
+    def _call_stream(
+        self,
+        stats: RequestStats,
+        response_format: Optional[Union[dict, Type[BaseModel]]] = None,
+        msgs: Optional[list[dict]] = None,
+        enable_tool_approval: bool = False,
+        tool_decisions: List[ToolApprovalDecision] | None = None,
+        frontend_tool_results: Optional[List[FrontendToolResult]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
+        trace_span: Any = None,
+        cancel_event: Optional[threading.Event] = None,
+        tool_number_offset: int = 0,
+        iteration_offset: int = 0,
+    ):
         if trace_span is None:
             trace_span = DummySpan()
 
@@ -1223,7 +1289,6 @@ class ToolCallingLLM:
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
-        stats = RequestStats()
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1243,14 +1308,15 @@ class ToolCallingLLM:
                 yield compaction_start_event
 
             try:
-                limit_result = compact_if_necessary(
-                    llm=self.llm, messages=messages, tools=tools
-                )
+                with rate_limit_retry_scope(cancel_event=cancel_event):
+                    limit_result = compact_if_necessary(
+                        llm=self.llm, messages=messages, tools=tools
+                    )
             except CompactionInsufficientError as e:
                 yield from e.events
-                if e.compaction_usage and e.compaction_usage.total_tokens > 0:
-                    stats += e.compaction_usage
                 raise
+            except LLMRetryCancelled as e:
+                raise LLMInterruptedError() from e
 
             yield from limit_result.events
             messages = limit_result.messages
@@ -1269,12 +1335,15 @@ class ToolCallingLLM:
             # Accumulate compaction costs
             compaction = limit_result.compaction_usage
             if compaction and compaction.total_tokens > 0:
-                compaction.num_compactions = 1
+                compaction.num_compactions = 0 if limit_result.compaction_skipped else 1
                 stats += compaction
                 cost_logger.debug(
                     f"Compaction cost (streaming): ${compaction.total_cost:.6f} | "
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
                 )
+            elif compaction:
+                # A skipped or failed compaction can still have backed off.
+                stats += compaction
 
             if (
                 limit_result.conversation_history_compacted
@@ -1296,15 +1365,16 @@ class ToolCallingLLM:
             with trace_span.start_span(name="gen_ai.chat") as llm_span:
               try:
                 _llm_call_start = time.time()
-                full_response = self.llm.completion(
-                    messages=parse_messages_tags(messages),  # type: ignore
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    response_format=response_format,
-                    temperature=TEMPERATURE,
-                    stream=False,
-                    drop_params=True,
-                )
+                with rate_limit_retry_scope(cancel_event=cancel_event):
+                    full_response = self.llm.completion(
+                        messages=parse_messages_tags(messages),  # type: ignore
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        response_format=response_format,
+                        temperature=TEMPERATURE,
+                        stream=False,
+                        drop_params=True,
+                    )
                 _merge_choices(full_response)
 
                 # Accumulate cost information for this iteration
@@ -1370,6 +1440,8 @@ class ToolCallingLLM:
               # recognised by status before anything keyed on the class runs;
               # the Azure case below is a 400, so it can never be taken first.
               except Exception as e:
+                if cancel_event and cancel_event.is_set():
+                    raise LLMInterruptedError() from e
                 if _is_robusta_refusal(self.llm, e):
                     # _is_robusta_refusal already established the status is one
                     # of REFUSAL_STATUS_CODES.

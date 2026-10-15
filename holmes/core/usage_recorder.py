@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
 
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import error_status_code, is_rate_limit_error
+from holmes.core.llm_usage import RequestStats, failure_usage, request_usage
 from holmes.utils.stream import StreamEvents, StreamMessage
 
 if TYPE_CHECKING:
@@ -427,6 +428,32 @@ class UsageRecorderState:
             metadata.get("finish_reason") or self.finish_reason
         )
 
+    def _capture_error(self, exc: BaseException) -> None:
+        """Set the failed status and record the error class in ``meta``.
+
+        The request's usage carried on the error (``attach_request_usage``)
+        replaces the last TOKEN_COUNT total, which lags behind it. Otherwise
+        the failing call's retries are added, as they never reached a
+        TOKEN_COUNT event.
+        """
+        msg = str(exc).lower()
+        if is_rate_limit_error(exc) or ("rate" in msg and "limit" in msg):
+            self.status = RequestStatus.RATE_LIMITED
+        else:
+            self.status = RequestStatus.ERROR
+        self.meta = {
+            **self.meta,
+            "error_class": type(exc).__name__,
+            "error_status_code": error_status_code(exc),
+        }
+        total = request_usage(exc)
+        if total is not None:
+            self.stats = total
+            return
+        if self.stats is None:
+            self.stats = RequestStats()
+        self.stats += failure_usage(exc)
+
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.
 
@@ -505,9 +532,9 @@ def stream_with_usage_recording(
                 state.status = RequestStatus.ERROR
                 saw_terminal = True
             yield msg
-    except Exception:
+    except Exception as e:
         if not saw_terminal:
-            state.status = RequestStatus.ERROR
+            state._capture_error(e)
         raise
     finally:
         # If the inner stream ended without yielding any terminal event
@@ -568,11 +595,7 @@ def record_from_llm_result(
 
 def record_error(state: UsageRecorderState, exc: Exception) -> None:
     """Record a failed call where an exception bubbled before getting a result."""
-    msg = str(exc).lower()
-    if "rate" in msg and "limit" in msg:
-        state.status = RequestStatus.RATE_LIMITED
-    else:
-        state.status = RequestStatus.ERROR
+    state._capture_error(exc)
     state._fire()
 
 
