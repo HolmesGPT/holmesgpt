@@ -40,6 +40,8 @@ python3 -m venv /tmp/poetry185 && /tmp/poetry185/bin/pip install "poetry==1.8.5"
 poetry install --with dev
 ```
 
+`tests/docs` also needs Helm on `PATH` (https://helm.sh/docs/intro/install/): it renders every docs example's Helm values with `helm/holmes`, and fails without it.
+
 ```bash
 # Run all non-LLM tests (unit and integration tests)
 make test-without-llm
@@ -281,7 +283,8 @@ When adding a new toolset or integration, update all of the following pages to k
 2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
 3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
 4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
-   - Its deployment tabs follow the shape `tests/docs/test_deployment_tab_groups.py` checks
+   - Each of its deployment tab groups is a `yaml-toolset-config` or `yaml-helm-values` fence (the forms are in the docstring of `docs/custom_fences.py`); `tests/docs` fails on a group written by hand and checks each fence's tabs against the standard shape
+   - A code block's language is one of `CODE_LANGUAGES` in `docs/custom_fences.py`; any other fails the build, naming the page and line
 5. Add a logo image to `images/integration_logos/` if one is available
 
 ## Debugging CLI / Rich Live Display Issues
@@ -896,7 +899,7 @@ The fence (defined in `docs/custom_fences.py`, registered in `mkdocs.yml`) takes
     ```
     ````
 
-- **YAML or other code with `{lang=<name>}`** (applies the `language-<name>` class for syntax highlighting):
+- **YAML, Bash or JSON with `{lang=yaml}`, `{lang=bash}` or `{lang=json}`** (applies the `language-<name>` class for syntax highlighting; `docs/custom_fences.py` accepts no other language):
 
     ````markdown
     ```robusta-region {lang=yaml}

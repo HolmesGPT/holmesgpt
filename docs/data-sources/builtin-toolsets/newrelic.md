@@ -24,93 +24,19 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export NEW_RELIC_API_KEY=your-new-relic-user-api-key
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      newrelic:
-        enabled: true
-        config:
-          api_key: "{{ env.NEW_RELIC_API_KEY }}"
-          account_id: "<your New Relic account ID>"
-          is_eu_datacenter: false  # Set to true if using New Relic EU region
-          enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-newrelic \
-      --from-literal=NEW_RELIC_API_KEY=your-new-relic-user-api-key \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-newrelic
-
-    toolsets:
-      newrelic:
-        enabled: true
-        config:
-          api_key: "{{ env.NEW_RELIC_API_KEY }}"
-          account_id: "<your New Relic account ID>"
-          is_eu_datacenter: false  # Set to true if using New Relic EU region
-          enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-newrelic \
-      --from-literal=NEW_RELIC_API_KEY=your-new-relic-user-api-key \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-newrelic
-
-      toolsets:
-        newrelic:
-          enabled: true
-          config:
-            api_key: "{{ env.NEW_RELIC_API_KEY }}"
-            account_id: "<your New Relic account ID>"
-            is_eu_datacenter: false  # Set to true if using New Relic EU region
-            enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  newrelic:
+    enabled: true
+    config:
+      api_key: "{{ env.NEW_RELIC_API_KEY }}"
+      account_id: "<your New Relic account ID>"
+      is_eu_datacenter: false  # Set to true if using New Relic EU region
+      enable_multi_account: false  # Optional: set to true to query across multiple accounts
+---
+secret:
+  - --from-literal=NEW_RELIC_API_KEY=your-new-relic-user-api-key
+```
 
 ## Multiple Instances
 
