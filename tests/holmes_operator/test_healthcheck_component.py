@@ -13,7 +13,10 @@ from httpx import Response
 from holmes_operator import context
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
-from holmes_operator.handlers.healthcheck import on_healthcheck_create
+from holmes_operator.handlers.healthcheck import (
+    on_healthcheck_create,
+    on_healthcheck_update,
+)
 from holmes_operator.models import CheckPhase, CheckStatus, ConditionStatus
 
 
@@ -258,3 +261,112 @@ class TestHealthCheckCreate:
         status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.FAILED.value
         assert status["result"] == CheckStatus.ERROR.value
+
+
+def _kopf_update_kwargs(old_annotations, new_annotations, mock_logger):
+    """Build the keyword arguments kopf passes to an update handler.
+
+    kopf injects ``spec``, ``uid``, ``body``, ``meta`` and friends into every
+    handler call, so the update handler receives them via ``**kwargs``.
+    """
+    spec = {
+        "query": "Check if my-app pod is healthy",
+        "timeout": 30,
+        "mode": "monitor",
+    }
+    meta = {
+        "name": "test-check-rerun",
+        "namespace": "default",
+        "uid": "test-uid-rerun",
+        "annotations": new_annotations,
+    }
+    body = {"metadata": meta, "spec": spec, "status": {}}
+    return {
+        "old": {"metadata": {"annotations": old_annotations}, "spec": spec},
+        "new": {"metadata": {"annotations": new_annotations}, "spec": spec},
+        "name": meta["name"],
+        "namespace": meta["namespace"],
+        "logger": mock_logger,
+        "spec": spec,
+        "uid": meta["uid"],
+        "body": body,
+        "meta": meta,
+        "status": body["status"],
+        "labels": {},
+        "annotations": new_annotations,
+        "patch": {},
+        "diff": (),
+        "reason": "update",
+        "retry": 0,
+    }
+
+
+class TestHealthCheckUpdate:
+    """Tests for on_healthcheck_update handler (re-run via annotation)."""
+
+    @patch("holmes_operator.handlers.healthcheck.kopf.event")
+    async def test_rerun_annotation_triggers_execution(
+        self, mock_event, setup_context, mock_k8s_api, mock_logger, respx_mock
+    ):
+        """Adding holmesgpt.dev/rerun=true re-executes the check (issue #2593)."""
+        route = respx_mock.post("http://mock-holmes-api:80/api/checks/execute").mock(
+            return_value=Response(
+                200,
+                json={
+                    "status": "pass",
+                    "message": "All systems operational",
+                    "rationale": "Everything looks good",
+                    "duration": 1.0,
+                    "model_used": "gpt-4.1",
+                },
+            )
+        )
+
+        await on_healthcheck_update(
+            **_kopf_update_kwargs(
+                old_annotations={},
+                new_annotations={"holmesgpt.dev/rerun": "true"},
+                mock_logger=mock_logger,
+            )
+        )
+
+        assert route.call_count == 1
+        calls = mock_k8s_api.patch_namespaced_custom_object_status.call_args_list
+        assert len(calls) == 4
+        assert calls[0][1]["name"] == "test-check-rerun"
+        assert calls[0][1]["body"]["status"]["phase"] == CheckPhase.PENDING.value
+        assert calls[2][1]["body"]["status"]["phase"] == CheckPhase.COMPLETED.value
+        assert calls[2][1]["body"]["status"]["result"] == CheckStatus.PASS.value
+        # The Kubernetes event is attached to the resource kopf passed in
+        assert mock_event.call_args[1]["objs"]["metadata"]["name"] == "test-check-rerun"
+
+    @pytest.mark.parametrize(
+        "old_annotations,new_annotations",
+        [
+            ({}, {}),
+            ({"holmesgpt.dev/rerun": "true"}, {"holmesgpt.dev/rerun": "true"}),
+            ({}, {"holmesgpt.dev/rerun": "false"}),
+        ],
+    )
+    async def test_update_without_new_rerun_annotation_is_noop(
+        self,
+        old_annotations,
+        new_annotations,
+        setup_context,
+        mock_k8s_api,
+        mock_logger,
+        respx_mock,
+    ):
+        """Updates that don't newly set rerun=true must not execute the check."""
+        route = respx_mock.post("http://mock-holmes-api:80/api/checks/execute")
+
+        await on_healthcheck_update(
+            **_kopf_update_kwargs(
+                old_annotations=old_annotations,
+                new_annotations=new_annotations,
+                mock_logger=mock_logger,
+            )
+        )
+
+        assert route.call_count == 0
+        mock_k8s_api.patch_namespaced_custom_object_status.assert_not_called()

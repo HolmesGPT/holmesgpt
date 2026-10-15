@@ -230,10 +230,8 @@ async def on_healthcheck_update(
 
         # Trigger re-execution by calling create handler
         await on_healthcheck_create(
-            spec=new.get("spec", {}),
             name=name,
             namespace=namespace,
-            uid=new.get("metadata", {}).get("uid", ""),
             logger=logger,
             **kwargs,
         )
