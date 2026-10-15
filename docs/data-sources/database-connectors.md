@@ -18,85 +18,34 @@ All database connectors use `type: database` and share the same configuration pa
 
 ## Quick Start
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.POSTGRES_URL }}"
+    llm_instructions: "Production PostgreSQL database"
+---
+secret:
+  - --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://holmes:password@db.example.com:5432/mydb"
+      llm_instructions: "Production PostgreSQL with customer and order data"
 
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://holmes:password@db.example.com:5432/mydb"
-        llm_instructions: "Production PostgreSQL with customer and order data"
-
-      analytics-clickhouse:
-        type: database
-        config:
-          connection_url: "clickhouse://analyst:pass@clickhouse.internal:8123/analytics"
-        llm_instructions: "ClickHouse analytics warehouse"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-connectors \
-      --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-connectors
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-        llm_instructions: "Production PostgreSQL database"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-connectors \
-      --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-connectors
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+    analytics-clickhouse:
+      type: database
+      config:
+        connection_url: "clickhouse://analyst:pass@clickhouse.internal:8123/analytics"
+      llm_instructions: "ClickHouse analytics warehouse"
+  ```
+```
 
 ## Configuration Options
 
