@@ -1,19 +1,6 @@
 {{- if .Values.mcpAddons.kubernetes.enabled }}
-{{- /* Resolve which Secret holds the MCP server's config.toml (if any).
-       Either:
-         - serverConfig: free-form TOML content; the chart generates a Secret.
-         - configSecret.secretName: name of an externally-managed Secret.
-       Both set is a config error. */ -}}
 {{- $serverConfig := .Values.mcpAddons.kubernetes.config.serverConfig | default "" -}}
-{{- $configSecretName := .Values.mcpAddons.kubernetes.config.configSecret.secretName | default "" -}}
-{{- if and $serverConfig $configSecretName -}}
-  {{- fail "mcpAddons.kubernetes.config: set either `serverConfig` (chart-generated Secret) or `configSecret.secretName` (external Secret), not both." -}}
-{{- end -}}
-{{- if $serverConfig -}}
-  {{- $configSecretName = printf "%s-k8s-mcp-server-config" .Release.Name -}}
-{{- end -}}
-{{- $useConfigFile := ne $configSecretName "" -}}
-{{- $configSecretKey := ternary "config.toml" (.Values.mcpAddons.kubernetes.config.configSecret.secretKey | default "config.toml") (ne $serverConfig "") -}}
+{{- $configSecret := include "holmes.kubernetesMcp.configSecret" . | fromYaml -}}
 {{- /* A CA certificate is public, so it lives in the ConfigMap, not a Secret. */ -}}
 {{- $caCert := .Values.mcpAddons.kubernetes.config.certificateAuthority | default "" | trim -}}
 ---
@@ -40,7 +27,7 @@ data: {}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ $configSecretName }}
+  name: {{ $configSecret.name }}
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Release.Name }}-k8s-mcp
@@ -53,6 +40,7 @@ stringData:
   config.toml: |
 {{ $serverConfig | indent 4 }}
 {{- end }}
+{{- if not (include "holmes.kubernetesMcp.inHolmesPod" .) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -101,38 +89,11 @@ spec:
         image: "{{ .Values.mcpAddons.kubernetes.registry }}/{{ .Values.mcpAddons.kubernetes.image }}"
         imagePullPolicy: {{ .Values.mcpAddons.kubernetes.imagePullPolicy | default "IfNotPresent" }}
         args:
-          - "--port"
-          - "8000"
-          {{- if .Values.mcpAddons.kubernetes.config.readOnly }}
-          - "--read-only"
-          {{- end }}
-          {{- if .Values.mcpAddons.kubernetes.config.disableDestructive }}
-          - "--disable-destructive"
-          {{- end }}
-          {{- if .Values.mcpAddons.kubernetes.config.toolsets }}
-          - "--toolsets"
-          - {{ .Values.mcpAddons.kubernetes.config.toolsets | quote }}
-          {{- end }}
-          {{- if .Values.mcpAddons.kubernetes.config.logLevel }}
-          - "--log-level"
-          - {{ .Values.mcpAddons.kubernetes.config.logLevel | quote }}
-          {{- end }}
-          {{- if $useConfigFile }}
-          - "--config"
-          - "/etc/kubernetes-mcp/config.toml"
-          {{- end }}
-          {{- range .Values.mcpAddons.kubernetes.config.extraArgs }}
-          - {{ . | quote }}
-          {{- end }}
+          {{- concat (list "--port" "8000") (include "holmes.kubernetesMcp.args" . | fromYamlArray) | toYaml | nindent 10 }}
         ports:
         - containerPort: 8000
           name: http
           protocol: TCP
-        {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
-        env:
-        - name: KUBECONFIG
-          value: /etc/kubernetes/kubeconfig
-        {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.kubernetes.resources | nindent 10 }}
         readinessProbe:
@@ -145,53 +106,13 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
-        {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile $caCert }}
+        {{- with include "holmes.kubernetesMcp.volumeMounts" . | fromYamlArray }}
         volumeMounts:
-        {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
-        - name: kubeconfig
-          mountPath: /etc/kubernetes
-          readOnly: true
+          {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- if $useConfigFile }}
-        - name: mcp-config
-          mountPath: /etc/kubernetes-mcp
-          readOnly: true
-        {{- end }}
-        {{- if $caCert }}
-        - name: mcp-ca
-          mountPath: /etc/kubernetes-mcp-ca
-          readOnly: true
-        {{- end }}
-        {{- end }}
-      {{- if or .Values.mcpAddons.kubernetes.config.kubeconfig.secretName $useConfigFile $caCert }}
+      {{- with include "holmes.kubernetesMcp.volumes" . | fromYamlArray }}
       volumes:
-      {{- if .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
-      - name: kubeconfig
-        secret:
-          secretName: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretName }}
-          defaultMode: 420
-          items:
-          - key: {{ .Values.mcpAddons.kubernetes.config.kubeconfig.secretKey | default "kubeconfig" }}
-            path: kubeconfig
-      {{- end }}
-      {{- if $useConfigFile }}
-      - name: mcp-config
-        secret:
-          secretName: {{ $configSecretName }}
-          defaultMode: 420
-          items:
-          - key: {{ $configSecretKey }}
-            path: config.toml
-      {{- end }}
-      {{- if $caCert }}
-      - name: mcp-ca
-        configMap:
-          name: {{ .Release.Name }}-k8s-mcp-config
-          defaultMode: 420
-          items:
-          - key: ca.crt
-            path: ca.crt
-      {{- end }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
 ---
 apiVersion: v1
@@ -252,6 +173,7 @@ subjects:
 - kind: ServiceAccount
   name: {{ .Values.mcpAddons.kubernetes.serviceAccount.name }}
   namespace: {{ .Release.Namespace }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

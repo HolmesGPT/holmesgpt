@@ -289,7 +289,11 @@ async def get_initialized_mcp_session(
                 read_stream,
                 write_stream,
             ):
-                async with ClientSession(read_stream, write_stream) as session:
+                async with ClientSession(
+                    read_stream,
+                    write_stream,
+                    read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+                ) as session:
                     _ = await session.initialize()
                     yield session
         finally:

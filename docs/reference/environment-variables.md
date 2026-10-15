@@ -444,7 +444,7 @@ See [Connectivity Check](../data-sources/builtin-toolsets/connectivity-check.md)
 ### MCP_TOOL_CALL_TIMEOUT_SEC
 **Default:** `120` (falls back to `SSE_READ_TIMEOUT`)
 
-Per-request timeout, in seconds, for MCP tool calls. Forwarded to the MCP SDK's `ClientSession.call_tool(read_timeout_seconds=...)`, which enforces it via `anyio.fail_after` around the response-stream receive. Without a bound here, streamable-http tool calls can hang indefinitely if the MCP server dies mid-response (the httpx/anyio stream EOF does not reliably wake pending response futures).
+Per-request timeout, in seconds, for MCP tool calls over every transport (`stdio`, `sse`, `streamable-http`). Forwarded to the MCP SDK's `ClientSession.call_tool(read_timeout_seconds=...)`, which enforces it via `anyio.fail_after` around the response-stream receive. Without a bound here, streamable-http tool calls can hang indefinitely if the MCP server dies mid-response (the httpx/anyio stream EOF does not reliably wake pending response futures).
 
 On expiry the SDK raises `McpError(code=REQUEST_TIMEOUT)`, which Holmes surfaces as a `StructuredToolResultStatus.ERROR` result with the message `Timed out while waiting for response to ClientRequest. Waited N seconds.`
 
