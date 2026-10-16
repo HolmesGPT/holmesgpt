@@ -54,7 +54,7 @@ STUB_BINS = [
     "kubectl", "oc", "az", "gcloud", "aws", "vela", "ig", "helm", "curl",
     "wget", "dig", "nslookup", "host", "tcpdump", "jq",
     "docker", "nc", "ping", "psql", "mysql", "argocd",
-    "cilium", "hubble", "timeout",
+    "cilium", "hubble", "timeout", "flux",
 ]
 
 
