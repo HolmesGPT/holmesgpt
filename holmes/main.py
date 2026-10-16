@@ -53,6 +53,11 @@ from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
+from holmes.utils.doctor import (
+    collect_doctor_report,
+    dumps_doctor_report,
+    render_doctor_report,
+)
 from holmes.utils.file_utils import write_json_file
 from holmes.checks.checks_cli import checks_app
 from holmes.common.cli_commons import (
@@ -1084,6 +1089,41 @@ def config_toolset(
     console = init_logging(verbose)
     config = Config.load_from_file(config_file)
     run_toolset_config_tui(config, config_file, console)
+
+
+@app.command()
+def doctor(
+    verbose: Optional[List[bool]] = opt_verbose,
+    config_file: Optional[Path] = opt_config_file,  # type: ignore
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Print a machine-readable JSON report to stdout",
+    ),
+    skip_toolsets: bool = typer.Option(
+        False,
+        "--skip-toolsets",
+        help="Skip loading toolset status (faster; still checks credentials and kubectl)",
+    ),
+    refresh_toolsets: bool = typer.Option(
+        False,
+        "--refresh-toolsets",
+        help="Refresh cached toolset status before summarizing",
+    ),
+) -> None:
+    """Check that the CLI is ready to run investigations."""
+    console = init_logging(verbose)
+    report = collect_doctor_report(
+        config_file=config_file,
+        skip_toolsets=skip_toolsets,
+        refresh_toolsets=refresh_toolsets,
+    )
+    if json_output:
+        typer.echo(dumps_doctor_report(report), nl=False)
+    else:
+        render_doctor_report(report, console)
+    if not report.ok:
+        raise typer.Exit(code=1)
 
 
 @app.command()

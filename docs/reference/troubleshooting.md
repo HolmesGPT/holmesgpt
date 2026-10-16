@@ -98,6 +98,20 @@ If the same logs also show a LiteLLM warning about failing to fetch the model co
 
 ---
 
+## Diagnose the CLI
+
+Run `holmes doctor` to check Python version, LLM credentials (presence only), Kubernetes context, and toolset status without sending a prompt:
+
+```bash
+holmes doctor
+holmes doctor --json
+holmes doctor --skip-toolsets
+```
+
+A failed check means HolmesGPT cannot run investigations yet (unsupported Python or missing LLM credentials). Warnings mean optional pieces — a config file, kubectl, or individual toolsets — are not ready. Credential values are never printed.
+
+---
+
 ## Still stuck?
 
 Join our [Slack community](https://cloud-native.slack.com/archives/C0A1SPQM5PZ) or [open a GitHub issue](https://github.com/HolmesGPT/holmesgpt/issues) for help.
