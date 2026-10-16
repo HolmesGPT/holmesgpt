@@ -311,7 +311,11 @@ LiteLLM downloads its model catalog once at startup, so a model released while H
 **Default:** `86400` (once a day)
 
 ### HOLMES_CONFIG_PATH
-Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.
+Path to the default HolmesGPT configuration file. The CLI's explicit `--config` option takes precedence over this variable.
+
+If unset or empty, Holmes uses `config.yaml` inside `HOLMES_CONFIGPATH_DIR`, which defaults to `~/.holmes`. Relative file paths are resolved from the current working directory. Set this variable before starting Holmes.
+
+This changes only the configuration file location; caches, logs, and other local state remain under `HOLMES_CONFIGPATH_DIR`. In server mode, `LOAD_CONFIG_FROM_ENV=true` continues to bypass file loading.
 
 **Example:**
 ```bash

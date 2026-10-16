@@ -16,7 +16,12 @@ opt_model: Optional[str] = typer.Option(None, help="Model to use for the LLM")
 opt_config_file: Optional[Path] = typer.Option(
     DEFAULT_CONFIG_LOCATION,  # type: ignore
     "--config",
-    help="Path to the config file. Defaults to ~/.holmes/config.yaml when it exists. Command line arguments take precedence over config file settings",
+    help=(
+        "Path to the config file. Defaults to HOLMES_CONFIG_PATH, or config.yaml "
+        "in HOLMES_CONFIGPATH_DIR (default: ~/.holmes) when it exists. "
+        "An explicit --config takes precedence over HOLMES_CONFIG_PATH. "
+        "Command line arguments take precedence over config file settings"
+    ),
 )
 opt_verbose: Optional[List[bool]] = typer.Option(
     [],

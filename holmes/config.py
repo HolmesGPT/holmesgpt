@@ -60,7 +60,9 @@ from holmes.utils.pydantic_utils import (
 )
 
 
-DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
+DEFAULT_CONFIG_LOCATION = os.environ.get("HOLMES_CONFIG_PATH") or os.path.join(
+    config_path_dir, "config.yaml"
+)
 
 
 def _parse_custom_skill_paths_env() -> List[str]:
