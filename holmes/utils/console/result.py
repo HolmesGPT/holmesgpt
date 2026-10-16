@@ -1,3 +1,4 @@
+import logging
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.rule import Rule
@@ -46,3 +47,10 @@ def handle_result(
     elif destination == DestinationType.SLACK:
         slack = config.create_slack_destination()
         slack.send_issue(issue, result)
+
+    elif destination == DestinationType.WEBHOOK:
+        webhook = config.create_webhook_destination()
+        try:
+            webhook.send_issue(issue, result)
+        except Exception as exc:
+            logging.error("Failed to send issue to Webhook: %s", exc)

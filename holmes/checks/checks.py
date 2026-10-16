@@ -1,6 +1,7 @@
 """Health check functionality for Holmes."""
 
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ from holmes.core.usage_recorder import (
 )
 from holmes.plugins.destinations.pagerduty.plugin import PagerDutyDestination
 from holmes.plugins.destinations.slack.plugin import SlackDestination
+from holmes.plugins.destinations.webhook.plugin import WebhookDestination
 
 CHECK_RESPONSE_FORMAT = {
     "type": "json_schema",
@@ -338,6 +340,14 @@ class CheckRunner:
                         f"PagerDuty destination '{name}': Missing integration_key in destination config"
                     )
 
+            elif name == "webhook":
+                # Check Webhook configuration
+                webhook_url = dest_config.webhook_url or os.environ.get("WEBHOOK_URL")
+                if not webhook_url:
+                    errors.append(
+                        f"Webhook destination '{name}': Missing webhook_url in destination config or WEBHOOK_URL env var"
+                    )
+
             else:
                 # Unknown destination type
                 errors.append(f"Unknown destination type: {name}")
@@ -494,6 +504,10 @@ class CheckRunner:
                 "result": result.message,
                 "tags": check.tags,
                 "status": result.status.value,
+                "rationale": result.rationale,
+                "error": result.error,
+                "duration_seconds": result.duration,
+                "model_used": getattr(self.ai.llm, "model", None),
             },
             source_instance_id="holmes-check",
         )
@@ -594,6 +608,44 @@ class CheckRunner:
                 except Exception as e:
                     self.console.print(
                         f"  [red]Failed to send PagerDuty alert: {str(e)}[/red]"
+                    )
+
+            elif dest_name == "webhook":
+                webhook_config: Optional[DestinationConfig] = (
+                    self._destinations_config.get(dest_name)
+                )
+                webhook_url = (
+                    (webhook_config.webhook_url if webhook_config else None)
+                    or os.environ.get("WEBHOOK_URL")
+                )
+                if not webhook_url:
+                    self.console.print(
+                        "  [yellow]Webhook not configured (missing webhook_url)[/yellow]"
+                    )
+                    continue
+
+                method = (
+                    (webhook_config.webhook_method if webhook_config else None)
+                    or self.config.webhook_method
+                    or "POST"
+                )
+                headers = (
+                    (webhook_config.webhook_headers if webhook_config else None) 
+                    or self.config.webhook_headers
+                    or {}
+                )
+
+                try:
+                    webhook = WebhookDestination(
+                        method=method, webhook_url=webhook_url, headers=headers
+                    )
+                    webhook.send_issue(issue, llm_result)
+
+                    if self.verbose:
+                        self.console.print("  [green]Alert sent via Webhook[/green]")
+                except Exception as e:
+                    self.console.print(
+                        f"  [red]Failed to send Webhook alert: {str(e)}[/red]"
                     )
 
             else:

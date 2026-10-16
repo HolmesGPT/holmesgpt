@@ -26,6 +26,8 @@ class DestinationConfig(BaseModel):
     """Configuration for alert destinations."""
 
     webhook_url: Optional[str] = None
+    webhook_method: Optional[str] = None
+    webhook_headers: Optional[Dict[str, Any]] = None
     channel: Optional[str] = None
     integration_key: Optional[str] = None
 

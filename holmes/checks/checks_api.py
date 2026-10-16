@@ -2,8 +2,11 @@ import logging
 import os
 import time
 from typing import Optional
+import json
 
 from fastapi import FastAPI, HTTPException
+from holmes.plugins.destinations.webhook import InvalidWebhookHeadersError, resolve_webhook_headers
+from holmes.plugins.interfaces import DestinationPlugin
 from litellm.exceptions import AuthenticationError
 from pydantic import BaseModel, Field
 
@@ -15,6 +18,7 @@ from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
+from holmes.plugins.destinations.webhook.plugin import WebhookDestination
 
 checks_app = FastAPI()
 
@@ -41,6 +45,10 @@ class CheckExecutionRequest(BaseModel):
         default_factory=list
     )  # TODO: change to DestinationConfig after deciding on the schema.
     model: Optional[str] = Field(None, description="The model to use for the check.")
+    namespace: Optional[str] = Field(
+        None,
+        description="Namespace the check runs in (e.g. the HealthCheck CRD namespace).",
+    )
 
 
 class NotificationStatus(BaseModel):
@@ -155,6 +163,19 @@ def execute_health_check(
                     presentation_status=IssueStatus.OPEN,
                     presentation_key_metadata=f"*Check:* `{check_name}`\n*Query:* {request.query}",
                     show_status_in_title=False,  # Don't append " - open" to the title
+                    # Check execution context read by destination plugins (e.g.
+                    # the webhook payload builder) to build a stable schema.
+                    raw={
+                        "check_name": check_name,
+                        "namespace": request.namespace,
+                        "status": result.status.value,
+                        "message": result.message,
+                        "rationale": result.rationale,
+                        "error": result.error,
+                        "model_used": ai_model,
+                        "duration_seconds": result.duration,
+                        "query": request.query,
+                    },
                 )
 
                 # Create LLM result for the destination
@@ -172,50 +193,94 @@ def execute_health_check(
                     else:
                         dest_type = dest.lower()
                         dest_config = {}
+                        
+                    notification = NotificationStatus(
+                        type=dest_type, status="pending"
+                    )
+                    
+                    notification_dest: DestinationPlugin | None = None
 
                     if dest_type == "slack":
-                        slack_channel = None
-                        notification = NotificationStatus(
-                            type="slack", status="pending"
+                        # Check if SLACK_TOKEN is configured (from destination config or env var)
+                        slack_token = dest_config.get("token") or os.environ.get(
+                            "SLACK_TOKEN"
+                        )
+                        slack_channel = dest_config.get(
+                            "channel"
+                        ) or os.environ.get("SLACK_CHANNEL")
+                        if slack_token and slack_channel:
+                            notification.channel = slack_channel
+                            notification_dest = SlackDestination(
+                                token=slack_token, channel=slack_channel
+                            )
+
+                            notification.status = "sent"
+                        else:
+                            notification.status = "skipped"
+                            notification.error = (
+                                "SLACK_TOKEN or SLACK_CHANNEL not configured"
+                            )
+                            logging.warning(
+                                "SLACK_TOKEN or SLACK_CHANNEL not configured, skipping Slack notification"
+                            )
+                    
+                    elif dest_type == "webhook":
+                        # Check if SLACK_TOKEN is configured (from destination config or env var)
+                        webhook_url = dest_config.get("webhook_url") or os.environ.get(
+                            "WEBHOOK_URL"
+                        )
+                        webhook_method = (
+                            dest_config.get("webhook_method") 
+                            or os.environ.get(
+                                "WEBHOOK_METHOD"
+                            ) 
+                            or "POST"
                         )
 
                         try:
-                            # Check if SLACK_TOKEN is configured (from destination config or env var)
-                            slack_token = dest_config.get("token") or os.environ.get(
-                                "SLACK_TOKEN"
+                            webhook_headers = resolve_webhook_headers(
+                                dest_config.get("webhook_headers"),
+                                os.environ.get("WEBHOOK_HEADERS"),
                             )
-                            slack_channel = dest_config.get(
-                                "channel"
-                            ) or os.environ.get("SLACK_CHANNEL")
-                            if slack_token and slack_channel:
-                                notification.channel = slack_channel
-                                slack_dest = SlackDestination(
-                                    token=slack_token, channel=slack_channel
-                                )
-                                slack_dest.send_issue(issue, llm_result)
+                        except InvalidWebhookHeadersError as exc:
+                            logging.warning("Invalid webhook headers: %s", exc)
+                            notification.status = "skipped"
+                            notification.error = str(exc)
+                            notifications.append(notification)
+                            continue
+                        
+                        if webhook_url:
+                            notification_dest = WebhookDestination(
+                                method=webhook_method, webhook_url=webhook_url, headers=webhook_headers
+                            )
 
-                                notification.status = "sent"
-                                logging.info(
-                                    f"Sent Slack notification to {slack_channel} for check {check_name}"
-                                )
-                            else:
-                                notification.status = "skipped"
-                                notification.error = (
-                                    "SLACK_TOKEN or SLACK_CHANNEL not configured"
-                                )
-                                logging.warning(
-                                    "SLACK_TOKEN or SLACK_CHANNEL not configured, skipping Slack notification"
-                                )
+                            notification.status = "sent"
+                        else:
+                            notification.status = "skipped"
+                            notification.error = (
+                                "WEBHOOK_URL not configured"
+                            )
+                            logging.warning(
+                                "WEBHOOK_URL not configured, skipping Webhook notification"
+                            )
+                            
+                    # Add other destination types here (pagerduty, etc.) as needed
+                    
+                    if notification_dest is not None:
+                        try:
+                            notification_dest.send_issue(issue, llm_result)
+                            logging.info(
+                                f"Sent {dest_type} notification for check {check_name}"
+                            )
                         except Exception as e:
                             notification.status = "failed"
                             notification.error = str(e)
                             logging.error(
-                                f"Failed to send Slack notification: {e}", exc_info=True
+                                f"Failed to send  notification: {e}", exc_info=True
                             )
 
-                        notifications.append(notification)
-                    # Add other destination types here (pagerduty, etc.) as needed
-
+                    notifications.append(notification)
+                    
             except Exception as e:
                 logging.error(
                     f"Failed to process alert destinations: {e}", exc_info=True

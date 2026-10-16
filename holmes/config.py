@@ -1,12 +1,15 @@
 import logging
+import json
 import os
 import os.path
 import threading
 from enum import Enum
 from pathlib import Path
 
+from holmes.plugins.destinations.webhook.utils import InvalidWebhookHeadersError, resolve_webhook_headers
+
 display_logger = logging.getLogger("holmes.display.config")
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import sentry_sdk
 import yaml  # type: ignore
@@ -38,6 +41,7 @@ from holmes.plugins.skills.skill_loader import (
 if TYPE_CHECKING:
     from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
+    from holmes.plugins.destinations.webhook import WebhookDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
     from holmes.plugins.sources.opsgenie import OpsGenieSource
@@ -132,6 +136,10 @@ class Config(RobustaBaseConfig):
 
     slack_token: Optional[SecretStr] = None
     slack_channel: Optional[str] = None
+
+    webhook_url: Optional[str] = None
+    webhook_method: Optional[str] = None
+    webhook_headers: Optional[Dict[str, Any]] = None
 
     pagerduty_api_key: Optional[SecretStr] = None
     pagerduty_user_email: Optional[str] = None
@@ -330,6 +338,27 @@ class Config(RobustaBaseConfig):
             skill_repos = parse_skill_repos_env()
             if skill_repos:
                 self.skill_repos = skill_repos
+
+        # Webhook destination settings (global fallbacks)
+        if self.webhook_url is None:
+            webhook_url_env = os.environ.get("WEBHOOK_URL")
+            if webhook_url_env:
+                self.webhook_url = webhook_url_env
+        if self.webhook_method is None:
+            webhook_method_env = os.environ.get("WEBHOOK_METHOD")
+            if webhook_method_env:
+                self.webhook_method = webhook_method_env
+        if self.webhook_headers is None:
+            webhook_headers_env = os.environ.get("WEBHOOK_HEADERS")
+            if webhook_headers_env:
+                try:
+                    self.webhook_headers = resolve_webhook_headers(
+                        None,
+                        webhook_headers_env,
+                    )
+                except InvalidWebhookHeadersError as e:
+                    logging.warning("Invalid WEBHOOK_HEADERS: %s", e)
+                    self.webhook_headers = None
 
     @classmethod
     def load_from_env(cls):
@@ -875,6 +904,18 @@ class Config(RobustaBaseConfig):
         if self.slack_channel is None:
             raise ValueError("--slack-channel must be specified")
         return SlackDestination(self.slack_token.get_secret_value(), self.slack_channel)
+
+    def create_webhook_destination(self) -> "WebhookDestination":
+        from holmes.plugins.destinations.webhook.plugin import WebhookDestination
+
+        webhook_url = self.webhook_url or os.environ.get("WEBHOOK_URL")
+        if webhook_url is None:
+            raise ValueError("--webhook-url or WEBHOOK_URL must be specified")
+        method = self.webhook_method or os.environ.get("WEBHOOK_METHOD") or "POST"
+        headers = self.webhook_headers or {}
+        return WebhookDestination(
+            method=method, webhook_url=webhook_url, headers=headers
+        )
 
     @staticmethod
     def _format_token_count(n: int) -> str:
