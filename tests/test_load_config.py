@@ -1,8 +1,9 @@
 import os
 
 import pytest
+from pydantic import SecretStr
 
-from holmes.utils.env import get_env_replacement
+from holmes.utils.env import get_env_replacement, replace_env_vars_values
 
 
 @pytest.mark.parametrize(
@@ -15,6 +16,15 @@ from holmes.utils.env import get_env_replacement
         ("{{ foo.bar }}", {}, "{{ foo.bar }}"),
         ("{{ VAR }}", {}, "{{ VAR }}"),
         ("{{ env.MY_VAR }}", {"MY_VAR": "var_value_123"}, "var_value_123"),
+        ("{{ env.MY_VAR }}", {"MY_VAR": r"C:\Users\dev\config"}, r"C:\Users\dev\config"),
+        ("{{ env.MY_VAR }}", {"MY_VAR": r"DOMAIN\reader"}, r"DOMAIN\reader"),
+        ("{{ env.MY_VAR }}", {"MY_VAR": r"secret\1value"}, r"secret\1value"),
+        ("{{ env.MY_VAR }}", {"MY_VAR": r"literal\nvalue"}, r"literal\nvalue"),
+        (
+            "{{ env.MY_VAR }}:{{ env.MY_VAR }}",
+            {"MY_VAR": r"secret\1value"},
+            r"secret\1value:secret\1value",
+        ),
         (
             "{{  env.MY_VAR_SPACED  }}",
             {"MY_VAR_SPACED": "spaced_value_456"},
@@ -95,3 +105,14 @@ def test_get_env_replacement_exceptions(
 
     with pytest.raises(expected_exception_type, match=expected_exception_message_regex):
         get_env_replacement(input_value)
+
+
+def test_replace_env_vars_preserves_literal_secret(monkeypatch):
+    password = r"secret\1value"
+    monkeypatch.setenv("TEST_PASSWORD", password)
+    config = {"config": {"password": SecretStr("{{ env.TEST_PASSWORD }}")}}
+
+    result = replace_env_vars_values(config)
+
+    assert isinstance(result["config"]["password"], SecretStr)
+    assert result["config"]["password"].get_secret_value() == password
