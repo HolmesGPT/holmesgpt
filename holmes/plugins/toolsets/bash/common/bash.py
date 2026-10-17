@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
+from holmes.utils.subprocess_env import external_program_env
 
 
 # Grace period (seconds) to let a timed-out argv child exit on SIGTERM — and run
@@ -38,6 +39,7 @@ def execute_bash_command(cmd: str, timeout: int) -> BashResult:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=external_program_env(),
     )
 
     try:
@@ -95,6 +97,7 @@ def execute_argv_command(argv: List[str], timeout: int) -> BashResult:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=external_program_env(),
     )
 
     try:
