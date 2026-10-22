@@ -806,6 +806,11 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 # path does the same via _inject_request_id in the stream wrapper.
                 response_metadata = dict(llm_call.metadata or {})
                 response_metadata["request_id"] = recorder_state.request_id
+                if llm_call.result is None:
+                    logging.warning(
+                        f"{req_info} finished without any analysis text "
+                        f"(finish_reason={llm_call.finish_reason}); returning an empty analysis"
+                    )
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
