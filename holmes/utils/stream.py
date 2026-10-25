@@ -2,7 +2,7 @@ import json
 import logging
 from enum import Enum
 from functools import partial
-from typing import Generator, List, Optional, Union
+from typing import Generator, Optional, Union
 
 import litellm
 from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
@@ -10,6 +10,7 @@ from litellm.types.utils import ModelResponse, TextCompletionResponse
 from pydantic import BaseModel, Field
 
 from holmes.common.env_vars import TRACE_TOKEN_USAGE
+from holmes.core.error_info import ErrorInfo
 from holmes.core.llm import ContextWindowUsage, build_usage_metadata
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 
@@ -37,16 +38,21 @@ def create_sse_message(event_type: str, data: Optional[dict] = None):
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
-def create_sse_error_message(description: str, error_code: int, msg: str):
-    return create_sse_message(
-        StreamEvents.ERROR.value,
-        {
-            "description": description,
-            "error_code": error_code,
-            "msg": msg,
-            "success": False,
-        },
-    )
+def create_sse_error_message(
+    description: str,
+    error_code: int,
+    msg: str,
+    error_info: Optional[ErrorInfo] = None,
+):
+    data = {
+        "description": description,
+        "error_code": error_code,
+        "msg": msg,
+        "success": False,
+    }
+    if error_info is not None:
+        data.update(error_info.event_fields())
+    return create_sse_message(StreamEvents.ERROR.value, data)
 
 
 create_rate_limit_error_message = partial(
@@ -68,7 +74,6 @@ def _is_rate_limit_error(e: Exception) -> bool:
 
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
-    followups: Optional[List[dict]] = None,
     model: Optional[str] = None,
 ):
     try:
@@ -85,7 +90,6 @@ def stream_chat_formatter(
                 response_data = {
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
-                    "follow_up_actions": followups,
                     "metadata": message.data.get("metadata") or {},
                 }
 
@@ -94,7 +98,6 @@ def stream_chat_formatter(
                 response_data = {
                     "analysis": message.data.get("content"),
                     "conversation_history": message.data.get("messages"),
-                    "follow_up_actions": followups,
                     "requires_approval": True,
                     "pending_approvals": message.data.get(
                         "pending_approvals", []
@@ -118,13 +121,17 @@ def stream_chat_formatter(
             description=str(e),
             error_code=RELAY_REFUSAL_ERROR_CODES[e.status_code],
             msg=str(e),
+            error_info=ErrorInfo.from_exception(e),
         )
     except Exception as e:
         logging.error(f"Error during streaming chat: {e}", exc_info=True)
+        error_info = ErrorInfo.from_exception(e)
         if _is_rate_limit_error(e):
-            yield create_rate_limit_error_message(str(e))
+            yield create_rate_limit_error_message(str(e), error_info=error_info)
         else:
-            yield create_sse_error_message(description=str(e), error_code=1, msg=str(e))
+            yield create_sse_error_message(
+                description=str(e), error_code=1, msg=str(e), error_info=error_info
+            )
 
 
 def add_token_count_to_metadata(
