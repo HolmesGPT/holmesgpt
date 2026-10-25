@@ -16,9 +16,12 @@ object the recorder passed in.
 from typing import List
 from unittest.mock import MagicMock
 
+import litellm
 import pytest
 
+from holmes.core.models import ChatRequest
 from holmes.core.usage_recorder import (
+    build_chat_recorder_state,
     UsageRecorderState,
     record_error,
     record_from_llm_result,
@@ -576,3 +579,122 @@ class TestFireAndForgetThreadMode:
 
         # Should NOT raise — _fire's `except RuntimeError` accepts the loss.
         record_error(state, RuntimeError("x"))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Failed runs keep the sanitized cause in meta
+# ──────────────────────────────────────────────────────────────────
+
+
+def _failing_stream(exc: Exception):
+    yield StreamMessage(event=StreamEvents.TOOL_RESULT, data={})
+    raise exc
+
+
+def _provider_503():
+    return litellm.ServiceUnavailableError(
+        message="BedrockException - capacity exhausted",
+        model="m",
+        llm_provider="bedrock",
+    )
+
+
+def test_stream_failure_records_error_class_status_and_provider(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    state = _make_state(meta={"slack": {"user": "U1"}})
+
+    with pytest.raises(Exception):
+        list(stream_with_usage_recording(_failing_stream(_provider_503()), state))
+
+    meta = _state_arg(state).meta
+    assert meta["error_class"] == "ServiceUnavailableError"
+    assert meta["error_status_code"] == 503
+    assert meta["error_provider"] == "bedrock"
+    assert meta["slack"] == {"user": "U1"}
+    assert _state_arg(state).status == "error"
+
+
+def test_stream_failure_without_provider_info_records_only_the_class(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    state = _make_state()
+
+    with pytest.raises(RuntimeError):
+        list(stream_with_usage_recording(_failing_stream(RuntimeError("x")), state))
+
+    assert _state_arg(state).meta == {"error_class": "RuntimeError"}
+
+
+def test_frontend_cannot_forge_the_error_class(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    state = _make_state(meta={"error_class": "Forged"})
+
+    with pytest.raises(RuntimeError):
+        list(stream_with_usage_recording(_failing_stream(RuntimeError("x")), state))
+
+    assert _state_arg(state).meta["error_class"] == "RuntimeError"
+
+
+def test_a_successful_stream_adds_no_error_meta(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    state = _make_state()
+    data = _terminal_data({"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2})
+
+    list(
+        stream_with_usage_recording(
+            _stream(StreamMessage(event=StreamEvents.ANSWER_END, data=data)), state
+        )
+    )
+
+    assert "error_class" not in _state_arg(state).meta
+
+
+def test_record_error_records_the_class_too(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    state = _make_state()
+
+    record_error(state, _provider_503())
+
+    assert _state_arg(state).meta["error_class"] == "ServiceUnavailableError"
+    assert _state_arg(state).meta["error_status_code"] == 503
+
+
+def test_a_throttle_keeps_its_rate_limited_status_and_gains_the_class(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    state = _make_state()
+
+    record_error(
+        state,
+        litellm.RateLimitError(message="rate limit", model="m", llm_provider="openai"),
+    )
+
+    assert _state_arg(state).status == "rate_limited"
+    assert _state_arg(state).meta["error_class"] == "RateLimitError"
+
+
+def test_frontend_cannot_forge_any_backend_error_key_on_a_failed_run(monkeypatch):
+    _patch_inline_thread(monkeypatch)
+    forged = {
+        "error_class": "Forged",
+        "error_status_code": 429,
+        "error_provider": "openai",
+        "error_provider_code": "rate_limit_exceeded",
+        "kept": "yes",
+    }
+    state = _make_state(meta=dict(forged))
+
+    with pytest.raises(RuntimeError):
+        list(stream_with_usage_recording(_failing_stream(RuntimeError("x")), state))
+
+    meta = _state_arg(state).meta
+    assert meta == {"error_class": "RuntimeError", "kept": "yes"}
+
+
+def test_frontend_cannot_forge_error_keys_on_a_successful_run():
+    request = ChatRequest(
+        ask="q",
+        meta={"error_class": "Forged", "error_status_code": 500, "ok_key": 1},
+    )
+
+    state = build_chat_recorder_state(request, MagicMock(), dal=MagicMock(), is_streaming=True)
+
+    assert state.meta == {"ok_key": 1}

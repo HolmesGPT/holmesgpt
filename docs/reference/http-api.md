@@ -224,8 +224,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
 {
   "analysis": "{\"is_healthy\": true, \"summary\": \"All nodes are ready and workloads running normally.\", \"issues\": []}",
   "conversation_history": [...],
-  "tool_calls": [...],
-  "follow_up_actions": [...]
+  "tool_calls": [...]
 }
 ```
 
@@ -256,8 +255,7 @@ curl -X POST http://<HOLMES-URL>/api/chat \
     {"role": "user", "content": "What is the status of my cluster?"},
     {"role": "assistant", "content": "Your cluster is healthy. All nodes are ready and workloads are running as expected."}
   ],
-  "tool_calls": [...],
-  "follow_up_actions": [...]
+  "tool_calls": [...]
 }
 ```
 
@@ -876,14 +874,6 @@ Emitted when the chat is complete. This is the final event in the stream.
     {"role": "user", "content": "..."},
     {"role": "assistant", "content": "..."}
   ],
-  "follow_up_actions": [
-    {
-      "id": "action1",
-      "action_label": "Run diagnostics",
-      "pre_action_notification_text": "Running diagnostics...",
-      "prompt": "Run diagnostic checks"
-    }
-  ],
   "metadata": {...}
 }
 ```
@@ -893,11 +883,6 @@ Emitted when the chat is complete. This is the final event in the stream.
 - `metadata` (object): See [Metadata Object Reference](#metadata-object-reference) for complete structure including token usage, truncations, and compaction info
 - `analysis` (string): The AI's response (markdown format)
 - `conversation_history` (array): Complete conversation history including the latest response
-- `follow_up_actions` (array|null): Optional follow-up actions the user can take
-  - `id` (string): Unique identifier for the action
-  - `action_label` (string): Display label for the action
-  - `pre_action_notification_text` (string): Text to show before executing the action
-  - `prompt` (string): The prompt to send when the action is triggered
 
 ---
 
@@ -910,7 +895,6 @@ Emitted when the stream needs to pause for external action — either tool appro
 {
   "content": null,
   "conversation_history": [...],
-  "follow_up_actions": [...],
   "requires_approval": true,
   "pending_approvals": [
     {
@@ -934,7 +918,6 @@ Emitted when the stream needs to pause for external action — either tool appro
 
 - `content` (null): No AI content when approval is required
 - `conversation_history` (array): Current conversation state
-- `follow_up_actions` (array|null): Optional follow-up actions
 - `requires_approval` (boolean): Always true for this event
 - `pending_approvals` (array): List of tools awaiting user approval
   - `tool_call_id` (string): Unique identifier for the tool call
