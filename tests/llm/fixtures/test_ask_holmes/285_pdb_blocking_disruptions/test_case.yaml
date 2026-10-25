@@ -1,0 +1,50 @@
+user_prompt: "I need to drain nodes for maintenance in namespace app-285. Which PodDisruptionBudgets are currently blocking pod evictions?"
+
+expected_output:
+  - nimbus-worker-pdb and solstice-worker-pdb are the PodDisruptionBudgets currently blocking evictions, because each allows 0 disruptions while still guarding a running pod
+  - Must NOT report driftwood-worker-pdb as blocking. It also allows 0 disruptions, but it expects 0 pods because its deployment is scaled to zero, so it guards nothing and cannot block an eviction
+  - Must NOT report lighthouse-worker-pdb as blocking, since it currently allows a disruption
+
+tags:
+  - kubernetes
+  - hard
+
+before_test: |
+  set -e
+  kubectl apply -f ./manifest.yaml
+
+  # PDB status is written asynchronously by the disruption controller, and
+  # lighthouse-worker-pdb only allows a disruption once both of its replicas
+  # are ready - until then it is indistinguishable from a blocking budget.
+  # Wait for all four to settle so the expected answer is stable.
+  #
+  # currentHealthy is part of the state on purpose. disruptionsAllowed and
+  # expectedPods alone cannot tell a pending pod from a running one: nimbus
+  # reports disruptionsAllowed=0/expectedPods=1 both while its pod is still
+  # starting and once it is ready. The eval expects a *running* pod, so the
+  # gate has to assert that rather than infer it.
+  pdb_state() {
+    kubectl get pdb "$1" -n app-285 \
+      -o jsonpath='{.status.disruptionsAllowed}/{.status.currentHealthy}/{.status.expectedPods}' 2>/dev/null || true
+  }
+
+  SETTLED=false
+  for i in $(seq 1 90); do
+    if [ "$(pdb_state nimbus-worker-pdb)" = "0/1/1" ] \
+      && [ "$(pdb_state solstice-worker-pdb)" = "0/1/1" ] \
+      && [ "$(pdb_state driftwood-worker-pdb)" = "0/0/0" ] \
+      && [ "$(pdb_state lighthouse-worker-pdb)" = "1/2/2" ]; then
+      SETTLED=true
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$SETTLED" = false ]; then
+    echo "PodDisruptionBudget statuses did not settle:"
+    kubectl get pdb -n app-285
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-285 --ignore-not-found
