@@ -61,7 +61,6 @@ from holmes.core.conversations import (
 from holmes.core.models import (
     ChatRequest,
     ChatResponse,
-    FollowUpAction,
     OAuthCallbackRequest,
     OAuthCallbackResponse,
 )
@@ -523,16 +522,6 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def already_answered(conversation_history: Optional[List[dict]]) -> bool:
-    if conversation_history is None:
-        return False
-
-    for message in conversation_history:
-        if message["role"] == "assistant":
-            return True
-    return False
-
-
 def extract_passthrough_headers(request: Request) -> dict:
     """
     Extract pass-through headers from the request, excluding sensitive auth headers.
@@ -614,29 +603,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     prompt_component_overrides[PromptComponent(k.lower())] = v
                 except ValueError:
                     logging.warning(f"Unknown behavior_controls key '{k}', ignoring")
-
-        follow_up_actions = []
-        if not already_answered(chat_request.conversation_history):
-            follow_up_actions = [
-                FollowUpAction(
-                    id="logs",
-                    action_label="Logs",
-                    prompt="Show me the relevant logs",
-                    pre_action_notification_text="Fetching relevant logs...",
-                ),
-                FollowUpAction(
-                    id="graphs",
-                    action_label="Graphs",
-                    prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
-                    pre_action_notification_text="Drawing some graphs...",
-                ),
-                FollowUpAction(
-                    id="articles",
-                    action_label="Articles",
-                    prompt="List the relevant runbooks and links used. Write a short summary for each",
-                    pre_action_notification_text="Looking up and summarizing runbooks and links...",
-                ),
-            ]
 
         request_context = extract_passthrough_headers(http_request)
         if chat_request.user_id:
@@ -758,7 +724,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
             )
             stream = stream_chat_formatter(
                 recorded_stream,
-                [f.model_dump() for f in follow_up_actions],
                 model=chat_request.model or config.model,
             )
             return StreamingResponse(
@@ -845,7 +810,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
-                    follow_up_actions=follow_up_actions,
                     metadata=response_metadata,
                 )
                 return response
