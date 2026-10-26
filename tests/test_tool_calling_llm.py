@@ -36,6 +36,7 @@ from holmes.core.relay_refusal import RelayRefusal
 from holmes.core.tool_calling_llm import (
     LLMInterruptedError,
     ToolCallingLLM,
+    _normalise_tool_call_arguments,
 )
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tools_utils.tool_executor import ToolExecutor
@@ -2155,3 +2156,95 @@ class TestRepeatedCallsAfterOverflowingCompaction:
         results = _events_of_type(events, StreamEvents.TOOL_RESULT)
         assert ai._directly_invoke_tool_call.call_count == 2
         assert "already been called" in json.dumps(results[-1].data)
+
+class TestParameterlessToolCallArguments:
+    """A tool call without parameters must carry valid JSON when replayed.
+
+    Some providers answer a parameterless tool with empty ``arguments``; an
+    OpenAI-compatible gateway then refuses the assistant message on the next
+    request (#2653).
+    """
+
+    def test_empty_arguments_are_normalised_to_an_empty_object(self):
+        message = {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {"name": "kubectl_top_pods", "arguments": ""},
+                }
+            ],
+        }
+
+        _normalise_tool_call_arguments(message)
+
+        assert message["tool_calls"][0]["function"]["arguments"] == "{}"
+        assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {}
+
+    def test_missing_arguments_become_an_empty_object(self):
+        message = {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "kubectl_top_pods"}}
+            ],
+        }
+
+        _normalise_tool_call_arguments(message)
+
+        assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {}
+
+    def test_existing_arguments_are_untouched(self):
+        message = {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {"name": "kubectl_get", "arguments": '{"command": "kubectl get pods"}'},
+                }
+            ],
+        }
+
+        _normalise_tool_call_arguments(message)
+
+        assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {
+            "command": "kubectl get pods"
+        }
+
+    def test_message_without_tool_calls_is_untouched(self):
+        message = {"role": "assistant", "content": "done"}
+
+        _normalise_tool_call_arguments(message)
+
+        assert message == {"role": "assistant", "content": "done"}
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_records_parameterless_tool_call_with_empty_object(
+        self, _mock_limit, make_ai, mock_llm
+    ):
+        tc = MagicMock()
+        tc.id = "tc_top"
+        tc.function = MagicMock()
+        tc.function.name = "kubectl_top_pods"
+        tc.function.arguments = ""
+        resp_with_tool = _make_llm_response(content="Checking top pods", tool_calls=[tc])
+        resp_final = _make_llm_response(content="Done", tool_calls=None)
+        mock_llm.completion.side_effect = [resp_with_tool, resp_final]
+
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(
+            return_value=_make_tool_call_result(
+                tool_call_id="tc_top", tool_name="kubectl_top_pods"
+            )
+        )
+
+        result = ai.call([{"role": "user", "content": "top pods"}])
+
+        assistant_messages = [
+            m
+            for m in result.messages
+            if m.get("role") == "assistant" and m.get("tool_calls")
+        ]
+        assert assistant_messages, "assistant tool-call message missing from history"
+        assert assistant_messages[0]["tool_calls"][0]["function"]["arguments"] == "{}"

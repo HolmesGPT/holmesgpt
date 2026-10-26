@@ -131,6 +131,21 @@ def _extract_text_from_content(content: Any) -> str:
     return ""
 
 
+def _normalise_tool_call_arguments(message: Dict[str, Any]) -> None:
+    """Give a parameterless tool call valid JSON arguments, in place.
+
+    Some providers answer a tool that takes no parameters with an empty
+    ``arguments`` string (or leave it out). An empty string is not valid JSON,
+    and an OpenAI-compatible gateway can refuse the assistant message when the
+    tool call is replayed in the next request. ``{}`` means the same thing to
+    the model and survives the round trip.
+    """
+    for tool_call in message.get("tool_calls") or []:
+        function = tool_call.get("function") if isinstance(tool_call, dict) else None
+        if isinstance(function, dict) and not function.get("arguments"):
+            function["arguments"] = "{}"
+
+
 def _merge_choices(response: Any) -> None:
     """Fold multi-choice responses (e.g. Responses API) into choices[0]."""
     choices = response.choices
@@ -1459,11 +1474,11 @@ class ToolCallingLLM:
 
             response_message = full_response.choices[0].message  # type: ignore
 
-            messages.append(
-                response_message.model_dump(
-                    exclude_defaults=True, exclude_unset=True, exclude_none=True
-                )
+            dumped_message = response_message.model_dump(
+                exclude_defaults=True, exclude_unset=True, exclude_none=True
             )
+            _normalise_tool_call_arguments(dumped_message)
+            messages.append(dumped_message)
 
             yield self._emit_token_count(
                 messages, tools, full_response, limit_result, metadata, stats
