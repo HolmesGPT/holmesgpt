@@ -22,6 +22,12 @@ CLEANUP_COMPLETED_CHECKS = load_bool("CLEANUP_COMPLETED_CHECKS", False)
 COMPLETED_CHECK_TTL_HOURS = int(os.getenv("COMPLETED_CHECK_TTL_HOURS", "24"))
 ENABLE_JSON_LOGS_FORMAT = load_bool("ENABLE_JSON_LOGS_FORMAT", False)
 
+# When set, the operator watches only this namespace instead of the whole
+# cluster. Enables deployment in multi-tenant/restricted clusters where the
+# operator lacks cluster-scoped RBAC. Unset (the default) keeps cluster-wide
+# behavior. An empty string is treated as unset.
+HOLMES_OPERATOR_NAMESPACE = os.getenv("HOLMES_OPERATOR_NAMESPACE") or None
+
 
 @dataclass
 class OperatorConfig:
@@ -39,6 +45,9 @@ class OperatorConfig:
     cleanup_completed_checks: bool
     completed_check_ttl_hours: int
 
+    # Scope: None means cluster-wide, a namespace name means namespace-scoped
+    operator_namespace: Optional[str] = None
+
     @classmethod
     def load(cls) -> "OperatorConfig":
         """Load configuration from environment variables."""
@@ -49,4 +58,5 @@ class OperatorConfig:
             max_history_items=MAX_HISTORY_ITEMS,
             cleanup_completed_checks=CLEANUP_COMPLETED_CHECKS,
             completed_check_ttl_hours=COMPLETED_CHECK_TTL_HOURS,
+            operator_namespace=HOLMES_OPERATOR_NAMESPACE,
         )

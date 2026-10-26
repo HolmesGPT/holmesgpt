@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Optional
 
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -24,15 +24,24 @@ class SchedulerManager:
     - Handle catchup for missed executions
     """
 
-    def __init__(self, timezone_str: str, k8s_api: client.CustomObjectsApi):
+    def __init__(
+        self,
+        timezone_str: str,
+        k8s_api: client.CustomObjectsApi,
+        namespace: Optional[str] = None,
+    ) -> None:
         """
         Initialize scheduler manager.
 
         Args:
             timezone_str: Timezone for cron scheduling (e.g., "UTC", "America/New_York")
             k8s_api: Kubernetes API client for querying ScheduledHealthCheck resources
+            namespace: When set, load ScheduledHealthChecks from this namespace only
+                (namespace-scoped mode). When None, load from all namespaces
+                (cluster-wide mode).
         """
         self.k8s_api = k8s_api
+        self.namespace = namespace
         self.scheduler = AsyncIOScheduler(
             timezone=timezone_str,
             jobstores={"default": MemoryJobStore()},
@@ -170,14 +179,25 @@ class SchedulerManager:
         """
         logger.info("Loading existing ScheduledHealthCheck resources...")
 
-        # List all ScheduledHealthCheck resources across all namespaces
+        # List existing ScheduledHealthCheck resources. In namespace-scoped mode
+        # we list within the single namespace (namespaced RBAC); otherwise we
+        # list across the whole cluster.
         # Let exceptions propagate - inability to access Kubernetes API is a critical failure
-        resources = await asyncio.to_thread(
-            self.k8s_api.list_cluster_custom_object,
-            group="holmesgpt.dev",
-            version="v1alpha1",
-            plural="scheduledhealthchecks",
-        )
+        if self.namespace:
+            resources = await asyncio.to_thread(
+                self.k8s_api.list_namespaced_custom_object,
+                group="holmesgpt.dev",
+                version="v1alpha1",
+                namespace=self.namespace,
+                plural="scheduledhealthchecks",
+            )
+        else:
+            resources = await asyncio.to_thread(
+                self.k8s_api.list_cluster_custom_object,
+                group="holmesgpt.dev",
+                version="v1alpha1",
+                plural="scheduledhealthchecks",
+            )
 
         items = resources.get("items", [])
         logger.info(f"Found {len(items)} ScheduledHealthCheck resources")
