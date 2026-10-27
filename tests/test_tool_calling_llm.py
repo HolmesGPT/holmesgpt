@@ -2194,6 +2194,22 @@ class TestParameterlessToolCallArguments:
 
         assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {}
 
+    def test_whitespace_only_arguments_become_an_empty_object(self):
+        message = {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {"name": "kubectl_top_pods", "arguments": "   "},
+                }
+            ],
+        }
+
+        _normalise_tool_call_arguments(message)
+
+        assert message["tool_calls"][0]["function"]["arguments"] == "{}"
+
     def test_existing_arguments_are_untouched(self):
         message = {
             "role": "assistant",
