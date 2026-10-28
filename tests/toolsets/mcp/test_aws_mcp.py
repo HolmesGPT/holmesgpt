@@ -1,5 +1,6 @@
 """Tests for the hosted AWS MCP Server toolset (SigV4-signed streamable-http)."""
 
+import datetime
 import json
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,7 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import (
 
 ENDPOINT = "https://aws-mcp.us-east-1.api.aws/mcp"
 FAKE_CREDENTIALS = Credentials("AKIAEXAMPLE", "secret", "session-token")
+SIGNING_TIME = datetime.datetime(2026, 1, 1, 12, 0, 0)
 TOOL_CALL = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -74,7 +76,10 @@ def test_streamable_http_mode_keeps_plain_toolset():
 
 
 @respx.mock
-async def test_requests_are_signed_after_region_metadata_injection():
+# Both signings stamp X-Amz-Date from this clock; a second rollover between
+# them changes the expected signature.
+@patch("botocore.auth.get_current_datetime", return_value=SIGNING_TIME)
+async def test_requests_are_signed_after_region_metadata_injection(_clock):
     route = respx.post(ENDPOINT).mock(return_value=httpx.Response(200, json={}))
     config = AwsMCPConfig(region="us-east-1", profile="prod")
     with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session") as session:
