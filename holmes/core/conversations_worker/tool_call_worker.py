@@ -132,7 +132,9 @@ def serialize_tool_response(
             max_bytes,
         )
         payload["images"] = None
-        data = _text_with_omission_note(data, size, len(images), images_size, max_bytes)
+        data = _text_with_omission_note(
+            data, size, len(images), images_size, max_bytes, tool_call_id
+        )
         payload["data"] = data
 
     if len(data) > compress_threshold:
@@ -148,15 +150,20 @@ def serialize_tool_response(
 
 
 def _text_with_omission_note(
-    data: str, size: int, count: int, images_size: int, max_bytes: int
+    data: str,
+    size: int,
+    count: int,
+    images_size: int,
+    max_bytes: int,
+    tool_call_id: str,
 ) -> str:
     """``data`` plus a note that ``count`` images were left out, within
     ``max_bytes``: text that leaves no room for the note loses its tail
     instead, and the note says so."""
     note = (
-        f"\n\n[{count} image(s) ({images_size} bytes) omitted: the result "
-        f"would exceed the {max_bytes}-byte limit of a remote tool call; "
-        "narrow the request for a smaller image"
+        f"\n\n[{count} image(s) ({images_size} bytes) omitted from tool call "
+        f"{tool_call_id or '?'}: the result would exceed the {max_bytes}-byte "
+        "limit of a remote tool call; narrow the request for a smaller image"
     )
     if size + len(note) + 1 <= max_bytes:
         return data + note + "]"

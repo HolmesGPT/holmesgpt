@@ -114,7 +114,9 @@ def test_images_over_the_cap_are_dropped_and_the_text_says_so(caplog):
     p = serialize_tool_response(result, 0.1, max_bytes=1000, tool_call_id="call-7")
     assert p["status"] == StructuredToolResultStatus.SUCCESS.value
     assert p["images"] is None
-    assert p["data"].startswith("small text\n\n[1 image(s) (996 bytes) omitted")
+    assert p["data"].startswith(
+        "small text\n\n[1 image(s) (996 bytes) omitted from tool call call-7:"
+    )
     assert "1000-byte limit" in p["data"]
     assert "remote tool call call-7: dropping 1 image" in caplog.text
 
