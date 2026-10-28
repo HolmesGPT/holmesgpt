@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import List, Optional
 
 import colorlog
-import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_oauth_callback
@@ -54,6 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.llm_rate_limit import is_rate_limit_error
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
@@ -833,9 +833,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
     except Exception as e:
+        if is_rate_limit_error(e):
+            raise HTTPException(status_code=429, detail=getattr(e, "message", str(e)))
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -943,8 +943,10 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     return resp
 
 
+# async so it runs on the event loop: the threadpool can be full of chats
+# waiting on the LLM, and a liveness probe that times out restarts the pod.
 @app.get("/healthz")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
 
