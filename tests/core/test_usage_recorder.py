@@ -16,9 +16,15 @@ object the recorder passed in.
 from typing import List
 from unittest.mock import MagicMock
 
+import httpx
 import litellm
 import pytest
 
+from holmes.core.llm_usage import (
+    RequestStats,
+    attach_request_usage,
+    attach_unrecorded_usage,
+)
 from holmes.core.models import ChatRequest
 from holmes.core.usage_recorder import (
     build_chat_recorder_state,
@@ -233,6 +239,79 @@ class TestStreamWithUsageRecording:
         assert s.status == "error"
         # And the tool we saw before the exception was counted
         assert s.tool_call_count == 1
+        assert s.meta["error_class"] == "RuntimeError"
+
+    def test_streamed_error_mentioning_rate_and_limit_is_an_error(self, monkeypatch):
+        """Only record_error keeps the legacy text match; "generate" and
+        "limit" in a streamed error are not a rate limit."""
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+
+        def failing_stream():
+            yield StreamMessage(event=StreamEvents.TOOL_RESULT, data={"tool_name": "kubectl"})
+            raise RuntimeError("could not generate a reply: output limit was reached")
+
+        with pytest.raises(RuntimeError):
+            list(stream_with_usage_recording(failing_stream(), state))
+
+        assert _state_arg(state).status == "error"
+
+    def test_rate_limit_escaping_the_stream_is_rate_limited(self, monkeypatch):
+        """Retries from earlier iterations (TOKEN_COUNT costs) and from the
+        failing call (on the exception) are both counted."""
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        exc = litellm.RateLimitError(
+            message="slow down", llm_provider="openai", model="gpt-4.1"
+        )
+        exc.llm_rate_limit_retries = 3
+        exc.llm_rate_limit_wait_ms = 9000
+
+        def failing_stream():
+            yield StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={
+                    "metadata": {
+                        "costs": {
+                            "total_tokens": 100,
+                            "llm_rate_limit_retries": 1,
+                            "llm_rate_limit_wait_ms": 2000,
+                        }
+                    }
+                },
+            )
+            raise exc
+
+        with pytest.raises(litellm.RateLimitError):
+            list(stream_with_usage_recording(failing_stream(), state))
+
+        s = _state_arg(state)
+        assert s.status == "rate_limited"
+        assert s.meta == {
+            "error_class": "RateLimitError",
+            "error_status_code": 429,
+            "error_provider": "openai",
+        }
+        assert s.stats.total_tokens == 100
+        assert s.stats.llm_rate_limit_retries == 4
+        assert s.stats.llm_rate_limit_wait_ms == 11000
+
+    def test_error_after_terminal_event_keeps_terminal_status(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+
+        def stream():
+            yield StreamMessage(
+                event=StreamEvents.ANSWER_END, data=_terminal_data({"total_tokens": 5})
+            )
+            raise RuntimeError("rate limit after the answer")
+
+        with pytest.raises(RuntimeError):
+            list(stream_with_usage_recording(stream(), state))
+
+        s = _state_arg(state)
+        assert s.status == "success"
+        assert s.meta["error_class"] == "RuntimeError"
 
     def test_token_count_event_captures_cumulative_costs(self, monkeypatch):
         """TOKEN_COUNT events broadcast the running cost after each
@@ -298,7 +377,6 @@ class TestStreamWithUsageRecording:
         assert s.stats.total_tokens == 1700
         assert s.stats.prompt_tokens == 1500
         assert s.stats.total_cost == pytest.approx(0.012)
-        # Status correctly marked as error.
         assert s.status == "error"
         # Tool calls before the exception were counted.
         assert s.tool_call_count == 2
@@ -495,6 +573,164 @@ class TestRecordError:
         state = _make_state()
         record_error(state, ValueError("invalid model"))
         assert _state_arg(state).status == "error"
+
+    def test_records_error_class_and_retries_of_exhausted_rate_limit(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state(meta={"experiment_id": "abc"})
+        exc = litellm.RateLimitError(
+            message="slow down",
+            llm_provider="openai",
+            model="gpt-4.1",
+            response=httpx.Response(429),
+        )
+        exc.llm_rate_limit_retries = 4
+        exc.llm_rate_limit_wait_ms = 170000
+
+        record_error(state, exc)
+
+        s = _state_arg(state)
+        assert s.status == "rate_limited"
+        assert s.meta == {
+            "experiment_id": "abc",
+            "error_class": "RateLimitError",
+            "error_status_code": 429,
+            "error_provider": "openai",
+        }
+        assert s.stats.llm_rate_limit_retries == 4
+        assert s.stats.llm_rate_limit_wait_ms == 170000
+
+    def test_retries_found_on_a_wrapped_error(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        cause = litellm.RateLimitError(
+            message="slow down", llm_provider="openai", model="m"
+        )
+        cause.llm_rate_limit_retries = 2
+        cause.llm_rate_limit_wait_ms = 4000
+        wrapped = RuntimeError("interrupted")
+        wrapped.__cause__ = cause
+        record_error(state, wrapped)
+        assert _state_arg(state).stats.llm_rate_limit_retries == 2
+        assert _state_arg(state).stats.llm_rate_limit_wait_ms == 4000
+
+    def test_service_unavailable_is_an_error_with_its_status(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        exc = litellm.ServiceUnavailableError(
+            message="BedrockException - unable to process", llm_provider="bedrock", model="m"
+        )
+        exc.llm_rate_limit_retries = 5
+        record_error(state, exc)
+        s = _state_arg(state)
+        assert s.status == "error"
+        assert s.meta["error_class"] == "ServiceUnavailableError"
+        assert s.meta["error_status_code"] == 503
+        assert s.stats.llm_rate_limit_retries == 5
+
+    def test_refused_compaction_usage_is_recorded(self, monkeypatch):
+        """The usage of chunks summarized before the refusal was billed."""
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        exc = litellm.RateLimitError(message="slow down", llm_provider="openai", model="m")
+        exc.llm_rate_limit_retries = 2
+        attach_unrecorded_usage(
+            exc,
+            RequestStats(total_tokens=180000, prompt_tokens=179000, llm_rate_limit_retries=5),
+        )
+        record_error(state, exc)
+        s = _state_arg(state)
+        assert s.status == "rate_limited"
+        assert s.stats.total_tokens == 180000
+        assert s.stats.llm_rate_limit_retries == 5
+
+    def test_usage_carried_on_a_wrapped_error_is_recorded(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        cause = litellm.RateLimitError(message="slow down", llm_provider="openai", model="m")
+        attach_unrecorded_usage(cause, RequestStats(total_tokens=1000, prompt_tokens=1000))
+        try:
+            try:
+                raise cause
+            except litellm.RateLimitError as e:
+                raise RuntimeError("wrapped") from e
+        except RuntimeError as wrapped:
+            record_error(state, wrapped)
+        assert _state_arg(state).stats.total_tokens == 1000
+
+    def test_request_usage_replaces_the_last_token_count(self, monkeypatch):
+        """It is the request's total so far, which the last TOKEN_COUNT lags behind."""
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        error = RuntimeError("main call failed")
+        attach_request_usage(error, RequestStats(total_tokens=900, prompt_tokens=900))
+
+        def stream():
+            yield StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={"metadata": {"costs": {"total_tokens": 400}}},
+            )
+            raise error
+
+        with pytest.raises(RuntimeError):
+            list(stream_with_usage_recording(stream(), state))
+        assert _state_arg(state).stats.total_tokens == 900
+
+    def test_unrecorded_usage_adds_to_the_last_token_count(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        error = RuntimeError("compaction failed")
+        attach_unrecorded_usage(error, RequestStats(total_tokens=500, prompt_tokens=500))
+
+        def stream():
+            yield StreamMessage(
+                event=StreamEvents.TOKEN_COUNT,
+                data={"metadata": {"costs": {"total_tokens": 400}}},
+            )
+            raise error
+
+        with pytest.raises(RuntimeError):
+            list(stream_with_usage_recording(stream(), state))
+        assert _state_arg(state).stats.total_tokens == 900
+
+    def test_suppressed_context_is_not_searched(self, monkeypatch):
+        """An earlier, handled error's usage must not be charged to a new one."""
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        old = RuntimeError("handled earlier")
+        attach_unrecorded_usage(old, RequestStats(total_tokens=123, prompt_tokens=123))
+        try:
+            try:
+                raise old
+            except RuntimeError:
+                raise ValueError("new failure") from None
+        except ValueError as new:
+            record_error(state, new)
+        assert _state_arg(state).stats.total_tokens == 0
+
+    def test_overloaded_is_an_error_with_its_status(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        record_error(
+            state,
+            litellm.InternalServerError(
+                message='{"type": "error", "error": {"type": "overloaded_error"}}',
+                llm_provider="anthropic",
+                model="claude-sonnet-4-5",
+            ),
+        )
+        s = _state_arg(state)
+        assert s.status == "error"
+        # ErrorInfo reports the HTTP status litellm gives the overload (500).
+        assert s.meta["error_class"] == "InternalServerError"
+        assert s.meta["error_provider"] == "anthropic"
+
+    def test_error_without_status_code(self, monkeypatch):
+        _patch_inline_thread(monkeypatch)
+        state = _make_state()
+        record_error(state, ValueError("invalid model"))
+        s = _state_arg(state)
+        assert s.meta == {"error_class": "ValueError"}
+        assert s.stats.llm_rate_limit_retries == 0
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -629,19 +629,37 @@ kubectl -n <dex-namespace> rollout restart deployment/dex
 kubectl -n <dex-namespace> rollout status deployment/dex
 ```
 
-??? info "API server uses a different Dex client ID (for example, Dex is already used for `kubectl` login)?"
-    The API server only accepts Dex tokens whose audience includes its own OIDC client ID, and Holmes's tokens carry `mcp-k8s`. To keep the API server unchanged, let Holmes request tokens for that client too:
+### Step 2: Let the API server accept Holmes's tokens
 
-    1. In your Dex config, add `trustedPeers: ["mcp-k8s"]` to the client the API server uses (for example `kubernetes`), and restart Dex.
-    2. In Step 3, add `"audience:server:client_id:kubernetes"` to Holmes's `oauth.scopes`.
+The API server only accepts a Dex token whose audience (`aud`) includes the API server's own OIDC client ID, the value of its `--oidc-client-id` flag. Holmes's tokens are issued to the `mcp-k8s` client from Step 1, so check which client ID your API server uses (kubeadm; on managed clusters, check the cluster's OIDC settings):
 
-    Dex then issues tokens with both `kubernetes` and `mcp-k8s` in `aud`, so the API server and the MCP server both accept them. To find the client ID your API server uses (kubeadm):
+```bash
+kubectl get pod -n kube-system -l component=kube-apiserver -o yaml | grep oidc-client-id
+```
 
-    ```bash
-    kubectl get pod -n kube-system -l component=kube-apiserver -o yaml | grep oidc-client-id
-    ```
+- **It is `mcp-k8s`:** nothing to do, continue with Step 3.
+- **It is another client ID** (for example `kubernetes`, because Dex is already used for `kubectl` login): make that client trust `mcp-k8s` as a peer, as described below. The API server stays unchanged.
 
-### Step 2: Store the client secret
+**Trust `mcp-k8s` on the API server's client**
+
+`trustedPeers` goes on the client the API server uses, not on `mcp-k8s`. It lists the other clients that are allowed to request tokens for this client. Edit that client in your Dex config (its other fields stay as they are) and restart Dex:
+
+```yaml
+staticClients:
+  - id: kubernetes          # the --oidc-client-id value you found above
+    # ...existing name, secret and redirectURIs stay unchanged...
+    trustedPeers:
+      - mcp-k8s
+```
+
+```bash
+kubectl -n <dex-namespace> rollout restart deployment/dex
+kubectl -n <dex-namespace> rollout status deployment/dex
+```
+
+Then, in Step 4, uncomment the `audience:server:client_id:<API_SERVER_CLIENT_ID>` scope and replace the placeholder with the client ID you found. Holmes then asks Dex for tokens that name both clients, so the API server and the MCP server both accept them.
+
+### Step 3: Store the client secret
 
 Create a Kubernetes secret, in the namespace Holmes runs in, with the client secret from Step 1:
 
@@ -652,7 +670,7 @@ kubectl create secret generic mcp-k8s-credentials \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### Step 3: Deploy
+### Step 4: Deploy
 
 Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.example.com`). All three Dex URLs below derive from the `issuer` in your Dex config: the server-side `authorization_url` is the issuer itself, and the Holmes-side `authorization_url` and `token_url` are the issuer followed by `/auth` and `/token`. The `offline_access` scope lets Dex issue refresh tokens, so users don't have to sign in again every time their token expires. Some connectors ignore it, notably the SAML connector.
 
@@ -712,6 +730,8 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
               - "email"
               - "groups"
               - "offline_access"
+              # Only if Step 2 applied (API server client ID is not mcp-k8s):
+              # - "audience:server:client_id:<API_SERVER_CLIENT_ID>"
     ```
 
     Apply the configuration:
@@ -777,6 +797,8 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
                 - "email"
                 - "groups"
                 - "offline_access"
+                # Only if Step 2 applied (API server client ID is not mcp-k8s):
+                # - "audience:server:client_id:<API_SERVER_CLIENT_ID>"
     ```
 
     Apply the configuration:
@@ -784,6 +806,8 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
     ```bash
     helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
     ```
+
+The MCP server logs at level 1 by default. If sign-in fails, raise `mcpAddons.kubernetes.config.logLevel` (0-9, for example `3`) and read the `k8s-mcp-server` pod logs.
 
 ### Optional: Dex behind a private CA
 
@@ -805,7 +829,7 @@ base64 -i dex-ca.pem | tr -d '\n'
 
 The MCP server takes the CA as PEM (the contents of `dex-ca.pem`) in `certificateAuthority`. The chart mounts it at `/etc/kubernetes-mcp-ca/ca.crt`, and `certificate_authority` in `serverConfig` points the server at that file. If `ca.crt` is an intermediate CA, use the root CA for Holmes's `certificate`.
 
-Merge these into your values from Step 3:
+Merge these into your values from Step 4:
 
 === "Holmes Helm Chart"
 
@@ -864,6 +888,55 @@ Merge these into your values from Step 3:
               authorization_url = "<DEX_ISSUER_URL>"
               oauth_audience = "mcp-k8s"
               certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+## Choose Toolsets and Disable Tools
+
+The MCP server enables the `core` (pods, resources, events, nodes, namespaces) and `config` (kubeconfig and contexts) toolsets by default. To enable others, set `toolsets` to a comma-separated list; the [available toolsets](https://github.com/containers/kubernetes-mcp-server#available-toolsets) include `helm`, `tekton` and `kubevirt`.
+
+To hide individual tools, list them in `disabled_tools` in `serverConfig`. For example, `nodes_log` is a `core` tool and `configuration_view` is a `config` tool. Tool names are in the [list of all tools](https://github.com/containers/kubernetes-mcp-server#tools-and-functionalities). If you already set `serverConfig` (for example in a per-user auth setup above), add the `disabled_tools` line to it.
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      kubernetes:
+        config:
+          # Optional: default is "core,config"
+          toolsets: "core,config,helm"
+
+          serverConfig: |
+            disabled_tools = ["nodes_log", "configuration_view"]
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        kubernetes:
+          config:
+            # Optional: default is "core,config"
+            toolsets: "core,config,helm"
+
+            serverConfig: |
+              disabled_tools = ["nodes_log", "configuration_view"]
     ```
 
     Apply the configuration:

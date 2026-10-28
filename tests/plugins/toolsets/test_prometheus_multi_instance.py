@@ -49,6 +49,22 @@ class TestPrometheusFlat:
         assert not any(isinstance(t, ListInstancesTool) for t in ts.tools)
         assert all(INSTANCE_PARAM_NAME not in t.parameters for t in ts.tools)
 
+    def test_subtype_forwarded_to_child(self):
+        ts = multi_instance(PrometheusToolset)
+        ts.subtype = "coralogix"
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
+            _mock_prom(rsps)
+            ok, _ = ts.prerequisites_callable({"prometheus_url": A})
+        assert ok is True
+        assert type(ts._children["default"].config).__name__ == "CoralogixPrometheusConfig"
+
+    def test_invalid_subtype_fails(self):
+        ts = multi_instance(PrometheusToolset)
+        ts.subtype = "victoria-metrics"
+        ok, msg = ts.prerequisites_callable({"prometheus_url": A})
+        assert ok is False
+        assert "Unknown prometheus subtype" in msg
+
 
 class TestPrometheusMultiInstance:
     def _build(self, rsps):

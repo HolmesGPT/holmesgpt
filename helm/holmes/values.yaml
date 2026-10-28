@@ -893,8 +893,9 @@ mcpAddons:
       # Available: config, core, helm, tekton, kubevirt, kiali, kcp
       # Default (empty): enables "config" and "core" toolsets
       toolsets: ""
-      # Log level (0-9, similar to kubectl verbosity)
-      logLevel: ""
+      # Log level (0-9, similar to kubectl verbosity). Defaults to 1; the
+      # server's own default is 0. Raise it (e.g. 3) when debugging OAuth/OIDC.
+      logLevel: 1
       # Extra CLI arguments to pass to the server
       extraArgs: []
       # Kubeconfig secret for connecting to external clusters

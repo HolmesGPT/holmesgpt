@@ -34,8 +34,10 @@ def _helm_template(*extra_args):
     return [doc for doc in yaml.safe_load_all(result.stdout) if doc]
 
 
-def _render(tmp_path, ca_pem=None, server_config=None):
+def _render(tmp_path, ca_pem=None, server_config=None, extra_set=()):
     args = ["--show-only", TEMPLATE]
+    for value in extra_set:
+        args += ["--set", value]
     if server_config is not None:
         config_file = tmp_path / "server-config.toml"
         config_file.write_text(server_config)
@@ -152,6 +154,7 @@ def test_kubeconfig_runs_the_server_inside_the_holmes_pod(tmp_path):
         "command": "/opt/k8s-mcp/kubernetes-mcp-server",
         "args": [
             "--read-only",
+            "--log-level", "1",
             "--config", "/etc/kubernetes-mcp/config.toml",
             "--kubeconfig", "/etc/kubernetes/kubeconfig",
             "--cluster-provider", "kubeconfig",
@@ -177,3 +180,17 @@ def test_kubeconfig_with_oauth_enabled_is_refused():
     assert "config.oauth needs the server as its own Deployment" in error.value.stderr
     # A disabled oauth block is OAuth off, as Holmes reads it.
     _helm_template(*KUBECONFIG_SET, "--set", "mcpAddons.kubernetes.config.oauth.enabled=false")
+
+
+def _args(docs):
+    return _pod(docs)["containers"][0]["args"]
+
+
+def test_log_level_defaults_to_one(tmp_path):
+    args = _args(_render(tmp_path))
+    assert args[args.index("--log-level") + 1] == "1"
+
+
+def test_log_level_can_be_overridden(tmp_path):
+    args = _args(_render(tmp_path, extra_set=["mcpAddons.kubernetes.config.logLevel=3"]))
+    assert args[args.index("--log-level") + 1] == "3"

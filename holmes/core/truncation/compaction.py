@@ -15,7 +15,12 @@ from pydantic import BaseModel
 from tenacity import Retrying, retry_if_exception, stop_after_attempt
 
 from holmes.core.llm import LLM
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import (
+    LLMRetryCancelled,
+    is_provider_capacity_error,
+    retry_counts,
+)
+from holmes.core.llm_usage import RequestStats, attach_unrecorded_usage
 from holmes.plugins.prompts import load_and_render_prompt
 
 
@@ -217,6 +222,9 @@ _CONTEXT_LENGTH_ERROR = re.compile(
 
 def _is_context_length_error(error: BaseException) -> bool:
     """Whether a provider rejected the request for exceeding its context window."""
+    # Bedrock throttling says "Too many tokens, please wait before trying again."
+    if is_provider_capacity_error(error):
+        return False
     return isinstance(error, ContextWindowExceededError) or bool(
         _CONTEXT_LENGTH_ERROR.search(str(error))
     )
@@ -322,6 +330,10 @@ def _summarize_in_chunks(
     retrying = Retrying(
         retry=retry_if_exception(_is_context_length_error),
         stop=stop_after_attempt(_MAX_SUMMARIZATION_ATTEMPTS) | (lambda _: sent == 1),
+        # A rejected attempt may have backed off from rate limits first.
+        before_sleep=lambda state: _add_retry_counts(
+            usage, state.outcome.exception() if state.outcome else None
+        ),
         reraise=True,
     )
     while next_part < len(parts):
@@ -347,6 +359,21 @@ def _summarize_in_chunks(
         if not summary:
             raise ValueError(f"summarization request {requests} returned no text")
     return summary, requests
+
+
+def _add_retry_counts(usage: RequestStats, error: Optional[BaseException]) -> None:
+    if error is not None:
+        usage += RequestStats(**retry_counts(error))
+
+
+def _raise_if_cancelled_or_refused(error: Exception, usage: RequestStats) -> None:
+    """Count the failed call's retries, then re-raise a cancellation, or a
+    capacity refusal: the call already retried it, and the fallback would only
+    hit the same limit again. The usage billed so far rides on the error."""
+    _add_retry_counts(usage, error)
+    if isinstance(error, LLMRetryCancelled) or is_provider_capacity_error(error):
+        attach_unrecorded_usage(error, usage)
+        raise error
 
 
 def compact_conversation_history(
@@ -453,6 +480,7 @@ def compact_conversation_history(
             else:
                 summarization_requests = 1
         except Exception as e:
+            _raise_if_cancelled_or_refused(e, compaction_usage)
             fallback_reason = f"summarization request failed: {e}"
             history_overflowed = _is_context_length_error(e)
 
@@ -476,6 +504,7 @@ def compact_conversation_history(
                 flattened_history, llm, input_budget, instructions_message, compaction_usage
             )
         except Exception as e:
+            _raise_if_cancelled_or_refused(e, compaction_usage)
             # Degrade gracefully via the empty-summary path below (original
             # history returned unchanged) instead of aborting the whole turn.
             fallback_reason = f"{fallback_reason}; fallback summarization failed: {e}"
