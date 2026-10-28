@@ -12,6 +12,15 @@ toolsets:
     # Note: Log tools use transformers with llm_summarize to automatically
     # summarize large log outputs when a fast model is configured. This helps
     # focus on errors, patterns, and key information while reducing context usage.
+    #
+    # Note: Tools that read current (non-previous) logs accept an OPTIONAL
+    # `since` parameter that maps to `kubectl logs --since`. It takes a relative
+    # duration (e.g. "1h", "30m", "10s") - NOT an absolute timestamp. When the
+    # user's prompt references a timeframe (e.g. "logs from the last hour",
+    # "the last 15 minutes"), pass the matching duration to bound the query.
+    # This avoids fetching unbounded logs and repeatedly re-running kubectl on
+    # large/busy clusters, which can overload the API server. When no timeframe
+    # is given, omit `since` and all logs are returned as before.
 
     tools:
       - name: "kubectl_previous_logs"
@@ -27,8 +36,19 @@ toolsets:
         command: "kubectl logs {{pod_name}} -c {{container_name}} -n {{ namespace }} --previous"
 
       - name: "kubectl_logs"
-        description: "Run `kubectl logs` on a single Kubernetes pod. Never give a deployment name or a resource that is not a pod."
-        command: "kubectl logs {{pod_name}} -n {{ namespace }}"
+        description: "Run `kubectl logs` on a single Kubernetes pod. Never give a deployment name or a resource that is not a pod. Optionally provide `since` (a relative duration like 1h, 30m, 10s) to only return recent logs - do this whenever the user mentions a timeframe, to avoid fetching unbounded logs on large or busy clusters."
+        parameters:
+          pod_name:
+            type: string
+            required: true
+          namespace:
+            type: string
+            required: true
+          since:
+            type: string
+            required: false
+            description: "Optional relative duration (e.g. 1h, 30m, 10s). Only logs newer than this are returned (maps to `kubectl logs --since`). Extract from the user's prompt when a timeframe is mentioned; omit otherwise. Use a duration, not an absolute timestamp."
+        command: "kubectl logs {{pod_name}} -n {{ namespace }}{% if since %} --since={{ since }}{% endif %}"
         transformers:
           - name: llm_summarize
             config:
@@ -45,8 +65,19 @@ toolsets:
                 - Include grep-ready keys/values; avoid repeating entire logs or unchanged defaults
 
       - name: "kubectl_logs_all_containers"
-        description: "Run `kubectl logs` on all containers within a single Kubernetes pod."
-        command: "kubectl logs {{pod_name}} -n {{ namespace }} --all-containers"
+        description: "Run `kubectl logs` on all containers within a single Kubernetes pod. Optionally provide `since` (a relative duration like 1h, 30m) to only return recent logs when the user mentions a timeframe."
+        parameters:
+          pod_name:
+            type: string
+            required: true
+          namespace:
+            type: string
+            required: true
+          since:
+            type: string
+            required: false
+            description: "Optional relative duration (e.g. 1h, 30m, 10s). Only logs newer than this are returned (maps to `kubectl logs --since`). Extract from the user's prompt when a timeframe is mentioned; omit otherwise. Use a duration, not an absolute timestamp."
+        command: "kubectl logs {{pod_name}} -n {{ namespace }} --all-containers{% if since %} --since={{ since }}{% endif %}"
         transformers:
           - name: llm_summarize
             config:
@@ -63,13 +94,55 @@ toolsets:
                 - Prioritize aggregates and actionable outliers over comprehensive details
 
       - name: "kubectl_container_logs"
-        description: "Run `kubectl logs` on a single container within a Kubernetes pod. This is to get the logs of a specific container in a multi-container pod."
-        command: "kubectl logs {{pod_name}} -c {{container_name}} -n {{ namespace }} "
+        description: "Run `kubectl logs` on a single container within a Kubernetes pod. This is to get the logs of a specific container in a multi-container pod. Optionally provide `since` (a relative duration like 1h, 30m) to only return recent logs when the user mentions a timeframe."
+        parameters:
+          pod_name:
+            type: string
+            required: true
+          container_name:
+            type: string
+            required: true
+          namespace:
+            type: string
+            required: true
+          since:
+            type: string
+            required: false
+            description: "Optional relative duration (e.g. 1h, 30m, 10s). Only logs newer than this are returned (maps to `kubectl logs --since`). Extract from the user's prompt when a timeframe is mentioned; omit otherwise. Use a duration, not an absolute timestamp."
+        command: "kubectl logs {{pod_name}} -c {{container_name}} -n {{ namespace }}{% if since %} --since={{ since }}{% endif %}"
 
       - name: "kubectl_logs_grep"
-        description: "Search for a specific term in the logs of a single Kubernetes pod. Only provide a pod name, not a deployment or other resource."
-        command: "kubectl logs {{ pod_name }} -n {{ namespace }} | grep {{ search_term }}"
+        description: "Search for a specific term in the logs of a single Kubernetes pod. Only provide a pod name, not a deployment or other resource. Optionally provide `since` (a relative duration like 1h, 30m) to bound the search to recent logs."
+        parameters:
+          pod_name:
+            type: string
+            required: true
+          namespace:
+            type: string
+            required: true
+          search_term:
+            type: string
+            required: true
+          since:
+            type: string
+            required: false
+            description: "Optional relative duration (e.g. 1h, 30m, 10s). Only logs newer than this are searched (maps to `kubectl logs --since`). Extract from the user's prompt when a timeframe is mentioned; omit otherwise. Use a duration, not an absolute timestamp."
+        command: "kubectl logs {{ pod_name }} -n {{ namespace }}{% if since %} --since={{ since }}{% endif %} | grep {{ search_term }}"
 
       - name: "kubectl_logs_all_containers_grep"
-        description: "Search for a specific term in the logs of a single Kubernetes pod across all of its containers. Only provide a pod name, not a deployment or other resource."
-        command: "kubectl logs {{pod_name}} -n {{ namespace }} --all-containers | grep {{ search_term }}"
+        description: "Search for a specific term in the logs of a single Kubernetes pod across all of its containers. Only provide a pod name, not a deployment or other resource. Optionally provide `since` (a relative duration like 1h, 30m) to bound the search to recent logs."
+        parameters:
+          pod_name:
+            type: string
+            required: true
+          namespace:
+            type: string
+            required: true
+          search_term:
+            type: string
+            required: true
+          since:
+            type: string
+            required: false
+            description: "Optional relative duration (e.g. 1h, 30m, 10s). Only logs newer than this are searched (maps to `kubectl logs --since`). Extract from the user's prompt when a timeframe is mentioned; omit otherwise. Use a duration, not an absolute timestamp."
+        command: "kubectl logs {{pod_name}} -n {{ namespace }} --all-containers{% if since %} --since={{ since }}{% endif %} | grep {{ search_term }}"
