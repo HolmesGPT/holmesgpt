@@ -27,8 +27,8 @@ colorlog = "^6.8.2"
 python-json-logger = "^3.0.0"
 strenum = "^0.4.15"
 markdown = "^3.6"
-# certifi >= 2026.10.18 fixes GHSA-6q48-6c7w-9gw2 (CRITICAL). Use >= (not ^): ^2024 would cap below it.
-certifi = ">=2026.10.18"
+# certifi >= 2026.10.19 fixes GHSA-6q48-6c7w-9gw2 (CRITICAL); 2026.10.18 dropped the emSign roots. Use >= (not ^): ^2024 would cap below it.
+certifi = ">=2026.10.19"
 boto3 = "^1.34.145"
 cachetools = "^5.5.0"
 bs4 = "^0.0.2"
