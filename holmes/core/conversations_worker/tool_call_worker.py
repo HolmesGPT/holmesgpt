@@ -21,10 +21,10 @@ Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
 
 import base64
-import binascii
 import gzip
 import json
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -173,33 +173,35 @@ def _text_with_omission_note(
     return cut + note
 
 
-def _is_base64(data: str) -> bool:
-    if not data:
-        return False
-    try:
-        base64.b64decode(data, validate=True)
-    except (binascii.Error, ValueError):
-        return False
-    return True
+# Whole quartets with padding, the shape an MCP client decodes.
+_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+# The raster types every consumer shows: MCP clients, and the vision APIs
+# the caller's Holmes may hand the image to. Relay applies the same rule.
+IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+
+
+def _serializable_image(image: Any) -> Optional[Dict[str, str]]:
+    """The ``{data, mimeType}`` of one image entry when it is whole: base64
+    (line breaks removed, as a wrapped encoding has them) of one of
+    IMAGE_MIME_TYPES."""
+    if not isinstance(image, dict) or not isinstance(image.get("data"), str):
+        return None
+    data = "".join(image["data"].split())
+    if not data or not _BASE64.fullmatch(data):
+        return None
+    if image.get("mimeType") not in IMAGE_MIME_TYPES:
+        return None
+    return {"data": data, "mimeType": image["mimeType"]}
 
 
 def _serializable_images(images: Any) -> List[Dict[str, str]]:
-    """The ``{data, mimeType}`` entries of ``images`` that are whole: valid
-    base64 under an ``image/<subtype>`` type. A tool's image list is
-    untyped; this is where it is validated, so the row holds only entries
-    relay can forward as MCP image content."""
+    """The whole entries of a tool's untyped image list; this is where it
+    is validated, so the row holds only entries relay can forward as MCP
+    image content."""
     if not isinstance(images, list):
         return []
-    return [
-        {"data": image["data"], "mimeType": image["mimeType"]}
-        for image in images
-        if isinstance(image, dict)
-        and isinstance(image.get("data"), str)
-        and _is_base64(image["data"])
-        and isinstance(image.get("mimeType"), str)
-        and image["mimeType"].startswith("image/")
-        and len(image["mimeType"]) > len("image/")
-    ]
+    whole = (_serializable_image(image) for image in images)
+    return [image for image in whole if image is not None]
 
 
 INTERNAL_KIND_OAUTH_CALLBACK = "oauth_callback"

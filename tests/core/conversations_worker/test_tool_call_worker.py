@@ -96,15 +96,18 @@ def test_only_whole_images_travel():
         {"mimeType": "image/png"},
         {"data": PNG, "mimeType": "text/plain"},
         {"data": PNG, "mimeType": "image/"},
+        {"data": PNG, "mimeType": "image/svg+xml"},
         {"data": "%%not base64%%", "mimeType": "image/png"},
         {"data": PNG[:-1], "mimeType": "image/png"},
         "not a dict",
         {"data": PNG, "mimeType": "image/jpeg", "extra": "dropped"},
+        {"data": PNG[:40] + "\n" + PNG[40:] + "\n", "mimeType": "image/webp"},
     ]
     p = serialize_tool_response(result, 0.1)
     assert p["images"] == [
         {"data": PNG, "mimeType": "image/png"},
         {"data": PNG, "mimeType": "image/jpeg"},
+        {"data": PNG, "mimeType": "image/webp"},
     ]
 
 
