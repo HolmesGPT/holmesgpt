@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import List, Optional
 
 import colorlog
-import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_oauth_callback
@@ -54,6 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.llm_rate_limit import is_rate_limit_error
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
@@ -61,7 +61,6 @@ from holmes.core.conversations import (
 from holmes.core.models import (
     ChatRequest,
     ChatResponse,
-    FollowUpAction,
     OAuthCallbackRequest,
     OAuthCallbackResponse,
 )
@@ -523,16 +522,6 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def already_answered(conversation_history: Optional[List[dict]]) -> bool:
-    if conversation_history is None:
-        return False
-
-    for message in conversation_history:
-        if message["role"] == "assistant":
-            return True
-    return False
-
-
 def extract_passthrough_headers(request: Request) -> dict:
     """
     Extract pass-through headers from the request, excluding sensitive auth headers.
@@ -614,29 +603,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     prompt_component_overrides[PromptComponent(k.lower())] = v
                 except ValueError:
                     logging.warning(f"Unknown behavior_controls key '{k}', ignoring")
-
-        follow_up_actions = []
-        if not already_answered(chat_request.conversation_history):
-            follow_up_actions = [
-                FollowUpAction(
-                    id="logs",
-                    action_label="Logs",
-                    prompt="Show me the relevant logs",
-                    pre_action_notification_text="Fetching relevant logs...",
-                ),
-                FollowUpAction(
-                    id="graphs",
-                    action_label="Graphs",
-                    prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
-                    pre_action_notification_text="Drawing some graphs...",
-                ),
-                FollowUpAction(
-                    id="articles",
-                    action_label="Articles",
-                    prompt="List the relevant runbooks and links used. Write a short summary for each",
-                    pre_action_notification_text="Looking up and summarizing runbooks and links...",
-                ),
-            ]
 
         request_context = extract_passthrough_headers(http_request)
         if chat_request.user_id:
@@ -758,7 +724,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
             )
             stream = stream_chat_formatter(
                 recorded_stream,
-                [f.model_dump() for f in follow_up_actions],
                 model=chat_request.model or config.model,
             )
             return StreamingResponse(
@@ -845,7 +810,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
-                    follow_up_actions=follow_up_actions,
                     metadata=response_metadata,
                 )
                 return response
@@ -869,9 +833,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
     except Exception as e:
+        if is_rate_limit_error(e):
+            raise HTTPException(status_code=429, detail=getattr(e, "message", str(e)))
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -979,8 +943,10 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     return resp
 
 
+# async so it runs on the event loop: the threadpool can be full of chats
+# waiting on the LLM, and a liveness probe that times out restarts the pod.
 @app.get("/healthz")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
 
