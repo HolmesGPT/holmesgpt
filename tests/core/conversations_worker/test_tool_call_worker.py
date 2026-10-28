@@ -95,6 +95,9 @@ def test_only_whole_images_travel():
         {"data": PNG},
         {"mimeType": "image/png"},
         {"data": PNG, "mimeType": "text/plain"},
+        {"data": PNG, "mimeType": "image/"},
+        {"data": "%%not base64%%", "mimeType": "image/png"},
+        {"data": PNG[:-1], "mimeType": "image/png"},
         "not a dict",
         {"data": PNG, "mimeType": "image/jpeg", "extra": "dropped"},
     ]
@@ -107,13 +110,36 @@ def test_only_whole_images_travel():
 
 def test_images_over_the_cap_are_dropped_and_the_text_says_so(caplog):
     result = _ok("small text")
-    result.images = [{"data": "A" * 995, "mimeType": "image/png"}]
+    result.images = [{"data": "A" * 996, "mimeType": "image/png"}]
     p = serialize_tool_response(result, 0.1, max_bytes=1000, tool_call_id="call-7")
     assert p["status"] == StructuredToolResultStatus.SUCCESS.value
     assert p["images"] is None
-    assert p["data"].startswith("small text\n\n[1 image(s) (995 bytes) omitted")
+    assert p["data"].startswith("small text\n\n[1 image(s) (996 bytes) omitted")
     assert "1000-byte limit" in p["data"]
     assert "remote tool call call-7: dropping 1 image" in caplog.text
+
+
+def test_the_omission_note_never_takes_the_text_over_the_cap():
+    """The note itself is ~170 bytes; text within that of the cap used to
+    end up over it."""
+    for text_size in (950, 970, 990, 1000):
+        result = _ok("t" * text_size)
+        result.images = [{"data": "A" * 52, "mimeType": "image/png"}]
+        p = serialize_tool_response(result, 0.1, max_bytes=1000)
+        assert p["status"] == StructuredToolResultStatus.SUCCESS.value
+        assert p["images"] is None and p["data"].endswith("]")
+        assert len(p["data"].encode()) <= 1000, text_size
+        assert "1 image(s) (52 bytes) omitted" in p["data"]
+    assert "the end of the text was cut" in p["data"]  # the last, 1000 bytes
+    assert p["data"].startswith("t" * 700)
+
+
+def test_a_cut_for_the_omission_note_lands_on_a_character_boundary():
+    result = _ok("é" * 500)  # 1000 bytes of two-byte characters
+    result.images = [{"data": "A" * 52, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1, max_bytes=1000)
+    kept = p["data"].split("\n\n[")[0]
+    assert set(kept) == {"é"} and len(p["data"].encode()) <= 1000
 
 
 def test_an_images_only_result_travels_with_empty_text():

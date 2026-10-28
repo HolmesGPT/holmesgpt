@@ -21,6 +21,7 @@ Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
 
 import base64
+import binascii
 import gzip
 import json
 import logging
@@ -131,11 +132,7 @@ def serialize_tool_response(
             max_bytes,
         )
         payload["images"] = None
-        data += (
-            f"\n\n[{len(images)} image(s) ({images_size} bytes) omitted: the "
-            f"result would exceed the {max_bytes}-byte limit of a remote tool "
-            "call; narrow the request for a smaller image]"
-        )
+        data = _text_with_omission_note(data, size, len(images), images_size, max_bytes)
         payload["data"] = data
 
     if len(data) > compress_threshold:
@@ -150,10 +147,40 @@ def serialize_tool_response(
     return payload
 
 
+def _text_with_omission_note(
+    data: str, size: int, count: int, images_size: int, max_bytes: int
+) -> str:
+    """``data`` plus a note that ``count`` images were left out, within
+    ``max_bytes``: text that leaves no room for the note loses its tail
+    instead, and the note says so."""
+    note = (
+        f"\n\n[{count} image(s) ({images_size} bytes) omitted: the result "
+        f"would exceed the {max_bytes}-byte limit of a remote tool call; "
+        "narrow the request for a smaller image"
+    )
+    if size + len(note) + 1 <= max_bytes:
+        return data + note + "]"
+    note += "; the end of the text was cut to make room for this note]"
+    room = max(0, max_bytes - len(note))
+    cut = data.encode("utf-8", errors="replace")[:room].decode("utf-8", "ignore")
+    return cut + note
+
+
+def _is_base64(data: str) -> bool:
+    if not data:
+        return False
+    try:
+        base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    return True
+
+
 def _serializable_images(images: Any) -> List[Dict[str, str]]:
-    """The ``{data, mimeType}`` entries of ``images`` that are whole. A
-    tool's image list is untyped; this is where it is validated, so the
-    row holds only entries relay can forward as MCP image content."""
+    """The ``{data, mimeType}`` entries of ``images`` that are whole: valid
+    base64 under an ``image/<subtype>`` type. A tool's image list is
+    untyped; this is where it is validated, so the row holds only entries
+    relay can forward as MCP image content."""
     if not isinstance(images, list):
         return []
     return [
@@ -161,9 +188,10 @@ def _serializable_images(images: Any) -> List[Dict[str, str]]:
         for image in images
         if isinstance(image, dict)
         and isinstance(image.get("data"), str)
-        and image["data"]
+        and _is_base64(image["data"])
         and isinstance(image.get("mimeType"), str)
         and image["mimeType"].startswith("image/")
+        and len(image["mimeType"]) > len("image/")
     ]
 
 
