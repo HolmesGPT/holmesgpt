@@ -26,7 +26,12 @@ from holmes.common.env_vars import (
     load_bool,
 )
 from holmes.core.llm import LLM
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import LLMRetryCancelled, rate_limit_retry_scope
+from holmes.core.llm_usage import (
+    RequestStats,
+    attach_request_usage,
+    failure_usage,
+)
 from holmes.core.models import (
     FrontendToolResult,
     PendingFrontendToolCall,
@@ -722,6 +727,7 @@ class ToolCallingLLM:
                 tool_number_offset=tool_number_offset,
                 request_context=request_context,
                 iteration_offset=total_num_llm_calls,
+                prior_usage=accumulated_stats,
             )
 
             tool_decisions = None
@@ -1169,6 +1175,7 @@ class ToolCallingLLM:
         cancel_event: Optional[threading.Event] = None,
         tool_number_offset: int = 0,
         iteration_offset: int = 0,
+        prior_usage: Optional[RequestStats] = None,
     ):
         """
         This function DOES NOT call llm.completion(stream=true).
@@ -1180,6 +1187,45 @@ class ToolCallingLLM:
         stream with an APPROVAL_REQUIRED event containing pending_frontend_tool_calls.
         The client executes the tool and resumes by sending frontend_tool_results.
         """
+        stats = RequestStats()
+        try:
+            yield from self._call_stream(
+                stats,
+                response_format=response_format,
+                msgs=msgs,
+                enable_tool_approval=enable_tool_approval,
+                tool_decisions=tool_decisions,
+                frontend_tool_results=frontend_tool_results,
+                request_context=request_context,
+                trace_span=trace_span,
+                cancel_event=cancel_event,
+                tool_number_offset=tool_number_offset,
+                iteration_offset=iteration_offset,
+            )
+        except Exception as e:
+            # `stats` dies with the raise and the usage recorder only sees the
+            # error, so the request's usage so far (including earlier approval
+            # rounds, `prior_usage`) travels on it.
+            total = prior_usage.model_copy() if prior_usage else RequestStats()
+            total += stats
+            total += failure_usage(e)
+            attach_request_usage(e, total)
+            raise
+
+    def _call_stream(
+        self,
+        stats: RequestStats,
+        response_format: Optional[Union[dict, Type[BaseModel]]] = None,
+        msgs: Optional[list[dict]] = None,
+        enable_tool_approval: bool = False,
+        tool_decisions: List[ToolApprovalDecision] | None = None,
+        frontend_tool_results: Optional[List[FrontendToolResult]] = None,
+        request_context: Optional[Dict[str, Any]] = None,
+        trace_span: Any = None,
+        cancel_event: Optional[threading.Event] = None,
+        tool_number_offset: int = 0,
+        iteration_offset: int = 0,
+    ):
         if trace_span is None:
             trace_span = DummySpan()
 
@@ -1223,7 +1269,6 @@ class ToolCallingLLM:
         tools: Optional[list] = self._get_tools()
         max_steps = self.max_steps
         metadata: Dict[Any, Any] = {}
-        stats = RequestStats()
         if iteration_offset < 0:
             raise ValueError("iteration_offset must be non-negative")
         i = iteration_offset
@@ -1243,14 +1288,15 @@ class ToolCallingLLM:
                 yield compaction_start_event
 
             try:
-                limit_result = compact_if_necessary(
-                    llm=self.llm, messages=messages, tools=tools
-                )
+                with rate_limit_retry_scope(cancel_event=cancel_event):
+                    limit_result = compact_if_necessary(
+                        llm=self.llm, messages=messages, tools=tools
+                    )
             except CompactionInsufficientError as e:
                 yield from e.events
-                if e.compaction_usage and e.compaction_usage.total_tokens > 0:
-                    stats += e.compaction_usage
                 raise
+            except LLMRetryCancelled as e:
+                raise LLMInterruptedError() from e
 
             yield from limit_result.events
             messages = limit_result.messages
@@ -1270,11 +1316,13 @@ class ToolCallingLLM:
             compaction = limit_result.compaction_usage
             if compaction and compaction.total_tokens > 0:
                 compaction.num_compactions = 1
-                stats += compaction
                 cost_logger.debug(
                     f"Compaction cost (streaming): ${compaction.total_cost:.6f} | "
                     f"Tokens: {compaction.prompt_tokens} prompt + {compaction.completion_tokens} completion = {compaction.total_tokens} total"
                 )
+            if compaction:
+                # Also a failed compaction, which can still have backed off.
+                stats += compaction
 
             if (
                 limit_result.conversation_history_compacted
@@ -1296,15 +1344,16 @@ class ToolCallingLLM:
             with trace_span.start_span(name="gen_ai.chat") as llm_span:
               try:
                 _llm_call_start = time.time()
-                full_response = self.llm.completion(
-                    messages=parse_messages_tags(messages),  # type: ignore
-                    tools=tools,
-                    tool_choice=tool_choice,
-                    response_format=response_format,
-                    temperature=TEMPERATURE,
-                    stream=False,
-                    drop_params=True,
-                )
+                with rate_limit_retry_scope(cancel_event=cancel_event):
+                    full_response = self.llm.completion(
+                        messages=parse_messages_tags(messages),  # type: ignore
+                        tools=tools,
+                        tool_choice=tool_choice,
+                        response_format=response_format,
+                        temperature=TEMPERATURE,
+                        stream=False,
+                        drop_params=True,
+                    )
                 _merge_choices(full_response)
 
                 # Accumulate cost information for this iteration
@@ -1370,6 +1419,8 @@ class ToolCallingLLM:
               # recognised by status before anything keyed on the class runs;
               # the Azure case below is a 400, so it can never be taken first.
               except Exception as e:
+                if isinstance(e, LLMRetryCancelled):
+                    raise LLMInterruptedError() from e
                 if _is_robusta_refusal(self.llm, e):
                     # _is_robusta_refusal already established the status is one
                     # of REFUSAL_STATUS_CODES.

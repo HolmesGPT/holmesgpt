@@ -5,12 +5,20 @@ on:
       - master
     tags:
       - '[0-9]*.[0-9]*.[0-9]*'
+  # Rebuilds every published version with the docs toolchain on master, for a theme release that changes only its hashed
+  # assets (a mkdocs-material security fix); the content gate refuses a rebuild that changes anything else.
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse a manual run from a ref other than master
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::Run this workflow from master, not $GITHUB_REF: a manual run rebuilds every published version with the dispatched ref's toolchain and publishes dev from it."
+          exit 1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Needed for mike to work with git history
@@ -42,6 +50,12 @@ jobs:
           poetry run mike set-default --push latest
       # Deploy dev docs on master push
       - name: Deploy dev docs (master)
-        if: github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           poetry run mike deploy --push dev
+      - name: Rebuild every published version (manual)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          poetry run scripts/rebuild-published-docs.sh
+          poetry run python scripts/compare_published_docs.py origin/gh-pages gh-pages
+          git push origin gh-pages
