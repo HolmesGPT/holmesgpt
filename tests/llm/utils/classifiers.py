@@ -1,10 +1,12 @@
 import logging
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import List, Optional, Union
 
 import openai
 from autoevals import LLMClassifier, init
-from braintrust import Span, SpanTypeAttribute
+from autoevals.oai import LLMClient
+from braintrust import Span, SpanTypeAttribute, start_span
 from braintrust.oai import wrap_openai
 
 from tests.llm.utils.test_case_utils import _model_list_exists, create_eval_llm
@@ -132,6 +134,36 @@ except Exception:
     client = None
 
 
+def complete_with_eval_llm(**request):
+    # Same litellm path as model_list models (e.g. Azure Responses API)
+    with start_span(
+        name="Chat Completion",
+        type=SpanTypeAttribute.LLM,
+        span_attributes={"purpose": "scorer"},
+    ) as span:
+        response = create_eval_llm(CLASSIFIER_MODEL).completion(
+            messages=request["messages"], tools=request["tools"], tool_choice="auto"
+        )
+        span.log(
+            input=request["messages"],
+            output=[choice.model_dump() for choice in response.choices],
+            metadata={"model": CLASSIFIER_MODEL, "tools": request["tools"]},
+        )
+    return response
+
+
+eval_llm_client = LLMClient(
+    openai=SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=complete_with_eval_llm)
+        ),
+        embeddings=SimpleNamespace(create=None),
+        moderations=SimpleNamespace(create=None),
+    ),
+    complete=complete_with_eval_llm,
+)
+
+
 def evaluate_correctness(
     expected_elements: Union[str, List[str]],
     output: Optional[str],
@@ -228,6 +260,7 @@ Possible choices:
         api_key=params.api_key if not params.is_azure else None,
         base_url=params.api_base if not params.is_azure else None,
         api_version=params.api_version if not params.is_azure else None,
+        client=eval_llm_client if _model_list_exists() else None,
     )
     if parent_span:
         with parent_span.start_span(

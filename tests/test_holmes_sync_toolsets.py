@@ -13,15 +13,19 @@ from holmes.core.tools import (
     ToolsetCommandPrerequisite,
     ToolsetEnvironmentPrerequisite,
     ToolsetStatusEnum,
+    ToolParameter,
     ToolsetTag,
     YAMLTool,
 )
 from holmes.plugins.toolsets import load_builtin_toolsets
-from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool, RemoteMCPToolset
+from holmes.plugins.toolsets.multi_instance import INSTANCE_PARAM
 from holmes.utils.holmes_sync_toolsets import (
     build_remote_tools_meta,
     holmes_sync_toolsets_status,
+    remote_tool_contract_hash,
 )
+from holmes.version import get_version
 from tests.utils.bad_toolset_example import BadTool, BadToolset
 from tests.utils.toolsets import callable_success, failing_callable_for_test
 
@@ -517,3 +521,239 @@ def test_toolsets_dumpable_with_mcp_toolset_passes(mock_dal, mock_config):
     mock_config.create_server_tool_executor.return_value.toolsets = all_toolsets_good
 
     holmes_sync_toolsets_status(mock_dal, mock_config)
+
+
+# ---- ROB-1544: remote tool contract hashes ----
+
+
+def _tool(parameters, description="d"):
+    return YAMLTool(
+        name="t", description=description, command="echo", parameters=parameters
+    )
+
+
+def _hash(parameters, description="d"):
+    return remote_tool_contract_hash(_tool(parameters, description))
+
+
+def test_contract_hash_ignores_descriptions():
+    assert _hash(
+        {"q": ToolParameter(type="string", description="a")}, description="old"
+    ) == _hash({"q": ToolParameter(type="string", description="b")}, description="new")
+
+
+def test_contract_hash_ignores_strict_mode():
+    tool = _tool({"q": ToolParameter(type="string", required=False)})
+    with patch("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", True):
+        strict = (tool.get_openai_format(), remote_tool_contract_hash(tool))
+    with patch("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", False):
+        loose = (tool.get_openai_format(), remote_tool_contract_hash(tool))
+    assert strict[0] != loose[0]
+    assert strict[1] == loose[1]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        # 0.40/0.41 published a phantom required `param` on the kubernetes tools.
+        {"q": ToolParameter(type="string"), "param": ToolParameter(type="string")},
+        {"q": ToolParameter(type="integer")},
+        {"q": ToolParameter(type="string", required=False)},
+        {"q": ToolParameter(type="string", enum=["a"])},
+        {"q": ToolParameter(type="string", json_schema_extra={"maxLength": 3})},
+    ],
+)
+def test_contract_hash_changes_with_what_a_caller_sends(changed):
+    assert _hash({"q": ToolParameter(type="string")}) != _hash(changed)
+
+
+def test_contract_hash_covers_nested_schemas_but_not_their_descriptions():
+    def obj(inner_type, description):
+        return {
+            "o": ToolParameter(
+                type="object",
+                properties={
+                    # A property may be named "description"; it is part of the contract.
+                    "description": ToolParameter(type=inner_type, description=description)
+                },
+            )
+        }
+
+    assert _hash(obj("string", "x")) == _hash(obj("string", "y"))
+    assert _hash(obj("string", "x")) != _hash(obj("integer", "x"))
+    assert _hash(obj("string", "x")) != _hash({"o": ToolParameter(type="object")})
+
+
+def test_contract_hash_leaves_out_the_injected_instance_param():
+    assert _hash({"q": ToolParameter(type="string")}) == _hash(
+        {"q": ToolParameter(type="string"), "instance": INSTANCE_PARAM}
+    )
+
+
+def test_contract_hash_counts_a_tools_own_instance_param():
+    assert _hash({"q": ToolParameter(type="string")}) != _hash(
+        {"q": ToolParameter(type="string"), "instance": ToolParameter(type="string")}
+    )
+    # Equal to the injected one, but the tool's own.
+    assert _hash({"q": ToolParameter(type="string")}) != _hash(
+        {"q": ToolParameter(type="string"), "instance": INSTANCE_PARAM.model_copy()}
+    )
+
+
+def test_contract_hash_keeps_literals_inside_raw_schemas():
+    def const(value):
+        return {"q": ToolParameter(type="object", json_schema_extra={"const": value})}
+
+    assert _hash(const({"description": "a"})) != _hash(const({"description": "b"}))
+
+
+def test_contract_hash_ignores_the_order_of_union_branches():
+    a, b = ToolParameter(type="string"), ToolParameter(type="integer")
+    assert _hash({"q": ToolParameter(any_of=[a, b])}) == _hash(
+        {"q": ToolParameter(any_of=[b, a])}
+    )
+
+    def raw(branches):
+        return {"q": ToolParameter(type="object", additional_properties={"anyOf": branches})}
+
+    s, i = {"type": "string"}, {"type": "integer"}
+    assert _hash(raw([s, i])) == _hash(raw([i, s]))
+    assert _hash(raw([s, i])) != _hash(raw([s, {"type": "boolean"}]))
+
+
+def test_contract_hash_ignores_annotations_inside_raw_schemas():
+    def free_form(description, default):
+        return {
+            "labels": ToolParameter(
+                type="object",
+                additional_properties={
+                    "type": "string",
+                    "description": description,
+                    "properties": {"description": {"type": "string", "title": description}},
+                },
+                json_schema_extra={"maxProperties": 5, "default": default},
+            )
+        }
+
+    assert _hash(free_form("a", 1)) == _hash(free_form("b", 2))
+    changed = free_form("a", 1)
+    changed["labels"].additional_properties["properties"]["description"]["type"] = "integer"
+    assert _hash(free_form("a", 1)) != _hash(changed)
+
+
+def test_contract_hash_ignores_the_order_of_enum_values_and_union_types():
+    assert _hash(
+        {"q": ToolParameter(type=["string", "null"], enum=["a", "b", None])}
+    ) == _hash({"q": ToolParameter(type=["null", "string"], enum=[None, "b", "a"])})
+
+
+def test_contract_hash_keeps_the_primary_type_first():
+    # The first non-null type is what the formatter publishes and what
+    # coerce_params converts arguments to.
+    assert _hash({"q": ToolParameter(type=["string", "integer"])}) != _hash(
+        {"q": ToolParameter(type=["integer", "string"])}
+    )
+    assert _hash({"q": ToolParameter(type=["string", "integer", "boolean"])}) == _hash(
+        {"q": ToolParameter(type=["string", "boolean", "integer"])}
+    )
+    assert _hash({"q": ToolParameter(type=["null", "string"])}) == _hash(
+        {"q": ToolParameter(type=["string", "null"])}
+    )
+
+
+def test_contract_hash_treats_an_empty_enum_like_none():
+    assert _hash({"q": ToolParameter(type="string", enum=[])}) == _hash(
+        {"q": ToolParameter(type="string")}
+    )
+
+
+def test_contract_hash_treats_array_shorthand_like_items():
+    assert _hash({"q": ToolParameter(type="array[string]")}) == _hash(
+        {"q": ToolParameter(type="array", items=ToolParameter(type="string"))}
+    )
+    assert _hash({"q": ToolParameter(type="array[string]")}) != _hash(
+        {"q": ToolParameter(type="array[integer]")}
+    )
+
+
+def test_contract_hash_treats_an_explicit_default_like_an_unset_field():
+    assert _hash({"q": ToolParameter(type="string", required=True)}) == _hash(
+        {"q": ToolParameter()}
+    )
+
+
+def test_remote_tools_meta_carries_a_contract_hash_per_tool():
+    meta = build_remote_tools_meta(_exposed_toolset())
+    assert all(len(t["contract_hash"]) == 64 for t in meta["tools"])
+
+
+def test_sync_publishes_the_holmes_version_on_every_row(mock_dal, mock_config):
+    holmes_sync_toolsets_status(mock_dal, mock_config)
+    rows = mock_dal.sync_toolsets.call_args.args[0]
+    assert rows and {r["version"] for r in rows} == {get_version()}
+
+
+def test_contract_hash_ignores_a_json_schema_extra_holding_only_a_default():
+    plain = _hash({"n": ToolParameter(type="integer")})
+    with_default = _hash(
+        {"n": ToolParameter(type="integer", json_schema_extra={"default": 1})}
+    )
+    assert plain == with_default
+
+
+def test_contract_hash_tells_a_null_only_type_from_a_nullable_string():
+    assert _hash({"x": ToolParameter(type=["null"])}) != _hash(
+        {"x": ToolParameter(type=["string", "null"])}
+    )
+
+
+def test_contract_hash_reads_a_one_element_type_list_as_that_type():
+    assert _hash({"x": ToolParameter(type=["string"])}) == _hash(
+        {"x": ToolParameter(type="string")}
+    )
+    assert _hash({"x": ToolParameter(type=["integer"])}) == _hash(
+        {"x": ToolParameter(type="integer")}
+    )
+
+
+def _mcp_tool(input_schema):
+    return RemoteMCPTool.create(
+        MCP_Tool(name="query", description="d", inputSchema=input_schema),
+        toolset=RemoteMCPToolset(
+            name="hash-mcp",
+            description="d",
+            config={"url": "http://example.com/mcp", "mode": "sse"},
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        {"format": "date-time"},
+        {"uniqueItems": True},
+        {"const": "x"},
+        {"multipleOf": 5},
+    ],
+)
+def test_contract_hash_of_an_mcp_tool_covers_its_full_input_schema(constraint):
+    base = {"type": "object", "properties": {"q": {"type": "string"}}}
+    constrained = {
+        "type": "object",
+        "properties": {"q": {"type": "string", **constraint}},
+    }
+    assert remote_tool_contract_hash(_mcp_tool(base)) != remote_tool_contract_hash(
+        _mcp_tool(constrained)
+    )
+
+
+def test_contract_hash_of_an_mcp_tool_ignores_annotations():
+    schema = {"type": "object", "properties": {"q": {"type": "string"}}}
+    annotated = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {"q": {"type": "string", "description": "the query", "default": "a"}},
+    }
+    assert remote_tool_contract_hash(_mcp_tool(schema)) == remote_tool_contract_hash(
+        _mcp_tool(annotated)
+    )
