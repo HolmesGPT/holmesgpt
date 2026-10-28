@@ -923,37 +923,17 @@ class TestToolInvokeStatusLogging:
         )
         message = self._finished_log(caplog, result)
         assert "Finished #3 with status success in" in message
-        assert "error:" not in message
 
-    def test_error_logs_status_and_error(self, caplog):
+    def test_error_logs_status_without_error_text(self, caplog):
         result = StructuredToolResult(
             status=StructuredToolResultStatus.ERROR,
-            error="403 Forbidden: pods is forbidden [rbac]",
+            error="GET http://user:secret@grafana:3000 -> HTTP 403",
         )
         message = self._finished_log(caplog, result)
-        assert (
-            "with status error, error: 403 Forbidden: pods is forbidden \\[rbac] in"
-            in message
-        )
-
-    def test_error_is_truncated(self, caplog):
-        result = StructuredToolResult(
-            status=StructuredToolResultStatus.ERROR, error="x" * 500
-        )
-        message = self._finished_log(caplog, result)
-        assert f"error: {'x' * 200} in" in message
+        assert "Finished #3 with status error in" in message
+        assert "secret" not in message
 
     def test_no_data_logs_status(self, caplog):
         result = StructuredToolResult(status=StructuredToolResultStatus.NO_DATA)
         message = self._finished_log(caplog, result)
         assert "with status no_data in" in message
-
-    def test_error_redacts_invocation(self, caplog):
-        result = StructuredToolResult(
-            status=StructuredToolResultStatus.ERROR,
-            error="Command `curl -H 'Authorization: secret'` failed with return code 1",
-            invocation="curl -H 'Authorization: secret'",
-        )
-        message = self._finished_log(caplog, result)
-        assert "error: Command `<command>` failed with return code 1 in" in message
-        assert "secret" not in message
