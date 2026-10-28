@@ -91,16 +91,25 @@ def test_source_lines_in_traceback_are_not_a_skill_check_failure():
     # pytest's long traceback prints the test source, which contains the
     # assertion phrases even when a different assertion fired.
     longrepr = (
-        '        raise AssertionError(\n'
+        "        raise AssertionError(\n"
         '            f"Test {test_case.id} expected NO skill suggestions but the "\n'
         "E   AssertionError: Test 254 failed (score: 0)\n"
     )
-    assert failure_message({"longrepr": longrepr}) == "AssertionError: Test 254 failed (score: 0)"
-    assert get_test_skill_check_failure(_test("254", "m", "failed", longrepr=longrepr)) is None
+    assert (
+        failure_message({"longrepr": longrepr})
+        == "AssertionError: Test 254 failed (score: 0)"
+    )
+    assert (
+        get_test_skill_check_failure(_test("254", "m", "failed", longrepr=longrepr))
+        is None
+    )
 
 
 def test_passed_run_is_never_a_skill_check_failure():
-    assert get_test_skill_check_failure(_test("x", "m", "passed", crash=OLD_ASSERTION)) is None
+    assert (
+        get_test_skill_check_failure(_test("x", "m", "passed", crash=OLD_ASSERTION))
+        is None
+    )
 
 
 def test_section_shows_judge_verdict_and_skill_title():
@@ -115,10 +124,16 @@ def test_section_shows_judge_verdict_and_skill_title():
     section = generate_skill_check_section(results)
     title = "Workload naming convention in this cluster"
     assert "## Skill-Suggestion Check Failures" in section
-    assert f"| 🧩 | 51_logs | kimi | suggested a skill, expected none | correct | {title} |" in section
+    assert (
+        f"| 🧩 | 51_logs | kimi | suggested a skill, expected none | correct | {title} |"
+        in section
+    )
     assert "| 24_pvc | deepseek | suggested a skill, expected none | wrong |" in section
     # Old report: the title comes from suggested_memories, the verdict is unknown.
-    assert f"| 227_count | glm | suggested a skill, expected none | not recorded | {title} |" in section
+    assert (
+        f"| 227_count | glm | suggested a skill, expected none | not recorded | {title} |"
+        in section
+    )
     assert '"not recorded"' in section
     assert "09_crash" not in section
 
@@ -127,7 +142,9 @@ def test_section_empty_without_skill_check_failures():
     assert generate_skill_check_section({"tests": [_test("a", "m", "failed")]}) == ""
 
 
-def test_skill_check_failures_still_count_as_failures():
+def test_skill_check_failures_still_count_as_failures(monkeypatch):
+    # Cells are links only when a Braintrust key is configured.
+    monkeypatch.setattr("tests.generate_eval_report.BRAINTRUST_API_KEY", "test-key")
     tests = [_test(f"{i}_ok", "kimi", "passed") for i in range(3)]
     tests.append(_new_format("51_logs", "kimi", 1))
     results = {"tests": tests}
@@ -152,7 +169,11 @@ def test_github_status_marks_skill_check_failure():
 
 def test_github_status_ignores_traceback_text_without_fail_reason():
     status = TestStatus(
-        {"status": "failed", "actual_correctness_score": 0, "error_message": OLD_ASSERTION}
+        {
+            "status": "failed",
+            "actual_correctness_score": 0,
+            "error_message": OLD_ASSERTION,
+        }
     )
     assert status.skill_check_failure is None
     assert status.markdown_symbol == ":x:"

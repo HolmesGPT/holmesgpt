@@ -103,7 +103,9 @@ def test_summary_table_excludes_infra_errors_from_success_rate():
     assert "| qwen | 11 | 4 | 3 | 18 | 🟡 73% (11/15) |" in table
 
 
-def test_heatmap_marks_provider_errors_and_timeouts():
+def test_heatmap_marks_provider_errors_and_timeouts(monkeypatch):
+    # Cells are links only when a Braintrust key is configured.
+    monkeypatch.setattr("tests.generate_eval_report.BRAINTRUST_API_KEY", "test-key")
     heatmap = generate_eval_dashboard_heatmap(_results())
     row = {line.split("**")[1]: line for line in heatmap.splitlines() if "**3" in line}
     # Cells link to Braintrust: "[emoji](url)"
