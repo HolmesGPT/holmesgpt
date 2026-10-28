@@ -896,3 +896,54 @@ class TestTransformerCachingOptimization:
             # create_transformer should NOT be called during tool invocation
             # It should only be called during initialization (which happened before this patch)
             mock_create.assert_not_called()
+
+
+class StatusTestTool(Tool):
+    result: StructuredToolResult
+
+    def _invoke(self, params: Dict, context: ToolInvokeContext) -> StructuredToolResult:
+        return self.result
+
+    def get_parameterized_one_liner(self, params: Dict) -> str:
+        return "test command"
+
+
+class TestToolInvokeStatusLogging:
+    def _finished_log(self, caplog, result: StructuredToolResult) -> str:
+        tool = StatusTestTool(name="test_tool", description="Test tool", result=result)
+        with caplog.at_level("INFO", logger="holmes.display.tools"):
+            tool.invoke({}, create_mock_tool_invoke_context(tool_number=3))
+        return next(
+            r.getMessage() for r in caplog.records if "Finished" in r.getMessage()
+        )
+
+    def test_success_logs_status(self, caplog):
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS, data="ok"
+        )
+        message = self._finished_log(caplog, result)
+        assert "Finished #3 with status success in" in message
+        assert "error:" not in message
+
+    def test_error_logs_status_and_error(self, caplog):
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error="403 Forbidden: pods is forbidden [rbac]",
+        )
+        message = self._finished_log(caplog, result)
+        assert (
+            "with status error, error: 403 Forbidden: pods is forbidden \\[rbac] in"
+            in message
+        )
+
+    def test_error_is_truncated(self, caplog):
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR, error="x" * 500
+        )
+        message = self._finished_log(caplog, result)
+        assert f"error: {'x' * 200} in" in message
+
+    def test_no_data_logs_status(self, caplog):
+        result = StructuredToolResult(status=StructuredToolResultStatus.NO_DATA)
+        message = self._finished_log(caplog, result)
+        assert "with status no_data in" in message

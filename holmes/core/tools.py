@@ -38,6 +38,7 @@ from pydantic import (
     model_validator,
 )
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from holmes.core.llm import LLM
@@ -431,8 +432,13 @@ class Tool(ABC, BaseModel):
         )
         show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
         line_count = output_str.count("\n") + 1 if output_str else 0
+        error_str = (
+            f", error: {escape(str(transformed_result.error)[:200])}"
+            if transformed_result.error
+            else ""
+        )
         display_logger.info(
-            f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
+            f"  [dim]Finished {tool_number_str}with status {transformed_result.status.value}{error_str} in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
 
