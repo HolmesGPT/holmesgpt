@@ -809,59 +809,6 @@ Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.ex
 
 The MCP server logs at level 1 by default. If sign-in fails, raise `mcpAddons.kubernetes.config.logLevel` (0-9, for example `3`) and read the `k8s-mcp-server` pod logs.
 
-### Optional: Disable specific tools
-
-To hide a tool from Holmes, list its name in `disabled_tools` in the server-side `serverConfig`. For example, `configuration_view` returns the MCP server's kubeconfig, which you may not want exposed to the LLM. Tool names are the snake_case names such as `pods_list` or `configuration_view`. See the [list of all tools in the Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server#tools-and-functionalities) for every name; only tools from the enabled toolsets (by default `core` and `config`, see `mcpAddons.kubernetes.config.toolsets`) are available. Add the line to your values from Step 4:
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      kubernetes:
-        config:
-          serverConfig: |
-            require_oauth = true
-            accept_opaque_tokens = false
-            cluster_auth_mode = "passthrough"
-            authorization_url = "<DEX_ISSUER_URL>"
-            oauth_audience = "mcp-k8s"
-            disabled_tools = ["configuration_view"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        kubernetes:
-          config:
-            serverConfig: |
-              require_oauth = true
-              accept_opaque_tokens = false
-              cluster_auth_mode = "passthrough"
-              authorization_url = "<DEX_ISSUER_URL>"
-              oauth_audience = "mcp-k8s"
-              disabled_tools = ["configuration_view"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
-
-To disable several tools, list them all: `disabled_tools = ["configuration_view", "pods_exec"]`.
-
 ### Optional: Dex behind a private CA
 
 If Dex's certificate comes from a private CA (for example a cert-manager `Issuer` backed by Vault), the MCP server fails to start with `x509: certificate signed by unknown authority`. Both the MCP server and Holmes call Dex, so give both the CA. A CA certificate is public, so it is safe to keep in your values; never copy the private key (`tls.key`).
@@ -941,6 +888,55 @@ Merge these into your values from Step 4:
               authorization_url = "<DEX_ISSUER_URL>"
               oauth_audience = "mcp-k8s"
               certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+## Choose Toolsets and Disable Tools
+
+The MCP server enables the `core` (pods, resources, events, nodes, namespaces) and `config` (kubeconfig and contexts) toolsets by default. To enable others, set `toolsets` to a comma-separated list; the [available toolsets](https://github.com/containers/kubernetes-mcp-server#available-toolsets) include `helm`, `tekton` and `kubevirt`.
+
+To hide individual tools, list them in `disabled_tools` in `serverConfig`. For example, `nodes_log` is a `core` tool and `configuration_view` is a `config` tool. Tool names are in the [list of all tools](https://github.com/containers/kubernetes-mcp-server#tools-and-functionalities). If you already set `serverConfig` (for example in a per-user auth setup above), add the `disabled_tools` line to it.
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      kubernetes:
+        config:
+          # Optional: default is "core,config"
+          toolsets: "core,config,helm"
+
+          serverConfig: |
+            disabled_tools = ["nodes_log", "configuration_view"]
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        kubernetes:
+          config:
+            # Optional: default is "core,config"
+            toolsets: "core,config,helm"
+
+            serverConfig: |
+              disabled_tools = ["nodes_log", "configuration_view"]
     ```
 
     Apply the configuration:
