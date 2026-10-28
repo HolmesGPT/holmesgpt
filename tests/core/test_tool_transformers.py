@@ -947,3 +947,13 @@ class TestToolInvokeStatusLogging:
         result = StructuredToolResult(status=StructuredToolResultStatus.NO_DATA)
         message = self._finished_log(caplog, result)
         assert "with status no_data in" in message
+
+    def test_error_redacts_invocation(self, caplog):
+        result = StructuredToolResult(
+            status=StructuredToolResultStatus.ERROR,
+            error="Command `curl -H 'Authorization: secret'` failed with return code 1",
+            invocation="curl -H 'Authorization: secret'",
+        )
+        message = self._finished_log(caplog, result)
+        assert "error: Command `<command>` failed with return code 1 in" in message
+        assert "secret" not in message
