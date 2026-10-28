@@ -811,7 +811,7 @@ The MCP server logs at level 1 by default. If sign-in fails, raise `mcpAddons.ku
 
 ### Optional: Disable specific tools
 
-To hide a tool from Holmes, list its name in `disabled_tools` in the server-side `serverConfig`. For example, `configuration_view` returns the MCP server's kubeconfig, which you may not want exposed to the LLM. Tool names are the snake_case names the MCP server lists, such as `pods_list` or `configuration_view`. Add the line to your values from Step 4:
+To hide a tool from Holmes, list its name in `disabled_tools` in the server-side `serverConfig`. For example, `configuration_view` returns the MCP server's kubeconfig, which you may not want exposed to the LLM. Tool names are the snake_case names such as `pods_list` or `configuration_view`. See the [list of all tools in the Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server#tools-and-functionalities) for every name; only tools from the enabled toolsets (by default `core` and `config`, see `mcpAddons.kubernetes.config.toolsets`) are available. Add the line to your values from Step 4:
 
 === "Holmes Helm Chart"
 
