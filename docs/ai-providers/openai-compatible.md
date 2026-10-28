@@ -3,7 +3,7 @@
 HolmesGPT works with **any OpenAI-compatible API endpoint**. This includes [**LiteLLM Proxy**](https://docs.litellm.ai/docs/simple_proxy){:target="_blank"}, other API gateways and proxy servers, and local inference servers — as long as they expose an OpenAI-compatible interface with function calling support.
 
 !!! tip "Using LiteLLM Proxy (or another proxy)?"
-    This is the right page. Configure your proxy's URL as `OPENAI_API_BASE`, the proxy token as `OPENAI_API_KEY`, and set `model: openai/<name-your-proxy-exposes>` in `modelList`. See the example below.
+    This is the right page. Configure your proxy's URL as `OPENAI_API_BASE`, the proxy token as `OPENAI_API_KEY`, and set `model: openai/<name-your-proxy-exposes>` in `modelList`. See the example below. If the name is an alias LiteLLM doesn't know, also [set the model's limits](model-limits.md).
 
 !!! warning "Function Calling Required"
     Your model and inference server must support function calling (tool calling). Models that lack this capability may produce incorrect results.
