@@ -709,7 +709,7 @@ class TestTokenLimitLookupVariants:
     def test_route_segment_model_matches_limit_stored_under_bare_id(
         self, _snapshot_litellm_model_cost
     ):
-        from holmes.core.llm import DefaultLLM
+        from holmes.core.llm import DefaultLLM, _model_name_variants_for_lookup
 
         litellm.model_cost["us.fake.limits"] = {
             "max_input_tokens": 123456,
@@ -720,7 +720,7 @@ class TestTokenLimitLookupVariants:
         llm.model = "bedrock/converse/us.fake.limits"
         llm.max_context_size = None
 
-        assert "us.fake.limits" in llm._get_model_name_variants_for_lookup()
+        assert "us.fake.limits" in _model_name_variants_for_lookup(llm.model)
         assert llm.get_context_window_size() == 123456
 
 

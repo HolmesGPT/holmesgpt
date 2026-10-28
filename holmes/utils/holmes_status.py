@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from holmes import get_version  # type: ignore
 from holmes.common.env_vars import (
@@ -77,6 +77,27 @@ class HolmesMetadata:
     supports_holmes_logs: bool = False
     # X25519 public key (base64) the platform encrypts data for this Holmes with.
     holmes_public_key: Optional[str] = None
+    # Per model (keyed like the `model` column): the context window and max
+    # output Holmes runs it with, and where each came from (ModelLimits). A
+    # "default" source means litellm's model map didn't know the model and the
+    # config set no override, so Holmes is guessing. Older agents have no such
+    # key, so the platform must read its absence as "unknown", not "ok".
+    models_limits: Optional[Dict[str, Dict[str, Any]]] = None
+
+
+def _get_models_limits(config: Config) -> Optional[Dict[str, Dict[str, Any]]]:
+    """Best effort: a failed lookup must not stop the heartbeat, which also
+    serves as the agent's liveness signal."""
+    if not config.llm_model_registry:
+        return None
+    try:
+        return {
+            model_key: limits.model_dump()
+            for model_key, limits in config.llm_model_registry.get_models_limits().items()
+        }
+    except Exception:
+        logging.exception("Failed to resolve model limits for the Holmes status")
+        return None
 
 
 # Last realtime_available value passed to update_holmes_status_in_db. The
@@ -133,6 +154,7 @@ def update_holmes_status_in_db(
         supports_oauth_via_realtime=supports_realtime,
         supports_holmes_logs=supports_realtime,
         holmes_public_key=get_public_key(),
+        models_limits=_get_models_limits(config),
     )
 
     dal.upsert_holmes_status(

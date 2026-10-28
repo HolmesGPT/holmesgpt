@@ -17,7 +17,7 @@ on:
         description: 'Comma-separated list of models to test'
         required: false
         # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
-        default: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,gpt-5.5,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3,qwen-next-80B-instruct'
+        default: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,gpt-5.5,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -49,7 +49,7 @@ on:
 env:
   # Default models for benchmarks - single source of truth
   # NOTE: Keep workflow_dispatch default in sync with this for UI display
-  DEFAULT_BENCHMARK_MODELS: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,gpt-5.5,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3,qwen-next-80B-instruct'
+  DEFAULT_BENCHMARK_MODELS: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,gpt-5.5,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
 
 jobs:
   run-benchmarks:
@@ -170,6 +170,7 @@ jobs:
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           BENCHMARK_ARGS_JSON: ${{ steps.build-command.outputs.args_json }}
         run: |
           # Read the arguments back as an array. Executing "${ARGS[@]}" passes
