@@ -27,7 +27,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
@@ -62,6 +62,7 @@ def _error_response(error: str, invocation: Optional[str] = None) -> Dict[str, A
         "data": None,
         "compressed": False,
         "data_gz_b64": None,
+        "images": None,
         "error": error,
         "invocation": invocation,
         "executor_holmes_version": get_version(),
@@ -73,12 +74,15 @@ def serialize_tool_response(
     elapsed_seconds: float,
     max_bytes: int = REMOTE_TOOL_RESULT_MAX_BYTES,
     compress_threshold: int = REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS,
+    tool_call_id: str = "",
 ) -> Dict[str, Any]:
     """Serialize a StructuredToolResult into the tool_response payload.
 
-    - Images (base64, as the tool returned them) travel in ``images`` and
-      count against max_bytes; when text and images together exceed it but
-      the text alone fits, the images are dropped and the text kept.
+    - Images travel in ``images`` as the tool returned them (base64, never
+      gzipped: a PNG does not compress) and count against max_bytes; when
+      text and images together exceed it but the text alone fits, the
+      images are dropped, the text kept, and a note appended to the text so
+      the caller's LLM knows a picture was omitted and why.
     - Uncompressed data larger than max_bytes (1MB) is rejected with a
       narrow-the-query error.
     - Data over compress_threshold chars is stored gzip+base64 so the DB row,
@@ -119,13 +123,20 @@ def serialize_tool_response(
     images_size = sum(len(image["data"]) for image in images)
     if images and size + images_size > max_bytes:
         logging.warning(
-            "remote tool result: dropping %d image(s) (%d bytes) that would take "
-            "the payload over %d bytes; the text is kept",
+            "remote tool call %s: dropping %d image(s) (%d bytes) that would "
+            "take the result over %d bytes; the text is kept",
+            tool_call_id or "?",
             len(images),
             images_size,
             max_bytes,
         )
         payload["images"] = None
+        data += (
+            f"\n\n[{len(images)} image(s) ({images_size} bytes) omitted: the "
+            f"result would exceed the {max_bytes}-byte limit of a remote tool "
+            "call; narrow the request for a smaller image]"
+        )
+        payload["data"] = data
 
     if len(data) > compress_threshold:
         gz_b64 = base64.b64encode(
@@ -139,9 +150,10 @@ def serialize_tool_response(
     return payload
 
 
-def _serializable_images(images: Any) -> list[Dict[str, str]]:
-    """The ``{data, mimeType}`` entries of ``images`` that are whole: a
-    tool's image list is untyped, and the caller side keeps only these."""
+def _serializable_images(images: Any) -> List[Dict[str, str]]:
+    """The ``{data, mimeType}`` entries of ``images`` that are whole. A
+    tool's image list is untyped; this is where it is validated, so the
+    row holds only entries relay can forward as MCP image content."""
     if not isinstance(images, list):
         return []
     return [
@@ -468,6 +480,7 @@ class ToolCallWorker:
                 "data": None,
                 "compressed": False,
                 "data_gz_b64": None,
+                "images": None,
                 "error": result.error,
                 "return_code": result.return_code,
                 "invocation": result.invocation,
@@ -478,7 +491,7 @@ class ToolCallWorker:
 
         # 6. Inline result, <=1MB uncompressed, gzip over 100k, images
         # inline within the cap, no files.
-        return serialize_tool_response(result, elapsed)
+        return serialize_tool_response(result, elapsed, tool_call_id=tool_call_id)
 
     # ---- internal request kinds ----
 

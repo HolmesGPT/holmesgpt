@@ -105,13 +105,25 @@ def test_only_whole_images_travel():
     ]
 
 
-def test_images_over_the_cap_are_dropped_and_the_text_kept(caplog):
+def test_images_over_the_cap_are_dropped_and_the_text_says_so(caplog):
     result = _ok("small text")
     result.images = [{"data": "A" * 995, "mimeType": "image/png"}]
-    p = serialize_tool_response(result, 0.1, max_bytes=1000)
+    p = serialize_tool_response(result, 0.1, max_bytes=1000, tool_call_id="call-7")
     assert p["status"] == StructuredToolResultStatus.SUCCESS.value
-    assert p["data"] == "small text" and p["images"] is None
-    assert "dropping 1 image" in caplog.text
+    assert p["images"] is None
+    assert p["data"].startswith("small text\n\n[1 image(s) (995 bytes) omitted")
+    assert "1000-byte limit" in p["data"]
+    assert "remote tool call call-7: dropping 1 image" in caplog.text
+
+
+def test_an_images_only_result_travels_with_empty_text():
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=None,
+        images=[{"data": PNG, "mimeType": "image/png"}],
+    )
+    p = serialize_tool_response(result, 0.1)
+    assert p["data"] == "" and p["images"] == [{"data": PNG, "mimeType": "image/png"}]
 
 
 def test_images_within_the_cap_stay_next_to_gzipped_text():
@@ -576,6 +588,33 @@ def test_execute_keeps_the_images_a_tool_returned():
     resp = worker._execute(_approval_row(approved=True))
     assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
     assert resp["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_execute_drops_images_over_the_cap_and_keeps_the_text():
+    """The real path, with the module's cap: a 1 MB+ panel costs the
+    picture, never the result."""
+
+    def render_huge_panel(params, context):
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="Rendered screenshot of panel 1",
+            images=[{"data": "A" * 1_100_000, "mimeType": "image/png"}],
+        )
+
+    worker, _ = _approval_worker(render_huge_panel)
+    resp = worker._execute(_approval_row(approved=True))
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert resp["images"] is None
+    assert resp["data"].startswith("Rendered screenshot of panel 1\n\n[1 image(s)")
+
+
+def test_every_payload_shape_carries_the_images_key():
+    worker, _ = _approval_worker(_needs_approval_unless_approved)
+    approval = worker._execute(_approval_row(approved=False))
+    assert approval["images"] is None
+    from holmes.core.conversations_worker.tool_call_worker import _error_response
+
+    assert _error_response("boom")["images"] is None
 
 
 def test_execute_safe_approved_posts_completed_result():
