@@ -103,12 +103,29 @@ def test_only_whole_images_travel():
         {"data": PNG, "mimeType": "image/jpeg", "extra": "dropped"},
         {"data": PNG[:40] + "\n" + PNG[40:] + "\n", "mimeType": "image/webp"},
     ]
-    p = serialize_tool_response(result, 0.1)
+    p = serialize_tool_response(result, 0.1, tool_call_id="call-3")
     assert p["images"] == [
         {"data": PNG, "mimeType": "image/png"},
         {"data": PNG, "mimeType": "image/jpeg"},
         {"data": PNG, "mimeType": "image/webp"},
     ]
+    assert p["data"] == (
+        "x\n\n[9 image(s) of tool call call-3 omitted: not base64 of a "
+        "gif/jpeg/png/webp image]"
+    )
+
+
+def test_an_image_only_result_whose_image_is_not_whole_says_so(caplog):
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=None,
+        images=[{"data": PNG, "mimeType": "image/svg+xml"}],
+    )
+    p = serialize_tool_response(result, 0.1, max_bytes=120, tool_call_id="c")
+    assert p["images"] is None
+    assert p["data"].startswith("\n\n[1 image(s) of tool call c omitted: not base64")
+    assert len(p["data"].encode()) <= 120 and p["data"].endswith("]")
+    assert "remote tool call c: 1 image entry is not base64" in caplog.text
 
 
 def test_images_over_the_cap_are_dropped_and_the_text_says_so(caplog):

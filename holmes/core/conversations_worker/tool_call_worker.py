@@ -94,6 +94,9 @@ def serialize_tool_response(
     data, _is_json = result.stringify_data(compact=False)
     data = data or ""
     images = _serializable_images(result.images)
+    not_whole = (
+        len(result.images) - len(images) if isinstance(result.images, list) else 0
+    )
 
     payload: Dict[str, Any] = {
         "status": result.status.value
@@ -121,6 +124,25 @@ def serialize_tool_response(
         )
         return payload
 
+    if not_whole:
+        logging.warning(
+            "remote tool call %s: %d image entr%s not base64 of a %s image, "
+            "left out",
+            tool_call_id or "?",
+            not_whole,
+            "y is" if not_whole == 1 else "ies are",
+            _IMAGE_TYPES_NAMED,
+        )
+        data = _text_with_note(
+            data,
+            size,
+            f"{not_whole} image(s) of tool call {tool_call_id or '?'} omitted: not "
+            f"base64 of a {_IMAGE_TYPES_NAMED} image",
+            max_bytes,
+        )
+        payload["data"] = data
+        size = len(data.encode("utf-8", errors="replace"))
+
     images_size = sum(len(image["data"]) for image in images)
     if images and size + images_size > max_bytes:
         logging.warning(
@@ -132,8 +154,13 @@ def serialize_tool_response(
             max_bytes,
         )
         payload["images"] = None
-        data = _text_with_omission_note(
-            data, size, len(images), images_size, max_bytes, tool_call_id
+        data = _text_with_note(
+            data,
+            size,
+            f"{len(images)} image(s) ({images_size} bytes) omitted from tool call "
+            f"{tool_call_id or '?'}: the result would exceed the {max_bytes}-byte "
+            "limit of a remote tool call; narrow the request for a smaller image",
+            max_bytes,
         )
         payload["data"] = data
 
@@ -149,26 +176,15 @@ def serialize_tool_response(
     return payload
 
 
-def _text_with_omission_note(
-    data: str,
-    size: int,
-    count: int,
-    images_size: int,
-    max_bytes: int,
-    tool_call_id: str,
-) -> str:
-    """``data`` plus a note that ``count`` images were left out, within
-    ``max_bytes``: text that leaves no room for the note loses its tail
-    instead, and the note says so."""
-    note = (
-        f"\n\n[{count} image(s) ({images_size} bytes) omitted from tool call "
-        f"{tool_call_id or '?'}: the result would exceed the {max_bytes}-byte "
-        "limit of a remote tool call; narrow the request for a smaller image"
-    )
-    if size + len(note) + 1 <= max_bytes:
+def _text_with_note(data: str, size: int, note: str, max_bytes: int) -> str:
+    """``data`` (``size`` bytes) plus a bracketed ``note`` for the caller's
+    LLM, within ``max_bytes``: text that leaves no room for the note loses
+    its tail instead, and the note says so."""
+    note = f"\n\n[{note}"
+    if size + len(note.encode("utf-8")) + 1 <= max_bytes:
         return data + note + "]"
     note += "; the end of the text was cut to make room for this note]"
-    room = max(0, max_bytes - len(note))
+    room = max(0, max_bytes - len(note.encode("utf-8")))
     cut = data.encode("utf-8", errors="replace")[:room].decode("utf-8", "ignore")
     return cut + note
 
@@ -178,6 +194,9 @@ _BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{
 # The raster types every consumer shows: MCP clients, and the vision APIs
 # the caller's Holmes may hand the image to. Relay applies the same rule.
 IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_IMAGE_TYPES_NAMED = "/".join(
+    sorted(t.removeprefix("image/") for t in IMAGE_MIME_TYPES)
+)
 
 
 def _serializable_image(image: Any) -> Optional[Dict[str, str]]:
