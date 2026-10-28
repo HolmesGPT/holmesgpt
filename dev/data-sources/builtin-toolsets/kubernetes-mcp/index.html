@@ -1255,6 +1255,8 @@
       
         
       
+        
+      
     
     
     
@@ -1655,6 +1657,34 @@
     
   
     Other
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../ai-providers/model-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models Missing from LiteLLM
   
 
     
@@ -6625,13 +6655,13 @@
 <li>
 <p>Under <strong>Authentication &gt; Platform configurations</strong>, add a <strong>Web</strong> platform with the redirect URI matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1_1" name="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1" type="radio">
-<input id="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1_2" name="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1" type="radio">
-<input id="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1_3" name="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1" type="radio">
+<input checked="checked" id="__tabbed_c0b32452_98b4_4327_a983_985338be69b4_1" name="__tabbed_c0b32452_98b4_4327_a983_985338be69b4" type="radio">
+<input id="__tabbed_c0b32452_98b4_4327_a983_985338be69b4_2" name="__tabbed_c0b32452_98b4_4327_a983_985338be69b4" type="radio">
+<input id="__tabbed_c0b32452_98b4_4327_a983_985338be69b4_3" name="__tabbed_c0b32452_98b4_4327_a983_985338be69b4" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1_1">US</label>
-<label for="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1_2">EU</label>
-<label for="__tabbed_1b601f9f_8734_41ec_a324_ba87b3319ae1_3">AP</label>
+<label for="__tabbed_c0b32452_98b4_4327_a983_985338be69b4_1">US</label>
+<label for="__tabbed_c0b32452_98b4_4327_a983_985338be69b4_2">EU</label>
+<label for="__tabbed_c0b32452_98b4_4327_a983_985338be69b4_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://platform.robusta.dev/oauth/callback.html</code></pre></div>
@@ -6764,13 +6794,13 @@
 <h3 id="step-1-register-holmes-as-a-dex-client">Step 1: Register Holmes as a Dex client<a class="headerlink" href="#step-1-register-holmes-as-a-dex-client" title="Permanent link">&para;</a></h3>
 <p>Add a static client to your Dex config. With the upstream Dex Helm chart, this is the <code>config.staticClients</code> section of its values file. Generate the secret with <code>openssl rand -base64 32</code>, and use the redirect URI for your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4_1" name="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4" type="radio">
-<input id="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4_2" name="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4" type="radio">
-<input id="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4_3" name="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4" type="radio">
+<input checked="checked" id="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6_1" name="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6" type="radio">
+<input id="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6_2" name="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6" type="radio">
+<input id="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6_3" name="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4_1">US</label>
-<label for="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4_2">EU</label>
-<label for="__tabbed_0cf7c84a_2de2_4794_ae0e_f79d13f678e4_3">AP</label>
+<label for="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6_1">US</label>
+<label for="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6_2">EU</label>
+<label for="__tabbed_5097f95f_477d_4941_abe8_9827b0a414d6_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">staticClients:

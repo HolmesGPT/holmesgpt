@@ -1257,6 +1257,8 @@
       
         
       
+        
+      
     
     
     
@@ -1754,6 +1756,34 @@
     
   
     Other
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models Missing from LiteLLM
   
 
     
@@ -5725,7 +5755,7 @@
 <p>HolmesGPT works with <strong>any OpenAI-compatible API endpoint</strong>. This includes <a href="https://docs.litellm.ai/docs/simple_proxy" target="_blank"><strong>LiteLLM Proxy</strong></a>, other API gateways and proxy servers, and local inference servers — as long as they expose an OpenAI-compatible interface with function calling support.</p>
 <div class="admonition tip">
 <p class="admonition-title">Using LiteLLM Proxy (or another proxy)?</p>
-<p>This is the right page. Configure your proxy's URL as <code>OPENAI_API_BASE</code>, the proxy token as <code>OPENAI_API_KEY</code>, and set <code>model: openai/&lt;name-your-proxy-exposes&gt;</code> in <code>modelList</code>. See the example below.</p>
+<p>This is the right page. Configure your proxy's URL as <code>OPENAI_API_BASE</code>, the proxy token as <code>OPENAI_API_KEY</code>, and set <code>model: openai/&lt;name-your-proxy-exposes&gt;</code> in <code>modelList</code>. See the example below. If the name is an alias LiteLLM doesn't know, also <a href="../model-limits/">set the model's limits</a>.</p>
 </div>
 <div class="admonition warning">
 <p class="admonition-title">Function Calling Required</p>

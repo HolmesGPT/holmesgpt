@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://holmesgpt.dev/dev/ai-providers/robusta-ai/">
       
       
-        <link rel="prev" href="../other/">
+        <link rel="prev" href="../model-limits/">
       
       
         <link rel="next" href="../using-multiple-providers/">
@@ -1257,6 +1257,8 @@
       
         
       
+        
+      
     
     
     
@@ -1657,6 +1659,34 @@
     
   
     Other
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models Missing from LiteLLM
   
 
     
@@ -6079,13 +6109,13 @@
 <h3 id="selecting-a-region">Selecting a Region<a class="headerlink" href="#selecting-a-region" title="Permanent link">&para;</a></h3>
 <p>The Robusta platform is hosted in multiple regions. HolmesGPT defaults to the US endpoint. If your Robusta account lives in the EU or AP region, set <code>ROBUSTA_API_ENDPOINT</code> to the matching API URL — pick your region below:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c_1" name="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c" type="radio">
-<input id="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c_2" name="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c" type="radio">
-<input id="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c_3" name="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c" type="radio">
+<input checked="checked" id="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4_1" name="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4" type="radio">
+<input id="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4_2" name="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4" type="radio">
+<input id="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4_3" name="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c_1">US</label>
-<label for="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c_2">EU</label>
-<label for="__tabbed_a0dbd69a_6800_45c7_9922_3c53b76b4a0c_3">AP</label>
+<label for="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4_1">US</label>
+<label for="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4_2">EU</label>
+<label for="__tabbed_d5d8344b_2a0c_4755_885e_62df9eef6ef4_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml"># Add to generated_values.yaml
@@ -6123,13 +6153,13 @@ holmes:
 <li>
 <p><strong>Model discovery</strong>: Available models are fetched from <code>${ROBUSTA_API_ENDPOINT}/api/llm/models/v3</code> - pick your region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57_1" name="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57" type="radio">
-<input id="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57_2" name="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57" type="radio">
-<input id="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57_3" name="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57" type="radio">
+<input checked="checked" id="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2_1" name="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2" type="radio">
+<input id="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2_2" name="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2" type="radio">
+<input id="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2_3" name="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57_1">US</label>
-<label for="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57_2">EU</label>
-<label for="__tabbed_c8008b2f_3d9b_4717_b3b5_3a3dcca7be57_3">AP</label>
+<label for="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2_1">US</label>
+<label for="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2_2">EU</label>
+<label for="__tabbed_b43ce8cc_f745_4565_b600_642c6d6450e2_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/api/llm/models/v3</code></pre></div>
@@ -6142,13 +6172,13 @@ holmes:
 <li>
 <p><strong>Proxy access</strong>: Models are accessed through Robusta's proxy endpoint at <code>${ROBUSTA_API_ENDPOINT}/llm/{model_name}</code> - pick your region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30_1" name="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30" type="radio">
-<input id="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30_2" name="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30" type="radio">
-<input id="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30_3" name="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30" type="radio">
+<input checked="checked" id="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c_1" name="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c" type="radio">
+<input id="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c_2" name="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c" type="radio">
+<input id="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c_3" name="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30_1">US</label>
-<label for="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30_2">EU</label>
-<label for="__tabbed_3ae9b968_00f6_492f_bfd4_c91d0d886f30_3">AP</label>
+<label for="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c_1">US</label>
+<label for="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c_2">EU</label>
+<label for="__tabbed_dd9f8318_55c1_4ef3_abe2_d7ad0ca8cf6c_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://api.robusta.dev/llm/{model_name}</code></pre></div>
@@ -6256,7 +6286,7 @@ holmes:
       <nav class="md-footer__inner md-grid" aria-label="Footer" >
         
           
-          <a href="../other/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Other">
+          <a href="../model-limits/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Models Missing from LiteLLM">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -6266,7 +6296,7 @@ holmes:
                 Previous
               </span>
               <div class="md-ellipsis">
-                Other
+                Models Missing from LiteLLM
               </div>
             </div>
           </a>
