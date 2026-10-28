@@ -6,7 +6,17 @@ import time
 
 display_logger = logging.getLogger("holmes.display.llm")
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 import boto3
 import litellm
@@ -249,6 +259,160 @@ class ModelEntry(BaseModel):
     @classmethod
     def load_from_dict(cls, data: dict) -> Self:
         return cls.model_validate(data)
+
+
+# Where a model limit came from: the model's own config (custom_args /
+# max_tokens), an OVERRIDE_* env var, litellm's model map, or Holmes's
+# fallback because none of those knew the model.
+LimitSource = Literal["config", "env", "litellm", "default"]
+
+
+class ModelLimits(BaseModel):
+    """The limits Holmes runs a model with, and where each one came from.
+
+    Published per model in the HolmesStatus heartbeat so the platform can
+    flag models running on fallback limits (``source == "default"``).
+    """
+
+    context_window: int
+    context_window_source: LimitSource
+    max_output_tokens: int
+    max_output_tokens_source: LimitSource
+
+
+def _model_name_variants_for_lookup(model: str) -> list[str]:
+    """
+    Generate model name variants to try when looking up in litellm.model_cost.
+    Returns a list of names to try in order: exact, lowercase, without prefix, etc.
+    """
+    # litellm's "provider/responses/model" route isn't a cost map key
+    stripped = model.replace("/responses/", "/")
+    names_to_try = [model, model.lower(), stripped, stripped.lower()]
+
+    # If there's a prefix, also try without it
+    if "/" in stripped:
+        base_model = stripped.split("/", 1)[1]
+        names_to_try.extend([base_model, base_model.lower()])
+        final_model = model.rsplit("/", 1)[1]
+        names_to_try.extend([final_model, final_model.lower()])
+
+    # Remove duplicates while preserving order (dict.fromkeys maintains insertion order in Python 3.7+)
+    return list(dict.fromkeys(names_to_try))
+
+
+def resolve_context_window(
+    model: str, max_context_size: Optional[int] = None
+) -> Tuple[int, LimitSource]:
+    if max_context_size:
+        return max_context_size, "config"
+
+    if OVERRIDE_MAX_CONTENT_SIZE:
+        logging.debug(
+            f"Using override OVERRIDE_MAX_CONTENT_SIZE {OVERRIDE_MAX_CONTENT_SIZE}"
+        )
+        return OVERRIDE_MAX_CONTENT_SIZE, "env"
+
+    # Try each name variant. A model registered only with custom pricing
+    # (input/output_cost_per_token from model_list.yaml) gets normalized
+    # by litellm into a full ModelInfo whose max_input_tokens is None -
+    # treat that like a missing entry rather than returning None.
+    for name in _model_name_variants_for_lookup(model):
+        try:
+            max_input_tokens = litellm.model_cost[name]["max_input_tokens"]
+        except Exception:
+            continue
+        if max_input_tokens:
+            return max_input_tokens, "litellm"
+
+    if refresh_model_cost_map_if_stale():
+        return resolve_context_window(model, max_context_size)
+
+    # Log which lookups we tried (once per model to avoid log spam)
+    warn_key = (model, "max_input_tokens")
+    if warn_key not in _warned_missing_model_lookups:
+        _warned_missing_model_lookups.add(warn_key)
+        logging.warning(
+            f"Couldn't find model {model} in litellm's model list (tried: {', '.join(_model_name_variants_for_lookup(model))}), "
+            f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
+            f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
+        )
+    return FALLBACK_CONTEXT_WINDOW_SIZE, "default"
+
+
+def resolve_max_output_tokens(
+    model: str, context_window: int
+) -> Tuple[int, LimitSource]:
+    # Reserve output budget = max(64k, 12% of the context window). The 64k
+    # floor keeps small and unknown models usable (the 200k fallback window
+    # gives 12% = 24k, so they stay at 64k), while large windows scale up:
+    # a 1M-context model reserves 120k. The crossover is ~533k. This value
+    # is still capped below to the model's real max_output_tokens when the
+    # model is known to litellm.
+    max_output_tokens = max(64000, context_window * 12 // 100)
+
+    if OVERRIDE_MAX_OUTPUT_TOKEN:
+        logging.debug(f"Using OVERRIDE_MAX_OUTPUT_TOKEN {OVERRIDE_MAX_OUTPUT_TOKEN}")
+        return OVERRIDE_MAX_OUTPUT_TOKEN, "env"
+
+    # Try each name variant. As in resolve_context_window, a custom-priced
+    # model can be present in litellm.model_cost with max_output_tokens=None;
+    # skip it and fall through to the computed budget.
+    for name in _model_name_variants_for_lookup(model):
+        try:
+            litellm_max_output_tokens = litellm.model_cost[name]["max_output_tokens"]
+        except Exception:
+            continue
+        if not litellm_max_output_tokens:
+            continue
+        if litellm_max_output_tokens < max_output_tokens:
+            max_output_tokens = litellm_max_output_tokens
+        return max_output_tokens, "litellm"
+
+    if refresh_model_cost_map_if_stale():
+        return resolve_max_output_tokens(model, context_window)
+
+    # Log which lookups we tried (once per model to avoid log spam)
+    warn_key = (model, "max_output_tokens")
+    if warn_key not in _warned_missing_model_lookups:
+        _warned_missing_model_lookups.add(warn_key)
+        logging.warning(
+            f"Couldn't find model {model} in litellm's model list (tried: {', '.join(_model_name_variants_for_lookup(model))}), "
+            f"using {max_output_tokens} tokens for max_output_tokens. "
+            f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
+        )
+    return max_output_tokens, "default"
+
+
+def resolve_model_limits(
+    model: str,
+    custom_args: Optional[Dict[str, Any]] = None,
+    args: Optional[Dict[str, Any]] = None,
+) -> ModelLimits:
+    """The limits a model entry runs with: what DefaultLLM would use for it.
+
+    ``args`` are the entry's completion args. An explicit max_tokens /
+    max_completion_tokens there is what completion() sends, so it is reported
+    as the output limit even though the input budget is computed separately.
+    """
+    max_context_size = (custom_args or {}).get("max_context_size")
+    context_window, context_source = resolve_context_window(model, max_context_size)
+    args = args or {}
+    # Same precedence as completion(): None means unset, any other value
+    # (even 0) is sent as is.
+    explicit_output = args.get("max_completion_tokens")
+    if explicit_output is None:
+        explicit_output = args.get("max_tokens")
+    if explicit_output is not None:
+        max_output: int = explicit_output
+        output_source: LimitSource = "config"
+    else:
+        max_output, output_source = resolve_max_output_tokens(model, context_window)
+    return ModelLimits(
+        context_window=context_window,
+        context_window_source=context_source,
+        max_output_tokens=max_output,
+        max_output_tokens_source=output_source,
+    )
 
 
 _ANTHROPIC_MODEL_IDENTIFIERS = ("claude", "opus", "sonnet", "haiku")
@@ -559,60 +723,8 @@ class DefaultLLM(LLM):
                 f"model {model} requires the following environment variables: {model_requirements['missing_keys']}"
             )
 
-    def _get_model_name_variants_for_lookup(self) -> list[str]:
-        """
-        Generate model name variants to try when looking up in litellm.model_cost.
-        Returns a list of names to try in order: exact, lowercase, without prefix, etc.
-        """
-        # litellm's "provider/responses/model" route isn't a cost map key
-        model = self.model.replace("/responses/", "/")
-        names_to_try = [self.model, self.model.lower(), model, model.lower()]
-
-        # If there's a prefix, also try without it
-        if "/" in model:
-            base_model = model.split("/", 1)[1]
-            names_to_try.extend([base_model, base_model.lower()])
-            final_model = self.model.rsplit("/", 1)[1]
-            names_to_try.extend([final_model, final_model.lower()])
-
-        # Remove duplicates while preserving order (dict.fromkeys maintains insertion order in Python 3.7+)
-        return list(dict.fromkeys(names_to_try))
-
     def get_context_window_size(self) -> int:
-        if self.max_context_size:
-            return self.max_context_size
-
-        if OVERRIDE_MAX_CONTENT_SIZE:
-            logging.debug(
-                f"Using override OVERRIDE_MAX_CONTENT_SIZE {OVERRIDE_MAX_CONTENT_SIZE}"
-            )
-            return OVERRIDE_MAX_CONTENT_SIZE
-
-        # Try each name variant. A model registered only with custom pricing
-        # (input/output_cost_per_token from model_list.yaml) gets normalized
-        # by litellm into a full ModelInfo whose max_input_tokens is None -
-        # treat that like a missing entry rather than returning None.
-        for name in self._get_model_name_variants_for_lookup():
-            try:
-                max_input_tokens = litellm.model_cost[name]["max_input_tokens"]
-            except Exception:
-                continue
-            if max_input_tokens:
-                return max_input_tokens
-
-        if refresh_model_cost_map_if_stale():
-            return self.get_context_window_size()
-
-        # Log which lookups we tried (once per model to avoid log spam)
-        warn_key = (self.model, "max_input_tokens")
-        if warn_key not in _warned_missing_model_lookups:
-            _warned_missing_model_lookups.add(warn_key)
-            logging.warning(
-                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-                f"using default {FALLBACK_CONTEXT_WINDOW_SIZE} tokens for max_input_tokens. "
-                f"To override, set OVERRIDE_MAX_CONTENT_SIZE environment variable to the correct value for your model."
-            )
-        return FALLBACK_CONTEXT_WINDOW_SIZE
+        return resolve_context_window(self.model, self.max_context_size)[0]
 
     def _is_anthropic_model(self) -> bool:
         return is_anthropic_model(self.model)
@@ -871,49 +983,9 @@ class DefaultLLM(LLM):
             raise Exception(f"Unexpected type returned by the LLM {type(result)}")
 
     def get_maximum_output_token(self) -> int:
-        # Reserve output budget = max(64k, 12% of the context window). The 64k
-        # floor keeps small and unknown models usable (the 200k fallback window
-        # gives 12% = 24k, so they stay at 64k), while large windows scale up:
-        # a 1M-context model reserves 120k. The crossover is ~533k. This value
-        # is still capped below to the model's real max_output_tokens when the
-        # model is known to litellm.
-        max_output_tokens = max(64000, self.get_context_window_size() * 12 // 100)
-
-        if OVERRIDE_MAX_OUTPUT_TOKEN:
-            logging.debug(
-                f"Using OVERRIDE_MAX_OUTPUT_TOKEN {OVERRIDE_MAX_OUTPUT_TOKEN}"
-            )
-            return OVERRIDE_MAX_OUTPUT_TOKEN
-
-        # Try each name variant. As in get_context_window_size, a custom-priced
-        # model can be present in litellm.model_cost with max_output_tokens=None;
-        # skip it and fall through to the computed budget.
-        for name in self._get_model_name_variants_for_lookup():
-            try:
-                litellm_max_output_tokens = litellm.model_cost[name][
-                    "max_output_tokens"
-                ]
-            except Exception:
-                continue
-            if not litellm_max_output_tokens:
-                continue
-            if litellm_max_output_tokens < max_output_tokens:
-                max_output_tokens = litellm_max_output_tokens
-            return max_output_tokens
-
-        if refresh_model_cost_map_if_stale():
-            return self.get_maximum_output_token()
-
-        # Log which lookups we tried (once per model to avoid log spam)
-        warn_key = (self.model, "max_output_tokens")
-        if warn_key not in _warned_missing_model_lookups:
-            _warned_missing_model_lookups.add(warn_key)
-            logging.warning(
-                f"Couldn't find model {self.model} in litellm's model list (tried: {', '.join(self._get_model_name_variants_for_lookup())}), "
-                f"using {max_output_tokens} tokens for max_output_tokens. "
-                f"To override, set OVERRIDE_MAX_OUTPUT_TOKEN environment variable to the correct value for your model."
-            )
-        return max_output_tokens
+        return resolve_max_output_tokens(self.model, self.get_context_window_size())[
+            0
+        ]
 
 
 class LLMModelRegistry:
@@ -1370,6 +1442,27 @@ class LLMModelRegistry:
     def models(self) -> dict[str, ModelEntry]:
         with self._lock:
             return self._llms
+
+    def get_models_limits(self) -> dict[str, ModelLimits]:
+        """The limits each loaded model runs with, keyed like ``models``.
+
+        A model whose limits can't be resolved (e.g. a non-numeric
+        max_context_size) is left out, so it doesn't hide the others.
+        """
+        # Snapshot under the lock: a Robusta resync can add models mid-iteration.
+        with self._lock:
+            entries = list(self._llms.items())
+        limits: dict[str, ModelLimits] = {}
+        for model_key, entry in entries:
+            try:
+                limits[model_key] = resolve_model_limits(
+                    entry.model, entry.custom_args, entry.model_extra
+                )
+            except Exception:
+                logging.warning(
+                    f"Failed to resolve limits for model {model_key}", exc_info=True
+                )
+        return limits
 
     def _parse_models_file(self, path: str) -> dict[str, ModelEntry]:
         models = load_yaml_file(path, raise_error=False, warn_not_found=False)
