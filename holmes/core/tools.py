@@ -1276,6 +1276,8 @@ class ToolsetDBModel(BaseModel):
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
+    # The publishing Holmes version; the platform routes remote tools by it.
+    version: Optional[str] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 
