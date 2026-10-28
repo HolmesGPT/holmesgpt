@@ -27,7 +27,8 @@ colorlog = "^6.8.2"
 python-json-logger = "^3.0.0"
 strenum = "^0.4.15"
 markdown = "^3.6"
-certifi = "^2024.7.4"
+# certifi >= 2026.10.18 fixes GHSA-6q48-6c7w-9gw2 (CRITICAL). Use >= (not ^): ^2024 would cap below it.
+certifi = ">=2026.10.18"
 boto3 = "^1.34.145"
 cachetools = "^5.5.0"
 bs4 = "^0.0.2"
@@ -82,8 +83,15 @@ pydantic-settings = ">=2.14.2"
 # Use >= (not ^) because Poetry reads ^0.0.31 as ==0.0.31, which would exclude future 0.0.x patches.
 python-multipart = ">=0.0.31"
 # aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x
-# hardening fixes; >= 3.14.3 fixes CVE-2026-69244 (HIGH) and CVE-2026-59881/69243 (Medium).
-aiohttp = ">=3.14.3"
+# hardening fixes; >= 3.14.3 fixes CVE-2026-69244 (HIGH) and CVE-2026-59881/69243 (Medium);
+# >= 3.14.4 fixes CVE-2026-111064/111066 and GHSA-2g87-pp6c-29x5 (all High).
+aiohttp = ">=3.14.4"
+# filelock >= 4.2.1 fixes CVE-2026-112940 (HIGH). Pulled in transitively (huggingface-hub via litellm).
+# 4.x requires Python >= 3.11, so Python 3.10 keeps the latest 3.x (no fixed 3.x release).
+filelock = [
+    {version = ">=4.2.1", python = ">=3.11"},
+    {version = ">=3.29.4", python = "<3.11"},
+]
 # pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High).
 # Pulled in transitively via pyasn1-modules -> google-auth.
 pyasn1 = ">=0.6.4"
