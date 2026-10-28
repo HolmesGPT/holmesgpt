@@ -346,6 +346,9 @@ class RemoteMCPTool(Tool):
     # Whether this is a relay cross-cluster tool. Decided once at creation (see
     # REMOTE_TOOL_NAME_PREFIX) so call-time logic reads state instead of the name.
     is_remote: bool = Field(default=False, exclude=True)
+    # The server's own inputSchema. `parameters` keeps only what the LLM is
+    # shown; the server validates against all of it.
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
 
     @property
     def collision_safe_name(self) -> str:
@@ -699,6 +702,7 @@ class RemoteMCPTool(Tool):
             parameters=parameters,
             toolset=toolset,
             is_remote=is_remote,
+            input_schema=tool.inputSchema,
         )
 
     @classmethod

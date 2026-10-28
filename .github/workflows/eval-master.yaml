@@ -84,6 +84,7 @@ jobs:
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           # This name must match MASTER_EXPERIMENT_PREFIX in braintrust_history.py
           EXPERIMENT_ID: "master-${{ github.run_id }}"
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           MODELS: ${{ github.event.inputs.models || env.DEFAULT_MASTER_MODELS }}
         run: |
           ./run_benchmarks_local.py --markers regression --models "$MODELS" --iterations 1
