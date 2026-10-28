@@ -100,12 +100,12 @@ def test_adds_new_models_and_drops_deleted_ones(build_registry):
 def test_drops_deleted_models_that_are_not_robusta_prefixed(build_registry):
     """Custom-named hosted models are catalog models too (ROB-707)."""
     registry = build_registry(
-        _catalog("Playtika-sonnet-4-5", default="Playtika-sonnet-4-5")
+        _catalog("Acme-sonnet-4-5", default="Acme-sonnet-4-5")
     )
 
-    _refresh_with(registry, _catalog("Playtika-sonnet-5", default="Playtika-sonnet-5"))
+    _refresh_with(registry, _catalog("Acme-sonnet-5", default="Acme-sonnet-5"))
 
-    assert set(registry.models) == {"Playtika-sonnet-5"}
+    assert set(registry.models) == {"Acme-sonnet-5"}
 
 
 def test_failed_refresh_keeps_the_loaded_models(build_registry):
@@ -179,18 +179,18 @@ def test_unknown_custom_named_model_is_found_after_a_resync(build_registry):
     pod restart - including one whose name carries no `Robusta/` prefix, which
     is every model on a customer with a private catalog (ROB-707)."""
     registry = build_registry(
-        _catalog("Playtika-sonnet-4-5", default="Playtika-sonnet-4-5")
+        _catalog("Acme-sonnet-4-5", default="Acme-sonnet-4-5")
     )
 
     with patch(
         "holmes.core.llm.fetch_robusta_models",
         return_value=_catalog(
-            "Playtika-sonnet-4-5", "Playtika-sonnet-5", default="Playtika-sonnet-4-5"
+            "Acme-sonnet-4-5", "Acme-sonnet-5", default="Acme-sonnet-4-5"
         ),
     ):
-        entry = registry.get_model_params("Playtika-sonnet-5")
+        entry = registry.get_model_params("Acme-sonnet-5")
 
-    assert entry.name == "Playtika-sonnet-5"
+    assert entry.name == "Acme-sonnet-5"
 
 
 def test_unchanged_catalog_reports_no_change(build_registry):
@@ -362,7 +362,7 @@ def test_heartbeat_advertises_the_refreshed_catalog(mock_cluster, monkeypatch):
     dal = _dal()
     with patch(
         "holmes.core.llm.fetch_robusta_models",
-        return_value=_catalog("Playtika-sonnet-4-5", default="Playtika-sonnet-4-5"),
+        return_value=_catalog("Acme-sonnet-4-5", default="Acme-sonnet-4-5"),
     ):
         config = Config.load_from_env()
         config._dal = dal
@@ -371,14 +371,14 @@ def test_heartbeat_advertises_the_refreshed_catalog(mock_cluster, monkeypatch):
     # Ops edit the catalog in the relay: 4-5 deleted, 5 added.
     with patch(
         "holmes.core.llm.fetch_robusta_models",
-        return_value=_catalog("Playtika-sonnet-5", default="Playtika-sonnet-5"),
+        return_value=_catalog("Acme-sonnet-5", default="Acme-sonnet-5"),
     ):
         assert config.llm_model_registry.refresh_robusta_models()
 
     update_holmes_status_in_db(dal, config)
 
     upserted = dal.upsert_holmes_status.call_args[0][0]
-    assert json.loads(upserted["model"]) == ["Playtika-sonnet-5"]
+    assert json.loads(upserted["model"]) == ["Acme-sonnet-5"]
     # This agent reads the catalog, so it reads the opt-out; the platform's
     # settings page tells such agents from the rest by this flag.
     assert json.loads(upserted["metadata"])["honors_robusta_ai_disabled"] is True
