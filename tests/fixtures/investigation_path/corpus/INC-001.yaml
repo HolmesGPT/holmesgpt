@@ -1,0 +1,53 @@
+incident_id: INC-001
+occurred_at: "2026-01-14"
+source_type: prometheus
+title: Payment service crash looping against an unreachable cache
+subject: payment-service
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - crashloopbackoff
+  - pod
+  - restart
+  - redis
+  - connection
+  - timeout
+  - payment
+
+root_cause:
+  label: dependency_unreachable
+  summary: >-
+    A label edit on the Redis pods stopped the Redis Service selector matching
+    them. The Service kept resolving but had no endpoints, so every client
+    connection timed out.
+
+reference_path:
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: Shows the restart reason and which container is failing.
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 1.0
+    rationale: The application error names the dependency that is failing.
+  - intent: describe
+    entity: {kind: pod, name: redis}
+    weight: 0.5
+    rationale: Rules out the dependency itself being down.
+  - intent: topology
+    entity: {kind: service, name: redis}
+    weight: 0.9
+    rationale: A healthy dependency pod does not prove the Service still selects it.
+  - intent: topology
+    entity: {kind: endpoints, name: redis}
+    weight: 1.0
+    rationale: >-
+      Empty endpoints is the direct evidence that traffic cannot reach the
+      dependency, and is the check that separates this cause from a slow
+      dependency.
+  - intent: metrics
+    entity: {kind: metric, name: redis_connected_clients}
+    weight: 0.6
+    rationale: Confirms whether any client is reaching the dependency at all.

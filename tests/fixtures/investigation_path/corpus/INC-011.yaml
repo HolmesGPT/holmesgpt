@@ -1,0 +1,46 @@
+incident_id: INC-011
+occurred_at: "2026-06-02"
+source_type: prometheus
+title: Gateway rejecting a share of requests after a release
+subject: api-gateway
+split: corpus
+validated_by: corpus-review
+validated_at: "2026-08-24"
+
+symptoms:
+  - http
+  - error
+  - deploy
+  - release
+  - gateway
+  - latency
+  - rollout
+
+root_cause:
+  label: config_regression
+  summary: >-
+    A release tightened a request size limit below what one client sends, so a
+    fixed share of requests were rejected while the pods stayed healthy.
+
+reference_path:
+  - intent: logs
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.9
+    rationale: The error shape separates a code fault from a configuration one.
+  - intent: config_history
+    entity: {kind: deployment, name: "<subject>"}
+    weight: 1.0
+    rationale: Lines the error up against the release that introduced it.
+  - intent: metrics
+    entity: {kind: metric, name: http_requests_total}
+    weight: 0.8
+    rationale: Shows whether the errors began exactly at the rollout.
+  - intent: describe
+    entity: {kind: pod, name: "<subject>"}
+    weight: 0.4
+    rationale: Confirms the pods themselves are healthy, ruling out a crash loop.
+  # Only present here, so it stays a genuine minority-support case for the eval.
+  - intent: traces
+    entity: {kind: trace, name: "<subject>"}
+    weight: 0.3
+    rationale: Showed which client was sending the oversized requests.
