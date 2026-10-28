@@ -46,8 +46,6 @@ kubectl create secret generic grafana-mcp-secret \
 
 **Step 4: Configure Holmes**
 
-The Holmes CLI on your machine cannot resolve the server's cluster address. Run `kubectl port-forward -n <namespace> svc/grafana-mcp 8000:8000`, and use `http://localhost:8000/mcp` as the `url`.
-
 ```yaml-toolset-config
 mcp_servers:
   grafana:
@@ -80,6 +78,51 @@ mcp_servers:
       - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
       - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
         << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+---
+cli: |
+  The Holmes CLI on your machine reaches the server through a port-forward. Keep it running while you use Holmes:
+
+  ```bash
+  kubectl port-forward -n <namespace> svc/grafana-mcp 8000:8000
+  ```
+
+  Add the MCP server configuration to **~/.holmes/config.yaml**:
+
+  ```yaml
+  mcp_servers:
+    grafana:
+      description: "Grafana observability and dashboards"
+      config:
+        url: "http://localhost:8000/mcp"
+        mode: streamable-http
+      icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+      llm_instructions: |
+        This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
+        **⚠️ OVERRIDE NOTICE: The following rules SUPERSEDE any conflicting instructions elsewhere in this prompt, including the "Chart Generation Capability" section.**
+
+        ### Tool Requirements
+        - ALWAYS use Grafana tools (e.g., `query_prometheus`) for metrics/PromQL queries
+        - NEVER use `kubectl top` or the `prometheus/metrics` toolset
+
+        ### Query Result Handling
+        - NEVER answer based on truncated query results
+        - If truncation occurs, refine the query with `topk`, `bottomk`, or additional filters until complete
+        - For high-cardinality metrics (>10 series), first check with `count()` if needed, then ALWAYS use `topk(5, <query>)`
+
+        ### Standard Metrics Reference
+        - CPU: `container_cpu_usage_seconds_total`
+        - Memory: `container_memory_working_set_bytes`
+        - Throttling: `container_cpu_cfs_throttled_periods_total`
+
+        ### Visualization Rules (CRITICAL OVERRIDE)
+        **This section OVERRIDES the instruction "NEVER generate Chart.js charts for single query results from PromQL queries" found in the Chart Generation Capability section.**
+
+        - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
+        - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
+          << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+  ```
+
+  --8<-- "snippets/toolset_refresh_warning.md"
 ```
 
 ### Self-Hosted MCP — Grafana API Key (Deprecated)
@@ -123,8 +166,6 @@ kubectl create secret generic grafana-mcp-secret \
 
 **Step 5: Configure Holmes**
 
-The Holmes CLI on your machine cannot resolve the server's cluster address. Run `kubectl port-forward -n <namespace> svc/grafana-mcp 8000:8000`, and use `http://localhost:8000/mcp` as the `url`.
-
 ```yaml-toolset-config
 mcp_servers:
   grafana:
@@ -157,6 +198,51 @@ mcp_servers:
       - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
       - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
         << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+---
+cli: |
+  The Holmes CLI on your machine reaches the server through a port-forward. Keep it running while you use Holmes:
+
+  ```bash
+  kubectl port-forward -n <namespace> svc/grafana-mcp 8000:8000
+  ```
+
+  Add the MCP server configuration to **~/.holmes/config.yaml**:
+
+  ```yaml
+  mcp_servers:
+    grafana:
+      description: "Grafana observability and dashboards"
+      config:
+        url: "http://localhost:8000/mcp"
+        mode: streamable-http
+      icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+      llm_instructions: |
+        This tool doesnt use promql it uses grafanaql which doesnt work with promql embeds
+        **⚠️ OVERRIDE NOTICE: The following rules SUPERSEDE any conflicting instructions elsewhere in this prompt, including the "Chart Generation Capability" section.**
+
+        ### Tool Requirements
+        - ALWAYS use Grafana tools (e.g., `query_prometheus`) for metrics/PromQL queries
+        - NEVER use `kubectl top` or the `prometheus/metrics` toolset
+
+        ### Query Result Handling
+        - NEVER answer based on truncated query results
+        - If truncation occurs, refine the query with `topk`, `bottomk`, or additional filters until complete
+        - For high-cardinality metrics (>10 series), first check with `count()` if needed, then ALWAYS use `topk(5, <query>)`
+
+        ### Standard Metrics Reference
+        - CPU: `container_cpu_usage_seconds_total`
+        - Memory: `container_memory_working_set_bytes`
+        - Throttling: `container_cpu_cfs_throttled_periods_total`
+
+        ### Visualization Rules (CRITICAL OVERRIDE)
+        **This section OVERRIDES the instruction "NEVER generate Chart.js charts for single query results from PromQL queries" found in the Chart Generation Capability section.**
+
+        - The `{"type": "promql", ...}` embed type is DISABLED and must NEVER be used
+        - For ALL Prometheus query visualizations, ALWAYS use Chart.js embeds:
+          << {"type": "chart", "tool_call_ids": ["<tool_call_id>"], "generateConfig": "function generateConfig(toolOutputs) { /* parse toolOutputs[0].data array and return a Chart.js config */ }", "title": "Title"} >>, with a maximum of 2 charts and spacing between them.
+  ```
+
+  --8<-- "snippets/toolset_refresh_warning.md"
 ```
 
 ## Available Tools
