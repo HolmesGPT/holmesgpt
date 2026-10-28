@@ -78,6 +78,8 @@ before_test: |
   done
   if [ "$LOGS_READY" = false ]; then
     echo "ERROR: Logs not found in Loki after 120s (LOG_COUNT=$LOG_COUNT, HISTORICAL_COUNT=$HISTORICAL_COUNT, ERROR_COUNT=$ERROR_COUNT)"
+    kubectl logs -n app-101 -l app=payment-api-101 -c promtail --previous --tail=20 2>&1 || true
+    kubectl logs -n app-101 -l app=payment-api-101 -c promtail --tail=20 2>&1 || true
     exit 1
   fi
 
