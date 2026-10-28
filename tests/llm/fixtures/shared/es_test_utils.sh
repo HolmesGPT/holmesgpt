@@ -231,8 +231,10 @@ es_bulk_load_idempotent() {
     -H "Content-Type: application/json" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
     -d "{\"query\":{\"bool\":{\"must_not\":{\"ids\":{\"values\":[$(paste -sd, "$ids_file")]}}}}}")
-  if [ -z "$response" ]; then
-    echo "❌ Removing stale documents from $index failed"
+  # A 200 can still report a partial delete via timed_out or failures.
+  if [ -z "$response" ] || echo "$response" | grep -q '"timed_out":true' \
+    || ! echo "$response" | grep -q '"failures":\[\]'; then
+    echo "❌ Removing stale documents from $index failed: $response"
     rm -f "${bulk_file}.with_ids" "$ids_file"
     exit 1
   fi

@@ -769,6 +769,12 @@ jobs:
             docker load -i "$CACHE_DIR/images/kind-node.tar"
           fi
 
+          # Same inotify limits as .github/actions/setup-kind-cluster: every
+          # pod on the KIND node shares them, and the runner default of 128
+          # instances runs out under a full eval set (promtail then exits).
+          sudo sysctl -w fs.inotify.max_user_instances=512
+          sudo sysctl -w fs.inotify.max_user_watches=524288
+
           # === Create KIND cluster ===
           cat > /tmp/kind-config.yaml << 'EOF'
           kind: Cluster
