@@ -141,7 +141,6 @@ def build_page(tmp_path, text):
     [
         "``` {.yaml-toolset-config}",
         "```YAML-toolset-config",
-        "```yaml-helm-values {secret-qualifier=bearer}",
         "```Robusta-Region",
         "```robusta-region {.yaml}",
         "```yaml-toolset-confg",
@@ -149,7 +148,7 @@ def build_page(tmp_path, text):
         "~~~yaml",
         "```robusta-region {lang=python}",
     ],
-    ids=["brace", "case", "helm-values-qualifier", "region-case", "region-attribute", "name", "language-case", "tilde", "region-language"],
+    ids=["brace", "case", "region-case", "region-attribute", "name", "language-case", "tilde", "region-language"],
 )
 def test_a_fence_opening_in_a_form_no_page_writes_fails_the_build(tmp_path, monkeypatch, opening):
     monkeypatch.chdir(REPO)
@@ -193,8 +192,19 @@ FRONT_MATTER = "---\ntitle: Page\n---\n"
         (f"# Page\n\n{INCLUDE}```multi-instance\ntoolset: x\n```\n", 5, "unsupported form"),
         (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\nmodelList:\n```\n", 6, "`modelList` has no value"),
         (f"{FRONT_MATTER}# Page\n\n```multi-instance\ntoolset: x\n```\n", 6, "unsupported form"),
+        (
+            "# Page\n\n```yaml-helm-values\nextraEnvVarsSecrets:\n  - mine\nmodelList:\n  m:\n    api_key: \"{{{{ env.KEY }}}}\"\n```\n",
+            3,
+            "`extraEnvVarsSecrets` is written by the fence",
+        ),
     ],
-    ids=["include-deployment", "include-multi-instance", "front-matter-deployment", "front-matter-multi-instance"],
+    ids=[
+        "include-deployment",
+        "include-multi-instance",
+        "front-matter-deployment",
+        "front-matter-multi-instance",
+        "extra-env-var-secrets-with-a-derived-secret",
+    ],
 )
 def test_a_fence_error_names_the_line_in_the_page_source(tmp_path, monkeypatch, text, line, error):
     monkeypatch.chdir(REPO)

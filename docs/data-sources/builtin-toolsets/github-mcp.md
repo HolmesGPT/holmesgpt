@@ -327,6 +327,26 @@ cli: |
               secretKeyRef:
                 name: holmes-github-app
                 key: GITHUB_APP_PRIVATE_KEY
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: github-mcp-server
+    namespace: holmes-mcp
+  spec:
+    selector:
+      app: github-mcp-server
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  ```
+
+  Deploy it to your cluster:
+
+  ```bash
+  kubectl apply -f github-app-mcp-deployment.yaml
   ```
 
   Then add the MCP server to **~/.holmes/config.yaml**:
@@ -338,6 +358,12 @@ cli: |
       config:
         url: "http://github-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
         mode: "streamable-http"
+  ```
+
+  If Holmes CLI runs outside the cluster, forward the port and use `http://localhost:8000/mcp` as the URL:
+
+  ```bash
+  kubectl port-forward -n holmes-mcp svc/github-mcp-server 8000:8000
   ```
 ```
 

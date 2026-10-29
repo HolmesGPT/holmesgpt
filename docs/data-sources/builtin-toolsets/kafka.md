@@ -8,6 +8,8 @@ This toolset uses the AdminClient of the [confluent-kafka python library](https:
 
 ### SASL authentication
 
+`SASL_PLAINTEXT` encrypts nothing between Holmes and the broker: the username and all data travel in the clear, and a captured SCRAM exchange is open to an offline dictionary attack on the password (with `PLAIN`, the password itself is sent). Use it only on a network you trust; otherwise use `SASL_SSL`, as in [SASL+TLS](#sasltls-sasl_ssl).
+
 ```yaml-toolset-config
 toolsets:
   kafka/admin:
@@ -23,27 +25,6 @@ toolsets:
 ---
 secret:
   - --from-literal=KAFKA_USERNAME=kafka-plaintext-user
-  - --from-literal=KAFKA_PASSWORD=<your-password>
-cli: |
-  ```yaml
-  toolsets:
-      kafka/admin:
-          enabled: true
-          config:
-              clusters:
-                  - name: aks-prod-kafka
-                    broker: kafka-1.aks-prod-kafka-brokers.kafka.svc:9095
-                    username: kafka-plaintext-user
-                    password: "<your-password>"
-                    sasl_mechanism: SCRAM-SHA-512
-                    security_protocol: SASL_PLAINTEXT
-                  - name: gke-stg-kafka
-                    broker: gke-kafka.gke-stg-kafka-brokers.kafka.svc:9095
-                    username: kafka-plaintext-user
-                    password: "<your-password>"
-                    sasl_mechanism: SCRAM-SHA-512
-                    security_protocol: SASL_PLAINTEXT
-  ```
 ```
 
 ### mTLS — certificate files (Kubernetes mounted secrets)
@@ -138,7 +119,7 @@ cli: |
 
   ```bash
   export KAFKA_USERNAME=kafka-plaintext-user
-  export KAFKA_PASSWORD=<your-password>
+  export KAFKA_PASSWORD=your-kafka-password
   ```
 
   Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:

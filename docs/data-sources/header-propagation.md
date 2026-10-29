@@ -31,7 +31,7 @@ Templates can reference:
 
 ### MCP Servers
 
-```yaml-toolset-config
+```yaml-helm-values
 mcp_servers:
   customer_data:
     description: "Customer data API"
@@ -47,7 +47,7 @@ See [MCP Servers -- Dynamic Headers](remote-mcp-servers.md#advanced-configuratio
 
 ### HTTP Connectors
 
-```yaml-toolset-config
+```yaml-helm-values
 toolsets:
   internal-api:
     type: http
@@ -69,7 +69,7 @@ See [HTTP Connectors](api-toolsets.md) for the full HTTP connector configuration
 
 YAML tool commands and scripts are Jinja2 templates. The variables `request_context` and `env` are available directly — no extra config key needed. Use `request_context.headers['Header-Name']` to access incoming request headers and `env.VAR_NAME` to access environment variables.
 
-```yaml-toolset-config
+```yaml-helm-values
 toolsets:
   internal-api:
     description: "Fetch data from the internal API"
@@ -77,23 +77,6 @@ toolsets:
       - name: "fetch_data"
         description: "Fetch data from internal API"
         command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
----
-cli: |
-  **Configuration File (`toolsets.yaml`):**
-
-  ```yaml
-  toolsets:
-    internal-api:
-      description: "Fetch data from the internal API"
-      tools:
-        - name: "fetch_data"
-          description: "Fetch data from internal API"
-          command: 'curl -s -H "X-Auth-Token: {{ request_context.headers[''X-Auth-Token''] }}" https://internal-api.corp.net/data'
-  ```
-
-  ```bash
-  holmes ask "fetch data from the internal API" --custom-toolsets=toolsets.yaml
-  ```
 ```
 
 See [Custom Toolsets](custom-toolsets.md) for the full YAML toolset reference.
@@ -104,7 +87,7 @@ Each built-in Python toolset decides individually whether to support `extra_head
 
 The following example shows how ServiceNow Tables, one toolset that supports header propagation, is configured:
 
-```yaml-toolset-config {secret-qualifier=servicenow}
+```yaml-helm-values {secret-qualifier=servicenow}
 toolsets:
   servicenow/tables:
     config:

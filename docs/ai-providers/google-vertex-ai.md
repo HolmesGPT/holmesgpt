@@ -16,7 +16,7 @@ additionalEnvVars:
     value: "/etc/google-credentials/google-credentials"
   # Optional: Set default model (use modelList key name)
   - name: MODEL
-    value: "vertex-gemini-pro"  # This refers to the key name in modelList below
+    value: "vertex-gemini-flash"  # This refers to the key name in modelList below
 
 # Mount the credentials file (required for file-based authentication)
 # See: https://kubernetes.io/docs/concepts/storage/volumes/#secret
@@ -35,21 +35,21 @@ additionalVolumeMounts:
 
 # Configure at least one model using modelList
 modelList:
-  vertex-gemini-pro:
-    vertex_project: "{{ env.VERTEXAI_PROJECT }}"
-    vertex_location: "{{ env.VERTEXAI_LOCATION }}"
-    model: vertex_ai/gemini-pro
-    temperature: 1
-
   vertex-gemini-flash:
     vertex_project: "{{ env.VERTEXAI_PROJECT }}"
     vertex_location: "{{ env.VERTEXAI_LOCATION }}"
-    model: vertex_ai/gemini-1.5-flash
+    model: vertex_ai/gemini-3.8-flash
+    temperature: 1
+
+  vertex-gemini-flash-lite:
+    vertex_project: "{{ env.VERTEXAI_PROJECT }}"
+    vertex_location: "{{ env.VERTEXAI_LOCATION }}"
+    model: vertex_ai/gemini-3.5-flash-lite
     temperature: 1
 ---
 secret:
   - --from-literal=VERTEXAI_PROJECT="your-project-id"
-  - --from-literal=VERTEXAI_LOCATION="us-central1"
+  - --from-literal=VERTEXAI_LOCATION="global"
 named-secrets:
   - name: holmes-google-vertex-ai-credentials
     keys:
@@ -57,7 +57,7 @@ named-secrets:
 cli: |
   ```bash
   export VERTEXAI_PROJECT="your-project-id"
-  export VERTEXAI_LOCATION="us-central1"
+  export VERTEXAI_LOCATION="global"
   export GOOGLE_APPLICATION_CREDENTIALS="path/to/service-account-key.json"
 
   holmes ask "what pods are failing?" --model="vertex_ai/<your-vertex-model>"
