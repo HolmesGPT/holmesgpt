@@ -21,6 +21,8 @@ data:
   KUBECTL_DANGEROUS_FLAGS: {{ .Values.mcpAddons.kubernetesRemediation.config.dangerousFlags | quote }}
   KUBECTL_PREAPPROVED_COMMANDS: {{ .Values.mcpAddons.kubernetesRemediation.config.preapprovedCommands | quote }}
   KUBECTL_DIAGNOSTIC_IMAGES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticImages | quote }}
+  KUBECTL_PREAPPROVED_EXEC_DISABLED_BINARIES: {{ .Values.mcpAddons.kubernetesRemediation.config.preapprovedExecDisabledBinaries | quote }}
+  KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS: {{ include "holmes.kubernetesRemediationMcp.preapprovedExecArgvAllowlists" . | quote }}
   KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticTargetPolicyEnabled | quote }}
   KUBECTL_DIAGNOSTIC_ALLOW_EXTERNAL_TARGETS: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticAllowExternalTargets | quote }}
   KUBECTL_DIAGNOSTIC_INTERNAL_DNS_SUFFIXES: {{ .Values.mcpAddons.kubernetesRemediation.config.diagnosticInternalDnsSuffixes | quote }}
@@ -129,6 +131,16 @@ spec:
             configMapKeyRef:
               name: {{ .Release.Name }}-k8s-remediation-mcp-config
               key: KUBECTL_DIAGNOSTIC_IMAGES
+        - name: KUBECTL_PREAPPROVED_EXEC_DISABLED_BINARIES
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_PREAPPROVED_EXEC_DISABLED_BINARIES
+        - name: KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ .Release.Name }}-k8s-remediation-mcp-config
+              key: KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS
         - name: KUBECTL_DIAGNOSTIC_TARGET_POLICY_ENABLED
           valueFrom:
             configMapKeyRef:

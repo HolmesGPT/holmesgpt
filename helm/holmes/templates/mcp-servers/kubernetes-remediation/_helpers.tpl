@@ -55,6 +55,13 @@ checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp
 {{- end -}}
 
 {{/*
+config.preapprovedExecArgvAllowlists as the JSON map the server reads.
+*/}}
+{{- define "holmes.kubernetesRemediationMcp.preapprovedExecArgvAllowlists" -}}
+{{- .Values.mcpAddons.kubernetesRemediation.config.preapprovedExecArgvAllowlists | default dict | toJson -}}
+{{- end -}}
+
+{{/*
 Define the LLM instructions for Kubernetes Remediation MCP
 */}}
 {{- define "holmes.kubernetesRemediationMcp.llmInstructions" -}}

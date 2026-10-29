@@ -156,6 +156,17 @@ def test_gpu_diagnostics_chart_wiring():
     assert '"get", "list", "watch", "create", "delete"' in rbac
 
 
+def test_exec_argv_allowlist_values_render_as_server_env():
+    assert _values()["config"]["preapprovedExecDisabledBinaries"] == ""
+    assert _values()["config"]["preapprovedExecArgvAllowlists"] == {}
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    assert (
+        'KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS: {{ include "holmes.kubernetesRemediationMcp.preapprovedExecArgvAllowlists" . | quote }}'
+        in text
+    )
+    assert "| toJson" in (TEMPLATE_DIR / "_helpers.tpl").read_text()
+
+
 def test_values_support_additional_env_vars():
     """additionalEnvVars is the escape hatch for server knobs the chart doesn't
     wire as first-class values; appended last so entries can override

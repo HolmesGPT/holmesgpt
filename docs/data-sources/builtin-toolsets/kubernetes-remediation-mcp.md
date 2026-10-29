@@ -272,18 +272,19 @@ holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for thr
 | `nvidia-smi` | no arguments, `-L`, `-q [-d SECTIONS] [-i N]`, `--query-*=FIELDS --format=csv [-i N]`, `nvlink -s\|-e [-i N]`, `topo -m` |
 | `dmesg` | any of `-T`, `-k`, `-r`, `-s SIZE`, `--level=LEVELS` (`-r` and `-s` also work with BusyBox `dmesg`) |
 
-Set these server env vars through `additionalEnvVars` to change the defaults:
+Change the defaults with these Helm values:
 
-- `KUBECTL_PREAPPROVED_EXEC_DISABLED_BINARIES`: binaries to stop auto-approving, e.g. `nvidia-smi,dmesg`
-- `KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS`: JSON map of binary to argument regex. It auto-approves the binary and adds to any built-in forms. The regex must match the whole argument list, with each argument preceded by a space.
+- `preapprovedExecDisabledBinaries`: binaries to stop auto-approving, e.g. `nvidia-smi,dmesg`
+- `preapprovedExecArgvAllowlists`: map of binary to argument regex. It auto-approves the binary and adds to any built-in forms. The regex must match the whole argument list, with each argument preceded by a space.
 
 ```yaml
 mcpAddons:
   kubernetesRemediation:
     enabled: true
-    additionalEnvVars:
-      - name: KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS
-        value: '{"ethtool": " -S [a-z0-9]+"}'
+    config:
+      preapprovedExecDisabledBinaries: "nvidia-smi"
+      preapprovedExecArgvAllowlists:
+        ethtool: " -S [a-z0-9]+"
 ```
 
 ## Security Controls
@@ -493,6 +494,8 @@ Otherwise, in order of preference:
 | `dangerousFlags` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
 | `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
 | `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
+| `preapprovedExecDisabledBinaries` | `""` | built-in exec binaries to stop auto-approving ([details](#exec-argument-allowlists)) |
+| `preapprovedExecArgvAllowlists` | `{}` | extra auto-approved exec binaries, binary → argument regex ([details](#exec-argument-allowlists)) |
 | `diagnosticTargetPolicyEnabled` | `true` | master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
 | `diagnosticAllowExternalTargets` | `false` | allow diagnostic probes to reach hosts outside the cluster |
 | `diagnosticInternalDnsSuffixes` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |
