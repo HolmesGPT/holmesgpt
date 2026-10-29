@@ -281,4 +281,4 @@ MyTool(
 )
 ```
 
-For more information, see the [HolmesGPT documentation](https://holmesgpt.dev/data-sources/custom-toolsets/).
+For more information, see the [custom toolsets documentation](../data-sources/custom-toolsets.md).
