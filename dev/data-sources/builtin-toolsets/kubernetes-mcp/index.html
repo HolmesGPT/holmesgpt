@@ -4362,6 +4362,8 @@
       
         
       
+        
+      
     
     
     
@@ -4409,6 +4411,34 @@
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
             
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../development/evaluations/history/results_20261028_100941/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ⚡ October 28, 2026
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
               
             
               
@@ -6699,13 +6729,13 @@
 <li>
 <p>Under <strong>Authentication &gt; Platform configurations</strong>, add a <strong>Web</strong> platform with the redirect URI matching your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8_1" name="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8" type="radio">
-<input id="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8_2" name="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8" type="radio">
-<input id="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8_3" name="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8" type="radio">
+<input checked="checked" id="__tabbed_47648e92_3601_44bb_8f78_e725528a551c_1" name="__tabbed_47648e92_3601_44bb_8f78_e725528a551c" type="radio">
+<input id="__tabbed_47648e92_3601_44bb_8f78_e725528a551c_2" name="__tabbed_47648e92_3601_44bb_8f78_e725528a551c" type="radio">
+<input id="__tabbed_47648e92_3601_44bb_8f78_e725528a551c_3" name="__tabbed_47648e92_3601_44bb_8f78_e725528a551c" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8_1">US</label>
-<label for="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8_2">EU</label>
-<label for="__tabbed_35702d6a_8b37_46cf_a659_6b5cd13356d8_3">AP</label>
+<label for="__tabbed_47648e92_3601_44bb_8f78_e725528a551c_1">US</label>
+<label for="__tabbed_47648e92_3601_44bb_8f78_e725528a551c_2">EU</label>
+<label for="__tabbed_47648e92_3601_44bb_8f78_e725528a551c_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code>https://platform.robusta.dev/oauth/callback.html</code></pre></div>
@@ -6838,13 +6868,13 @@
 <h3 id="step-1-register-holmes-as-a-dex-client">Step 1: Register Holmes as a Dex client<a class="headerlink" href="#step-1-register-holmes-as-a-dex-client" title="Permanent link">&para;</a></h3>
 <p>Add a static client to your Dex config. With the upstream Dex Helm chart, this is the <code>config.staticClients</code> section of its values file. Generate the secret with <code>openssl rand -base64 32</code>, and use the redirect URI for your Robusta region:</p>
 <div class="tabbed-set" data-tabs="1:3">
-<input checked="checked" id="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0_1" name="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0" type="radio">
-<input id="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0_2" name="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0" type="radio">
-<input id="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0_3" name="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0" type="radio">
+<input checked="checked" id="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0_1" name="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0" type="radio">
+<input id="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0_2" name="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0" type="radio">
+<input id="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0_3" name="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0" type="radio">
 <div class="tabbed-labels">
-<label for="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0_1">US</label>
-<label for="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0_2">EU</label>
-<label for="__tabbed_d40eda9a_61c0_4093_888a_c1a9b45639d0_3">AP</label>
+<label for="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0_1">US</label>
+<label for="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0_2">EU</label>
+<label for="__tabbed_d8c5dbbf_7293_4748_8344_ed02130657f0_3">AP</label>
 </div>
 <div class="tabbed-content">
 <div class="tabbed-block"><pre><code class="language-yaml">staticClients:
