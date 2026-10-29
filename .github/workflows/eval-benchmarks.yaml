@@ -17,7 +17,7 @@ on:
         description: 'Comma-separated list of models to test'
         required: false
         # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
-        default: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,gpt-5.5,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
+        default: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -49,7 +49,13 @@ on:
 env:
   # Default models for benchmarks - single source of truth
   # NOTE: Keep workflow_dispatch default in sync with this for UI display
-  DEFAULT_BENCHMARK_MODELS: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,gpt-5.5,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
+  DEFAULT_BENCHMARK_MODELS: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
+  # Tool commands run under `ulimit -v`, which caps virtual address space,
+  # so Go binaries (kubectl, helm) can crash at startup before using any
+  # memory. Under parallel eval load the 800 MB default crashed ~20% of
+  # kubectl calls and 1200 MB crashed every one; 1536 MB crashed none in
+  # 1,600 runs. ROB-819 replaces the ulimit itself.
+  TOOL_MEMORY_LIMIT_MB: "1536"
 
 jobs:
   run-benchmarks:
@@ -172,13 +178,33 @@ jobs:
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           BENCHMARK_ARGS_JSON: ${{ steps.build-command.outputs.args_json }}
+          # Keeps the log streaming live while stdout is a pipe into tee.
+          PYTHONUNBUFFERED: "1"
         run: |
           # Read the arguments back as an array. Executing "${ARGS[@]}" passes
           # each element as one argv entry with no shell re-parsing, so a
           # crafted dispatch input cannot reach the secrets in this step's env.
           mapfile -t -d '' ARGS < <(jq -j '.[] | (., "\u0000")' <<< "$BENCHMARK_ARGS_JSON")
           echo "Running: ./run_benchmarks_local.py ${ARGS[*]}"
-          ./run_benchmarks_local.py "${ARGS[@]}"
+          set -o pipefail
+          ./run_benchmarks_local.py "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/eval-output.log"
+
+      # The Braintrust SDK drops a whole upload batch when the API rejects one
+      # record in it, so results vanish from the experiment while every test
+      # still reports normally. Warn rather than fail: the pytest output and
+      # report still hold every result.
+      - name: Check for dropped Braintrust uploads
+        if: always()
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/eval-output.log"
+          [[ -f "$LOG" ]] || exit 0
+          DROPS=$(grep -c "Dropping batch" "$LOG" || true)
+          if [[ "$DROPS" -gt 0 ]]; then
+            echo "::warning title=Braintrust uploads dropped::Braintrust dropped $DROPS upload batches, so the experiment is missing results. Search the eval step's log for 'Dropping batch' to see the rejected records."
+            echo "> [!WARNING]" >> "$GITHUB_STEP_SUMMARY"
+            echo "> Braintrust dropped $DROPS upload batches; the experiment is missing results." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload eval results
         if: always()
