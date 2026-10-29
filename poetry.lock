@@ -493,32 +493,34 @@ files = [
 
 [[package]]
 name = "braintrust"
-version = "0.1.8"
+version = "0.45.0"
 description = "SDK for integrating Braintrust"
 optional = false
-python-versions = ">=3.8.0"
+python-versions = ">=3.10.0"
 files = [
-    {file = "braintrust-0.1.8-py3-none-any.whl", hash = "sha256:ce61d4468e6b0f26198e1bf00d9219cf1ea53df32c3dc17b8f82ac8c632cccfe"},
-    {file = "braintrust-0.1.8.tar.gz", hash = "sha256:e79cd8bb90791fb5748ecb4df7940ee1efe4c20796dfb17909bc99841a5b2b3b"},
+    {file = "braintrust-0.45.0-py3-none-any.whl", hash = "sha256:69c32771ab1eea9efccd931cd02a0498f92566de3ecb4d04fc378ff2c3cae8d8"},
+    {file = "braintrust-0.45.0.tar.gz", hash = "sha256:689f7b6b35585b88f847e51ae75db4f664929ef6dd56bb7e7a9cfda3af351a3c"},
 ]
 
 [package.dependencies]
 chevron = "*"
 exceptiongroup = ">=1.2.0"
-GitPython = "*"
-python-dotenv = "*"
+jsonschema = "*"
+packaging = "*"
 python-slugify = "*"
 requests = "*"
 sseclient-py = "*"
 tqdm = "*"
 typing_extensions = ">=4.1.0"
+wrapt = "*"
 
 [package.extras]
-all = ["boto3", "openai-agents", "opentelemetry-api", "opentelemetry-exporter-otlp-proto-http", "opentelemetry-sdk", "psycopg2-binary", "pydoc-markdown", "uv"]
-cli = ["boto3", "psycopg2-binary", "uv"]
-doc = ["pydoc-markdown"]
+all = ["boto3", "openai-agents", "opentelemetry-api", "opentelemetry-exporter-otlp-proto-http", "opentelemetry-sdk", "orjson", "python-dotenv", "starlette", "temporalio (>=1.19.0)", "uv", "uvicorn"]
+cli = ["boto3", "python-dotenv", "starlette", "uv", "uvicorn"]
 openai-agents = ["openai-agents"]
 otel = ["opentelemetry-api", "opentelemetry-exporter-otlp-proto-http", "opentelemetry-sdk"]
+performance = ["orjson"]
+temporal = ["temporalio (>=1.19.0)"]
 
 [[package]]
 name = "braintrust-core"
@@ -1774,38 +1776,6 @@ python-dateutil = ">=2.8.1"
 
 [package.extras]
 dev = ["flake8", "markdown", "twine", "wheel"]
-
-[[package]]
-name = "gitdb"
-version = "4.0.12"
-description = "Git Object Database"
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "gitdb-4.0.12-py3-none-any.whl", hash = "sha256:67073e15955400952c6565cc3e707c554a4eea2e428946f7a4c162fab9bd9bcf"},
-    {file = "gitdb-4.0.12.tar.gz", hash = "sha256:5ef71f855d191a3326fcfbc0d5da835f26b13fbcba60c32c21091c349ffdb571"},
-]
-
-[package.dependencies]
-smmap = ">=3.0.1,<6"
-
-[[package]]
-name = "gitpython"
-version = "3.1.57"
-description = "GitPython is a Python library used to interact with Git repositories"
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "gitpython-3.1.57-py3-none-any.whl", hash = "sha256:4ccf7d73c10f5c9e76043fbb2675ac5a1b3ff5b41e648f56bcbed5f63792ecaf"},
-    {file = "gitpython-3.1.57.tar.gz", hash = "sha256:c493ec57c0ef6b19743798b6a5af859c71814b524e7e6f97baa2f8e658961488"},
-]
-
-[package.dependencies]
-gitdb = ">=4.0.1,<5"
-
-[package.extras]
-doc = ["sphinx (>=7.4.7,<8)", "sphinx-autodoc-typehints", "sphinx_rtd_theme"]
-test = ["basedpyright (==1.39.9)", "coverage[toml]", "ddt (>=1.1.1,!=1.4.3)", "mock", "mypy (==1.18.2)", "pre-commit", "pytest (>=7.3.1)", "pytest-cov", "pytest-instafail", "pytest-mock", "pytest-sugar", "typing-extensions"]
 
 [[package]]
 name = "google-api-core"
@@ -6144,17 +6114,6 @@ files = [
 optional = ["SQLAlchemy (>=1.4,<3)", "aiodns (>1.0)", "aiohttp (>=3.7.3,<4)", "boto3 (<=2)", "websocket-client (>=1,<2)", "websockets (>=9.1,<16)"]
 
 [[package]]
-name = "smmap"
-version = "5.0.3"
-description = "A pure Python implementation of a sliding window memory map manager"
-optional = false
-python-versions = ">=3.7"
-files = [
-    {file = "smmap-5.0.3-py3-none-any.whl", hash = "sha256:c106e05d5a61449cf6ba9a1e650227ecfb141590d2a98412103ff35d89fc7b2f"},
-    {file = "smmap-5.0.3.tar.gz", hash = "sha256:4d9debb8b99007ae47165abc08670bd74cb74b5227dda7f643eccc4e9eb5642c"},
-]
-
-[[package]]
 name = "sniffio"
 version = "1.3.1"
 description = "Sniff out which async library your code is running under"
@@ -7564,4 +7523,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.14"
-content-hash = "65ee76305a7113be77aae3295faf92e949e5dfd55df47d7f2eff88128ba73b81"
+content-hash = "047c32a853e44c1e4839ba7f89e37fcd3026ad85dbf9e86fdddffb094c05dac7"

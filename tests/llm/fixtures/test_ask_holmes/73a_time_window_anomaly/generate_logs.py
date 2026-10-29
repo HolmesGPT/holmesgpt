@@ -1,113 +1,109 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Lines are written live, each no earlier than its own timestamp, so every
+# timestamp falls inside the pod's lifetime. A log that predates the pod reads
+# as stale, and careful models dismiss it.
+TOTAL_LINES = 8640  # the volume of a day of logs at one line per 10s
+DURATION_SECONDS = 30.0
+# Expected outputs depend on these: errors from T+15s to T+20s, where T is the
+# timestamp of the first log line.
+ERROR_WINDOW_SECONDS = (15.0, 20.0)
+ERROR_LINES = 36
 
 
-def generate_log_entry(
-    timestamp, status="success", message="Job executed successfully", error=None
-):
-    entry = {
-        "timestamp": timestamp.isoformat() + "Z",
-        "level": "ERROR" if error else "INFO",
-        "service": "scheduler",
-        "job": "data-sync",
-        "status": status,
-        "message": message,
-    }
+def entry(timestamp, level, message, **fields):
+    return json.dumps(
+        {
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "level": level,
+            "service": "scheduler",
+            **fields,
+            "message": message,
+        }
+    )
 
-    if error:
-        entry["error"] = error
 
-    return json.dumps(entry)
+def events():
+    """(offset_seconds, line builder) pairs in timestamp order."""
+    step = DURATION_SECONDS / TOTAL_LINES
+    out = []
+    for i in range(TOTAL_LINES):
+        offset = (i + 1) * step
+        out.append(
+            (
+                offset,
+                lambda ts: entry(
+                    ts,
+                    "INFO",
+                    f"Job executed successfully in {random.randint(100, 500)}ms",
+                    job="data-sync",
+                    status="success",
+                ),
+            )
+        )
+        if i % 100 == 0:
+            out.append(
+                (
+                    offset,
+                    lambda ts: entry(
+                        ts,
+                        "INFO",
+                        "System health check passed",
+                        job="health-check",
+                        status="success",
+                    ),
+                )
+            )
+    start, end = ERROR_WINDOW_SECONDS
+    for k in range(ERROR_LINES):
+        offset = start + (end - start) * k / (ERROR_LINES - 1)
+        out.append(
+            (
+                offset,
+                lambda ts: entry(
+                    ts,
+                    "ERROR",
+                    "Job failed - Cannot connect to external API",
+                    job="data-sync",
+                    status="failed",
+                    error="ConnectionError: Failed to establish connection to https://api.external-service.com - Connection timed out",
+                ),
+            )
+        )
+    out.sort(key=lambda e: e[0])
+    return out
 
 
 def main():
-    # Generate 24 hours of logs, with issues only between 03:00-03:05
-    start_time = datetime.utcnow() - timedelta(hours=24)
+    first = datetime.now(timezone.utc)
+    started = time.monotonic()
+    print(entry(first, "INFO", "Scheduler started", job="scheduler"), flush=True)
 
-    # Generate a log every 10 seconds for 24 hours
-    current_time = start_time
-    log_count = 0
+    for offset, build in events():
+        wait = started + offset - time.monotonic()
+        if wait > 0:
+            sys.stdout.flush()
+            time.sleep(wait)
+        print(build(first + timedelta(seconds=offset)))
 
-    failure_window_logged = False
-
-    while current_time < datetime.utcnow():
-        # Check if we're in the problematic time window (03:00-03:05)
-        hour = current_time.hour
-        minute = current_time.minute
-
-        if hour == 3 and minute >= 0 and minute <= 5:
-            # Generate error logs during this window
-            print(
-                generate_log_entry(
-                    current_time,
-                    status="failed",
-                    message="Job failed - Cannot connect to external API",
-                    error="ConnectionError: Failed to establish connection to https://api.external-service.com - Connection timed out",
-                )
-            )
-
-            # Add some diagnostic logs (once per failure window)
-            if minute == 0 and not failure_window_logged:
-                failure_window_logged = True
-                print(
-                    json.dumps(
-                        {
-                            "timestamp": current_time.isoformat() + "Z",
-                            "level": "WARN",
-                            "service": "scheduler",
-                            "message": "Detected repeated failures during 03:00-03:05 window",
-                            "note": "This appears to be a recurring pattern - possible maintenance window?",
-                        }
-                    )
-                )
-        else:
-            # Normal operation
-            print(
-                generate_log_entry(
-                    current_time,
-                    status="success",
-                    message=f"Job executed successfully in {random.randint(100, 500)}ms",
-                )
-            )
-
-        # Add some variety with different job types
-        if log_count % 100 == 0:
-            print(
-                json.dumps(
-                    {
-                        "timestamp": current_time.isoformat() + "Z",
-                        "level": "INFO",
-                        "service": "scheduler",
-                        "job": "health-check",
-                        "status": "success",
-                        "message": "System health check passed",
-                    }
-                )
-            )
-
-        # Advance time by 10 seconds
-        current_time += timedelta(seconds=10)
-        log_count += 1
-
-        # Add slight randomness to make it more realistic
-        if random.random() < 0.1:
-            current_time += timedelta(seconds=random.randint(1, 5))
-
-    # add a unique log message in the end so we'll know the pod is ready.
-    current_time += timedelta(seconds=random.randint(1, 5))
+    # A unique last line, so setup knows every line has been written.
+    time.sleep(0.5)
     print(
-        generate_log_entry(
-            current_time,
+        entry(
+            datetime.now(timezone.utc),
+            "INFO",
+            "Job executed successfully in 167ms.",
+            job="data-sync",
             status="success",
-            message="Job executed successfully in 167ms.",
         ),
         flush=True,
     )
 
-    # Keep pod running
     while True:
         time.sleep(3600)
 
