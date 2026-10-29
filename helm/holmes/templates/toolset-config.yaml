@@ -14,13 +14,18 @@ metadata:
   {{- end }}
 data:
   custom_toolset.yaml: |-
+    {{- /* Copies: merge and mergeOverwrite modify their first argument, so
+           rendering this file would otherwise change .Values for every template
+           rendered after it. deepCopy fails on null, which has nothing to copy. */}}
     {{- $toolsets := .Values.toolsets }}
+    {{- if kindIs "map" $toolsets }}{{ $toolsets = deepCopy $toolsets }}{{ end }}
     {{- if .Values.k8sRBAC }}
     {{- $rbacOverrides := dict "kubernetes/core" (dict "enabled" false) "kubernetes/logs" (dict "enabled" false) "bash" (dict "enabled" false) }}
     {{- $toolsets = mergeOverwrite $toolsets $rbacOverrides }}
     {{- end }}
     toolsets: {{ toYaml $toolsets | nindent 6 }}
     {{- $mcpServers := .Values.mcp_servers }}
+    {{- if kindIs "map" $mcpServers }}{{ $mcpServers = deepCopy $mcpServers }}{{ end }}
     {{- if .Values.mcpAddons.aws.enabled }}
     {{- $mcpServers = merge $mcpServers (include "holmes.awsMcp.servers" . | fromYaml) }}
     {{- end }}
