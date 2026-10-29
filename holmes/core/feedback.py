@@ -36,7 +36,7 @@ class FeedbackLLM(FeedbackInfoBase):
 
 
 # TODO: extend the FeedbackLLMResponse to include each tool call results details used for evaluate the overall response.
-# Currenlty tool call details in plan:
+# Currently tool call details in plan:
 # - toolcall parameter and success/failure, toolcall truncation size
 # - Holmes plan (todo list)
 # - Holmes intermediate output

@@ -43,7 +43,7 @@ class AlertManagerSource(SourcePlugin):
         self.filepath = filepath
 
         if self.url is None and self.filepath is None:
-            # we don't mention --alertmanager-file to avoid confusing users - most users wont care about it
+            # we don't mention --alertmanager-file to avoid confusing users - most users won't care about it
             raise ValueError("--alertmanager-url must be specified")
         if self.url is not None and self.filepath is not None:
             logging.warning(

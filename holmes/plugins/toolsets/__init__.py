@@ -177,7 +177,7 @@ def load_builtin_toolsets(
     # disable built-in toolsets by default, and the user can enable them explicitly in config.
     for toolset in all_toolsets:
         toolset.type = ToolsetType.BUILTIN
-        # dont' expose build-in toolsets path
+        # don't expose built-in toolsets path
         toolset.path = None
 
     return all_toolsets  # type: ignore
