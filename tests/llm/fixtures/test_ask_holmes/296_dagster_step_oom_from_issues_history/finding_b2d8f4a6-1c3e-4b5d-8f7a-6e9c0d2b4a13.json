@@ -1,0 +1,46 @@
+{
+  "id": "b2d8f4a6-1c3e-4b5d-8f7a-6e9c0d2b4a13",
+  "description": null,
+  "source": "kubernetes_api_server",
+  "category": null,
+  "priority": "HIGH",
+  "account_id": "0f3c9a2e-5b71-4d8a-a6c4-91e2d7b3f058",
+  "subject_type": "pod",
+  "subject_name": "dagster-step-9d2c7a1e5f3b8c4d6e0a2f7b1c9d5e3a-m4n8q",
+  "service_key": "dagster/Job/dagster-step-9d2c7a1e5f3b8c4d6e0a2f7b1c9d5e3a",
+  "subject_namespace": "dagster",
+  "cluster": "prod-eu-1",
+  "creation_date": "2026-07-15 09:50:16.871",
+  "title": "Pod dagster-step-9d2c7a1e5f3b8c4d6e0a2f7b1c9d5e3a-m4n8q in namespace dagster OOMKilled results",
+  "aggregation_key": "PodOOMKilled",
+  "finding_type": "issue",
+  "failure": true,
+  "group_id": null,
+  "subject_node": "ip-10-0-37-142.eu-west-1.compute.internal",
+  "starts_at": "2026-07-15 09:50:16.871+00",
+  "ends_at": null,
+  "updated_at": "2026-07-15 09:50:16.871+00",
+  "fingerprint": "b2d8f4a61c3e4b5d",
+  "video_links": [],
+  "service_kind": null,
+  "service_name": null,
+  "labels": {},
+  "annotations": {},
+  "evidence": [
+    {
+      "file_type": "structured_data",
+      "data": "[{\"type\": \"table\", \"table_name\": \"*Node Info*\", \"data\": {\"headers\": [\"field\", \"value\"], \"rows\": [[\"Node Name\", \"ip-10-0-37-142.eu-west-1.compute.internal\"], [\"Node allocated memory\", \"2.31% out of 62320MB allocatable\"]]}}]",
+      "enrichment_type": "node_info",
+      "title": "Node Info",
+      "issue_id": "b2d8f4a6-1c3e-4b5d-8f7a-6e9c0d2b4a13"
+    },
+    {
+      "file_type": "structured_data",
+      "data": "[{\"type\": \"table\", \"table_name\": \"*Container Info*\", \"data\": {\"headers\": [\"field\", \"value\"], \"rows\": [[\"Pod\", \"dagster-step-9d2c7a1e5f3b8c4d6e0a2f7b1c9d5e3a-m4n8q\"], [\"Namespace\", \"dagster\"], [\"Container memory\", \"4096MB request, 8192MB limit\"], [\"Container name\", \"dagster\"], [\"Container started at\", \"2026-07-15T09:49:35Z\"], [\"Container finished at\", \"2026-07-15T09:50:13Z\"]]}}]",
+      "enrichment_type": "container_info",
+      "title": "Container Info",
+      "issue_id": "b2d8f4a6-1c3e-4b5d-8f7a-6e9c0d2b4a13"
+    }
+  ],
+  "firing": true
+}
