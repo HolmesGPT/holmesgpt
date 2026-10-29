@@ -179,7 +179,22 @@ data:
     {{- $mcpServers = merge $mcpServers $k8sRemediationMcpServers }}
     {{- end }}
     {{- if .Values.mcpAddons.kubernetes.enabled }}
-    {{- $k8sMcpConfig := dict
+    {{- $k8sMcpConfig := dict }}
+    {{- if include "holmes.kubernetesMcp.inHolmesPod" . }}
+    {{- if (.Values.mcpAddons.kubernetes.config.oauth | default dict).enabled }}
+    {{- fail "mcpAddons.kubernetes: config.oauth needs the server as its own Deployment, and a mounted kubeconfig runs it inside the Holmes pod. Set one of config.oauth.enabled or config.kubeconfig.secretName." }}
+    {{- end }}
+    {{- if (.Values.toolsets.bash | default dict).enabled }}
+    {{- fail "mcpAddons.kubernetes: a mounted kubeconfig puts its cluster credentials in the Holmes container, where the bash toolset can read them. Set toolsets.bash.enabled to false." }}
+    {{- end }}
+    {{- $k8sMcpConfig = dict
+          "mode" "stdio"
+          "command" "/opt/k8s-mcp/kubernetes-mcp-server"
+          "args" (include "holmes.kubernetesMcp.args" . | fromYamlArray)
+          "icon_url" "https://cdn.simpleicons.org/kubernetes/326CE5"
+    }}
+    {{- else }}
+    {{- $k8sMcpConfig = dict
           "url" (printf "http://%s-k8s-mcp-server.%s.svc.cluster.local:8000/mcp" .Release.Name .Release.Namespace)
           "mode" "streamable-http"
           "icon_url" "https://cdn.simpleicons.org/kubernetes/326CE5"
@@ -187,6 +202,7 @@ data:
     {{- with .Values.mcpAddons.kubernetes.config.oauth }}
     {{- if . }}
     {{- $_ := set $k8sMcpConfig "oauth" . }}
+    {{- end }}
     {{- end }}
     {{- end }}
     {{- $k8sMcpServers := dict "kubernetes" (dict

@@ -6,6 +6,8 @@ import logging
 import shutil
 import subprocess
 import sys
+import textwrap
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -25,6 +27,7 @@ from mcp.types import (
 if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
 
+import holmes.plugins.toolsets.mcp.toolset_mcp as toolset_mcp_module
 import holmes.utils.env as env_utils
 from holmes.plugins.toolsets import load_toolsets_from_config
 from holmes.core.tools import (
@@ -2823,6 +2826,59 @@ class TestHeaderRendering:
         rendered = mcp_toolset._render_headers(None)
 
         assert rendered is None
+
+
+STALLING_STDIO_SERVER = textwrap.dedent(
+    """
+    import time
+
+    from mcp.server.fastmcp import FastMCP
+
+    server = FastMCP("stalling")
+
+
+    @server.tool()
+    def stall() -> str:
+        time.sleep(60)
+        return "too late"
+
+
+    server.run()
+    """
+)
+
+
+class TestStdioToolCallTimeout:
+    def test_stalled_stdio_tool_call_returns_an_error_within_the_timeout(
+        self, tmp_path, monkeypatch, suppress_migration_warnings
+    ):
+        script = tmp_path / "stalling_server.py"
+        script.write_text(STALLING_STDIO_SERVER)
+        monkeypatch.setattr(toolset_mcp_module, "MCP_TOOL_CALL_TIMEOUT_SEC", 2)
+
+        toolset = RemoteMCPToolset(name="stalling", description="Stalls on every tool call")
+        ok, error = toolset.prerequisites_callable(
+            config={"mode": "stdio", "command": sys.executable, "args": [str(script)]}
+        )
+        assert ok, error
+        [tool] = [t for t in toolset.tools if t.name == "stall"]
+
+        context = ToolInvokeContext.model_construct(
+            tool_number=1,
+            user_approved=True,
+            llm=None,
+            max_token_count=1000,
+            tool_call_id="call-1",
+            tool_name="stall",
+            request_context=None,
+        )
+        started = time.monotonic()
+        result = tool._invoke({}, context)
+        elapsed = time.monotonic() - started
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        # The 2s read timeout plus the subprocess's termination, far below the 60s stall.
+        assert elapsed < 15, elapsed
 
 
 class TestRequestContextPassthrough:

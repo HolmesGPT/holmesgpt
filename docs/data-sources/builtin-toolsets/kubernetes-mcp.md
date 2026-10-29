@@ -215,7 +215,7 @@ kubectl get secret k8s-mcp-kubeconfig -n YOUR_NAMESPACE \
 
 ### Step 4: Deploy
 
-Configure Holmes in the "hub" cluster where you want multi-cluster access:
+Configure Holmes in the "hub" cluster where you want multi-cluster access. In Holmes chart releases after 0.43.0, a mounted kubeconfig runs the MCP server inside the Holmes pod, as a subprocess Holmes starts for each call, so no other pod in the cluster can reach the credentials in the kubeconfig. The kubeconfig then sits in the Holmes container, so the chart requires the bash toolset to be disabled, as the examples below do. The comment on `mcpAddons.kubernetes.config.kubeconfig` in the chart's `values.yaml` lists the settings that stop applying. The `serviceAccount` block and the `--kubeconfig` / `--cluster-provider` arguments below are needed only on chart 0.43.0 and earlier, where the server runs as its own Deployment.
 
 === "Holmes Helm Chart"
 
@@ -308,7 +308,7 @@ Configure Holmes in the "hub" cluster where you want multi-cluster access:
             secretName: "k8s-mcp-kubeconfig"
             secretKey: "kubeconfig"
 
-          # Required — overrides in-cluster auto-detection
+          # Required on chart 0.43.0 and earlier — overrides in-cluster auto-detection
           extraArgs:
             - "--kubeconfig"
             - "/etc/kubernetes/kubeconfig"
@@ -417,7 +417,7 @@ Configure Holmes in the "hub" cluster where you want multi-cluster access:
               secretName: "k8s-mcp-kubeconfig"
               secretKey: "kubeconfig"
 
-            # Required — overrides in-cluster auto-detection
+            # Required on chart 0.43.0 and earlier — overrides in-cluster auto-detection
             extraArgs:
               - "--kubeconfig"
               - "/etc/kubernetes/kubeconfig"
