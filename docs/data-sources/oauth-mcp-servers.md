@@ -71,23 +71,12 @@ In Kubernetes, the browser login and the stored token go through the Robusta pla
 ```yaml-toolset-config
 mcp_servers:
   atlassian:
+    description: "Atlassian Jira + Confluence MCP server"
     config:
       mode: streamable-http
       url: https://mcp.atlassian.com/v1/mcp
       oauth:
         enabled: true
----
-cli: |
-  ```yaml
-  mcp_servers:
-    atlassian:
-      description: "Atlassian Jira + Confluence MCP server"
-      config:
-        mode: streamable-http
-        url: https://mcp.atlassian.com/v1/mcp
-        oauth:
-          enabled: true
-  ```
 ```
 
 ## How It Works
