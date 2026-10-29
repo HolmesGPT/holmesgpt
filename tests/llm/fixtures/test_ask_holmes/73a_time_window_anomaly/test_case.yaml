@@ -6,7 +6,7 @@ tags:
   - medium
   - benchmark
 expected_output:
-  - Task scheduler pod experienced temporary issues between when it could not connect to an external API possibly due to a maintenance window
+  - The task-scheduler pod had a temporary period of failed jobs caused by connection timeouts to an external API (api.external-service.com)
 before_test: |
   # Create namespace first since the secret depends on it (|| true ignores if it already exists)
   kubectl create namespace app-73a || true
@@ -19,7 +19,7 @@ before_test: |
     if kubectl wait --for=condition=ready pod -l app=task-scheduler -n app-73a --timeout=1s 2>/dev/null; then
       # Pod is ready, now get its name and check for all three required log lines
       POD_NAME=$(kubectl get pods -n app-73a -l app=task-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-      if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "Detected repeated failures during 03:00-03:05 window" && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "System health check passed" && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "Job executed successfully in 167ms\."; then
+      if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "Scheduler started" && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "System health check passed" && kubectl logs "$POD_NAME" -n app-73a 2>/dev/null | grep -q "Job executed successfully in 167ms\."; then
         echo "✅ All required log lines detected!"
         LOGS_READY=true
         break
