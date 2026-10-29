@@ -1,0 +1,20 @@
+user_prompt: "Why is the podinfo-283 Kustomization in the flux-system namespace not becoming Ready?"
+expected_output:
+  - Identifies the GitRepository named podinfo-283 as the actual root cause, not the Kustomization itself
+  - Mentions the git branch/ref could not be found or a clone/checkout failure
+before_test: |
+  kubectl apply -f https://github.com/fluxcd/flux2/releases/download/v2.9.2/install.yaml
+  kubectl -n flux-system wait --for=condition=available --timeout=120s deployment/source-controller deployment/kustomize-controller
+  kubectl apply -f ./manifest.yaml
+  for _ in $(seq 1 60); do
+    status="$(kubectl get gitrepository podinfo-283 -n flux-system \
+      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' \
+      2>/dev/null || true)"
+    [ "$status" = "False" ] && exit 0
+    sleep 1
+  done
+  echo "GitRepository podinfo-283 did not reach Ready=False in time" >&2
+  exit 1
+after_test: kubectl delete -f ./manifest.yaml --ignore-not-found
+evaluation:
+  correctness: 1
