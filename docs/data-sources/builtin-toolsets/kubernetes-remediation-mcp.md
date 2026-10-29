@@ -263,10 +263,12 @@ holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for thr
 
 ## Exec argument allowlists
 
-`run_preapproved_kubectl_exec_command` runs `nvidia-smi` and `dmesg` inside the target container only with allowlisted arguments (server >= 1.5.0). Any other argument is refused before execution and falls back to the approval-gated `run_kubectl_command`. You decide which binaries and arguments run without approval; Holmes can never run an argument outside what you configured.
+`run_preapproved_kubectl_exec_command` runs these binaries inside the target container without approval; `ps`, `nvidia-smi` and `dmesg` only with allowed arguments (`nvidia-smi` and `dmesg` need server >= 1.5.0). Any other argument is refused before execution and falls back to the approval-gated `run_kubectl_command`. You decide which binaries and arguments run without approval; Holmes can never run an argument outside what you configured.
 
 | Binary | Allowed forms |
 |--------|---------------|
+| `top`, `df`, `ls`, `netstat`, `ss` | any arguments (no shell metacharacters) |
+| `ps` | any options except those that print process environments (BSD `e` in any spelling) or are unrecognised; `-e` cannot be combined with user, group, session or tty selectors |
 | `nvidia-smi` | no arguments, `-L`, `-q [-d SECTIONS] [-i N]`, `--query-*=FIELDS --format=csv [-i N]`, `nvlink -s\|-e [-i N]`, `topo -m` |
 | `dmesg` | any of `-T`, `-k`, `--level=LEVELS` |
 
