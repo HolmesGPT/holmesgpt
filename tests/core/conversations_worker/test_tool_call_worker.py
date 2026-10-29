@@ -97,6 +97,7 @@ def test_only_whole_images_travel():
         {"data": PNG, "mimeType": "text/plain"},
         {"data": PNG, "mimeType": "image/"},
         {"data": PNG, "mimeType": "image/svg+xml"},
+        {"data": PNG, "mimeType": ["image/png"]},
         {"data": "%%not base64%%", "mimeType": "image/png"},
         {"data": PNG[:-1], "mimeType": "image/png"},
         "not a dict",
@@ -110,7 +111,7 @@ def test_only_whole_images_travel():
         {"data": PNG, "mimeType": "image/webp"},
     ]
     assert p["data"] == (
-        "x\n\n[9 image(s) of tool call call-3 omitted: not base64 of a "
+        "x\n\n[10 image(s) of tool call call-3 omitted: not base64 of a "
         "gif/jpeg/png/webp image]"
     )
 

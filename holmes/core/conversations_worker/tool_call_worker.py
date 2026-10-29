@@ -208,7 +208,8 @@ def _serializable_image(image: Any) -> Optional[Dict[str, str]]:
     data = "".join(image["data"].split())
     if not data or not _BASE64.fullmatch(data):
         return None
-    if image.get("mimeType") not in IMAGE_MIME_TYPES:
+    mime_type = image.get("mimeType")
+    if not isinstance(mime_type, str) or mime_type not in IMAGE_MIME_TYPES:
         return None
     return {"data": data, "mimeType": image["mimeType"]}
 
