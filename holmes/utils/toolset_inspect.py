@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from pydantic import SecretStr
@@ -22,6 +23,28 @@ _SECRET_KEY_MARKERS = (
     "private_key",
     "bearer",
     "cookie",
+    "access_key",
+    "auth_config",
+    "passwd",
+    "connection_string",
+)
+
+_REDACTED = "***"
+_CMD_SECRET_NAME = r"[\w-]*(?:password|passwd|token|secret|api[_-]?key|apikey|access[_-]?key|credential|private[_-]?key|auth)[\w-]*"
+_CMD_VALUE = r"(?:'[^']*'|\"[^\"]*\"|[^\s'\"]+)"
+_CMD_PATTERNS = (
+    # Authorization: Bearer abc / Basic abc / Token abc
+    re.compile(r"(?i)\b(bearer|basic|token)(\s+)([^\s'\"]+)"),
+    # Header values such as "X-Api-Key: abc" or "Authorization: abc"
+    re.compile(
+        r"(?i)\b(" + _CMD_SECRET_NAME + r"|authorization|cookie)(\s*:\s*)([^\s'\"]+)"
+    ),
+    # Flags such as --password=abc or --token abc
+    re.compile(r"(?i)(--?" + _CMD_SECRET_NAME + r")(=|\s+)(" + _CMD_VALUE + r")"),
+    # Environment assignments such as AWS_SECRET_ACCESS_KEY=abc
+    re.compile(r"(?i)\b(" + _CMD_SECRET_NAME + r")(=)(" + _CMD_VALUE + r")"),
+    # URL userinfo such as https://user:pass@host
+    re.compile(r"(://[^\s/:@'\"]+)(:)([^\s/@'\"]+)(?=@)"),
 )
 
 _MAX_SUGGESTIONS = 15
@@ -32,6 +55,28 @@ _MAX_COMMAND = 200
 def _is_secret_key(key: str) -> bool:
     lowered = key.lower().replace("-", "_")
     return any(marker in lowered for marker in _SECRET_KEY_MARKERS)
+
+
+def _is_placeholder(value: str) -> bool:
+    stripped = value.strip("'\"")
+    if stripped.lower() in ("bearer", "basic", "token"):
+        # Auth scheme word; the credential after it is handled separately.
+        return True
+    return stripped.startswith(("{", "}", "$")) or stripped == _REDACTED
+
+
+def redact_command(command: str) -> str:
+    """Mask credential-looking values in a tool command, keeping template placeholders."""
+
+    def _mask(match: "re.Match[str]") -> str:
+        name, sep, value = match.group(1), match.group(2), match.group(3)
+        if _is_placeholder(value):
+            return match.group(0)
+        return f"{name}{sep}{_REDACTED}"
+
+    for pattern in _CMD_PATTERNS:
+        command = pattern.sub(_mask, command)
+    return command
 
 
 def _truncate(value: Optional[str], limit: int) -> Optional[str]:
@@ -94,7 +139,7 @@ def serialize_tool(tool: Tool) -> Dict[str, Any]:
     }
     command = getattr(tool, "command", None)
     if command:
-        entry["command"] = _truncate(str(command), _MAX_COMMAND)
+        entry["command"] = _truncate(redact_command(str(command)), _MAX_COMMAND)
     return entry
 
 
@@ -215,6 +260,11 @@ def render_toolset(payload: Mapping[str, Any], console: Console) -> None:
     table.add_column("Name")
     table.add_column("Parameters")
     table.add_column("Description")
+    show_commands = any(
+        isinstance(tool, Mapping) and tool.get("command") for tool in tools
+    )
+    if show_commands:
+        table.add_column("Command")
     for tool in tools:
         if not isinstance(tool, Mapping):
             continue
@@ -229,11 +279,14 @@ def render_toolset(payload: Mapping[str, Any], console: Console) -> None:
                     if spec.get("required") is False:
                         required = "?"
                 param_bits.append(f"{pname}{required}:{ptype}")
-        table.add_row(
+        row = [
             str(tool.get("name") or ""),
             ", ".join(param_bits) if param_bits else "—",
             str(tool.get("description") or ""),
-        )
+        ]
+        if show_commands:
+            row.append(str(tool.get("command") or ""))
+        table.add_row(*row)
     console.print(table)
 
 

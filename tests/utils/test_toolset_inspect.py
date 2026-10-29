@@ -1,6 +1,8 @@
 import json
 from typing import List, Optional
 
+from rich.console import Console
+
 from holmes.core.tools import (
     ToolParameter,
     ToolsetStatusEnum,
@@ -10,7 +12,9 @@ from holmes.core.tools import (
 )
 from holmes.utils.toolset_inspect import (
     inspect_named_toolset,
+    redact_command,
     redact_secrets,
+    render_toolset,
     resolve_toolset,
     serialize_toolset,
 )
@@ -170,3 +174,64 @@ def test_inspect_named_toolset_success_and_error():
     message, suggestions = error
     assert "Multiple" in message
     assert suggestions
+
+
+def test_redact_cloud_and_registry_credential_keys():
+    raw = {
+        "AWS_ACCESS_KEY_ID": "AKIAEXAMPLE",
+        "aws_secret_access_key": "example-secret",
+        "DOCKER_AUTH_CONFIG": '{"auths": {}}',
+        "region": "us-east-1",
+    }
+    redacted = redact_secrets(raw)
+    assert redacted["AWS_ACCESS_KEY_ID"] == "***"
+    assert redacted["aws_secret_access_key"] == "***"
+    assert redacted["DOCKER_AUTH_CONFIG"] == "***"
+    assert redacted["region"] == "us-east-1"
+
+
+def test_redact_command_masks_credentials():
+    cases = {
+        "curl -H 'Authorization: Bearer example-token' https://x": "example-token",
+        "curl -H 'X-Api-Key: abc123' https://x": "abc123",
+        "mytool --password=hunter2 run": "hunter2",
+        "mytool --token s3cr3t run": "s3cr3t",
+        "AWS_SECRET_ACCESS_KEY=abcd aws s3 ls": "abcd",
+        "psql postgres://admin:pa55@db:5432/app": "pa55",
+    }
+    for command, secret in cases.items():
+        redacted = redact_command(command)
+        assert secret not in redacted, redacted
+        assert "***" in redacted
+
+
+def test_redact_command_keeps_placeholders_and_plain_commands():
+    plain = "helm get values {{ release_name }} -n {{ namespace }}"
+    assert redact_command(plain) == plain
+    templated = "curl -H 'Authorization: Bearer {{ token }}' https://x"
+    assert redact_command(templated) == templated
+    env = "mytool --token $API_TOKEN"
+    assert redact_command(env) == env
+
+
+def test_serialize_redacts_command_credentials():
+    toolset = _toolset(
+        "demo",
+        tools=[
+            YAMLTool(
+                name="call",
+                description="call api",
+                command="curl -H 'Authorization: Bearer example-token' https://x",
+            )
+        ],
+    )
+    payload = serialize_toolset(toolset)
+    assert "example-token" not in json.dumps(payload)
+
+
+def test_render_shows_commands():
+    console = Console(record=True, width=200)
+    render_toolset(serialize_toolset(_toolset("helm/core")), console)
+    output = console.export_text()
+    assert "Command" in output
+    assert "helm get values" in output

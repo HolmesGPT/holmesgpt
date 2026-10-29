@@ -1084,7 +1084,7 @@ def inspect_toolset(
     ),
 ) -> None:
     """Show one toolset's status, tools, parameters, and redacted config."""
-    console = init_logging(verbose)
+    console = init_logging(verbose, log_to_stderr=json_output)
     config = Config.load_from_file(config_file)
     cli_toolsets = config.toolset_manager.list_console_toolsets(
         refresh_status=refresh_status
