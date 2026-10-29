@@ -37,8 +37,8 @@ A tab line outside a code block is `=== "<label>"`, at the start of a line or in
 multiple of four spaces; any other line starting with `===` (`===+`, `===!`, a setext heading's
 underline) fails the build the same way, and so do a body that is not valid YAML, an empty value, and a page whose rendered HTML shows
 a fence's markdown instead of its tabs (`on_post_page`). This module reads only files and imports
-nothing from `holmes`; `docs/fence_checks.py` checks each fence's Helm values against the chart
-and the Kubernetes API, from tests/docs.
+nothing from `holmes`; `docs/fence_checks.py` checks each fence's Helm values against the chart,
+the Kubernetes API and Holmes, from tests/docs.
 
 The body of a deployment fence. The Holmes chart values, a block mapping whose first key starts at
 the first column, then optionally a line `---` and the fields below, a second block mapping:
