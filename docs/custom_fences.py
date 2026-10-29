@@ -885,7 +885,7 @@ def on_config(config, **kwargs):
     an include in a form no page writes. A custom fence is expanded before the includes,
     so only a page's own fences render."""
     docs = Path(config["docs_dir"])
-    for path in sorted((docs / "snippets").rglob("*")):
+    for path in sorted((docs / "snippets").rglob("*.md")):
         if path.is_file():
             snippet = path.relative_to(docs).as_posix()
             lines = path.read_text().split("\n")
