@@ -19,6 +19,7 @@ GRANT SELECT ON information_schema.* TO holmes_readonly;
 ```
 
 **For all databases:**
+
 ```sql
 CREATE USER holmes_readonly IDENTIFIED BY 'your_secure_password';
 GRANT SELECT ON *.* TO holmes_readonly;
@@ -220,7 +221,7 @@ ValueError: unconverted data remains: 789
 
 Enable JSONEachRow when you query tables that return high-precision `DateTime64` columns:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   clickhouse-otel-logs:
     type: database

@@ -21,6 +21,7 @@ FLUSH PRIVILEGES;
 ```
 
 **For specific database only:**
+
 ```sql
 CREATE USER 'holmes_readonly'@'%' IDENTIFIED BY 'your_secure_password';
 GRANT SELECT, SHOW VIEW ON your_database.* TO 'holmes_readonly'@'%';

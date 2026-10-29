@@ -302,7 +302,7 @@ If Elasticsearch uses a private CA, use the chart's global [`certificate`](../..
 
 These toolsets are fully compatible with OpenSearch clusters. Simply point the `api_url` to your OpenSearch endpoint:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   elasticsearch/data:
     enabled: true
