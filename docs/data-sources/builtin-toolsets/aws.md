@@ -102,111 +102,75 @@ Holmes needs an IAM role with read-only permissions that its Kubernetes service 
 
 Choose your installation method.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+serviceAccount:  # IAM role from Step 1
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
 
-    **Prerequisites:** working AWS credentials (`aws sts get-caller-identity` should succeed). Set `AWS_PROFILE` or `profile` below to use a named profile, including `aws sso login` / `aws login` profiles.
+mcpAddons:
+  aws:
+    enabled: true
+    hosted:
+      enabled: true
+    config:
+      region: "us-east-1"  # Change to your AWS region
+---
+cli: |
+  **Prerequisites:** working AWS credentials (`aws sts get-caller-identity` should succeed). Set `AWS_PROFILE` or `profile` below to use a named profile, including `aws sso login` / `aws login` profiles.
 
-    **Configure Holmes CLI**
+  **Configure Holmes CLI**
 
-    Add to `~/.holmes/config.yaml`:
+  Add to `~/.holmes/config.yaml`:
 
-    ```yaml
-    mcp_servers:
-      aws_api:
-        description: "AWS MCP Server - query any AWS API for investigating infrastructure issues"
-        config:
-          mode: aws
-          region: "us-east-1"   # Change to your region
-          # profile: "your-profile"  # Optional: AWS profile from ~/.aws/config
-        llm_instructions: |
-          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
+  ```yaml
+  mcp_servers:
+    aws_api:
+      description: "AWS MCP Server - query any AWS API for investigating infrastructure issues"
+      config:
+        mode: aws
+        region: "us-east-1"   # Change to your region
+        # profile: "your-profile"  # Optional: AWS profile from ~/.aws/config
+      llm_instructions: |
+        IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
 
-          Use `aws___run_script` to query AWS: `data = await call_boto3(service_name='ec2', operation_name='DescribeInstances', params={...})` (async, keyword-only, PascalCase operation names), then end the script with a `result` dict as the final expression. Batch related lookups into one script and return only the fields you need.
+        Use `aws___run_script` to query AWS: `data = await call_boto3(service_name='ec2', operation_name='DescribeInstances', params={...})` (async, keyword-only, PascalCase operation names), then end the script with a `result` dict as the final expression. Batch related lookups into one script and return only the fields you need.
 
-          ## Investigation Principles
+        ## Investigation Principles
 
-          1. First, gather current state and configuration using AWS APIs
-          2. Check CloudTrail for recent changes that might have caused the issue
-          3. Collect metrics and logs from CloudWatch if available
-          4. Analyze all gathered data before providing conclusions
+        1. First, gather current state and configuration using AWS APIs
+        2. Check CloudTrail for recent changes that might have caused the issue
+        3. Collect metrics and logs from CloudWatch if available
+        4. Analyze all gathered data before providing conclusions
 
-          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
-    ```
+        **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
+  ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
 
-    ??? info "Alternative: AWS's stdio proxy"
-        If you prefer AWS's own client, run [mcp-proxy-for-aws](https://github.com/aws/mcp-proxy-for-aws) as a stdio subprocess instead. It needs [uv](https://docs.astral.sh/uv/getting-started/installation/) and signs with the same local credentials:
+  ??? info "Alternative: AWS's stdio proxy"
+      If you prefer AWS's own client, run [mcp-proxy-for-aws](https://github.com/aws/mcp-proxy-for-aws) as a stdio subprocess instead. It needs [uv](https://docs.astral.sh/uv/getting-started/installation/) and signs with the same local credentials:
 
-        ```yaml
-        mcp_servers:
-          aws_api:
-            description: "AWS MCP Server - query any AWS API for investigating infrastructure issues"
-            config:
-              mode: stdio
-              command: "uvx"
-              args: ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
-              env:
-                AWS_REGION: "us-east-1"
-                # AWS_PROFILE: "your-profile"
-        ```
-
-        Do not add the proxy's `--read-only` flag: it hides `aws___run_script`, the only tool that calls AWS APIs.
-
-    **Test it**
-
-    ```bash
-    holmes ask "List my EC2 instances and their current status"
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    serviceAccount:  # IAM role from Step 1
-      annotations:
-        eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
-
-    mcpAddons:
-      aws:
-        enabled: true
-        hosted:
-          enabled: true
-        config:
-          region: "us-east-1"  # Change to your AWS region
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`, annotating the Holmes service account with the IAM role from Step 1:
-
-    ```yaml
-    holmes:
-      serviceAccount:
-        annotations:
-          eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
-
-      mcpAddons:
-        aws:
-          enabled: true
-          hosted:
-            enabled: true
+      ```yaml
+      mcp_servers:
+        aws_api:
+          description: "AWS MCP Server - query any AWS API for investigating infrastructure issues"
           config:
-            region: "us-east-1"  # Change to your AWS region
-    ```
+            mode: stdio
+            command: "uvx"
+            args: ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
+            env:
+              AWS_REGION: "us-east-1"
+              # AWS_PROFILE: "your-profile"
+      ```
 
-    Apply the configuration:
+      Do not add the proxy's `--read-only` flag: it hides `aws___run_script`, the only tool that calls AWS APIs.
 
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  **Test it**
+
+  ```bash
+  holmes ask "List my EC2 instances and their current status"
+  ```
+```
 
 **Step 3: Verify the deployment**
 
@@ -319,84 +283,35 @@ aws eks describe-cluster --name <cluster-name> --query "cluster.identity.oidc.is
 
 Once the IAM roles are set up, configure the Helm chart to enable multi-account mode. The setup script writes this block to `holmes_config.yaml` for you. CLI users instead add one `mode: aws` server per account to `~/.holmes/config.yaml`, each with its own `profile` from `~/.aws/config`.
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+# No IRSA annotation needed: each role is assumed with the pod's projected token
+mcpAddons:
+  aws:
+    enabled: true
+    hosted:
+      enabled: true
+    config:
+      region: "us-east-1"  # Default region for all accounts
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    # No IRSA annotation needed: each role is assumed with the pod's projected token
-    mcpAddons:
-      aws:
-        enabled: true
-        hosted:
-          enabled: true
-        config:
-          region: "us-east-1"  # Default region for all accounts
-
-        multiAccount:
-          enabled: true
-          profiles:
-            dev:
-              account_id: "111111111111"
-              role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-              description: "Development account"   # optional, shown to the LLM as the server description
-              region: "us-east-1"                  # optional, defaults to config.region
-            prod:
-              account_id: "222222222222"
-              role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
-              description: "Production account"
-              # Instead of the pod token, assume this role from another profile's credentials
-              # (or set credential_source, e.g. EcsContainer for EKS Pod Identity):
-              # source_profile: dev
-          llm_account_descriptions: |
-            aws_dev is the development account and contains the development resources.
-            aws_prod is the production account and contains the production resources.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        aws:
-          enabled: true
-          hosted:
-            enabled: true
-          config:
-            region: "us-east-1"  # Default region for all accounts
-
-          multiAccount:
-            enabled: true
-            profiles:
-              dev:
-                account_id: "111111111111"
-                role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-                description: "Development account"   # optional, shown to the LLM as the server description
-                region: "us-east-1"                  # optional, defaults to config.region
-              prod:
-                account_id: "222222222222"
-                role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
-                description: "Production account"
-            llm_account_descriptions: |
-              aws_dev is the development account and contains the development resources.
-              aws_prod is the production account and contains the production resources.
-    ```
-
-    No IRSA annotation is needed on the Holmes service account in this mode: each role is assumed with the pod's projected token.
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+    multiAccount:
+      enabled: true
+      profiles:
+        dev:
+          account_id: "111111111111"
+          role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
+          description: "Development account"   # optional, shown to the LLM as the server description
+          region: "us-east-1"                  # optional, defaults to config.region
+        prod:
+          account_id: "222222222222"
+          role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
+          description: "Production account"
+          # Instead of the pod token, assume this role from another profile's credentials
+          # (or set credential_source, e.g. EcsContainer for EKS Pod Identity):
+          # source_profile: dev
+      llm_account_descriptions: |
+        aws_dev is the development account and contains the development resources.
+        aws_prod is the production account and contains the production resources.
+```
 
 ## Example Usage
 

@@ -155,93 +155,19 @@ Before configuring Holmes, make sure you have:
 
 HolmesGPT reads the service principal from the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_CLIENT_SECRET` environment variables.
 
-=== "Holmes CLI"
-
-    Set the environment variables:
-
-    ```bash
-    export AZURE_CLIENT_ID="<your-app-client-id>"
-    export AZURE_TENANT_ID="<your-tenant-id>"
-    export AZURE_CLIENT_SECRET="<your-client-secret>"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: azure-managed-prometheus
-        config:
-          prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus-azure \
-      --from-literal=AZURE_CLIENT_ID="<your-app-client-id>" \
-      --from-literal=AZURE_TENANT_ID="<your-tenant-id>" \
-      --from-literal=AZURE_CLIENT_SECRET="<your-client-secret>" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-prometheus-azure
-
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: azure-managed-prometheus
-        config:
-          prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus-azure \
-      --from-literal=AZURE_CLIENT_ID="<your-app-client-id>" \
-      --from-literal=AZURE_TENANT_ID="<your-tenant-id>" \
-      --from-literal=AZURE_CLIENT_SECRET="<your-client-secret>" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-prometheus-azure
-
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: azure-managed-prometheus
-          config:
-            prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config {secret-qualifier=azure}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: azure-managed-prometheus
+    config:
+      prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+---
+secret:
+  - --from-literal=AZURE_CLIENT_ID="<your-app-client-id>"
+  - --from-literal=AZURE_TENANT_ID="<your-tenant-id>"
+  - --from-literal=AZURE_CLIENT_SECRET="<your-client-secret>"
+```
 
 **Notes:**
 
@@ -268,93 +194,19 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
 
 The Basic auth credentials are `<instance_id>:<cloud_access_policy_token>` base64-encoded.
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-          additional_headers:
-            Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus \
-      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-prometheus
-
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-          additional_headers:
-            Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus \
-      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-prometheus
-
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: grafana-cloud
-          config:
-            prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-            additional_headers:
-              Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: grafana-cloud
+    config:
+      prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
+      additional_headers:
+        Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
+---
+secret:
+  - --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')"
+```
 
 #### Option 2: Grafana API Proxy
 
@@ -372,93 +224,19 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
      jq '.[] | select(.type=="prometheus") | {name, uid}'
 ```
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-          additional_headers:
-            Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus-grafana-proxy \
-      --from-literal=GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-prometheus-grafana-proxy
-
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-          additional_headers:
-            Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus-grafana-proxy \
-      --from-literal=GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-prometheus-grafana-proxy
-
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: grafana-cloud
-          config:
-            prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-            additional_headers:
-              Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config {secret-qualifier=grafana-proxy}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: grafana-cloud
+    config:
+      prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
+      additional_headers:
+        Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
+---
+secret:
+  - --from-literal=GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN
+```
 
 ---
 

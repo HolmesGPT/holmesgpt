@@ -18,57 +18,24 @@ Set both values on the model's `modelList` entry, using the limits of the real m
 - `custom_args.max_context_size`: the model's context window, in tokens.
 - `max_tokens`: the maximum output tokens HolmesGPT requests per call.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+modelList:
+  team-gpt4o:
+    model: openai/team-gpt4o  # an alias LiteLLM doesn't know
+    api_base: http://litellm.internal:4000
+    api_key: "{{ env.LITELLM_PROXY_KEY }}"
+    max_tokens: 16384           # the real model's max output
+    custom_args:
+      max_context_size: 128000  # the real model's context window
+---
+cli: |
+  Set the limits with environment variables. They apply to every model Holmes runs:
 
-    Set the limits with environment variables. They apply to every model Holmes runs:
-
-    ```bash
-    export OVERRIDE_MAX_CONTENT_SIZE=128000  # context window
-    export OVERRIDE_MAX_OUTPUT_TOKEN=16384   # max output
-    holmes ask "what pods are failing?" --model="openai/team-gpt4o"
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    modelList:
-      team-gpt4o:
-        model: openai/team-gpt4o  # an alias LiteLLM doesn't know
-        api_base: http://litellm.internal:4000
-        api_key: "{{ env.LITELLM_PROXY_KEY }}"
-        max_tokens: 16384           # the real model's max output
-        custom_args:
-          max_context_size: 128000  # the real model's context window
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      modelList:
-        team-gpt4o:
-          model: openai/team-gpt4o  # an alias LiteLLM doesn't know
-          api_base: http://litellm.internal:4000
-          api_key: "{{ env.LITELLM_PROXY_KEY }}"
-          max_tokens: 16384           # the real model's max output
-          custom_args:
-            max_context_size: 128000  # the real model's context window
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```bash
+  export OVERRIDE_MAX_CONTENT_SIZE=128000  # context window
+  export OVERRIDE_MAX_OUTPUT_TOKEN=16384   # max output
+  holmes ask "what pods are failing?" --model="openai/team-gpt4o"
+  ```
+```
 
 After Holmes restarts, the warning clears on the next status update.

@@ -19,74 +19,29 @@ The simplest setup. The MCP server runs in the same cluster it monitors and auth
 
 ### Step 1: Deploy
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+# Disable built-in k8s toolsets to avoid overlap
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  bash:
+    enabled: false
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+mcpAddons:
+  kubernetes:
+    enabled: true
 
-    ```yaml
-    # Disable built-in k8s toolsets to avoid overlap
-    toolsets:
-      kubernetes/core:
-        enabled: false
-      kubernetes/logs:
-        enabled: false
-      bash:
-        enabled: false
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      createClusterRoleBinding: true
+      clusterRole: "view"
 
-    mcpAddons:
-      kubernetes:
-        enabled: true
-
-        serviceAccount:
-          create: true
-          name: "k8s-mcp-sa"
-          createClusterRoleBinding: true
-          clusterRole: "view"
-
-        config:
-          readOnly: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: true
-            clusterRole: "view"
-
-          config:
-            readOnly: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+    config:
+      readOnly: true
+```
 
 ### Step 2: Verify
 
@@ -217,222 +172,103 @@ kubectl get secret k8s-mcp-kubeconfig -n YOUR_NAMESPACE \
 
 Configure Holmes in the "hub" cluster where you want multi-cluster access:
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+# Disable built-in k8s toolsets to avoid overlap
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  bash:
+    enabled: false
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+mcpAddons:
+  kubernetes:
+    enabled: true
 
-    ```yaml
-    # Disable built-in k8s toolsets to avoid overlap
-    toolsets:
-      kubernetes/core:
-        enabled: false
-      kubernetes/logs:
-        enabled: false
-      bash:
-        enabled: false
+    llmInstructions: |
+      This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
 
-    mcpAddons:
-      kubernetes:
-        enabled: true
+      ## MANDATORY FIRST STEP — read this before any other tool call
 
-        llmInstructions: |
-          This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
+      Before doing ANYTHING else for a Kubernetes question (resource lookup, log retrieval, event check, status check, "is X running?", "why is X failing?", etc.):
 
-          ## MANDATORY FIRST STEP — read this before any other tool call
+      1. Call `configuration_contexts_list` to enumerate every cluster context. Do this FIRST, on every fresh investigation, even if the user named a cluster or you think you already know which cluster applies. No exceptions.
+      2. Treat the returned list as the complete search space. The resource the user is asking about may live on ANY of these clusters.
+      3. For every subsequent tool call, pass the explicit `context` argument. Never rely on an implicit default.
 
-          Before doing ANYTHING else for a Kubernetes question (resource lookup, log retrieval, event check, status check, "is X running?", "why is X failing?", etc.):
+      ## Multi-cluster search procedure (when a resource is not on the first cluster)
 
-          1. Call `configuration_contexts_list` to enumerate every cluster context. Do this FIRST, on every fresh investigation, even if the user named a cluster or you think you already know which cluster applies. No exceptions.
-          2. Treat the returned list as the complete search space. The resource the user is asking about may live on ANY of these clusters.
-          3. For every subsequent tool call, pass the explicit `context` argument. Never rely on an implicit default.
+      If any resource lookup returns "not found" on a given context:
 
-          ## Multi-cluster search procedure (when a resource is not on the first cluster)
+      - **Immediately** re-issue the same lookup against every OTHER context returned by `configuration_contexts_list`.
+      - Do this WITHOUT pausing, WITHOUT asking the user "should I check other clusters?", and WITHOUT explaining what you're about to do. Just do it.
+      - Only after all contexts have been queried may you conclude that a resource truly does not exist.
+      - If a tool call against one context fails (auth, network, timeout), say so explicitly and CONTINUE with the remaining contexts. One failure must not short-circuit the search.
 
-          If any resource lookup returns "not found" on a given context:
+      ## Forbidden behaviors (your answer is incorrect if you do any of these)
 
-          - **Immediately** re-issue the same lookup against every OTHER context returned by `configuration_contexts_list`.
-          - Do this WITHOUT pausing, WITHOUT asking the user "should I check other clusters?", and WITHOUT explaining what you're about to do. Just do it.
-          - Only after all contexts have been queried may you conclude that a resource truly does not exist.
-          - If a tool call against one context fails (auth, network, timeout), say so explicitly and CONTINUE with the remaining contexts. One failure must not short-circuit the search.
+      - Skipping `configuration_contexts_list` and jumping straight to a resource query.
+      - Reporting "resource not found" without having queried EVERY context from `configuration_contexts_list`.
+      - Asking the user "should I check the other clusters?" — the answer is always yes; do it without asking.
+      - Assuming the first/default cluster is the only one to check.
+      - Omitting the cluster name from your final answer when reporting findings.
 
-          ## Forbidden behaviors (your answer is incorrect if you do any of these)
+      ## Required output discipline
 
-          - Skipping `configuration_contexts_list` and jumping straight to a resource query.
-          - Reporting "resource not found" without having queried EVERY context from `configuration_contexts_list`.
-          - Asking the user "should I check the other clusters?" — the answer is always yes; do it without asking.
-          - Assuming the first/default cluster is the only one to check.
-          - Omitting the cluster name from your final answer when reporting findings.
+      Every finding must be labeled with the cluster/context name it came from.
 
-          ## Required output discipline
+      - Correct: "Found `payment-service` deployment on cluster **prod-eu** (3/3 ready). It does NOT exist on **prod-us** or **prod-ap**."
+      - Incorrect: "Found payment-service deployment, 3/3 ready." (missing cluster attribution)
 
-          Every finding must be labeled with the cluster/context name it came from.
+      ## When to Use This MCP Server
 
-          - Correct: "Found `payment-service` deployment on cluster **prod-eu** (3/3 ready). It does NOT exist on **prod-us** or **prod-ap**."
-          - Incorrect: "Found payment-service deployment, 3/3 ready." (missing cluster attribution)
+      Use the Kubernetes MCP when investigating:
+      - Pod failures, crash loops, or scheduling issues
+      - Resource consumption and node capacity problems
+      - Deployment rollout issues or scaling problems
+      - Kubernetes events and cluster-level diagnostics
+      - Helm release status and management
 
-          ## When to Use This MCP Server
+      ## Investigation Workflow
 
-          Use the Kubernetes MCP when investigating:
-          - Pod failures, crash loops, or scheduling issues
-          - Resource consumption and node capacity problems
-          - Deployment rollout issues or scaling problems
-          - Kubernetes events and cluster-level diagnostics
-          - Helm release status and management
+      1. **List clusters FIRST** — call `configuration_contexts_list` (mandatory; see top of this document). All subsequent tool calls must include an explicit `context`.
+      2. **List namespaces** on the candidate cluster(s) to identify where the resource of interest could live.
+      3. **Check events**: look for warnings and errors. If the resource was not on the first cluster, fan out and check events on every other cluster too.
+      4. **Inspect pods**: get status, logs, resource usage — from the cluster where the resource actually exists.
+      5. **Examine resources**: get detailed definitions to identify misconfigurations.
+      6. **Check node health**: review node status and resource consumption on the relevant cluster.
 
-          ## Investigation Workflow
+      ## Important Guidelines
 
-          1. **List clusters FIRST** — call `configuration_contexts_list` (mandatory; see top of this document). All subsequent tool calls must include an explicit `context`.
-          2. **List namespaces** on the candidate cluster(s) to identify where the resource of interest could live.
-          3. **Check events**: look for warnings and errors. If the resource was not on the first cluster, fan out and check events on every other cluster too.
-          4. **Inspect pods**: get status, logs, resource usage — from the cluster where the resource actually exists.
-          5. **Examine resources**: get detailed definitions to identify misconfigurations.
-          6. **Check node health**: review node status and resource consumption on the relevant cluster.
+      - Always specify BOTH the namespace AND the cluster `context` when querying namespaced resources.
+      - Check events first — they often reveal the root cause quickly.
+      - Use pod logs to understand application-level failures.
+      - Compare resource requests/limits with actual usage via top commands.
+      - When investigating scheduling issues, check node capacity and taints on the cluster where the pod lives.
 
-          ## Important Guidelines
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      createClusterRoleBinding: false  # auth comes from kubeconfig tokens
 
-          - Always specify BOTH the namespace AND the cluster `context` when querying namespaced resources.
-          - Check events first — they often reveal the root cause quickly.
-          - Use pod logs to understand application-level failures.
-          - Compare resource requests/limits with actual usage via top commands.
-          - When investigating scheduling issues, check node capacity and taints on the cluster where the pod lives.
+    config:
+      readOnly: true
 
-        serviceAccount:
-          create: true
-          name: "k8s-mcp-sa"
-          createClusterRoleBinding: false  # auth comes from kubeconfig tokens
+      kubeconfig:
+        secretName: "k8s-mcp-kubeconfig"
+        secretKey: "kubeconfig"
 
-        config:
-          readOnly: true
+      # Required — overrides in-cluster auto-detection
+      extraArgs:
+        - "--kubeconfig"
+        - "/etc/kubernetes/kubeconfig"
+        - "--cluster-provider"
+        - "kubeconfig"
 
-          kubeconfig:
-            secretName: "k8s-mcp-kubeconfig"
-            secretKey: "kubeconfig"
-
-          # Required — overrides in-cluster auto-detection
-          extraArgs:
-            - "--kubeconfig"
-            - "/etc/kubernetes/kubeconfig"
-            - "--cluster-provider"
-            - "kubeconfig"
-
-          serverConfig: |
-            disabled_tools = ["configuration_view"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          llmInstructions: |
-            This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting. This instance is connected to MULTIPLE Kubernetes clusters via kubeconfig contexts.
-
-            ## MANDATORY FIRST STEP — read this before any other tool call
-
-            Before doing ANYTHING else for a Kubernetes question (resource lookup, log retrieval, event check, status check, "is X running?", "why is X failing?", etc.):
-
-            1. Call `configuration_contexts_list` to enumerate every cluster context. Do this FIRST, on every fresh investigation, even if the user named a cluster or you think you already know which cluster applies. No exceptions.
-            2. Treat the returned list as the complete search space. The resource the user is asking about may live on ANY of these clusters.
-            3. For every subsequent tool call, pass the explicit `context` argument. Never rely on an implicit default.
-
-            ## Multi-cluster search procedure (when a resource is not on the first cluster)
-
-            If any resource lookup returns "not found" on a given context:
-
-            - **Immediately** re-issue the same lookup against every OTHER context returned by `configuration_contexts_list`.
-            - Do this WITHOUT pausing, WITHOUT asking the user "should I check other clusters?", and WITHOUT explaining what you're about to do. Just do it.
-            - Only after all contexts have been queried may you conclude that a resource truly does not exist.
-            - If a tool call against one context fails (auth, network, timeout), say so explicitly and CONTINUE with the remaining contexts. One failure must not short-circuit the search.
-
-            ## Forbidden behaviors (your answer is incorrect if you do any of these)
-
-            - Skipping `configuration_contexts_list` and jumping straight to a resource query.
-            - Reporting "resource not found" without having queried EVERY context from `configuration_contexts_list`.
-            - Asking the user "should I check the other clusters?" — the answer is always yes; do it without asking.
-            - Assuming the first/default cluster is the only one to check.
-            - Omitting the cluster name from your final answer when reporting findings.
-
-            ## Required output discipline
-
-            Every finding must be labeled with the cluster/context name it came from.
-
-            - Correct: "Found `payment-service` deployment on cluster **prod-eu** (3/3 ready). It does NOT exist on **prod-us** or **prod-ap**."
-            - Incorrect: "Found payment-service deployment, 3/3 ready." (missing cluster attribution)
-
-            ## When to Use This MCP Server
-
-            Use the Kubernetes MCP when investigating:
-            - Pod failures, crash loops, or scheduling issues
-            - Resource consumption and node capacity problems
-            - Deployment rollout issues or scaling problems
-            - Kubernetes events and cluster-level diagnostics
-            - Helm release status and management
-
-            ## Investigation Workflow
-
-            1. **List clusters FIRST** — call `configuration_contexts_list` (mandatory; see top of this document). All subsequent tool calls must include an explicit `context`.
-            2. **List namespaces** on the candidate cluster(s) to identify where the resource of interest could live.
-            3. **Check events**: look for warnings and errors. If the resource was not on the first cluster, fan out and check events on every other cluster too.
-            4. **Inspect pods**: get status, logs, resource usage — from the cluster where the resource actually exists.
-            5. **Examine resources**: get detailed definitions to identify misconfigurations.
-            6. **Check node health**: review node status and resource consumption on the relevant cluster.
-
-            ## Important Guidelines
-
-            - Always specify BOTH the namespace AND the cluster `context` when querying namespaced resources.
-            - Check events first — they often reveal the root cause quickly.
-            - Use pod logs to understand application-level failures.
-            - Compare resource requests/limits with actual usage via top commands.
-            - When investigating scheduling issues, check node capacity and taints on the cluster where the pod lives.
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: false  # auth comes from kubeconfig tokens
-
-          config:
-            readOnly: true
-
-            kubeconfig:
-              secretName: "k8s-mcp-kubeconfig"
-              secretKey: "kubeconfig"
-
-            # Required — overrides in-cluster auto-detection
-            extraArgs:
-              - "--kubeconfig"
-              - "/etc/kubernetes/kubeconfig"
-              - "--cluster-provider"
-              - "kubeconfig"
-
-            serverConfig: |
-              disabled_tools = ["configuration_view"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+      serverConfig: |
+        disabled_tools = ["configuration_view"]
+```
 
 The `llmInstructions` block above helps holmes with multi-cluster awareness.
 
@@ -494,108 +330,43 @@ Reuses the `holmes-kubernetes-mcp` secret created in the [Step 3: Store the clie
 
 Replace `<TENANT_ID>` and `<CLIENT_ID>` in the values.
 
-=== "Holmes Helm Chart"
+```yaml-helm-values {reuse}
+# Disable built-in k8s toolsets to avoid overlap
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  bash:
+    enabled: false
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+mcpAddons:
+  kubernetes:
+    enabled: true
 
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-kubernetes-mcp
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      createClusterRoleBinding: false  # No RBAC — OAuth token provides permissions
 
-    # Disable built-in k8s toolsets to avoid overlap
-    toolsets:
-      kubernetes/core:
-        enabled: false
-      kubernetes/logs:
-        enabled: false
-      bash:
-        enabled: false
+    config:
+      readOnly: true
 
-    mcpAddons:
-      kubernetes:
+      # Server-side: how the MCP server validates incoming JWTs.
+      # The chart bakes this into a Secret mounted at /etc/kubernetes-mcp/config.toml.
+      serverConfig: |
+        require_oauth = true
+        authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
+        oauth_audience    = "6dae42f8-4368-4678-94ff-3960e28e3630"
+        oauth_scopes      = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
+        issuer_url        = "https://sts.windows.net/<TENANT_ID>/"
+
+      # Holmes-side: how Holmes drives the browser OAuth flow for end users.
+      oauth:
         enabled: true
-
-        serviceAccount:
-          create: true
-          name: "k8s-mcp-sa"
-          createClusterRoleBinding: false  # No RBAC — OAuth token provides permissions
-
-        config:
-          readOnly: true
-
-          # Server-side: how the MCP server validates incoming JWTs.
-          # The chart bakes this into a Secret mounted at /etc/kubernetes-mcp/config.toml.
-          serverConfig: |
-            require_oauth = true
-            authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
-            oauth_audience    = "6dae42f8-4368-4678-94ff-3960e28e3630"
-            oauth_scopes      = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
-            issuer_url        = "https://sts.windows.net/<TENANT_ID>/"
-
-          # Holmes-side: how Holmes drives the browser OAuth flow for end users.
-          oauth:
-            enabled: true
-            client_id:     "<CLIENT_ID>"
-            client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-kubernetes-mcp
-
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: false  # No RBAC — OAuth token provides permissions
-
-          config:
-            readOnly: true
-
-            # Server-side: how the MCP server validates incoming JWTs.
-            # The chart bakes this into a Secret mounted at /etc/kubernetes-mcp/config.toml.
-            serverConfig: |
-              require_oauth = true
-              authorization_url = "https://login.microsoftonline.com/<TENANT_ID>/v2.0"
-              oauth_audience    = "6dae42f8-4368-4678-94ff-3960e28e3630"
-              oauth_scopes      = ["6dae42f8-4368-4678-94ff-3960e28e3630/.default", "openid", "profile"]
-              issuer_url        = "https://sts.windows.net/<TENANT_ID>/"
-
-            # Holmes-side: how Holmes drives the browser OAuth flow for end users.
-            oauth:
-              enabled: true
-              client_id:     "<CLIENT_ID>"
-              client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+        client_id:     "<CLIENT_ID>"
+        client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+```
 
 ### Step 5: Verify
 
@@ -674,138 +445,61 @@ kubectl create secret generic mcp-k8s-credentials \
 
 Replace `<DEX_ISSUER_URL>` with your Dex issuer URL (for example `https://dex.example.com`). All three Dex URLs below derive from the `issuer` in your Dex config: the server-side `authorization_url` is the issuer itself, and the Holmes-side `authorization_url` and `token_url` are the issuer followed by `/auth` and `/token`. The `offline_access` scope lets Dex issue refresh tokens, so users don't have to sign in again every time their token expires. Some connectors ignore it, notably the SAML connector.
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+# Inject the Dex client secret as an env var so the OAuth flow can read it.
+additionalEnvVars:
+  - name: MCP_OAUTH_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: mcp-k8s-credentials
+        key: client-secret
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+# Disable built-in Kubernetes toolsets — they run with the Holmes pod's
+# ServiceAccount, which would bypass per-user RBAC.
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  bash:
+    enabled: false
 
-    ```yaml
-    # Inject the Dex client secret as an env var so the OAuth flow can read it.
-    additionalEnvVars:
-      - name: MCP_OAUTH_CLIENT_SECRET
-        valueFrom:
-          secretKeyRef:
-            name: mcp-k8s-credentials
-            key: client-secret
+mcpAddons:
+  kubernetes:
+    enabled: true
 
-    # Disable built-in Kubernetes toolsets — they run with the Holmes pod's
-    # ServiceAccount, which would bypass per-user RBAC.
-    toolsets:
-      kubernetes/core:
-        enabled: false
-      kubernetes/logs:
-        enabled: false
-      bash:
-        enabled: false
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      createClusterRoleBinding: false
 
-    mcpAddons:
-      kubernetes:
+    config:
+      readOnly: true
+
+      # Server-side: validate each user's Dex token, then pass it through to the API server.
+      serverConfig: |
+        require_oauth = true
+        accept_opaque_tokens = false
+        cluster_auth_mode = "passthrough"
+        authorization_url = "<DEX_ISSUER_URL>"
+        oauth_audience = "mcp-k8s"
+
+      # Holmes-side: tells Holmes which OAuth endpoints to drive in the browser.
+      oauth:
         enabled: true
-
-        serviceAccount:
-          create: true
-          name: "k8s-mcp-sa"
-          createClusterRoleBinding: false
-
-        config:
-          readOnly: true
-
-          # Server-side: validate each user's Dex token, then pass it through to the API server.
-          serverConfig: |
-            require_oauth = true
-            accept_opaque_tokens = false
-            cluster_auth_mode = "passthrough"
-            authorization_url = "<DEX_ISSUER_URL>"
-            oauth_audience = "mcp-k8s"
-
-          # Holmes-side: tells Holmes which OAuth endpoints to drive in the browser.
-          oauth:
-            enabled: true
-            authorization_url: "<DEX_ISSUER_URL>/auth"
-            token_url:         "<DEX_ISSUER_URL>/token"
-            client_id: "mcp-k8s"
-            client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
-            scopes:
-              - "openid"
-              - "profile"
-              - "email"
-              - "groups"
-              - "offline_access"
-              # Only if Step 2 applied (API server client ID is not mcp-k8s):
-              # - "audience:server:client_id:<API_SERVER_CLIENT_ID>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Inject the Dex client secret as an env var so the OAuth flow can read it.
-      additionalEnvVars:
-        - name: MCP_OAUTH_CLIENT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: mcp-k8s-credentials
-              key: client-secret
-
-      # Disable built-in Kubernetes toolsets — they run with the Holmes pod's
-      # ServiceAccount, which would bypass per-user RBAC.
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: false
-
-          config:
-            readOnly: true
-
-            # Server-side: validate each user's Dex token, then pass it through to the API server.
-            serverConfig: |
-              require_oauth = true
-              accept_opaque_tokens = false
-              cluster_auth_mode = "passthrough"
-              authorization_url = "<DEX_ISSUER_URL>"
-              oauth_audience = "mcp-k8s"
-
-            # Holmes-side: tells Holmes which OAuth endpoints to drive in the browser.
-            oauth:
-              enabled: true
-              authorization_url: "<DEX_ISSUER_URL>/auth"
-              token_url:         "<DEX_ISSUER_URL>/token"
-              client_id: "mcp-k8s"
-              client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
-              scopes:
-                - "openid"
-                - "profile"
-                - "email"
-                - "groups"
-                - "offline_access"
-                # Only if Step 2 applied (API server client ID is not mcp-k8s):
-                # - "audience:server:client_id:<API_SERVER_CLIENT_ID>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+        authorization_url: "<DEX_ISSUER_URL>/auth"
+        token_url:         "<DEX_ISSUER_URL>/token"
+        client_id: "mcp-k8s"
+        client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+        scopes:
+          - "openid"
+          - "profile"
+          - "email"
+          - "groups"
+          - "offline_access"
+          # Only if Step 2 applied (API server client ID is not mcp-k8s):
+          # - "audience:server:client_id:<API_SERVER_CLIENT_ID>"
+```
 
 The MCP server logs at level 1 by default. If sign-in fails, raise `mcpAddons.kubernetes.config.logLevel` (0-9, for example `3`) and read the `k8s-mcp-server` pod logs.
 
@@ -831,70 +525,27 @@ The MCP server takes the CA as PEM (the contents of `dex-ca.pem`) in `certificat
 
 Merge these into your values from Step 4:
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+# Dex CA, base64-encoded, for Holmes's own calls to Dex
+certificate: "<BASE64_DEX_CA>"
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+mcpAddons:
+  kubernetes:
+    config:
+      # Dex CA as PEM; mounted at /etc/kubernetes-mcp-ca/ca.crt
+      certificateAuthority: |
+        -----BEGIN CERTIFICATE-----
+        <DEX_CA_PEM_LINES>
+        -----END CERTIFICATE-----
 
-    ```yaml
-    # Dex CA, base64-encoded, for Holmes's own calls to Dex
-    certificate: "<BASE64_DEX_CA>"
-
-    mcpAddons:
-      kubernetes:
-        config:
-          # Dex CA as PEM; mounted at /etc/kubernetes-mcp-ca/ca.crt
-          certificateAuthority: |
-            -----BEGIN CERTIFICATE-----
-            <DEX_CA_PEM_LINES>
-            -----END CERTIFICATE-----
-
-          serverConfig: |
-            require_oauth = true
-            accept_opaque_tokens = false
-            cluster_auth_mode = "passthrough"
-            authorization_url = "<DEX_ISSUER_URL>"
-            oauth_audience = "mcp-k8s"
-            certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Dex CA, base64-encoded, for Holmes's own calls to Dex
-      certificate: "<BASE64_DEX_CA>"
-
-      mcpAddons:
-        kubernetes:
-          config:
-            # Dex CA as PEM; mounted at /etc/kubernetes-mcp-ca/ca.crt
-            certificateAuthority: |
-              -----BEGIN CERTIFICATE-----
-              <DEX_CA_PEM_LINES>
-              -----END CERTIFICATE-----
-
-            serverConfig: |
-              require_oauth = true
-              accept_opaque_tokens = false
-              cluster_auth_mode = "passthrough"
-              authorization_url = "<DEX_ISSUER_URL>"
-              oauth_audience = "mcp-k8s"
-              certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+      serverConfig: |
+        require_oauth = true
+        accept_opaque_tokens = false
+        cluster_auth_mode = "passthrough"
+        authorization_url = "<DEX_ISSUER_URL>"
+        oauth_audience = "mcp-k8s"
+        certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
+```
 
 ## Choose Toolsets and Disable Tools
 
@@ -902,48 +553,16 @@ The MCP server enables the `core` (pods, resources, events, nodes, namespaces) a
 
 To hide individual tools, list them in `disabled_tools` in `serverConfig`. For example, `nodes_log` is a `core` tool and `configuration_view` is a `config` tool. Tool names are in the [list of all tools](https://github.com/containers/kubernetes-mcp-server#tools-and-functionalities). If you already set `serverConfig` (for example in a per-user auth setup above), add the `disabled_tools` line to it.
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+mcpAddons:
+  kubernetes:
+    config:
+      # Optional: default is "core,config"
+      toolsets: "core,config,helm"
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      kubernetes:
-        config:
-          # Optional: default is "core,config"
-          toolsets: "core,config,helm"
-
-          serverConfig: |
-            disabled_tools = ["nodes_log", "configuration_view"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        kubernetes:
-          config:
-            # Optional: default is "core,config"
-            toolsets: "core,config,helm"
-
-            serverConfig: |
-              disabled_tools = ["nodes_log", "configuration_view"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+      serverConfig: |
+        disabled_tools = ["nodes_log", "configuration_view"]
+```
 
 ## Common Use Cases
 

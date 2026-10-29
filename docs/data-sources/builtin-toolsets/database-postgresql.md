@@ -35,168 +35,63 @@ GRANT pg_read_all_stats TO holmes_readonly;
 postgresql://[username]:[password]@[host]:[port]/[database]
 ```
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.POSTGRES_URL }}"
+    llm_instructions: "Production PostgreSQL database"
+---
+secret:
+  - --from-literal=POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb"
+      llm_instructions: "Production PostgreSQL with customer and order data"
 
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb"
-        llm_instructions: "Production PostgreSQL with customer and order data"
+    analytics-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://analyst:pass@analytics-pg.internal:5432/analytics"
+      llm_instructions: "Analytics warehouse for reporting queries"
+  ```
 
-      analytics-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://analyst:pass@analytics-pg.internal:5432/analytics"
-        llm_instructions: "Analytics warehouse for reporting queries"
-    ```
+  **Using environment variables:**
 
-    **Using environment variables:**
-
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-postgresql \
-      --from-literal=POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-postgresql
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-        llm_instructions: "Production PostgreSQL database"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-postgresql \
-      --from-literal=POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-postgresql
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "{{ env.POSTGRES_URL }}"
+  ```
+```
 
 ### Multiple instances
 
-=== "Holmes Helm Chart"
+```yaml-helm-values {secret-qualifier=instances}
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.PROD_POSTGRES_URL }}"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-postgresql-instances \
-      --from-literal=PROD_POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      --from-literal=ANALYTICS_POSTGRES_URL='postgresql://analyst:pass@analytics-pg.internal:5432/analytics' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-postgresql-instances
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.PROD_POSTGRES_URL }}"
-
-      analytics-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-postgresql-instances \
-      --from-literal=PROD_POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      --from-literal=ANALYTICS_POSTGRES_URL='postgresql://analyst:pass@analytics-pg.internal:5432/analytics' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-postgresql-instances
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.PROD_POSTGRES_URL }}"
-
-        analytics-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  analytics-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
+---
+secret:
+  - --from-literal=PROD_POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb'
+  - --from-literal=ANALYTICS_POSTGRES_URL='postgresql://analyst:pass@analytics-pg.internal:5432/analytics'
+```
 
 ## Configuration Options
 

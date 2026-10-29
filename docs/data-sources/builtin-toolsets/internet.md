@@ -48,46 +48,18 @@ deployment can reach.
 
 By default, the internet toolset uses a 5-second timeout for webpage requests. If you need to increase the timeout for slower websites, you can set the `INTERNET_TOOLSET_TIMEOUT_SECONDS` environment variable:
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
+    value: "30"
+---
+cli: |
+  Set the environment variable:
 
-    Set the environment variable:
-
-    ```bash
-    export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalEnvVars:
-      - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
-        value: "30"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: INTERNET_TOOLSET_TIMEOUT_SECONDS
-          value: "30"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```bash
+  export INTERNET_TOOLSET_TIMEOUT_SECONDS=30
+  ```
+```
 
 ## Capabilities
 
