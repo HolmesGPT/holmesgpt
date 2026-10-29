@@ -259,3 +259,31 @@ def test_render_does_not_print_secret_values():
     assert "super-secret-key" not in text
     assert "sk-also-secret" not in text
     assert "llm_credentials" in text
+
+
+def test_config_validation_exit_is_reported_and_kept_off_stdout(capsys):
+    def invalid(_path):
+        print("1 validation error for Config")
+        raise SystemExit()
+
+    report = _collect(load_config=invalid, environ={"OPENAI_API_KEY": "x"})
+    check = _check(report, "config_load")
+    assert check.status == CheckStatus.WARN
+    assert check.detail
+    captured = capsys.readouterr()
+    assert "validation error" not in captured.out
+    assert "validation error" in captured.err
+
+
+def test_render_escapes_markup_in_check_text():
+    from rich.console import Console
+
+    def boom(_path):
+        raise ValueError("[Errno 2] No such file [/foo]")
+
+    report = _collect(load_config=boom, environ={"OPENAI_API_KEY": "x"})
+    console = Console(record=True, width=200)
+    render_doctor_report(report, console)
+    output = console.export_text()
+    assert "[Errno 2]" in output
+    assert "[/foo]" in output

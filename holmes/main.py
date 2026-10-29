@@ -1112,7 +1112,7 @@ def doctor(
     ),
 ) -> None:
     """Check that the CLI is ready to run investigations."""
-    console = init_logging(verbose)
+    console = init_logging(verbose, log_to_stderr=json_output)
     report = collect_doctor_report(
         config_file=config_file,
         skip_toolsets=skip_toolsets,

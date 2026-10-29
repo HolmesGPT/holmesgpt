@@ -7,6 +7,7 @@ without sending a prompt.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from holmes import get_version
@@ -288,9 +290,13 @@ def collect_doctor_report(
     config_error: Optional[str] = None
     loader = load_config or Config.load_from_file
     try:
-        config = loader(config_file)
-    except Exception as exc:  # noqa: BLE001 - doctor must keep going
-        config_error = str(exc)
+        # Loader validation errors print to stdout; keep them off --json output.
+        with contextlib.redirect_stdout(sys.stderr):
+            config = loader(config_file)
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - doctor must keep going
+        config_error = (
+            str(exc) or "Invalid config (validation errors printed to stderr)"
+        )
         checks.append(
             DoctorCheck(
                 name="config_load",
@@ -472,9 +478,9 @@ def render_doctor_report(report: DoctorReport, console: Console) -> None:
 
     for check in report.checks:
         color, label = _STATUS_STYLE[check.status]
-        summary = check.summary
+        summary = escape(check.summary)
         if check.detail:
-            summary = f"{summary}\n[dim]{check.detail}[/dim]"
+            summary = f"{summary}\n[dim]{escape(check.detail)}[/dim]"
         table.add_row(f"[{color}]{label}[/{color}]", check.name, summary)
 
     console.print(table)

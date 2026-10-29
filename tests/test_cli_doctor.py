@@ -73,3 +73,19 @@ def test_doctor_help_lists_json_flag():
     assert "--json" in result.output
     assert "--skip-toolsets" in result.output
     assert "--refresh-toolsets" in result.output
+
+
+def test_init_logging_can_route_to_stderr():
+    import logging
+
+    from rich.logging import RichHandler
+
+    from holmes.utils.console.logging import init_logging
+
+    init_logging([], log_to_stderr=True)
+    handlers = [h for h in logging.getLogger().handlers if isinstance(h, RichHandler)]
+    assert handlers and all(h.console.stderr for h in handlers)
+
+    init_logging([])
+    handlers = [h for h in logging.getLogger().handlers if isinstance(h, RichHandler)]
+    assert handlers and not any(h.console.stderr for h in handlers)

@@ -41,7 +41,12 @@ def suppress_noisy_logs():
     warnings.filterwarnings("ignore", category=UserWarning, module="slack_sdk.*")
 
 
-def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = False):
+def init_logging(
+    verbose_flags: Optional[List[bool]] = None,
+    log_costs: bool = False,
+    log_to_stderr: bool = False,
+):
+    """Configure logging. log_to_stderr keeps stdout clean for machine-readable output."""
     verbosity = cli_flags_to_verbosity(verbose_flags)  # type: ignore
 
     # Setup cost logger if requested
@@ -60,7 +65,7 @@ def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = F
                     markup=True,
                     show_time=False,
                     show_path=False,
-                    console=Console(width=None),
+                    console=Console(width=None, stderr=log_to_stderr),
                 )
             ],
         )
@@ -75,7 +80,7 @@ def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = F
                     markup=True,
                     show_time=False,
                     show_path=False,
-                    console=Console(width=None),
+                    console=Console(width=None, stderr=log_to_stderr),
                 )
             ],
         )
@@ -92,7 +97,7 @@ def init_logging(verbose_flags: Optional[List[bool]] = None, log_costs: bool = F
                     markup=True,
                     show_time=False,
                     show_path=False,
-                    console=Console(width=None),
+                    console=Console(width=None, stderr=log_to_stderr),
                 )
             ],
         )
