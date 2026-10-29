@@ -270,7 +270,7 @@ holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for thr
 | `top`, `df`, `ls`, `netstat`, `ss` | any arguments (no shell metacharacters) |
 | `ps` | any options except those that print process environments (BSD `e` in any spelling) or are unrecognised; `-e` cannot be combined with user, group, session or tty selectors |
 | `nvidia-smi` | no arguments, `-L`, `-q [-d SECTIONS] [-i N]`, `--query-*=FIELDS --format=csv [-i N]`, `nvlink -s\|-e [-i N]`, `topo -m` |
-| `dmesg` | any of `-T`, `-k`, `--level=LEVELS` |
+| `dmesg` | any of `-T`, `-k`, `-r`, `-s SIZE`, `--level=LEVELS` (`-r` and `-s` also work with BusyBox `dmesg`) |
 
 Set these server env vars through `additionalEnvVars` to change the defaults:
 
@@ -283,8 +283,7 @@ mcpAddons:
     enabled: true
     additionalEnvVars:
       - name: KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS
-        # BusyBox dmesg (common in GPU Operator images) lacks -T/-k
-        value: '{"dmesg": "( -r| -s \\d+)*", "ethtool": " -S [a-z0-9]+"}'
+        value: '{"ethtool": " -S [a-z0-9]+"}'
 ```
 
 ## Security Controls
