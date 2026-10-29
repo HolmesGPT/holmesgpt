@@ -275,7 +275,7 @@ holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for thr
 Change the defaults with these Helm values:
 
 - `preapprovedExecDisabledBinaries`: binaries to stop auto-approving, e.g. `nvidia-smi,dmesg`
-- `preapprovedExecArgvAllowlists`: map of binary to argument regex. It auto-approves the binary and adds to any built-in forms. The regex must match the whole argument list, with each argument preceded by a space.
+- `preapprovedExecArgvAllowlists`: map of binary to argument regex. Its default holds the `nvidia-smi` and `dmesg` forms above; keys you add are merged with it, and a key set to `null` is removed. Each listed binary is auto-approved, and the regex must match the whole argument list, with each argument preceded by a space.
 
 ```yaml
 mcpAddons:
@@ -495,7 +495,7 @@ Otherwise, in order of preference:
 | `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
 | `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
 | `preapprovedExecDisabledBinaries` | `""` | built-in exec binaries to stop auto-approving ([details](#exec-argument-allowlists)) |
-| `preapprovedExecArgvAllowlists` | `{}` | extra auto-approved exec binaries, binary → argument regex ([details](#exec-argument-allowlists)) |
+| `preapprovedExecArgvAllowlists` | `nvidia-smi` and `dmesg` forms | auto-approved exec binaries, binary → argument regex ([details](#exec-argument-allowlists)) |
 | `diagnosticTargetPolicyEnabled` | `true` | master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
 | `diagnosticAllowExternalTargets` | `false` | allow diagnostic probes to reach hosts outside the cluster |
 | `diagnosticInternalDnsSuffixes` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |

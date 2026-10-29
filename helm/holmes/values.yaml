@@ -788,11 +788,13 @@ mcpAddons:
       preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
       # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
-      # Built-in exec binaries to stop auto-approving, e.g. "nvidia-smi,dmesg" (server >= 1.5.0)
+      # Pre-approved exec binaries to stop auto-approving, e.g. "nvidia-smi,dmesg" (server >= 1.5.0)
       preapprovedExecDisabledBinaries: ""
-      # Extra auto-approved exec binaries: binary -> regex matching " arg1 arg2" (server >= 1.5.0)
-      # e.g. ethtool: " -S [a-z0-9]+"
-      preapprovedExecArgvAllowlists: {}
+      # Auto-approved exec binaries: binary -> regex the space-prefixed argv
+      # (" arg1 arg2") must fully match (server >= 1.5.0). Add e.g. ethtool: ' -S [a-z0-9]+'
+      preapprovedExecArgvAllowlists:
+        nvidia-smi: '( -L)?| -q( -d [A-Z_,]+| -i \d+)*| --query-[a-z-]+=[a-z0-9_.,]+ --format=csv(,noheader|,nounits)*( -i \d+)?| nvlink -[se]( -i \d+)?| topo -m'
+        dmesg: '( -T| -k| -r| -s \d+| --level=[a-z,]+)*'
 
       # ---- Diagnostic-pod target policy (server >= 1.2.0) ----
       # run_preapproved_diagnostic_image is auto-approved and its images are

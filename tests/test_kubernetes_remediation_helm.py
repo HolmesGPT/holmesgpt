@@ -158,7 +158,7 @@ def test_gpu_diagnostics_chart_wiring():
 
 def test_exec_argv_allowlist_values_render_as_server_env():
     assert _values()["config"]["preapprovedExecDisabledBinaries"] == ""
-    assert _values()["config"]["preapprovedExecArgvAllowlists"] == {}
+    assert set(_values()["config"]["preapprovedExecArgvAllowlists"]) == {"nvidia-smi", "dmesg"}
     text = (TEMPLATE_DIR / "deployment.yaml").read_text()
     assert (
         'KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS: {{ include "holmes.kubernetesRemediationMcp.preapprovedExecArgvAllowlists" . | quote }}'
