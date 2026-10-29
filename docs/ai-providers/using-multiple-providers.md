@@ -82,7 +82,7 @@ cli: |
       api_key: "your-api-key"
       api_version: 2025-01-01-preview
       model: azure/gpt-5
-      temperature: 0
+      temperature: 1
   ```
 
   **2. Use models by name:**

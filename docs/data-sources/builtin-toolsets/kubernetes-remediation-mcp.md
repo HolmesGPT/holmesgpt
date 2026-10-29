@@ -32,7 +32,7 @@ For CLI deployments, you'll need to create the RBAC resources manually. For Helm
 
 ## Configuration
 
-With the chart, the defaults work out of the box once enabled (plug-and-play). The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `serviceAccount.clusterRole` to bring your own role, or `config.*` to tune the allowlists.
+With the chart, the defaults work out of the box once enabled (plug-and-play). The chart creates a scoped ClusterRole (no `cluster-admin`), an ingress-only NetworkPolicy locked to Holmes, and wires `approval_required_tools: ["run_kubectl_command"]`. Override `mcpAddons.kubernetesRemediation.serviceAccount.clusterRole` to bring your own role, or the keys under `mcpAddons.kubernetesRemediation.config` to tune the allowlists.
 
 ```yaml-toolset-config
 mcpAddons:
