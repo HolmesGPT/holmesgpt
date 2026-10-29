@@ -62,15 +62,8 @@ before_test: |
   T_2H=$(ts "hours=2")
   T_3H=$(ts "hours=3")
 
-  echo "Cleaning up existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
   echo "Creating prod logs index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{
+  es_ensure_index "$LOGS_INDEX" '{
       "settings": {"number_of_shards": 1, "number_of_replicas": 0},
       "mappings": {"properties": {
         "timestamp": {"type": "date"},
@@ -82,12 +75,7 @@ before_test: |
         "message": {"type": "text"},
         "correlation_id": {"type": "keyword"}
       }}
-    }')
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "Failed to create logs index: $CREATE_RESPONSE"
-    exit 1
-  fi
-  sleep 2
+    }'
 
   # Index contains logs from BOTH production-us-east-2 (the cluster the user
   # asked about) AND production-eu-west-2 (the cluster Holmes is on). The
@@ -118,15 +106,7 @@ before_test: |
   BULK_EOF
   sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
 
-  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
-    -H "Content-Type: application/x-ndjson" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    --data-binary @"$BULK_FILE")
-  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
-    echo "Bulk insert had errors: $BULK_RESPONSE"
-    rm -f "$BULK_FILE"
-    exit 1
-  fi
+  es_bulk_load_idempotent "$LOGS_INDEX" "$BULK_FILE" "260"
   rm -f "$BULK_FILE"
 
   curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
