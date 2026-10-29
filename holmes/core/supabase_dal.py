@@ -47,6 +47,7 @@ from holmes.common.env_vars import (
     STORE_PASSWORD,
     STORE_URL,
 )
+from holmes.core.llm_rate_limit import RETRIES_KEY, WAIT_MS_KEY
 from holmes.core.resource_instruction import (
     ResourceInstructionDocument,
     ResourceInstructions,
@@ -1223,6 +1224,10 @@ class SupabaseDal:
             return
         try:
             stats = state.stats  # may be None on aborted/error rows
+            retry_meta = {
+                key: getattr(stats, key, 0) or 0
+                for key in (RETRIES_KEY, WAIT_MS_KEY)
+            }
             self.client.table(HOLMES_USAGE_EVENTS_TABLE).insert({
                 "account_id": self.account_id,
                 "cluster_id": state.cluster_id or self.cluster,
@@ -1260,7 +1265,7 @@ class SupabaseDal:
                 "is_streaming": state.is_streaming,
                 "is_internal": state.is_internal,
                 "finish_reason": state.finish_reason,
-                "meta": state.meta or {},
+                "meta": {**(state.meta or {}), **retry_meta},
             }).execute()
         except Exception:
             logging.exception("Failed to record usage event")

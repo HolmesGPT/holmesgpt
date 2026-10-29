@@ -37,6 +37,7 @@ from tests.llm.utils.property_manager import (
     update_property,
     update_test_results,
 )
+from tests.llm.utils.reporting.skill_check import SkillCheckFailure, skill_titles
 from tests.llm.utils.skill_suggestions import (
     count_fetch_skill_calls,
     extract_suggested_skills,
@@ -186,12 +187,12 @@ def test_ask_holmes(
         else None,
     )
 
-    # Hard yes/no skill-suggestion count check. Content quality is scored by
-    # the LLM judge via update_test_results above (the judge sees the emitted
-    # suggestions and the eval's expected_output together). The correctness
-    # score is reset to 0 BEFORE the Braintrust logging below and before the
-    # assertions fire, so both Braintrust and the GitHub markdown report
-    # reflect the failure even though the judge already wrote a 1.
+    # Deterministic skill checks. They fail the run (assertions below) but
+    # leave the judge's correctness as the judge returned it: a correct answer
+    # with an unwanted skill suggestion is not a wrong answer. The failure is
+    # recorded as scores["skill_check"] and the fail_reason property, which
+    # the reports render separately from wrong answers.
+    skill_check_failure: Optional[SkillCheckFailure] = None
     memory_check_failed = False
     if test_case.memories_generated is not None:
         actual_memories = len(suggested_memories)
@@ -199,8 +200,11 @@ def test_ask_holmes(
             test_case.memories_generated and actual_memories < 1
         ) or (not test_case.memories_generated and actual_memories != 0)
         if memory_check_failed:
-            update_property(request, "actual_correctness_score", 0)
-            scores["correctness"] = 0
+            skill_check_failure = (
+                SkillCheckFailure.MISSING_SUGGESTION
+                if test_case.memories_generated
+                else SkillCheckFailure.UNEXPECTED_SUGGESTION
+            )
 
     # Deterministic skill-UPDATE check: every skill named in
     # expected_skill_updates must be referenced by some suggestion's
@@ -217,9 +221,16 @@ def test_ask_holmes(
             for name in test_case.expected_skill_updates
             if name not in actual_updates
         ]
-        if missing_skill_updates:
-            update_property(request, "actual_correctness_score", 0)
-            scores["correctness"] = 0
+        if missing_skill_updates and skill_check_failure is None:
+            skill_check_failure = SkillCheckFailure.MISSING_UPDATE
+
+    if test_case.memories_generated is not None or test_case.expected_skill_updates:
+        scores["skill_check"] = 0 if skill_check_failure else 1
+    if skill_check_failure:
+        update_property(request, "fail_reason", skill_check_failure.value)
+        update_property(
+            request, "suggested_skill_titles", skill_titles(suggested_memories)
+        )
 
     # Before the raising checks below: an answer they reject is part of the
     # population too, and dumping after them would bias the sample.
@@ -240,6 +251,7 @@ def test_ask_holmes(
             result=result,
             scores=scores,
             suggested_memories=suggested_memories,
+            fail_reason=skill_check_failure.value if skill_check_failure else None,
         )
 
     if memory_check_failed:

@@ -62,6 +62,7 @@ before_test: |
 
   # Wait for logs to appear in Loki
   sleep 5  # Let Promtail initialize
+  LOGS_READY=false
   START_TIME=$(date +%s)
   while [ $(($(date +%s) - START_TIME)) -lt 120 ]; do
     LOG_COUNT=$(kubectl exec -n app-101 deployment/loki -- wget -q -O- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="app-101"}&limit=1' 2>/dev/null | grep -o '"values"' | wc -l)
@@ -70,10 +71,17 @@ before_test: |
 
     if [ "$LOG_COUNT" -gt "0" ] && [ "$HISTORICAL_COUNT" -gt "0" ] && [ "$ERROR_COUNT" -gt "0" ]; then
       echo "Logs ready in Loki"
+      LOGS_READY=true
       break
     fi
     sleep 2
   done
+  if [ "$LOGS_READY" = false ]; then
+    echo "ERROR: Logs not found in Loki after 120s (LOG_COUNT=$LOG_COUNT, HISTORICAL_COUNT=$HISTORICAL_COUNT, ERROR_COUNT=$ERROR_COUNT)"
+    kubectl logs -n app-101 -l app=payment-api-101 -c promtail --previous --tail=20 2>&1 || true
+    kubectl logs -n app-101 -l app=payment-api-101 -c promtail --tail=20 2>&1 || true
+    exit 1
+  fi
 
   # DELETE THE POD - this is the key difference from test 100
   # Holmes will need to investigate using only historical logs
