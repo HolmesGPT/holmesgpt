@@ -347,7 +347,12 @@ def _extract_metrics(span: Dict[str, Any]) -> Optional[BenchmarkMetrics]:
     tool_calls = metadata.get("tool_call_count")
     num_llm_calls = metadata.get("num_llm_calls")
     correctness = scores.get("correctness")
-    passed = int(correctness) == 1 if correctness is not None else False
+    # skill_check fails the run even when the judge accepted the answer.
+    passed = (
+        correctness is not None
+        and int(correctness) == 1
+        and scores.get("skill_check") != 0
+    )
 
     # Cost from metrics (logged by Braintrust SDK) or metadata (logged by us)
     cost = metrics.get("cost") or metadata.get("cost")
