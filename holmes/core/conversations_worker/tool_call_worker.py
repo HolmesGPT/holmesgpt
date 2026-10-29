@@ -24,10 +24,11 @@ import base64
 import gzip
 import json
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
@@ -62,6 +63,7 @@ def _error_response(error: str, invocation: Optional[str] = None) -> Dict[str, A
         "data": None,
         "compressed": False,
         "data_gz_b64": None,
+        "images": None,
         "error": error,
         "invocation": invocation,
         "executor_holmes_version": get_version(),
@@ -73,10 +75,15 @@ def serialize_tool_response(
     elapsed_seconds: float,
     max_bytes: int = REMOTE_TOOL_RESULT_MAX_BYTES,
     compress_threshold: int = REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS,
+    tool_call_id: str = "",
 ) -> Dict[str, Any]:
     """Serialize a StructuredToolResult into the tool_response payload.
 
-    - Images are dropped (text results only in v1).
+    - Images travel in ``images`` as the tool returned them (base64, never
+      gzipped: a PNG does not compress) and count against max_bytes; when
+      text and images together exceed it but the text alone fits, the
+      images are dropped, the text kept, and a note appended to the text so
+      the caller's LLM knows a picture was omitted and why.
     - Uncompressed data larger than max_bytes (1MB) is rejected with a
       narrow-the-query error.
     - Data over compress_threshold chars is stored gzip+base64 so the DB row,
@@ -86,6 +93,10 @@ def serialize_tool_response(
     """
     data, _is_json = result.stringify_data(compact=False)
     data = data or ""
+    images = _serializable_images(result.images)
+    not_whole = (
+        len(result.images) - len(images) if isinstance(result.images, list) else 0
+    )
 
     payload: Dict[str, Any] = {
         "status": result.status.value
@@ -94,6 +105,7 @@ def serialize_tool_response(
         "data": data,
         "compressed": False,
         "data_gz_b64": None,
+        "images": images or None,
         "error": result.error,
         "return_code": result.return_code,
         "invocation": result.invocation,
@@ -105,11 +117,52 @@ def serialize_tool_response(
     if size > max_bytes:
         payload["status"] = StructuredToolResultStatus.ERROR.value
         payload["data"] = None
+        payload["images"] = None
         payload["error"] = (
             f"result too large ({size} bytes > {max_bytes}); narrow the query "
             "(smaller time range, tighter filters, lower limit)"
         )
         return payload
+
+    if not_whole:
+        logging.warning(
+            "remote tool call %s: %d image entr%s not base64 of a %s image, "
+            "left out",
+            tool_call_id or "?",
+            not_whole,
+            "y is" if not_whole == 1 else "ies are",
+            _IMAGE_TYPES_NAMED,
+        )
+        data = _text_with_note(
+            data,
+            size,
+            f"{not_whole} image(s) of tool call {tool_call_id or '?'} omitted: not "
+            f"base64 of a {_IMAGE_TYPES_NAMED} image",
+            max_bytes,
+        )
+        payload["data"] = data
+        size = len(data.encode("utf-8", errors="replace"))
+
+    images_size = sum(len(image["data"]) for image in images)
+    if images and size + images_size > max_bytes:
+        logging.warning(
+            "remote tool call %s: dropping %d image(s) (%d bytes) that would "
+            "take the result over %d bytes; the text is kept",
+            tool_call_id or "?",
+            len(images),
+            images_size,
+            max_bytes,
+        )
+        payload["images"] = None
+        data = _text_with_note(
+            data,
+            size,
+            f"{len(images)} image(s) ({images_size} bytes) omitted from tool call "
+            f"{tool_call_id or '?'}: the result would exceed the {max_bytes}-byte "
+            "limit of a remote tool call; narrow the request for a smaller image",
+            max_bytes,
+        )
+        payload["data"] = data
 
     if len(data) > compress_threshold:
         gz_b64 = base64.b64encode(
@@ -121,6 +174,54 @@ def serialize_tool_response(
             payload["data"] = None
 
     return payload
+
+
+def _text_with_note(data: str, size: int, note: str, max_bytes: int) -> str:
+    """``data`` (``size`` bytes) plus a bracketed ``note`` for the caller's
+    LLM, within ``max_bytes``: text that leaves no room for the note loses
+    its tail instead, and the note says so."""
+    note = f"\n\n[{note}"
+    if size + len(note.encode("utf-8")) + 1 <= max_bytes:
+        return data + note + "]"
+    note += "; the end of the text was cut to make room for this note]"
+    room = max(0, max_bytes - len(note.encode("utf-8")))
+    cut = data.encode("utf-8", errors="replace")[:room].decode("utf-8", "ignore")
+    return cut + note
+
+
+# Whole quartets with padding, the shape an MCP client decodes.
+_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+# The raster types every consumer shows: MCP clients, and the vision APIs
+# the caller's Holmes may hand the image to. Relay applies the same rule.
+IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_IMAGE_TYPES_NAMED = "/".join(
+    sorted(t.removeprefix("image/") for t in IMAGE_MIME_TYPES)
+)
+
+
+def _serializable_image(image: Any) -> Optional[Dict[str, str]]:
+    """The ``{data, mimeType}`` of one image entry when it is whole: base64
+    (line breaks removed, as a wrapped encoding has them) of one of
+    IMAGE_MIME_TYPES."""
+    if not isinstance(image, dict) or not isinstance(image.get("data"), str):
+        return None
+    data = "".join(image["data"].split())
+    if not data or not _BASE64.fullmatch(data):
+        return None
+    mime_type = image.get("mimeType")
+    if not isinstance(mime_type, str) or mime_type not in IMAGE_MIME_TYPES:
+        return None
+    return {"data": data, "mimeType": image["mimeType"]}
+
+
+def _serializable_images(images: Any) -> List[Dict[str, str]]:
+    """The whole entries of a tool's untyped image list; this is where it
+    is validated, so the row holds only entries relay can forward as MCP
+    image content."""
+    if not isinstance(images, list):
+        return []
+    whole = (_serializable_image(image) for image in images)
+    return [image for image in whole if image is not None]
 
 
 INTERNAL_KIND_OAUTH_CALLBACK = "oauth_callback"
@@ -436,6 +537,7 @@ class ToolCallWorker:
                 "data": None,
                 "compressed": False,
                 "data_gz_b64": None,
+                "images": None,
                 "error": result.error,
                 "return_code": result.return_code,
                 "invocation": result.invocation,
@@ -444,9 +546,9 @@ class ToolCallWorker:
                 "approval_params": tool_params,
             }
 
-        # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
-        result.images = None
-        return serialize_tool_response(result, elapsed)
+        # 6. Inline result, <=1MB uncompressed, gzip over 100k, images
+        # inline within the cap, no files.
+        return serialize_tool_response(result, elapsed, tool_call_id=tool_call_id)
 
     # ---- internal request kinds ----
 
