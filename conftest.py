@@ -85,6 +85,24 @@ def pytest_addoption(parser):
     )
 
 
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item, call):
+    # LiteLLM stamps LogRecords with object(), which execnet cannot serialize.
+    outcome = yield
+    report = outcome.get_result()
+    json_report_extra = getattr(report, "_json_report_extra", None)
+    if not isinstance(json_report_extra, dict):
+        return
+
+    stage = json_report_extra.get(call.when)
+    if not isinstance(stage, dict):
+        return
+
+    for record in stage.get("log", ()):
+        if isinstance(record, dict):
+            record.pop("litellm_redacted", None)
+
+
 def pytest_configure(config):
     """Configure pytest settings"""
     # Disable SSL verification if SSL_VERIFY env var is set to false/0
