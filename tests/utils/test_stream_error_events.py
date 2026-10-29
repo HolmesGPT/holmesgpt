@@ -52,3 +52,18 @@ def test_unknown_failure_carries_only_its_class():
 
     assert data["error_class"] == "RuntimeError"
     assert "provider_status" not in data and "provider" not in data
+
+
+def test_answer_end_without_text_streams_an_empty_analysis():
+    from holmes.utils.stream import StreamEvents, StreamMessage
+
+    def stream():
+        yield StreamMessage(
+            event=StreamEvents.ANSWER_END,
+            data={"content": None, "messages": [], "metadata": {}},
+        )
+
+    (frame,) = list(stream_chat_formatter(stream()))
+    event, data = frame.strip().split("\n", 1)
+    assert event == "event: ai_answer_end"
+    assert json.loads(data.removeprefix("data: "))["analysis"] == ""
