@@ -261,6 +261,32 @@ For custom nvidia-smi/dcgmi locations or other server knobs (`GPU_DIAG_NVIDIA_SM
 holmes ask "Training jobs on node gpu-worker-3 are slow - check the GPUs for throttling or ECC errors"
 ```
 
+## Exec argument allowlists
+
+`run_preapproved_kubectl_exec_command` runs these binaries inside the target container without approval; `ps`, `nvidia-smi` and `dmesg` only with allowed arguments (`nvidia-smi` and `dmesg` need server >= 1.5.0). Any other argument is refused before execution and falls back to the approval-gated `run_kubectl_command`. You decide which binaries and arguments run without approval; Holmes can never run an argument outside what you configured.
+
+| Binary | Allowed forms |
+|--------|---------------|
+| `top`, `df`, `ls`, `netstat`, `ss` | any arguments (no shell metacharacters) |
+| `ps` | any options except those that print process environments (BSD `e` in any spelling) or are unrecognised; `-e` cannot be combined with user, group, session or tty selectors |
+| `nvidia-smi` | no arguments, `-L`, `-q [-d SECTIONS] [-i N]`, `--query-*=FIELDS --format=csv [-i N]`, `nvlink -s\|-e [-i N]`, `topo -m` |
+| `dmesg` | any of `-T`, `-k`, `-r`, `-s SIZE`, `--level=LEVELS` (`-r` and `-s` also work with BusyBox `dmesg`) |
+
+Change the defaults with these Helm values:
+
+- `preapprovedExecDisabledBinaries`: binaries to stop auto-approving, e.g. `nvidia-smi,dmesg`
+- `preapprovedExecArgvAllowlists`: map of binary to argument regex. Its default holds the `nvidia-smi` and `dmesg` forms above; keys you add are merged with it, and a key set to `null` is removed. Each listed binary is auto-approved, and the regex must match the whole argument list, with each argument preceded by a space.
+
+```yaml
+mcpAddons:
+  kubernetesRemediation:
+    enabled: true
+    config:
+      preapprovedExecDisabledBinaries: "nvidia-smi"
+      preapprovedExecArgvAllowlists:
+        ethtool: " -S [a-z0-9]+"
+```
+
 ## Security Controls
 
 All policy lives in the MCP server; Holmes only maps tool name → approval.
@@ -270,6 +296,7 @@ All policy lives in the MCP server; Holmes only maps tool name → approval.
 | **Tool separation** | Read-only tools auto-approve; only `run_kubectl_command` (mutations) requires human approval |
 | **Path policy** | `read_file_from_container` checks the literal path, resolves it in-container with `readlink -f`, re-checks the canonical target and reads that target. Secret/token mounts (`/var/run/secrets`, `/run/secrets`, `/var/secrets`, `/etc/secrets`, `/vault/secrets`, ...), credential files (`.aws`, `.config/gcloud`, `.kube`, `.ssh`, `.env`, `*credentials*`, `*.pem`, `*.key`, `id_rsa*`, ...) and the `/proc`, `/sys`, `/dev` pseudo-filesystems are always denied regardless of configuration. A path that cannot be canonicalized (image without `readlink`) is refused (server >= 1.4.0) |
 | **Command allowlist** | `run_preapproved_kubectl_command` only runs the read-only diagnostics allowlist |
+| **Exec argument allowlist** | `nvidia-smi`, `dmesg` and custom binaries run only with allowlisted arguments — see [Exec argument allowlists](#exec-argument-allowlists) |
 | **Image allowlist** | `run_preapproved_diagnostic_image` only launches pre-approved, pinned troubleshooting images |
 | **Diagnostic target policy** | With the defaults, `run_preapproved_diagnostic_image` probes are restricted to in-cluster targets; cloud-metadata/link-local addresses are refused and cannot be re-enabled by config while the policy is on. `diagnosticAllowExternalTargets: true` permits external targets, and `diagnosticTargetPolicyEnabled: false` removes the whole layer — see [Diagnostic-pod target policy](#diagnostic-pod-target-policy) |
 | **Verb allowlist** | `run_kubectl_command` only accepts an allowlisted set of verbs |
@@ -467,6 +494,8 @@ Otherwise, in order of preference:
 | `dangerousFlags` | `--kubeconfig,--context,--cluster,--user,--token,--as,--as-group,--as-uid` | Blocked flags |
 | `preapprovedCommands` | `exec * -- ps*,...,exec * -- ss*` | `run_preapproved_kubectl_command` allowlist |
 | `diagnosticImages` | `nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1` | `run_preapproved_diagnostic_image` allowlist |
+| `preapprovedExecDisabledBinaries` | `""` | built-in exec binaries to stop auto-approving ([details](#exec-argument-allowlists)) |
+| `preapprovedExecArgvAllowlists` | `nvidia-smi` and `dmesg` forms | auto-approved exec binaries, binary → argument regex ([details](#exec-argument-allowlists)) |
 | `diagnosticTargetPolicyEnabled` | `true` | master switch for the [target policy](#diagnostic-pod-target-policy); `false` disables **all** target checks |
 | `diagnosticAllowExternalTargets` | `false` | allow diagnostic probes to reach hosts outside the cluster |
 | `diagnosticInternalDnsSuffixes` | `.svc,.svc.cluster.local,.cluster.local` | DNS suffixes counted as cluster-internal (set for a custom cluster domain) |
