@@ -1,4 +1,5 @@
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -135,3 +136,18 @@ def test_init_logging_can_route_to_stderr():
     init_logging([])
     handlers = [h for h in logging.getLogger().handlers if isinstance(h, RichHandler)]
     assert handlers and not any(h.console.stderr for h in handlers)
+
+
+def test_toolset_inspect_json_invalid_config_keeps_stdout_json():
+    def _fail_load(*args, **kwargs):
+        print("validation error details")
+        sys.exit()
+
+    with patch("holmes.main.Config.load_from_file", side_effect=_fail_load):
+        result = runner.invoke(
+            app, ["toolset", "inspect", "helm", "--json"], catch_exceptions=False
+        )
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["error"].startswith("Invalid config file")
+    assert "validation error details" not in result.stdout

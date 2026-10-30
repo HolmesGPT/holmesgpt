@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from pydantic import SecretStr
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from holmes.core.tools import Tool, ToolParameter, Toolset, ToolsetStatusEnum
@@ -33,11 +34,15 @@ _REDACTED = "***"
 _CMD_SECRET_NAME = r"[\w-]*(?:password|passwd|token|secret|api[_-]?key|apikey|access[_-]?key|credential|private[_-]?key|auth)[\w-]*"
 _CMD_VALUE = r"(?:'[^']*'|\"[^\"]*\"|[^\s'\"]+)"
 _CMD_PATTERNS = (
-    # Authorization: Bearer abc / Basic abc / Token abc
-    re.compile(r"(?i)\b(bearer|basic|token)(\s+)([^\s'\"]+)"),
+    # Authorization: Bearer abc / Basic abc / Token abc / ApiKey abc
+    re.compile(r"(?i)\b(bearer|basic|token|apikey)(\s+)([^\s'\"]+)"),
     # Header values such as "X-Api-Key: abc" or "Authorization: abc"
     re.compile(
-        r"(?i)\b(" + _CMD_SECRET_NAME + r"|authorization|cookie)(\s*:\s*)([^\s'\"]+)"
+        r"(?i)\b("
+        + _CMD_SECRET_NAME
+        + r"|authorization|cookie)(\s*:\s*)("
+        + _CMD_VALUE
+        + r")"
     ),
     # Flags such as --password=abc or --token abc
     re.compile(r"(?i)(--?" + _CMD_SECRET_NAME + r")(=|\s+)(" + _CMD_VALUE + r")"),
@@ -45,6 +50,8 @@ _CMD_PATTERNS = (
     re.compile(r"(?i)\b(" + _CMD_SECRET_NAME + r")(=)(" + _CMD_VALUE + r")"),
     # URL userinfo such as https://user:pass@host
     re.compile(r"(://[^\s/:@'\"]+)(:)([^\s/@'\"]+)(?=@)"),
+    # URL userinfo with only a token such as https://token@host
+    re.compile(r"(://)()([^\s/:@'\"]+)(?=@)"),
 )
 
 _MAX_SUGGESTIONS = 15
@@ -58,11 +65,22 @@ def _is_secret_key(key: str) -> bool:
 
 
 def _is_placeholder(value: str) -> bool:
+    single_quoted = len(value) >= 2 and value[0] == value[-1] == "'"
     stripped = value.strip("'\"")
-    if stripped.lower() in ("bearer", "basic", "token"):
+    if stripped.lower() in ("bearer", "basic", "token", "apikey"):
         # Auth scheme word; the credential after it is handled separately.
         return True
-    return stripped.startswith(("{", "}", "$")) or stripped == _REDACTED
+    if stripped == _REDACTED:
+        return True
+    # Jinja templates. "}}" covers the scheme pattern matching "token }}"
+    # inside "{{ token }}".
+    if stripped.startswith(("{{", "}}")):
+        return True
+    # Shell variables and command substitutions, which a single-quoted
+    # string does not expand.
+    if not single_quoted and re.fullmatch(r"\$(?:\w+|\{\w+\}|\(.*)", stripped):
+        return True
+    return False
 
 
 def redact_command(command: str) -> str:
@@ -285,7 +303,7 @@ def render_toolset(payload: Mapping[str, Any], console: Console) -> None:
             str(tool.get("description") or ""),
         ]
         if show_commands:
-            row.append(str(tool.get("command") or ""))
+            row.append(escape(str(tool.get("command") or "")))
         table.add_row(*row)
     console.print(table)
 

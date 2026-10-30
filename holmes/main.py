@@ -11,6 +11,7 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import sys
 from holmes.utils.colors import USER_COLOR
+import contextlib
 import json
 import logging
 import socket
@@ -1085,7 +1086,22 @@ def inspect_toolset(
 ) -> None:
     """Show one toolset's status, tools, parameters, and redacted config."""
     console = init_logging(verbose, log_to_stderr=json_output)
-    config = Config.load_from_file(config_file)
+    if json_output:
+        # Config loading reports validation errors on stdout and exits 0;
+        # keep stdout reserved for JSON and fail with a JSON error instead.
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                config = Config.load_from_file(config_file)
+        except SystemExit as exc:
+            if exc.code not in (None, 0):
+                raise
+            typer.echo(
+                dumps_inspect_error(f"Invalid config file at {config_file}", []),
+                nl=False,
+            )
+            raise typer.Exit(code=1)
+    else:
+        config = Config.load_from_file(config_file)
     cli_toolsets = config.toolset_manager.list_console_toolsets(
         refresh_status=refresh_status
     )

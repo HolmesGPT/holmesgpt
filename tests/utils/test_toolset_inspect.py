@@ -198,6 +198,11 @@ def test_redact_command_masks_credentials():
         "mytool --token s3cr3t run": "s3cr3t",
         "AWS_SECRET_ACCESS_KEY=abcd aws s3 ls": "abcd",
         "psql postgres://admin:pa55@db:5432/app": "pa55",
+        "curl -H 'Authorization: ApiKey abc123' https://x": "abc123",
+        "curl -H 'X-Api-Key: \"abc123\"' https://x": "abc123",
+        "git clone https://ghp_abc123@github.com/o/r": "ghp_abc123",
+        "mytool --password={hunter2} run": "hunter2",
+        "mytool --password='$hunter2' run": "hunter2",
     }
     for command, secret in cases.items():
         redacted = redact_command(command)
@@ -212,6 +217,10 @@ def test_redact_command_keeps_placeholders_and_plain_commands():
     assert redact_command(templated) == templated
     env = "mytool --token $API_TOKEN"
     assert redact_command(env) == env
+    braced = 'mytool --token "${API_TOKEN}"'
+    assert redact_command(braced) == braced
+    url = "git clone https://$GH_TOKEN@github.com/o/r"
+    assert redact_command(url) == url
 
 
 def test_serialize_redacts_command_credentials():
@@ -235,3 +244,19 @@ def test_render_shows_commands():
     output = console.export_text()
     assert "Command" in output
     assert "helm get values" in output
+
+
+def test_render_escapes_command_markup():
+    toolset = _toolset(
+        "demo",
+        tools=[
+            YAMLTool(
+                name="grep",
+                description="grep logs",
+                command="grep '[red]error[a-z]' /var/log/app.log",
+            )
+        ],
+    )
+    console = Console(record=True, width=200)
+    render_toolset(serialize_toolset(toolset), console)
+    assert "[red]error[a-z]" in console.export_text()
