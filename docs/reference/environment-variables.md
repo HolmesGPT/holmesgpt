@@ -274,6 +274,30 @@ See [Tool Execution Safety](../data-sources/tool-execution-safety.md) for the fu
 export TOOL_MEMORY_LIMIT_MB=2000
 ```
 
+### TOOL_MEMORY_LIMIT_PERCENT
+**Default:** unset
+
+Sets the per-subprocess cap as a percentage (greater than 0, up to 100) of the container's memory limit (`resources.limits.memory` on Kubernetes), read from the cgroup at startup. The cap then follows the pod size, so you do not have to update `TOOL_MEMORY_LIMIT_MB` each time you resize the pod.
+
+Priority: an explicit `TOOL_MEMORY_LIMIT_MB` always wins. If `TOOL_MEMORY_LIMIT_PERCENT` is set but the container has no memory limit (or it cannot be read), Holmes logs a warning and uses the default of `TOOL_MEMORY_LIMIT_MB`. An out-of-range value is ignored with a warning.
+
+Several tool commands can run at the same time, each with its own cap, so pick a conservative value. Combined with [`TOOL_MAX_PARALLEL_CALLS`](#tool_max_parallel_calls), the worst case is roughly `TOOL_MAX_PARALLEL_CALLS × percent` of the pod limit.
+
+**Example:**
+```bash
+export TOOL_MEMORY_LIMIT_PERCENT=25
+```
+
+### TOOL_MAX_PARALLEL_CALLS
+**Default:** `16`
+
+Maximum number of tool calls Holmes runs at the same time when the LLM requests several in one turn. Each shell command can use up to `TOOL_MEMORY_LIMIT_MB`. Tools that run inside the Holmes process are not capped, so this setting does not bound their memory use.
+
+**Example:**
+```bash
+export TOOL_MAX_PARALLEL_CALLS=4
+```
+
 ## Holmes Logs in the Robusta UI
 
 The Robusta UI shows Holmes's own pod logs. The whole result is limited to `REMOTE_TOOL_RESULT_MAX_BYTES` (default 1 MB) after JSON encoding; when the logs are longer, the newest lines are kept.

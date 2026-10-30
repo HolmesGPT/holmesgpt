@@ -2,6 +2,7 @@ import logging
 
 import pytest
 
+from holmes.common import env_vars
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
 from holmes.utils.memory_limit import (
     OOM_OUTPUT_MAX_LINES,
@@ -180,3 +181,79 @@ class TestTruncateOomOutput:
         assert result_lines[OOM_OUTPUT_MAX_LINES - 1] == f"line {OOM_OUTPUT_MAX_LINES - 1}"
         omitted = total_lines - OOM_OUTPUT_MAX_LINES
         assert f"[... {omitted} lines of stack trace omitted ...]" in result_lines[-1]
+
+
+class TestCgroupMemoryLimit:
+    def test_v2_limit(self, tmp_path):
+        f = tmp_path / "memory.max"
+        f.write_text(f"{2048 * 1024 * 1024}\n")
+        assert env_vars._cgroup_memory_limit_mb((str(f),)) == 2048
+
+    def test_v2_unlimited(self, tmp_path):
+        f = tmp_path / "memory.max"
+        f.write_text("max\n")
+        assert env_vars._cgroup_memory_limit_mb((str(f),)) is None
+
+    def test_v1_unlimited(self, tmp_path):
+        f = tmp_path / "memory.limit_in_bytes"
+        f.write_text("9223372036854771712\n")
+        assert env_vars._cgroup_memory_limit_mb((str(f),)) is None
+
+    def test_missing_files(self, tmp_path):
+        assert env_vars._cgroup_memory_limit_mb((str(tmp_path / "nope"),)) is None
+
+    def test_falls_back_to_second_file(self, tmp_path):
+        f = tmp_path / "v1"
+        f.write_text(f"{512 * 1024 * 1024}")
+        assert env_vars._cgroup_memory_limit_mb((str(tmp_path / "nope"), str(f))) == 512
+
+    def test_readable_unlimited_first_file_stops_search(self, tmp_path):
+        unlimited = tmp_path / "memory.max"
+        unlimited.write_text("max\n")
+        finite = tmp_path / "v1"
+        finite.write_text(f"{512 * 1024 * 1024}")
+        assert env_vars._cgroup_memory_limit_mb((str(unlimited), str(finite))) is None
+
+
+class TestLoadToolMemoryLimit:
+    @pytest.fixture(autouse=True)
+    def clean_env(self, monkeypatch):
+        monkeypatch.delenv("TOOL_MEMORY_LIMIT_MB", raising=False)
+        monkeypatch.delenv("TOOL_MEMORY_LIMIT_PERCENT", raising=False)
+
+    def test_default(self):
+        assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
+
+    def test_explicit_mb_wins_over_percent(self, monkeypatch):
+        monkeypatch.setenv("TOOL_MEMORY_LIMIT_MB", "123")
+        monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", "50")
+        monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: 4096)
+        assert env_vars._load_tool_memory_limit_mb() == 123
+
+    def test_percent_of_container_limit(self, monkeypatch):
+        monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", "25")
+        monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: 4096)
+        assert env_vars._load_tool_memory_limit_mb() == 1024
+
+    def test_percent_without_container_limit_uses_default(self, monkeypatch):
+        monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", "25")
+        monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: None)
+        assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
+
+    @pytest.mark.parametrize("bad", ["0", "-5", "150", "abc", "25%"])
+    def test_out_of_range_percent_is_ignored(self, monkeypatch, bad):
+        monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", bad)
+        monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: 4096)
+        assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
+
+
+@pytest.mark.parametrize("raw,expected", [("0", 1), ("-3", 1), ("4", 4)])
+def test_max_parallel_calls_is_at_least_one(monkeypatch, raw, expected):
+    import importlib
+
+    monkeypatch.setenv("TOOL_MAX_PARALLEL_CALLS", raw)
+    try:
+        assert importlib.reload(env_vars).TOOL_MAX_PARALLEL_CALLS == expected
+    finally:
+        monkeypatch.undo()
+        importlib.reload(env_vars)
