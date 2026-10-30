@@ -291,7 +291,7 @@ export TOOL_MEMORY_LIMIT_PERCENT=25
 ### TOOL_MAX_PARALLEL_CALLS
 **Default:** `16`
 
-Maximum number of tool calls Holmes runs at the same time when the LLM requests several in one turn. Each one can use up to `TOOL_MEMORY_LIMIT_MB`, so lowering this value reduces the worst-case memory use of a single turn.
+Maximum number of tool calls Holmes runs at the same time when the LLM requests several in one turn. Each shell command can use up to `TOOL_MEMORY_LIMIT_MB`. Tools that run inside the Holmes process are not capped, so this setting does not bound their memory use.
 
 **Example:**
 ```bash
