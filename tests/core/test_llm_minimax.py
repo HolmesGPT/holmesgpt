@@ -54,7 +54,7 @@ def create_llm(entry):
 
 
 @pytest.mark.parametrize(
-    "api_base", ["https://api.minimax.io/v1", "https://api.minimax.cn/v1"]
+    "api_base", ["https://api.minimax.io/v1", "https://api.minimaxi.com/v1"]
 )
 @pytest.mark.parametrize(
     ("selected", "expected_model"),
@@ -248,7 +248,7 @@ def test_flash_tool_history_survives_serialization(registry_factory, minimax_mod
 
 
 @pytest.mark.parametrize(
-    "api_base", ["https://api.minimax.io/v1", "https://api.minimax.cn/v1"]
+    "api_base", ["https://api.minimax.io/v1", "https://api.minimaxi.com/v1"]
 )
 @pytest.mark.parametrize("selected", ["minimax-m31-flash", "minimax-m3"])
 def test_streaming_preserves_multimodal_messages(

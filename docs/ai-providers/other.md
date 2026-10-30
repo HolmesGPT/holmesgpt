@@ -42,7 +42,7 @@ An existing configured model or explicit selection still takes precedence; keep
 saved model IDs and custom aliases when updating your configuration.
 
 The example uses the global endpoint, `https://api.minimax.io/v1`. For a China
-API account, use `https://api.minimax.cn/v1` with that account's API key.
+API account, use `https://api.minimaxi.com/v1` with that account's API key.
 
 | Model | Context window | API input types | Chat Completions thinking |
 | --- | ---: | --- | --- |
