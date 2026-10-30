@@ -23,6 +23,7 @@ from holmes.common.env_vars import (
     LOG_LLM_USAGE_RESPONSE,
     RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION,
     TEMPERATURE,
+    TOOL_MAX_PARALLEL_CALLS,
     load_bool,
 )
 from holmes.core.llm import LLM
@@ -1517,7 +1518,7 @@ class ToolCallingLLM:
 
             session_prefixes_by_agent = extract_bash_session_prefixes_by_agent(messages)
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=TOOL_MAX_PARALLEL_CALLS) as executor:
                 futures = []
                 for tool_index, t in enumerate(tools_to_call, 1):  # type: ignore
                     tool_number = tool_number_offset + tool_index

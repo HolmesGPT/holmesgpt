@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import platform
 import tempfile
@@ -94,9 +95,60 @@ TEMPERATURE = _load_temperature()
 _default_memory_limit = (
     1500 if platform.machine().lower() in ("arm64", "aarch64", "arm") else 800
 )
-TOOL_MEMORY_LIMIT_MB = int(
-    os.environ.get("TOOL_MEMORY_LIMIT_MB", _default_memory_limit)
+
+_CGROUP_MEMORY_LIMIT_FILES = (
+    "/sys/fs/cgroup/memory.max",  # cgroup v2
+    "/sys/fs/cgroup/memory/memory.limit_in_bytes",  # cgroup v1
 )
+# cgroup v1 reports "no limit" as a number close to 2**63 instead of "max"
+_CGROUP_UNLIMITED_THRESHOLD = 2**60
+
+
+def _cgroup_memory_limit_mb(
+    paths: tuple[str, ...] = _CGROUP_MEMORY_LIMIT_FILES,
+) -> Optional[int]:
+    """Memory limit of the container in MB, or None if there is none."""
+    for path in paths:
+        try:
+            with open(path) as f:
+                raw = f.read().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) < _CGROUP_UNLIMITED_THRESHOLD:
+            return int(raw) // (1024 * 1024)
+        return None
+    return None
+
+
+def _load_tool_memory_limit_mb() -> int:
+    if "TOOL_MEMORY_LIMIT_MB" in os.environ:
+        return int(os.environ["TOOL_MEMORY_LIMIT_MB"])
+
+    percent_raw = os.environ.get("TOOL_MEMORY_LIMIT_PERCENT")
+    if percent_raw:
+        percent = float(percent_raw)
+        if not 0 < percent <= 100:
+            logging.warning(
+                f"Ignoring TOOL_MEMORY_LIMIT_PERCENT={percent_raw}: must be in (0, 100]"
+            )
+        else:
+            container_limit_mb = _cgroup_memory_limit_mb()
+            if container_limit_mb is None:
+                logging.warning(
+                    "TOOL_MEMORY_LIMIT_PERCENT is set but no container memory limit was found; "
+                    f"using the default of {_default_memory_limit} MB"
+                )
+            else:
+                return max(1, int(container_limit_mb * percent / 100))
+
+    return _default_memory_limit
+
+
+TOOL_MEMORY_LIMIT_MB = _load_tool_memory_limit_mb()
+
+# Max tool calls the LLM can have running at the same time within one turn.
+# Each one can use up to TOOL_MEMORY_LIMIT_MB, so this bounds the worst case.
+TOOL_MAX_PARALLEL_CALLS = int(os.environ.get("TOOL_MAX_PARALLEL_CALLS", 16))
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)

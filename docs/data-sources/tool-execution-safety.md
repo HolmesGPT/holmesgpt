@@ -49,6 +49,8 @@ Each tool call gets its own ceiling. Two concurrent tool calls can each allocate
 
 **Coordinate with your container memory limit.**
 
+To avoid keeping the two values in sync by hand, set `TOOL_MEMORY_LIMIT_PERCENT` (for example `25`) instead of `TOOL_MEMORY_LIMIT_MB`. The cap is then computed from the pod's memory limit at startup. An explicit `TOOL_MEMORY_LIMIT_MB` takes priority. Tool calls requested in the same LLM turn run in parallel, up to `TOOL_MAX_PARALLEL_CALLS` (default `16`). See [Environment Variables](../reference/environment-variables.md#tool_memory_limit_percent).
+
 On Kubernetes the tool limit operates *inside* the pod's cgroup memory limit. Keep `TOOL_MEMORY_LIMIT_MB` comfortably below your pod's `resources.limits.memory`:
 
 - The Helm chart defaults to `resources.limits.memory: 1024Mi`.
