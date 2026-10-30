@@ -1,6 +1,7 @@
 """Tests for OpenTelemetry tracing implementation."""
 import contextvars
 import os
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,6 +11,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from holmes.core.otel_tracing import OTelSpan
+from holmes.core.tools import ToolsetStatusEnum, ToolsetType
 from holmes.core.tracing import DummySpan, DummyTracer, SpanType, TracingFactory
 
 
@@ -737,3 +739,101 @@ class TestOTelMetrics:
         m.tool_call_errors.add(1, {"holmesgpt_tool_name": "list_pods"})
 
         meter_provider.shutdown()
+
+
+@pytest.fixture()
+def toolset_status_metric():
+    """OTelMetrics on an in-memory reader, plus a function that collects the
+    ``holmesgpt.toolset.status`` points as ``{(toolset, status): (value, attributes)}``."""
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+    from holmes.core.otel_tracing import OTelMetrics
+
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader])
+    metrics = OTelMetrics(provider.get_meter("test", "0.1.0"))
+
+    def collect():
+        data = reader.get_metrics_data()
+        points = {}
+        for resource_metrics in data.resource_metrics if data else []:
+            for scope_metrics in resource_metrics.scope_metrics:
+                for metric in scope_metrics.metrics:
+                    if metric.name != "holmesgpt.toolset.status":
+                        continue
+                    for point in metric.data.data_points:
+                        attributes = dict(point.attributes)
+                        key = (attributes["holmesgpt_toolset_name"], attributes["holmesgpt_toolset_status"])
+                        points[key] = (point.value, attributes)
+        return points
+
+    yield metrics, collect
+    provider.shutdown()
+
+
+def _toolset(name, status, toolset_type=ToolsetType.BUILTIN):
+    return SimpleNamespace(name=name, status=status, type=toolset_type)
+
+
+class TestToolsetStatusMetric:
+    """holmesgpt.toolset.status reports every toolset's current status."""
+
+    def test_each_toolset_is_one_for_its_status_and_zero_for_the_others(self, toolset_status_metric):
+        metrics, collect = toolset_status_metric
+        toolsets = [
+            _toolset("kubernetes/core", ToolsetStatusEnum.ENABLED),
+            _toolset("grafana/loki", ToolsetStatusEnum.FAILED),
+            _toolset("datadog/logs", ToolsetStatusEnum.DISABLED),
+        ]
+        metrics.set_toolsets_source(lambda: toolsets)
+
+        points = collect()
+
+        assert {key: value for key, (value, _) in points.items()} == {
+            (t.name, status.value): int(t.status == status)
+            for t in toolsets
+            for status in ToolsetStatusEnum
+        }
+
+    def test_attributes_carry_name_type_and_status(self, toolset_status_metric):
+        metrics, collect = toolset_status_metric
+        metrics.set_toolsets_source(
+            lambda: [
+                _toolset("kubernetes/core", ToolsetStatusEnum.ENABLED, ToolsetType.BUILTIN),
+                _toolset("remote-mcp", ToolsetStatusEnum.FAILED, ToolsetType.MCP),
+                _toolset("untyped", ToolsetStatusEnum.ENABLED, None),
+            ]
+        )
+
+        points = collect()
+
+        assert points[("kubernetes/core", "enabled")][1] == {
+            "holmesgpt_toolset_name": "kubernetes/core",
+            "holmesgpt_toolset_type": "built-in",
+            "holmesgpt_toolset_status": "enabled",
+        }
+        assert points[("remote-mcp", "failed")][1]["holmesgpt_toolset_type"] == "mcp"
+        assert "holmesgpt_toolset_type" not in points[("untyped", "enabled")][1]
+
+    def test_reports_the_current_status_on_every_export(self, toolset_status_metric):
+        metrics, collect = toolset_status_metric
+        toolset = _toolset("remote-mcp", ToolsetStatusEnum.FAILED, ToolsetType.MCP)
+        metrics.set_toolsets_source(lambda: [toolset])
+
+        assert collect()[("remote-mcp", "failed")][0] == 1
+        assert collect()[("remote-mcp", "failed")][0] == 1
+
+        toolset.status = ToolsetStatusEnum.ENABLED
+        points = collect()
+        assert points[("remote-mcp", "failed")][0] == 0
+        assert points[("remote-mcp", "enabled")][0] == 1
+
+    def test_reports_nothing_without_a_source(self, toolset_status_metric):
+        _, collect = toolset_status_metric
+        assert collect() == {}
+
+    def test_reports_nothing_before_toolsets_are_loaded(self, toolset_status_metric):
+        metrics, collect = toolset_status_metric
+        metrics.set_toolsets_source(lambda: [])
+        assert collect() == {}

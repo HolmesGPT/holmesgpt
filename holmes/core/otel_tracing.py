@@ -21,8 +21,9 @@ Two sets of constants are provided below to keep the distinction explicit.
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
+from holmes.core.tools import Toolset, ToolsetStatusEnum
 from holmes.core.tracing import (
     HOLMES_LANGFUSE_ATTRIBUTES,
     DummySpan,
@@ -34,6 +35,7 @@ try:
     from opentelemetry import context as otel_context
     from opentelemetry import trace
     from opentelemetry import metrics
+    from opentelemetry.metrics import CallbackOptions, Observation
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -156,6 +158,9 @@ DIM_GEN_AI_SYSTEM = "gen_ai_system"
 DIM_GEN_AI_REQUEST_MODEL = "gen_ai_request_model"
 DIM_GEN_AI_TOKEN_TYPE = "gen_ai_token_type"
 DIM_TOOL_NAME = "holmesgpt_tool_name"
+DIM_TOOLSET_NAME = "holmesgpt_toolset_name"
+DIM_TOOLSET_TYPE = "holmesgpt_toolset_type"
+DIM_TOOLSET_STATUS = "holmesgpt_toolset_status"
 
 # Backward-compatible aliases (deprecated — prefer ATTR_* / DIM_* above)
 GEN_AI_SYSTEM = DIM_GEN_AI_SYSTEM
@@ -180,7 +185,8 @@ class OTelMetrics:
 
         Args:
             meter: An ``opentelemetry.metrics.Meter`` instance used to create
-                counters and histograms for LLM, investigation and tool metrics.
+                counters and histograms for LLM, investigation and tool metrics,
+                and the observable gauge for toolset status.
         """
         # Token counters
         self.token_usage = meter.create_counter(
@@ -229,6 +235,40 @@ class OTelMetrics:
             description="Number of tool/MCP call errors",
             unit="{error}",
         )
+
+        # Toolset health
+        self._toolsets_source: Optional[Callable[[], Iterable[Toolset]]] = None
+        self.toolset_status = meter.create_observable_gauge(
+            name="holmesgpt.toolset.status",
+            callbacks=[self._observe_toolset_status],
+            description="1 for the toolset's current status (enabled, disabled or failed), 0 for the others",
+            unit="{toolset}",
+        )
+
+    def set_toolsets_source(self, source: Callable[[], Iterable[Toolset]]) -> None:
+        """Set the callable that returns the toolsets ``holmesgpt.toolset.status`` reports.
+
+        It is called on every metric export, so it must return the current
+        toolsets without loading or checking them.
+        """
+        self._toolsets_source = source
+
+    def _observe_toolset_status(self, options: "CallbackOptions") -> List["Observation"]:
+        if self._toolsets_source is None:
+            return []
+        observations: List["Observation"] = []
+        for toolset in self._toolsets_source():
+            attributes = {DIM_TOOLSET_NAME: toolset.name}
+            if toolset.type:
+                attributes[DIM_TOOLSET_TYPE] = toolset.type.value
+            for status in ToolsetStatusEnum:
+                observations.append(
+                    Observation(
+                        int(toolset.status == status),
+                        {**attributes, DIM_TOOLSET_STATUS: status.value},
+                    )
+                )
+        return observations
 
 
 # Metrics are registered via TracingFactory.set_metrics()
@@ -457,6 +497,10 @@ class OpenTelemetryTracer:
             View(
                 instrument_name="holmesgpt.investigation.iterations",
                 attribute_keys=[DIM_GEN_AI_REQUEST_MODEL],
+            ),
+            View(
+                instrument_name="holmesgpt.toolset.status",
+                attribute_keys={DIM_TOOLSET_NAME, DIM_TOOLSET_TYPE, DIM_TOOLSET_STATUS},
             ),
         ]
         meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader], views=views)

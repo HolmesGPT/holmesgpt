@@ -125,6 +125,16 @@ HolmesGPT exports the following OTel metrics via OTLP. All metrics use **undersc
 
 **Dimensions:** `holmesgpt_tool_name`
 
+### Toolset Health Metrics
+
+| Metric | Type | Unit | Description |
+|--------|------|------|-------------|
+| `holmesgpt.toolset.status` | Gauge (observable) | `{toolset}` | Per toolset and status: `1` for the toolset's current status, `0` for the others |
+
+**Dimensions:** `holmesgpt_toolset_name`, `holmesgpt_toolset_type` (e.g. `built-in`, `mcp`), `holmesgpt_toolset_status` (`enabled`, `disabled` or `failed`)
+
+Reported by the HTTP API server on every export, from the same toolsets `/api/info` returns. A toolset that stays failed keeps reporting `failed`, so you can alert on the current state rather than on the status-change log line.
+
 ### Example Queries
 
 **Dynatrace DQL:**
@@ -151,6 +161,9 @@ rate(holmesgpt_tool_call_count_total[5m])
 
 # Average LLM call duration
 rate(gen_ai_client_operation_duration_sum[5m]) / rate(gen_ai_client_operation_duration_count[5m])
+
+# Toolsets that are failed right now
+holmesgpt_toolset_status{holmesgpt_toolset_status="failed"} == 1
 ```
 
 ## Backend Examples

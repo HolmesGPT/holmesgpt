@@ -66,7 +66,7 @@ from holmes.core.models import (
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tool_calling_llm import RelayRefusal
-from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetType
+from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode, Toolset, ToolsetStatusEnum, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
@@ -203,6 +203,20 @@ def init_config():
 
 
 config, dal = init_config()
+
+
+def _cached_toolsets() -> List[Toolset]:
+    executor = config.cached_tool_executor
+    return executor.toolsets if executor else []
+
+
+def _register_toolset_status_metric() -> None:
+    otel_metrics = TracingFactory.get_metrics()
+    if otel_metrics is not None:
+        otel_metrics.set_toolsets_source(_cached_toolsets)
+
+
+_register_toolset_status_metric()
 
 
 def _warm_skill_repos_and_mirror():
