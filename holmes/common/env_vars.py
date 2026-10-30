@@ -126,7 +126,10 @@ def _load_tool_memory_limit_mb() -> int:
 
     percent_raw = os.environ.get("TOOL_MEMORY_LIMIT_PERCENT")
     if percent_raw:
-        percent = float(percent_raw)
+        try:
+            percent = float(percent_raw)
+        except ValueError:
+            percent = 0.0  # unparseable input takes the out-of-range path below
         if not 0 < percent <= 100:
             logging.warning(
                 f"Ignoring TOOL_MEMORY_LIMIT_PERCENT={percent_raw}: must be in (0, 100]"
@@ -147,8 +150,8 @@ def _load_tool_memory_limit_mb() -> int:
 TOOL_MEMORY_LIMIT_MB = _load_tool_memory_limit_mb()
 
 # Max tool calls the LLM can have running at the same time within one turn.
-# Each one can use up to TOOL_MEMORY_LIMIT_MB, so this bounds the worst case.
-TOOL_MAX_PARALLEL_CALLS = int(os.environ.get("TOOL_MAX_PARALLEL_CALLS", 16))
+# Clamped to 1: ThreadPoolExecutor raises on max_workers <= 0.
+TOOL_MAX_PARALLEL_CALLS = max(1, int(os.environ.get("TOOL_MAX_PARALLEL_CALLS", 16)))
 
 STREAM_CHUNKS_PER_PARSE = int(
     os.environ.get("STREAM_CHUNKS_PER_PARSE", 80)

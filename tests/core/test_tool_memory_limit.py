@@ -207,6 +207,13 @@ class TestCgroupMemoryLimit:
         f.write_text(f"{512 * 1024 * 1024}")
         assert env_vars._cgroup_memory_limit_mb((str(tmp_path / "nope"), str(f))) == 512
 
+    def test_readable_unlimited_first_file_stops_search(self, tmp_path):
+        unlimited = tmp_path / "memory.max"
+        unlimited.write_text("max\n")
+        finite = tmp_path / "v1"
+        finite.write_text(f"{512 * 1024 * 1024}")
+        assert env_vars._cgroup_memory_limit_mb((str(unlimited), str(finite))) is None
+
 
 class TestLoadToolMemoryLimit:
     @pytest.fixture(autouse=True)
@@ -233,8 +240,20 @@ class TestLoadToolMemoryLimit:
         monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: None)
         assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
 
-    @pytest.mark.parametrize("bad", ["0", "-5", "150"])
+    @pytest.mark.parametrize("bad", ["0", "-5", "150", "abc", "25%"])
     def test_out_of_range_percent_is_ignored(self, monkeypatch, bad):
         monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", bad)
         monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: 4096)
         assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
+
+
+@pytest.mark.parametrize("raw,expected", [("0", 1), ("-3", 1), ("4", 4)])
+def test_max_parallel_calls_is_at_least_one(monkeypatch, raw, expected):
+    import importlib
+
+    monkeypatch.setenv("TOOL_MAX_PARALLEL_CALLS", raw)
+    try:
+        assert importlib.reload(env_vars).TOOL_MAX_PARALLEL_CALLS == expected
+    finally:
+        monkeypatch.undo()
+        importlib.reload(env_vars)
