@@ -205,6 +205,14 @@ def test_redact_command_masks_credentials():
         "mytool --password='$hunter2' run": "hunter2",
         "mytool --auth Bearer 'quoted token' run": "quoted token",
         'mytool --auth ApiKey "quoted key" run': "quoted key",
+        "curl -u admin:hunter2 https://x": "hunter2",
+        "curl -su admin:hunter2 https://x": "hunter2",
+        "curl -uadmin:hunter2 https://x": "hunter2",
+        "curl --user admin:hunter2 https://x": "hunter2",
+        "curl --user=admin:hunter2 https://x": "hunter2",
+        "curl -u 'admin:quoted secret' https://x": "quoted secret",
+        'curl -u "admin:quoted secret" https://x': "quoted secret",
+        "curl -u 'admin:$hunter2' https://x": "hunter2",
     }
     for command, secret in cases.items():
         redacted = redact_command(command)
@@ -223,6 +231,14 @@ def test_redact_command_keeps_placeholders_and_plain_commands():
     assert redact_command(braced) == braced
     url = "git clone https://$GH_TOKEN@github.com/o/r"
     assert redact_command(url) == url
+    for unchanged in (
+        "ps -u root",
+        'curl -u "$USER:$PASSWORD" https://x',
+        "curl -u admin:$PASSWORD https://x",
+        "curl -u {{ user }}:{{ password }} https://x",
+        "curl -u admin:{{ password }} https://x",
+    ):
+        assert redact_command(unchanged) == unchanged
 
 
 def test_serialize_redacts_command_credentials():
@@ -238,6 +254,32 @@ def test_serialize_redacts_command_credentials():
     )
     payload = serialize_toolset(toolset)
     assert "example-token" not in json.dumps(payload)
+
+
+def test_serialize_redacts_error_credentials():
+    toolset = _toolset(
+        "demo",
+        error=(
+            "`curl -u admin:hunter2 -H 'X-Api-Key: abc123' https://x` failed "
+            "with exit code 22: curl: (22) 401 for https://user:pa55@x"
+        ),
+    )
+    payload = serialize_toolset(toolset)
+    for secret in ("hunter2", "abc123", "pa55"):
+        assert secret not in payload["error"]
+    assert "failed with exit code 22" in payload["error"]
+
+
+def test_serialize_redacts_error_before_truncating():
+    secret = "z" * 40
+    toolset = _toolset("demo", error="x" * 470 + f" --password='{secret}'" + "y" * 100)
+    error = serialize_toolset(toolset)["error"]
+    assert len(error) <= 500
+    assert "zzz" not in error
+
+
+def test_serialize_keeps_missing_error_as_none():
+    assert serialize_toolset(_toolset("demo"))["error"] is None
 
 
 def test_render_shows_commands():

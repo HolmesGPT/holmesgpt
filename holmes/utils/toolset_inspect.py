@@ -52,6 +52,14 @@ _CMD_PATTERNS = (
     re.compile(r"(://[^\s/:@'\"]+)(:)([^\s/@'\"]+)(?=@)"),
     # URL userinfo with only a token such as https://token@host
     re.compile(r"(://)()([^\s/:@'\"]+)(?=@)"),
+    # curl style user:password, also bundled as -su. Keeps a password that is
+    # a template or a shell variable. A plain -u name has no colon to match.
+    re.compile(
+        r"(?<![\w-])(--user|-[a-zA-Z]*u)(=|\s*)"
+        r"(?=['\"]?[^\s:'\"]*:)"
+        r"(?!['\"]?[^\s:'\"]*:\{\{|\"?[^\s:'\"]*:\$)"
+        r"(" + _CMD_VALUE + r")"
+    ),
 )
 
 _MAX_SUGGESTIONS = 15
@@ -84,7 +92,7 @@ def _is_placeholder(value: str) -> bool:
 
 
 def redact_command(command: str) -> str:
-    """Mask credential-looking values in a tool command, keeping template placeholders."""
+    """Mask credential-looking values in command text, keeping template placeholders."""
 
     def _mask(match: "re.Match[str]") -> str:
         name, sep, value = match.group(1), match.group(2), match.group(3)
@@ -175,7 +183,11 @@ def serialize_toolset(toolset: Toolset) -> Dict[str, Any]:
         "enabled": toolset.enabled,
         "type": toolset_type,
         "path": str(toolset.path) if toolset.path else None,
-        "error": _truncate(toolset.error, _MAX_TEXT),
+        # Prerequisite failures quote the raw command and its stderr. Redact
+        # first so truncation cannot cut a value out of a pattern's reach.
+        "error": _truncate(
+            redact_command(toolset.error) if toolset.error else None, _MAX_TEXT
+        ),
         "docs_url": toolset.docs_url,
         "installation_instructions": _truncate(
             toolset.installation_instructions, _MAX_TEXT
