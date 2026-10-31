@@ -153,18 +153,61 @@ def test_toolset_inspect_json_invalid_config_keeps_stdout_json():
     assert "validation error details" not in result.stdout
 
 
-def test_toolset_inspect_json_malformed_config_emits_json_error():
-    def _fail_load(*args, **kwargs):
-        raise ValueError("malformed yaml details")
+def test_toolset_inspect_json_malformed_config_emits_json_error(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("model: [unterminated\n")
 
-    with patch("holmes.main.Config.load_from_file", side_effect=_fail_load):
-        result = runner.invoke(
-            app, ["toolset", "inspect", "helm", "--json"], catch_exceptions=False
-        )
+    result = runner.invoke(
+        app,
+        ["toolset", "inspect", "helm", "--json", "--config", str(config_file)],
+        catch_exceptions=False,
+    )
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
-    assert payload["error"].startswith("Invalid config file")
-    assert "malformed yaml details" not in result.stdout
+    assert payload["error"] == f"Invalid config file at {config_file}"
+
+
+def test_toolset_inspect_json_model_list_failure_does_not_blame_config(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("model: gpt-4o\n")
+
+    def _fail_load(*args, **kwargs):
+        raise ValueError("bad entry api_key=should-not-leak")
+
+    for args in ([], ["--config", str(config_file)]):
+        with patch("holmes.main.Config.load_from_file", side_effect=_fail_load):
+            result = runner.invoke(
+                app,
+                ["toolset", "inspect", "helm", "--json", *args],
+                catch_exceptions=False,
+            )
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["error"].startswith("Failed to load models or settings")
+        assert "Invalid config file" not in result.stdout
+        assert "should-not-leak" not in result.stdout
+
+
+def _invoke_with_status_failure(args: list[str]):
+    config = MagicMock()
+    config.toolset_manager.list_console_toolsets.side_effect = ValueError(
+        "bad toolset api_key=should-not-leak"
+    )
+    with patch("holmes.main.Config.load_from_file", return_value=config):
+        return runner.invoke(app, args)
+
+
+def test_toolset_inspect_json_status_failure_emits_json_error():
+    result = _invoke_with_status_failure(["toolset", "inspect", "helm", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["error"].startswith("Failed to load toolset status")
+    assert "should-not-leak" not in result.stdout
+
+
+def test_toolset_inspect_status_failure_reraises_without_json():
+    result = _invoke_with_status_failure(["toolset", "inspect", "helm"])
+    assert isinstance(result.exception, ValueError)
 
 
 def test_toolset_inspect_json_nonzero_config_exit_is_not_json():

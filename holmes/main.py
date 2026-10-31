@@ -55,6 +55,7 @@ from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.pydantic_utils import parse_model_from_file
 from holmes.utils.toolset_inspect import (
     dumps_inspect_error,
     dumps_toolset,
@@ -1066,6 +1067,21 @@ def list_toolsets(
     pretty_print_toolset_status(cli_toolsets, console)
 
 
+def _inspect_config_error(exc: Exception, config_file: Optional[Path]) -> str:
+    """Name what failed to load, leaving out text that can quote credentials."""
+    if config_file is not None and config_file.exists():
+        try:
+            parse_model_from_file(Config, config_file)
+        except Exception:
+            return f"Invalid config file at {config_file}"
+    # The config file is fine or absent, so the failure came from what loads
+    # after it, such as an entry in model_list.yaml.
+    return (
+        f"Failed to load models or settings ({type(exc).__name__}). "
+        "Run without --json for details."
+    )
+
+
 @toolset_app.command("inspect")
 def inspect_toolset(
     name: str = typer.Argument(
@@ -1100,17 +1116,27 @@ def inspect_toolset(
                 nl=False,
             )
             raise typer.Exit(code=1)
-        except Exception:
+        except Exception as exc:
             typer.echo(
-                dumps_inspect_error(f"Invalid config file at {config_file}", []),
+                dumps_inspect_error(_inspect_config_error(exc, config_file), []),
                 nl=False,
             )
             raise typer.Exit(code=1)
     else:
         config = Config.load_from_file(config_file)
-    cli_toolsets = config.toolset_manager.list_console_toolsets(
-        refresh_status=refresh_status
-    )
+    try:
+        cli_toolsets = config.toolset_manager.list_console_toolsets(
+            refresh_status=refresh_status
+        )
+    except Exception as exc:
+        if not json_output:
+            raise
+        message = (
+            f"Failed to load toolset status ({type(exc).__name__}). "
+            "Run without --json for details."
+        )
+        typer.echo(dumps_inspect_error(message, []), nl=False)
+        raise typer.Exit(code=1)
     payload, error = inspect_named_toolset(cli_toolsets, name)
     if error is not None:
         message, suggestions = error
