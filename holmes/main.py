@@ -11,6 +11,7 @@ if add_custom_certificate(ADDITIONAL_CERTIFICATE):
 # IMPORTING ABOVE MIGHT INITIALIZE AN HTTPS CLIENT THAT DOESN'T TRUST THE CUSTOM CERTIFICATE
 import sys
 from holmes.utils.colors import USER_COLOR
+import contextlib
 import json
 import logging
 import socket
@@ -54,6 +55,12 @@ from holmes.plugins.sources.opsgenie import OPSGENIE_TEAM_INTEGRATION_KEY_HELP
 from holmes.utils.console.logging import init_logging
 from holmes.utils.console.result import handle_result
 from holmes.utils.file_utils import write_json_file
+from holmes.utils.toolset_inspect import (
+    dumps_inspect_error,
+    dumps_toolset,
+    inspect_named_toolset,
+    render_toolset,
+)
 from holmes.checks.checks_cli import checks_app
 from holmes.common.cli_commons import (
     opt_api_key,
@@ -1057,6 +1064,70 @@ def list_toolsets(
     cli_toolsets = config.toolset_manager.list_console_toolsets()
 
     pretty_print_toolset_status(cli_toolsets, console)
+
+
+@toolset_app.command("inspect")
+def inspect_toolset(
+    name: str = typer.Argument(
+        ..., help="Toolset name (exact match, or a unique prefix/substring)"
+    ),
+    verbose: Optional[List[bool]] = opt_verbose,
+    config_file: Optional[Path] = opt_config_file,  # type: ignore
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Print a machine-readable JSON description to stdout",
+    ),
+    refresh_status: bool = typer.Option(
+        False,
+        "--refresh-toolsets",
+        help="Refresh cached toolset status before inspecting",
+    ),
+) -> None:
+    """Show one toolset's status, tools, parameters, and redacted config."""
+    console = init_logging(verbose, log_to_stderr=json_output)
+    if json_output:
+        # Config loading reports validation errors on stdout and exits 0;
+        # keep stdout reserved for JSON and fail with a JSON error instead.
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                config = Config.load_from_file(config_file)
+        except SystemExit as exc:
+            if exc.code not in (None, 0):
+                raise
+            typer.echo(
+                dumps_inspect_error(f"Invalid config file at {config_file}", []),
+                nl=False,
+            )
+            raise typer.Exit(code=1)
+        except Exception:
+            typer.echo(
+                dumps_inspect_error(f"Invalid config file at {config_file}", []),
+                nl=False,
+            )
+            raise typer.Exit(code=1)
+    else:
+        config = Config.load_from_file(config_file)
+    cli_toolsets = config.toolset_manager.list_console_toolsets(
+        refresh_status=refresh_status
+    )
+    payload, error = inspect_named_toolset(cli_toolsets, name)
+    if error is not None:
+        message, suggestions = error
+        if json_output:
+            typer.echo(dumps_inspect_error(message, suggestions), nl=False)
+        else:
+            console.print(f"[red]{message}[/red]")
+            if suggestions:
+                console.print("Suggestions:")
+                for suggestion in suggestions:
+                    console.print(f"  {suggestion}")
+        raise typer.Exit(code=1)
+    assert payload is not None
+    if json_output:
+        typer.echo(dumps_toolset(payload), nl=False)
+    else:
+        render_toolset(payload, console)
 
 
 @toolset_app.command("refresh")
