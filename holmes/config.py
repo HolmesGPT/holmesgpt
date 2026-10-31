@@ -271,12 +271,17 @@ class Config(RobustaBaseConfig):
             display_logger.warning("No llm models were loaded")
 
     @classmethod
-    def load_from_file(cls, config_file: Optional[Path], **kwargs) -> "Config":
+    def load_from_file(
+        cls, config_file: Optional[Path], *, load_models: bool = True, **kwargs
+    ) -> "Config":
         """
         Load configuration from file and merge with CLI options.
 
         Args:
             config_file: Path to configuration file
+            load_models: Build the model registry now. Commands that never call
+                a model can pass False so a bad model_list.yaml entry does not
+                stop them.
             **kwargs: CLI options to override config file values
 
         Returns:
@@ -310,7 +315,8 @@ class Config(RobustaBaseConfig):
 
         result._apply_env_fallbacks()
 
-        result.log_useful_info()
+        if load_models:
+            result.log_useful_info()
         return result
 
     def _apply_env_fallbacks(self) -> None:

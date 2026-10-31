@@ -1,9 +1,12 @@
 import json
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+import pytest
+from pydantic import ValidationError
 from typer.testing import CliRunner
 
+from holmes.config import Config
 from holmes.core.tools import ToolsetStatusEnum, ToolsetType, YAMLTool, YAMLToolset
 from holmes.main import app
 
@@ -167,7 +170,7 @@ def test_toolset_inspect_json_malformed_config_emits_json_error(tmp_path):
     assert payload["error"] == f"Invalid config file at {config_file}"
 
 
-def test_toolset_inspect_json_model_list_failure_does_not_blame_config(tmp_path):
+def test_toolset_inspect_json_load_failure_does_not_blame_config(tmp_path):
     config_file = tmp_path / "config.yaml"
     config_file.write_text("model: gpt-4o\n")
 
@@ -183,9 +186,40 @@ def test_toolset_inspect_json_model_list_failure_does_not_blame_config(tmp_path)
             )
         assert result.exit_code == 1
         payload = json.loads(result.stdout)
-        assert payload["error"].startswith("Failed to load models or settings")
+        assert payload["error"].startswith("Failed to load settings")
         assert "Invalid config file" not in result.stdout
         assert "should-not-leak" not in result.stdout
+
+
+def test_toolset_inspect_ignores_malformed_model_list(tmp_path, monkeypatch):
+    model_list = tmp_path / "model_list.yaml"
+    model_list.write_text("broken:\n  api_key: missing-the-model-field\n")
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", str(model_list))
+
+    # Other commands still build the registry and report the bad entry.
+    with pytest.raises(ValidationError):
+        Config.load_from_file(None)
+
+    with patch.object(
+        Config, "toolset_manager", new_callable=PropertyMock
+    ) as toolset_manager:
+        toolset_manager.return_value.list_console_toolsets.return_value = [
+            _helm_toolset()
+        ]
+        result = runner.invoke(
+            app,
+            [
+                "toolset",
+                "inspect",
+                "helm",
+                "--json",
+                "--config",
+                str(tmp_path / "absent.yaml"),
+            ],
+            catch_exceptions=False,
+        )
+    assert result.exit_code == 0, result.stdout
+    assert json.loads(result.stdout)["name"] == "helm/core"
 
 
 def _invoke_with_status_failure(args: list[str]):

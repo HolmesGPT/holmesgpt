@@ -1076,9 +1076,9 @@ def _inspect_config_error(exc: Exception, config_file: Optional[Path]) -> str:
         except Exception:
             return f"Invalid config file at {config_file}"
     # The config file is fine or absent, so the failure came from what loads
-    # after it, such as an entry in model_list.yaml.
+    # after it, such as the environment.
     return (
-        f"Failed to load models or settings ({type(exc).__name__}). "
+        f"Failed to load settings ({type(exc).__name__}). "
         "Run without --json for details."
     )
 
@@ -1108,7 +1108,7 @@ def inspect_toolset(
         # keep stdout reserved for JSON and fail with a JSON error instead.
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                config = Config.load_from_file(config_file)
+                config = Config.load_from_file(config_file, load_models=False)
         except SystemExit as exc:
             if exc.code not in (None, 0):
                 raise
@@ -1124,7 +1124,7 @@ def inspect_toolset(
             )
             raise typer.Exit(code=1)
     else:
-        config = Config.load_from_file(config_file)
+        config = Config.load_from_file(config_file, load_models=False)
     try:
         cli_toolsets = config.toolset_manager.list_console_toolsets(
             refresh_status=refresh_status
