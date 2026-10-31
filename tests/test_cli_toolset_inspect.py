@@ -220,3 +220,43 @@ def test_toolset_inspect_json_nonzero_config_exit_is_not_json():
         )
     assert result.exit_code == 1
     assert "Invalid config file" not in result.stdout
+
+
+def test_toolset_inspect_renders_markup_like_values_literally():
+    from rich.console import Console
+
+    from holmes.utils.toolset_inspect import render_toolset
+
+    console = Console(record=True, width=200)
+    render_toolset(
+        {
+            "name": "bad[/bold]name",
+            "status": "enabled",
+            "enabled": True,
+            "description": "uses [/nope] syntax",
+            "error": "failed [/red] here",
+            "config": {"pattern": "[/x]"},
+            "tools": [
+                {
+                    "name": "tool[/i]",
+                    "description": "lists [/b] items",
+                    "parameters": {},
+                }
+            ],
+        },
+        console,
+    )
+    output = console.export_text()
+    assert "bad[/bold]name" in output
+    assert "uses [/nope] syntax" in output
+    assert "failed [/red] here" in output
+    assert "[/x]" in output
+    assert "tool[/i]" in output
+    assert "lists [/b] items" in output
+
+
+def test_toolset_inspect_unknown_name_with_markup_exits_cleanly():
+    result = _invoke(["toolset", "inspect", "[/bold]"])
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "[/bold]" in result.output

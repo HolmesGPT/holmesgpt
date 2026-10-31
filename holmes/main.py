@@ -21,6 +21,7 @@ from typing import List, Optional
 
 import typer
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.rule import Rule
 
 from holmes import get_version  # type: ignore
@@ -1143,11 +1144,11 @@ def inspect_toolset(
         if json_output:
             typer.echo(dumps_inspect_error(message, suggestions), nl=False)
         else:
-            console.print(f"[red]{message}[/red]")
+            console.print(f"[red]{escape(message)}[/red]")
             if suggestions:
                 console.print("Suggestions:")
                 for suggestion in suggestions:
-                    console.print(f"  {suggestion}")
+                    console.print(f"  {escape(suggestion)}")
         raise typer.Exit(code=1)
     assert payload is not None
     if json_output:

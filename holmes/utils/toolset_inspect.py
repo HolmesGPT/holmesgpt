@@ -248,25 +248,25 @@ def render_toolset(payload: Mapping[str, Any], console: Console) -> None:
     enabled = bool(payload.get("enabled"))
     toolset_type = payload.get("type") or ""
     console.print(
-        f"[bold]{name}[/bold]  {_status_markup(status if isinstance(status, str) else None, enabled)}"
-        + (f"  {toolset_type}" if toolset_type else "")
+        f"[bold]{escape(name)}[/bold]  {_status_markup(status if isinstance(status, str) else None, enabled)}"
+        + (f"  {escape(str(toolset_type))}" if toolset_type else "")
     )
     description = payload.get("description")
     if description:
-        console.print(str(description))
+        console.print(escape(str(description)))
     docs_url = payload.get("docs_url")
     if docs_url:
-        console.print(f"[dim]Docs:[/dim] {docs_url}")
+        console.print(f"[dim]Docs:[/dim] {escape(str(docs_url))}")
     path = payload.get("path")
     if path:
-        console.print(f"[dim]Path:[/dim] {path}")
+        console.print(f"[dim]Path:[/dim] {escape(str(path))}")
     error = payload.get("error")
     if error:
-        console.print(f"[red]Error:[/red] {error}")
+        console.print(f"[red]Error:[/red] {escape(str(error))}")
     config = payload.get("config")
     if config:
         console.print("[dim]Config (secrets redacted):[/dim]")
-        console.print(json.dumps(config, indent=2, default=str))
+        console.print(escape(json.dumps(config, indent=2, default=str)))
 
     tools = payload.get("tools") or []
     console.print(f"\n[bold]Tools ({payload.get('tool_count', len(tools))}):[/bold]")
@@ -298,9 +298,9 @@ def render_toolset(payload: Mapping[str, Any], console: Console) -> None:
                         required = "?"
                 param_bits.append(f"{pname}{required}:{ptype}")
         row = [
-            str(tool.get("name") or ""),
-            ", ".join(param_bits) if param_bits else "—",
-            str(tool.get("description") or ""),
+            escape(str(tool.get("name") or "")),
+            escape(", ".join(param_bits)) if param_bits else "—",
+            escape(str(tool.get("description") or "")),
         ]
         if show_commands:
             row.append(escape(str(tool.get("command") or "")))
