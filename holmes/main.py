@@ -1100,6 +1100,12 @@ def inspect_toolset(
                 nl=False,
             )
             raise typer.Exit(code=1)
+        except Exception:
+            typer.echo(
+                dumps_inspect_error(f"Invalid config file at {config_file}", []),
+                nl=False,
+            )
+            raise typer.Exit(code=1)
     else:
         config = Config.load_from_file(config_file)
     cli_toolsets = config.toolset_manager.list_console_toolsets(
