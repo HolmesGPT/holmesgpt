@@ -35,7 +35,7 @@ _CMD_SECRET_NAME = r"[\w-]*(?:password|passwd|token|secret|api[_-]?key|apikey|ac
 _CMD_VALUE = r"(?:'[^']*'|\"[^\"]*\"|[^\s'\"]+)"
 _CMD_PATTERNS = (
     # Authorization: Bearer abc / Basic abc / Token abc / ApiKey abc
-    re.compile(r"(?i)\b(bearer|basic|token|apikey)(\s+)([^\s'\"]+)"),
+    re.compile(r"(?i)\b(bearer|basic|token|apikey)(\s+)(" + _CMD_VALUE + r")"),
     # Header values such as "X-Api-Key: abc" or "Authorization: abc"
     re.compile(
         r"(?i)\b("

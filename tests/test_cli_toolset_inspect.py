@@ -151,3 +151,29 @@ def test_toolset_inspect_json_invalid_config_keeps_stdout_json():
     payload = json.loads(result.stdout)
     assert payload["error"].startswith("Invalid config file")
     assert "validation error details" not in result.stdout
+
+
+def test_toolset_inspect_json_malformed_config_emits_json_error():
+    def _fail_load(*args, **kwargs):
+        raise ValueError("malformed yaml details")
+
+    with patch("holmes.main.Config.load_from_file", side_effect=_fail_load):
+        result = runner.invoke(
+            app, ["toolset", "inspect", "helm", "--json"], catch_exceptions=False
+        )
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["error"].startswith("Invalid config file")
+    assert "malformed yaml details" not in result.stdout
+
+
+def test_toolset_inspect_json_nonzero_config_exit_is_not_json():
+    def _fail_load(*args, **kwargs):
+        sys.exit(1)
+
+    with patch("holmes.main.Config.load_from_file", side_effect=_fail_load):
+        result = runner.invoke(
+            app, ["toolset", "inspect", "helm", "--json"], catch_exceptions=False
+        )
+    assert result.exit_code == 1
+    assert "Invalid config file" not in result.stdout

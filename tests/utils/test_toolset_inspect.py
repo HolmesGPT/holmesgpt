@@ -203,6 +203,8 @@ def test_redact_command_masks_credentials():
         "git clone https://ghp_abc123@github.com/o/r": "ghp_abc123",
         "mytool --password={hunter2} run": "hunter2",
         "mytool --password='$hunter2' run": "hunter2",
+        "mytool --auth Bearer 'quoted token' run": "quoted token",
+        'mytool --auth ApiKey "quoted key" run': "quoted key",
     }
     for command, secret in cases.items():
         redacted = redact_command(command)
