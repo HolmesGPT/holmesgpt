@@ -103,9 +103,16 @@ def _holmes_pod(docs):
     return _named(docs, "Deployment", "t-holmes")["spec"]["template"]["spec"]
 
 
+def _holmes_config(docs):
+    return yaml.safe_load(_named(docs, "ConfigMap", "custom-toolsets-configmap")["data"]["custom_toolset.yaml"])
+
+
+def _holmes_toolsets(docs):
+    return _holmes_config(docs)["toolsets"]
+
+
 def _k8s_mcp_server_config(docs):
-    toolsets = yaml.safe_load(_named(docs, "ConfigMap", "custom-toolsets-configmap")["data"]["custom_toolset.yaml"])
-    return toolsets["mcp_servers"]["kubernetes"]["config"]
+    return _holmes_config(docs)["mcp_servers"]["kubernetes"]["config"]
 
 
 def _addon_kinds(docs):
@@ -172,6 +179,92 @@ def test_kubeconfig_with_bash_enabled_is_refused():
     with pytest.raises(subprocess.CalledProcessError) as error:
         _helm_template("--set", "mcpAddons.kubernetes.config.kubeconfig.secretName=kc")
     assert "where the bash toolset can read them" in error.value.stderr
+
+
+@pytest.mark.parametrize(
+    "bash_values",
+    [
+        # Holmes enables bash when its entry, or the entry's `enabled`, is missing.
+        ["--set", "toolsets.bash=null"],
+        ["--set", "toolsets.bash.enabled=null"],
+        ["--set-string", "toolsets.bash.enabled=yes"],
+    ],
+    ids=["bash-entry-removed", "enabled-removed", "enabled-yes"],
+)
+def test_kubeconfig_without_bash_explicitly_off_is_refused(bash_values):
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        _helm_template("--set", "mcpAddons.kubernetes.config.kubeconfig.secretName=kc", *bash_values)
+    assert "where the bash toolset can read them" in error.value.stderr
+
+
+@pytest.mark.parametrize("off", ["false", "False", "0", "off", "no"])
+def test_kubeconfig_accepts_bash_off_as_holmes_parses_it(off):
+    docs = _helm_template(
+        "--set", "mcpAddons.kubernetes.config.kubeconfig.secretName=kc",
+        "--set-string", f"toolsets.bash.enabled={off}",
+    )
+    assert _k8s_mcp_server_config(docs)["mode"] == "stdio"
+
+
+def test_kubeconfig_accepts_bash_turned_off_by_k8s_rbac():
+    # k8sRBAC turns bash off in the toolsets Holmes receives, whatever toolsets.bash says.
+    docs = _helm_template(
+        "--set", "mcpAddons.kubernetes.config.kubeconfig.secretName=kc", "--set", "k8sRBAC=true"
+    )
+    assert _holmes_toolsets(docs)["bash"]["enabled"] is False
+    assert _k8s_mcp_server_config(docs)["mode"] == "stdio"
+
+
+def test_kubeconfig_mounts_the_ca_and_an_external_server_config(tmp_path):
+    ca_file = tmp_path / "ca.pem"
+    ca_file.write_text(CA_PEM)
+    docs = _helm_template(
+        *KUBECONFIG_SET,
+        "--set-file", f"mcpAddons.kubernetes.config.certificateAuthority={ca_file}",
+        "--set", "mcpAddons.kubernetes.config.configSecret.secretName=my-config",
+        "--set", "mcpAddons.kubernetes.config.configSecret.secretKey=server.toml",
+    )
+    pod = _holmes_pod(docs)
+    mounts = {m["mountPath"]: m["name"] for m in pod["containers"][0]["volumeMounts"]}
+    volumes = {v["name"]: v for v in pod["volumes"]}
+
+    ca_volume = volumes[mounts[CA_PATH]]["configMap"]
+    assert ca_volume["items"] == [{"key": "ca.crt", "path": "ca.crt"}]
+    assert CA_PEM.strip() in _named(docs, "ConfigMap", ca_volume["name"])["data"]["ca.crt"]
+    assert volumes[mounts["/etc/kubernetes-mcp"]]["secret"] == {
+        "secretName": "my-config",
+        "defaultMode": 420,
+        "items": [{"key": "server.toml", "path": "config.toml"}],
+    }
+    args = _k8s_mcp_server_config(docs)["args"]
+    assert args[args.index("--config") + 1] == "/etc/kubernetes-mcp/config.toml"
+    # An external config Secret is the user's; the chart must not render one.
+    assert _named(docs, "Secret", "t-k8s-mcp-server-config") is None
+
+
+@pytest.mark.parametrize("mode_values", [[], KUBECONFIG_SET], ids=["deployment", "in-holmes-pod"])
+def test_server_config_and_config_secret_together_are_refused(mode_values):
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        _helm_template(
+            *mode_values,
+            "--set", "mcpAddons.kubernetes.config.serverConfig=x",
+            "--set", "mcpAddons.kubernetes.config.configSecret.secretName=y",
+        )
+    assert "not both" in error.value.stderr
+
+
+def test_kubeconfig_init_container_keeps_a_read_only_root_filesystem():
+    docs = _helm_template(
+        *KUBECONFIG_SET,
+        "--set-json", 'containerSecurityContext={"runAsNonRoot":true,"runAsUser":1000,"readOnlyRootFilesystem":false}',
+    )
+    [init] = _holmes_pod(docs)["initContainers"]
+    assert init["securityContext"] == {"runAsNonRoot": True, "runAsUser": 1000, "readOnlyRootFilesystem": True}
+
+
+def test_without_kubeconfig_holmes_keeps_its_config_dir():
+    env = _holmes_pod(_helm_template())["containers"][0].get("env", [])
+    assert "HOLMES_CONFIGPATH_DIR" not in [e["name"] for e in env]
 
 
 def test_kubeconfig_with_oauth_enabled_is_refused():

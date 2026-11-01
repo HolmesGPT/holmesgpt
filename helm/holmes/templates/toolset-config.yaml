@@ -184,8 +184,12 @@ data:
     {{- if (.Values.mcpAddons.kubernetes.config.oauth | default dict).enabled }}
     {{- fail "mcpAddons.kubernetes: config.oauth needs the server as its own Deployment, and a mounted kubeconfig runs it inside the Holmes pod. Set one of config.oauth.enabled or config.kubeconfig.secretName." }}
     {{- end }}
-    {{- if (.Values.toolsets.bash | default dict).enabled }}
-    {{- fail "mcpAddons.kubernetes: a mounted kubeconfig puts its cluster credentials in the Holmes container, where the bash toolset can read them. Set toolsets.bash.enabled to false." }}
+    {{- /* Holmes enables bash when its entry is missing or has no `enabled`, so only an
+           explicit off in the toolsets Holmes receives (after the k8sRBAC override) counts.
+           The list is what Holmes's boolean parsing reads as false. */}}
+    {{- $bashEnabled := (($toolsets | default dict).bash | default dict).enabled }}
+    {{- if not (has (lower (toString $bashEnabled)) (list "false" "0" "off" "no" "f" "n")) }}
+    {{- fail "mcpAddons.kubernetes: a mounted kubeconfig puts its cluster credentials in the Holmes container, where the bash toolset can read them. Holmes enables bash unless it is turned off, so set toolsets.bash.enabled to false." }}
     {{- end }}
     {{- $k8sMcpConfig = dict
           "mode" "stdio"
