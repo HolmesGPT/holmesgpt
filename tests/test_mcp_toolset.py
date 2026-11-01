@@ -2877,6 +2877,7 @@ class TestStdioToolCallTimeout:
         elapsed = time.monotonic() - started
 
         assert result.status == StructuredToolResultStatus.ERROR
+        assert "Waited 2.0 seconds" in result.error, result.error
         # The 2s read timeout plus the subprocess's termination, far below the 60s stall.
         assert elapsed < 15, elapsed
 
