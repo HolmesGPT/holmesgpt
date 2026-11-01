@@ -227,6 +227,34 @@ def _is_gemini_route(litellm_model_name: str) -> bool:
     return False
 
 
+def _is_bedrock_route(litellm_model_name: str, args: Dict[str, Any]) -> bool:
+    return (
+        litellm_model_name.startswith("bedrock/")
+        or args.get("custom_llm_provider") == "bedrock"
+    )
+
+
+def _strip_strict_from_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return the tools without `function.strict`, leaving the caller's dicts untouched.
+
+    litellm >= 1.100 forwards `strict` to Bedrock Converse as `toolSpec.strict`.
+    Bedrock then compiles the schemas and rejects a request with more than 16
+    union-typed parameters across its tools, which strict mode produces by making
+    every optional parameter nullable. Holmes' toolsets exceed that, so every
+    request failed with a 400. Earlier litellm dropped the field for Bedrock.
+    """
+    stripped: List[Dict[str, Any]] = []
+    for tool in tools:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        if isinstance(function, dict) and "strict" in function:
+            tool = {
+                **tool,
+                "function": {k: v for k, v in function.items() if k != "strict"},
+            }
+        stripped.append(tool)
+    return stripped
+
+
 class ContextWindowUsage(BaseModel):
     total_tokens: int
     tools_tokens: int
@@ -920,6 +948,9 @@ class DefaultLLM(LLM):
         ]
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
+
+        if "tools" in tools_args and _is_bedrock_route(litellm_model_name, self.args):
+            tools_args["tools"] = _strip_strict_from_tools(tools_args["tools"])
 
         # When Azure AD (Entra ID) token auth is enabled, obtain a cached token
         # and pass it to litellm instead of an API key.
