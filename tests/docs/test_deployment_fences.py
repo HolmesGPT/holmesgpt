@@ -713,8 +713,43 @@ def test_a_non_string_environment_value_is_set_as_a_string_and_the_process_envir
             "`timeout_secondz` is not a field of NewrelicConfig",
         ),
         ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n  bad:\n    modle: x\n", 7, "model_list.yaml `bad`: Holmes refuses it"),
+        # Helm's message names `tls.enabled` and `tls.secretName`; only the first is written.
+        ("tls:\n  enabled: true\n", 5, "helm template fails"),
+        # The Deployment's env entry is the values' entry, passed through.
+        ("additionalEnvVars:\n  - name: A\n    value: a\n  - value: \"30\"\n", 7, "'name' is a required property"),
+        ("additionalVolumeMounts:\n  - name: x\n    mountPath: /x\n    mountPth: /x\n", 5, "Additional properties are not allowed"),
+        # The chart generates the `kubernetes` server for the addon.
+        (
+            "mcpAddons:\n  aws:\n    enabled: false\n  kubernetes:\n    enabled: true\n    config:\n      oauth:\n        enabled: true\n        client-id: c\n",
+            7,
+            "`oauth.client-id` is not a field of MCPOAuthConfig",
+        ),
+        # The second instance's own key, and a key every instance shares.
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      instances:\n"
+            "        - name: prod\n          prometheus_url: http://p:9090\n"
+            "        - name: dev\n          prometheus_url: http://d:9090\n          timout: 30\n",
+            13,
+            "`timout` is not a field",
+        ),
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      timout: 30\n      instances:\n"
+            "        - name: prod\n          prometheus_url: http://p:9090\n",
+            8,
+            "`timout` is not a field",
+        ),
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      instances:\n"
+            "        - name: prod\n          prometheus_url: http://p:9090\n"
+            "        - name: dev\n          prometheus_url: [x]\n",
+            11,
+            "instance `dev`",
+        ),
     ],
-    ids=["chart-key", "toolset-config-key", "model-entry"],
+    ids=[
+        "chart-key", "toolset-config-key", "model-entry", "helm-names-a-key", "kubernetes-schema-env-entry",
+        "kubernetes-schema-undeclared-field", "addon-mcp-server", "instance-key", "key-shared-by-instances", "instance-without-a-key",
+    ],
 )
 def test_an_error_names_the_line_of_the_key_it_refuses(values, line, message):
     """The fence opens on line 3 of the page."""
@@ -724,7 +759,29 @@ def test_an_error_names_the_line_of_the_key_it_refuses(values, line, message):
     assert fence.line_of(error.path) == line
 
 
-def test_an_error_about_the_values_as_a_whole_names_the_fence_opening_line():
-    fence = fence_of("```yaml-helm-values\ntls:\n  enabled: true\n```\n")
-    (error,) = fence_checks.check_fence(fence.values, fence.environment, CHART)
-    assert "helm template fails" in error and fence.line_of(error.path) == 3
+def test_a_helm_message_that_names_no_key_of_the_values_names_none():
+    assert fence_checks._named_path({"tls": {"enabled": True}}, "Error: boom at holmes/templates/holmes.yaml:3:4") == ()
+    assert fence_checks._named_path({"tls": {"enabled": True}}, "tls.enabled and tls.secretName") == ("tls", "enabled")
+
+
+def test_the_chart_generates_each_mcp_server_for_the_addon_the_blame_names():
+    """`_addon_path` matches server names to addon names; every server the chart renders for an
+    addon must match that addon."""
+    addons = yaml.safe_load((CHART / "values.yaml").read_text())["mcpAddons"]
+    required = {"prefect": {"config": {"apiUrl": "http://prefect:4200/api"}}, "confluenceMcp": {"config": {"url": "http://c"}}}
+
+    def needs(addon):
+        return {**({"auth": {"secretName": "s"}} if "auth" in addons[addon] else {}), **required.get(addon, {})}
+
+    for addon in addons:
+        values = {"mcpAddons": {addon: {"enabled": True, **needs(addon)}}}
+        render = fence_checks._render(values, CHART)
+        assert render.returncode == 0, (addon, render.stderr)
+        (configmap,) = [
+            document
+            for document in yaml.safe_load_all(render.stdout)
+            if document and document["kind"] == "ConfigMap" and document["metadata"]["name"] == "custom-toolsets-configmap"
+        ]
+        servers = yaml.safe_load(configmap["data"]["custom_toolset.yaml"]).get("mcp_servers") or {}
+        assert servers, addon
+        assert {fence_checks._addon_path(values, server) for server in servers} == {("mcpAddons", addon)}, (addon, list(servers))

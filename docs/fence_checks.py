@@ -121,9 +121,39 @@ def unresolved_key_paths(values, defaults, path: tuple = ()) -> Iterator[tuple]:
             yield from unresolved_key_paths(value, entry, path + (index,))
 
 
-def _schema_errors(render: str) -> List[FenceError]:
+def _subtrees(node, path: tuple = ()) -> Iterator[Tuple[tuple, object]]:
+    """(key path, value) of every mapping value and list entry under `node`, at any depth."""
+    for key, value in node.items() if isinstance(node, dict) else enumerate(node):
+        yield path + (key,), value
+        if isinstance(value, (dict, list)):
+            yield from _subtrees(value, path + (key,))
+
+
+def _source_path(values: dict, rendered) -> tuple:
+    """The key path of the one part of `values` a chart passes through as `rendered`, a
+    mapping or list of a render, unchanged; `()` when `rendered` equals no part of the values
+    or equals several (a chart may also have written it itself)."""
+    if not isinstance(rendered, (dict, list)):
+        return ()
+    found = [path for path, value in _subtrees(values) if value == rendered]
+    return found[0] if len(found) == 1 else ()
+
+
+def _node_at(document, path: list):
+    """The part of `document` at `path`, None where it has none."""
+    for key in path:
+        try:
+            document = document[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+    return document
+
+
+def _schema_errors(render: str, values: dict) -> List[FenceError]:
     """Why the Kubernetes API schemas refuse each object of the render, in strict mode, which
-    refuses a field the schema does not declare."""
+    refuses a field the schema does not declare. An error names the part of `values` the chart
+    passed through as the object the schema refuses (`_source_path`), or the object's parent
+    when the schema refuses a field of it."""
     errors = []
     for document in _load_all(render):
         if not document:
@@ -133,8 +163,13 @@ def _schema_errors(render: str) -> List[FenceError]:
             kubernetes_validate.utils.validate(document, KUBERNETES_VERSION, strict=True)
         except kubernetes_validate.utils.ValidationError as e:
             where = ".".join(map(str, e.path))
+            refused = _node_at(document, list(e.path))
+            source = _source_path(values, refused) or _source_path(values, _node_at(document, list(e.path)[:-1]))
             errors.append(
-                FenceError(f"the rendered {name} does not match its Kubernetes {KUBERNETES_VERSION} schema at `{where}`: {e.message}")
+                FenceError(
+                    f"the rendered {name} does not match its Kubernetes {KUBERNETES_VERSION} schema at `{where}`: {e.message}",
+                    source,
+                )
             )
         except kubernetes_validate.utils.SchemaNotFoundError:
             errors.append(
@@ -144,6 +179,25 @@ def _schema_errors(render: str) -> List[FenceError]:
                 )
             )
     return errors
+
+
+# A dotted name in Helm's message, such as `tls.secretName`.
+DOTTED_NAME_RE = re.compile(r"[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)+")
+
+
+def _named_path(values: dict, message: str) -> tuple:
+    """The longest key path of `values` that a dotted name in Helm's `message` starts with, `()`
+    for a message naming none (the chart's `required` and `fail` messages name the values they
+    refuse, as `tls.secretName`)."""
+    best: tuple = ()
+    for name in DOTTED_NAME_RE.findall(message):
+        path, node = (), values
+        for key in name.split("."):
+            if not isinstance(node, dict) or key not in node:
+                break
+            path, node = path + (key,), node[key]
+        best = max(best, path, key=len)
+    return best
 
 
 def check_chart(chart_dir: Path, values: dict) -> Tuple[Optional[str], List[FenceError]]:
@@ -157,8 +211,8 @@ def check_chart(chart_dir: Path, values: dict) -> Tuple[Optional[str], List[Fenc
     ]
     result = _render(values, chart_dir)
     if result.returncode != 0:
-        return None, errors + [FenceError(f"helm template fails: {result.stderr.strip()}")]
-    return result.stdout, errors + _schema_errors(result.stdout)
+        return None, errors + [FenceError(f"helm template fails: {result.stderr.strip()}", _named_path(values, result.stderr))]
+    return result.stdout, errors + _schema_errors(result.stdout, values)
 
 
 @contextmanager
@@ -209,6 +263,21 @@ def _not_fields(undeclared) -> str:
     return ", ".join(f"`{key_path(path)}` is not a field of {model}" for path, model in undeclared)
 
 
+def _config_path(at: tuple, config: dict, index: int, blamed: tuple) -> tuple:
+    """The key path in the values of what a toolset's config refuses: `blamed`, a key path of
+    the instance's config, in the instance's own entry of `instances`, in the config's keys
+    shared by every instance, or in the config of a toolset with no instances; the instance
+    itself when no key is blamed."""
+    if "instances" not in config:
+        return at + ("config",) + blamed
+    entry = ("config", "instances", index)
+    if not blamed:
+        return at + entry
+    if isinstance(config["instances"][index], dict) and blamed[0] in config["instances"][index]:
+        return at + entry + blamed
+    return at + ("config",) + blamed
+
+
 def _config_errors(toolset: Toolset, at: tuple) -> List[FenceError]:
     """Why no config class of the toolset takes its `config`, as Holmes substituted it; with
     `subtype:`, a class of that subtype when any class has one. A multi-instance toolset's
@@ -239,7 +308,7 @@ def _config_errors(toolset: Toolset, at: tuple) -> List[FenceError]:
                 )
             ]
     errors = []
-    for name, config in instances:
+    for index, (name, config) in enumerate(instances):
         refusals = []
         blamed: tuple = ()
         for cls in classes:
@@ -258,18 +327,41 @@ def _config_errors(toolset: Toolset, at: tuple) -> List[FenceError]:
             errors.append(
                 FenceError(
                     f"custom_toolset.yaml `{where}.config`{instance}: no config class of the toolset takes it: " + "; ".join(refusals),
-                    # An instance's keys are not where they are in the values: blame the config.
-                    at + ("config",) + (blamed if "instances" not in toolset.config else ()),
+                    _config_path(at, toolset.config, index, blamed),
                 )
             )
     return errors
 
 
-def _toolset_errors(path: Path, written: dict) -> List[FenceError]:
+def _normalized(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _addon_path(values: dict, server: str) -> tuple:
+    """`("mcpAddons", <addon>)` for the addon of `values` the chart adds the `mcp_servers`
+    entry `server` for, `()` for none. The chart names an addon's servers after the addon
+    (`kubernetes_remediation` of `kubernetesRemediation`, `gcp_gcloud` of `gcp`); the best
+    match among the addons the values write is the exact name, then the addon whose name
+    starts the server's, then the server whose name starts the addon's."""
+    server = _normalized(server)
+    ranked = []
+    for addon in values.get("mcpAddons") or {}:
+        name = _normalized(addon)
+        if name == server:
+            ranked.append((0, addon))
+        elif server.startswith(name):
+            ranked.append((1, addon))
+        elif name.startswith(server):
+            ranked.append((2, addon))
+    return ("mcpAddons", min(ranked)[1]) if ranked else ()
+
+
+def _toolset_errors(path: Path, written: dict, values: dict) -> List[FenceError]:
     """What Holmes refuses in `written`, the `custom_toolset.yaml` at `path`, loaded as Holmes
     loads the file the chart mounts: a block it loads as a FAILED placeholder, under another
     name or not at all, a key of a block or of its config that the model it validates has no
-    field for."""
+    field for. An error about an `mcp_servers` entry `values` does not write is about the
+    `mcpAddons` entry the chart generates it for (`_addon_path`)."""
     try:
         loaded = ToolsetManager()._load_toolsets_from_paths([str(path)], list(_builtin_toolsets()))
     except Exception as e:  # Holmes fails to load the file at all, whatever it raises.
@@ -280,6 +372,7 @@ def _toolset_errors(path: Path, written: dict) -> List[FenceError]:
         for name, block in (written.get(part) or {}).items():
             at = (part, name)
             where = ".".join(at)
+            first = len(errors)
             if part == "toolsets" and name in (written.get("mcp_servers") or {}):
                 errors.append(FenceError(f"custom_toolset.yaml `{where}`: Holmes drops it for `mcp_servers.{name}`, of the same name", at))
                 continue
@@ -296,6 +389,9 @@ def _toolset_errors(path: Path, written: dict) -> List[FenceError]:
                 if undeclared:
                     errors.append(FenceError(f"custom_toolset.yaml `{where}`: {_not_fields(undeclared)}", at + undeclared[0][0]))
                 errors += _config_errors(toolset, at)
+            if part == "mcp_servers" and name not in (values.get("mcp_servers") or {}):
+                addon = _addon_path(values, name)
+                errors[first:] = [FenceError(error, addon) for error in errors[first:]]
     return errors
 
 
@@ -329,9 +425,10 @@ def _model_errors(model_list: dict) -> List[FenceError]:
     return errors
 
 
-def _holmes_errors(render: str, environment: Dict[str, str]) -> List[FenceError]:
-    """What Holmes refuses in the `custom-toolsets-configmap` ConfigMap of the render, with only
-    `environment`, its placeholders replaced too, set while Holmes's code runs."""
+def _holmes_errors(render: str, environment: Dict[str, str], values: dict) -> List[FenceError]:
+    """What Holmes refuses in the `custom-toolsets-configmap` ConfigMap of the render of
+    `values`, with only `environment`, its placeholders replaced too, set while Holmes's code
+    runs."""
     data = next(
         (
             document["data"]
@@ -349,7 +446,7 @@ def _holmes_errors(render: str, environment: Dict[str, str]) -> List[FenceError]
         path = Path(directory) / "custom_toolset.yaml"
         path.write_text(yaml.safe_dump(custom_toolset))
         with _environment(_filled(environment)):
-            return _toolset_errors(path, custom_toolset) + _model_errors(model_list)
+            return _toolset_errors(path, custom_toolset, values) + _model_errors(model_list)
 
 
 def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> List[FenceError]:
@@ -366,4 +463,4 @@ def check_fence(values: dict, environment: Dict[str, str], chart_dir: Path) -> L
     render, errors = check_chart(chart_dir, values)
     if render is None:
         return errors
-    return errors + _holmes_errors(render, environment)
+    return errors + _holmes_errors(render, environment, values)
