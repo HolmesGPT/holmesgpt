@@ -840,15 +840,18 @@ class TestToolsetStatusMetric:
         class ChangesWhileExporting:
             name = "remote-mcp"
             type = ToolsetType.MCP
-            statuses = iter([ToolsetStatusEnum.ENABLED, ToolsetStatusEnum.FAILED])
+            reads = 0
 
             @property
             def status(self):
-                return next(self.statuses, ToolsetStatusEnum.FAILED)
+                self.reads += 1
+                return ToolsetStatusEnum.ENABLED if self.reads == 1 else ToolsetStatusEnum.FAILED
 
-        metrics.set_toolsets_source(lambda: [ChangesWhileExporting()])
+        toolset = ChangesWhileExporting()
+        metrics.set_toolsets_source(lambda: [toolset])
 
         assert sum(value for value, _ in collect().values()) == 1
+        assert toolset.reads == 1
 
     def test_production_view_keeps_every_dimension(self):
         from opentelemetry.sdk.metrics import MeterProvider
