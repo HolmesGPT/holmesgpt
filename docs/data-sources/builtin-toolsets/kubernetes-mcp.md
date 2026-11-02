@@ -494,6 +494,7 @@ certificate: "<BASE64_DEX_CA>"
 
 mcpAddons:
   kubernetes:
+    enabled: true
     config:
       # Dex CA as PEM; mounted at /etc/kubernetes-mcp-ca/ca.crt
       certificateAuthority: |

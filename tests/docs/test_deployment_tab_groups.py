@@ -6,17 +6,20 @@ A deployment tab group has only the tabs `Holmes CLI`, `Holmes Helm Chart` and
 `Robusta Helm Chart`, in that order. Its Holmes Helm Chart tab holds, in order:
 the service account line (when the page needs it), the secret step (when the
 values read a secret), the values step, and the upgrade step with
-`helm upgrade holmes robusta/holmes -f values.yaml`. Every deployment tab group
-is a deployment fence, checked in the fence's expansion with its errors naming
-the fence's line; a group written by hand in the page fails with one error
-naming the page and line. test_deployment_fences.py checks that every fence
-renders.
+`helm upgrade holmes robusta/holmes -f values.yaml`. A fence whose values
+reference `{{ env.X }}`, and that is not `{reuse}`, has a secret step creating
+the group's secret. Every deployment tab group is a deployment fence, checked
+in the fence's expansion with its errors naming the fence's line; a group
+written by hand in the page fails with one error naming the page and line.
+test_deployment_fences.py checks that every fence renders, and that the chart
+and the Kubernetes schemas take the values of every Holmes Helm Chart tab.
 """
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
+import yaml
 
 from docs import custom_fences as cf
 
@@ -65,7 +68,8 @@ def tab_groups(lines, offset=0):
     while i < len(lines):
         if lines[i].strip().startswith("~~~"):
             raise FenceError(offset + i + 1, "a `~~~` code fence; use backticks")
-        if cf.SUPPORTED_OPENING_RE.match(lines[i]):
+        opening = cf.SUPPORTED_OPENING_RE.match(lines[i])
+        if opening and not opening["region"]:
             # A custom fence ends at its own closing line; the code blocks of a
             # `cli` field inside it are indented, and are not its end.
             closing = next(
@@ -121,8 +125,9 @@ def tab_groups(lines, offset=0):
             yield from tab_groups(body, first - 1)
 
 
-def holmes_tab_problems(first, body):
-    """The ways a Holmes Helm Chart tab departs from its steps, as (line, message)."""
+def holmes_tab_problems(first, body, secret=""):
+    """The ways a Holmes Helm Chart tab departs from its steps, as (line, message);
+    with `secret`, the tab's secret step creates it first."""
     problems = []
     steps = []
     expecting = None
@@ -143,6 +148,8 @@ def holmes_tab_problems(first, body):
             if expecting == "secret":
                 if info != "bash" or not code.startswith(SECRET_COMMAND):
                     problems.append((number, f"the secret step is not a `{SECRET_COMMAND.strip()}` bash block"))
+                elif secret and not code.startswith(f"{SECRET_COMMAND}{secret} "):
+                    problems.append((number, f"the secret step does not create `{secret}` first"))
                 steps.append("secret")
             elif expecting == "values":
                 if info != "yaml":
@@ -173,6 +180,8 @@ def holmes_tab_problems(first, body):
     for step in ("values", "upgrade"):
         if step not in steps:
             problems.append((first, f"no {step} step"))
+    if secret and "secret" not in steps:
+        problems.append((first, f"no secret step, which the values' `{{{{ env.X }}}}` references need, creating `{secret}`"))
     return problems
 
 
@@ -182,9 +191,10 @@ HAND_WRITTEN = (
 )
 
 
-def group_problems(lines, rendered):
+def group_problems(lines, rendered, secret=""):
     """The ways the tab groups in `lines` depart from the standard, as (line, message).
-    A deployment tab group is allowed only in a fence's expansion (`rendered`)."""
+    A deployment tab group is allowed only in a fence's expansion (`rendered`), whose
+    Holmes Helm Chart tab creates `secret`, when given, in its secret step."""
     problems = []
     for number, labels, tabs in tab_groups(lines):
         deployment = [label for label in labels if label in DEPLOYMENT_LABELS]
@@ -206,12 +216,31 @@ def group_problems(lines, rendered):
             if ROBUSTA_CHART in by_label:
                 problems.append((number, "a Robusta Helm Chart tab with no Holmes Helm Chart tab"))
             continue
-        problems += holmes_tab_problems(*by_label[HOLMES_CHART])
+        problems += holmes_tab_problems(*by_label[HOLMES_CHART], secret)
     return problems
 
 
+def expected_secret(opening, body, rel):
+    """The secret the body's own text needs: the `holmes-<page>[-<qualifier>]` secret when the
+    values reference `{{ env.X }}` outside a comment and outside `additionalEnvVars`, which
+    set their own variables; "" for none. Read from the text, not from the renderer the
+    secret step is checked against."""
+    values_text = body.split("\n---\n")[0]
+    code = "\n".join(line for line in values_text.split("\n") if not line.lstrip().startswith("#"))
+    plain = {
+        entry["name"]
+        for entry in (yaml.safe_load(values_text) or {}).get("additionalEnvVars") or []
+        if isinstance(entry, dict) and "name" in entry
+    }
+    if not set(cf.ENV_REFERENCE_RE.findall(code)) - plain:
+        return ""
+    return f"holmes-{PurePosixPath(rel).stem}" + (f"-{opening['qualifier']}" if opening["qualifier"] else "")
+
+
 def fence_expansions(rel, lines):
-    """(line, markdown) of every deployment fence in `lines` that renders."""
+    """(line, markdown, secret) of every deployment fence in `lines` that renders;
+    `secret` is the group's env secret, which its secret step must create, or "" for
+    a group with none or a `{reuse}` group."""
     for i, line in enumerate(lines):
         opening = cf.SUPPORTED_OPENING_RE.match(line)
         if not opening or not opening["deployment"]:
@@ -219,27 +248,31 @@ def fence_expansions(rel, lines):
         end = next((j for j in range(i + 1, len(lines)) if lines[j] == cf.CLOSING_LINE), None)
         if end is None:
             continue
+        body = "\n".join(lines[i + 1 : end]).strip("\n")
         try:
-            group = cf._deployment_section(opening, "\n".join(lines[i + 1 : end]).strip("\n"), rel)
+            group = cf._deployment_section(opening, body, rel)
         except cf.FenceBodyError:
             group = None
         if group is not None:
-            yield i + 1, group
+            yield i + 1, group, "" if opening["option"] == "reuse" else expected_secret(opening, body, rel)
 
 
-def page_problems(path):
-    rel = path.relative_to(DOCS).as_posix()
-    lines = path.read_text().split("\n")
+def text_problems(rel, text):
+    lines = text.split("\n")
     try:
         problems = [f"{rel}:{line}: {message}" for line, message in group_problems(lines, rendered=False)]
-        for fence_line, group in fence_expansions(rel, lines):
+        for fence_line, group, secret in fence_expansions(rel, lines):
             problems += [
                 f"{rel}:{fence_line}: the fence renders, at line {line} of its expansion: {message}"
-                for line, message in group_problems(group.split("\n"), rendered=True)
+                for line, message in group_problems(group.split("\n"), rendered=True, secret=secret)
             ]
     except FenceError as e:
         return [f"{rel}:{e.line}: {e}"]
     return problems
+
+
+def page_problems(path):
+    return text_problems(path.relative_to(DOCS).as_posix(), path.read_text())
 
 
 def test_there_are_pages():
@@ -257,3 +290,30 @@ def test_every_platform_page_exists():
 def test_every_deployment_tab_group_has_the_standard_shape(path):
     problems = page_problems(path)
     assert not problems, "\n".join(problems)
+
+
+DATADOG = "toolsets:\n  datadog/general:\n    enabled: true\n    config:\n      api_key: \"{{ env.DD_API_KEY }}\"\n"
+
+
+def test_a_group_whose_renderer_drops_the_secret_step_fails():
+    """The body of a `{reuse}` fence renders without the secret step, as a renderer that
+    dropped it for a group that is not `{reuse}` would render it."""
+    opening = cf.SUPPORTED_OPENING_RE.match(f"```{cf.TOOLSET_CONFIG_FENCE} {{reuse}}")
+    group = cf._deployment_section(opening, DATADOG, "data-sources/builtin-toolsets/datadog.md")
+    assert group_problems(group.split("\n"), rendered=True) == []
+    assert [message for _, message in group_problems(group.split("\n"), rendered=True, secret="holmes-datadog")] == [
+        "no secret step, which the values' `{{ env.X }}` references need, creating `holmes-datadog`"
+    ]
+
+
+PAGE = f"```{cf.TOOLSET_CONFIG_FENCE}\n{DATADOG}```\n"
+
+
+def test_a_renderer_that_drops_the_secret_keys_of_a_fence_that_references_env_fails(monkeypatch):
+    """The expected secret comes from the values' own `{{ env.X }}` references, so a renderer
+    that renders no secret step for them fails the tab shape check."""
+    page = "data-sources/builtin-toolsets/datadog.md"
+    assert text_problems(page, PAGE) == []
+    monkeypatch.setattr(cf, "_environment_keys", lambda *args: {})
+    problems = text_problems(page, PAGE)
+    assert problems and "no secret step" in problems[0]
