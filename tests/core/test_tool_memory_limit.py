@@ -241,10 +241,19 @@ class TestLoadToolMemoryLimit:
         assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
 
     @pytest.mark.parametrize("bad", ["0", "-5", "150", "abc", "25%"])
-    def test_out_of_range_percent_is_ignored(self, monkeypatch, bad):
+    def test_out_of_range_percent_is_ignored(self, monkeypatch, caplog, bad):
         monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", bad)
         monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: 4096)
-        assert env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
+        with caplog.at_level(logging.WARNING):
+            assert (
+                env_vars._load_tool_memory_limit_mb() == env_vars._default_memory_limit
+            )
+        assert "Ignoring TOOL_MEMORY_LIMIT_PERCENT" in caplog.text
+
+    def test_percent_at_upper_bound(self, monkeypatch):
+        monkeypatch.setenv("TOOL_MEMORY_LIMIT_PERCENT", "100")
+        monkeypatch.setattr(env_vars, "_cgroup_memory_limit_mb", lambda: 4096)
+        assert env_vars._load_tool_memory_limit_mb() == 4096
 
 
 @pytest.mark.parametrize("raw,expected", [("0", 1), ("-3", 1), ("4", 4)])
