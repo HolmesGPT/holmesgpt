@@ -741,9 +741,8 @@ class TestOTelMetrics:
         meter_provider.shutdown()
 
 
-@pytest.fixture()
-def toolset_status_metric():
-    """OTelMetrics on an in-memory reader, plus a function that collects the
+def _toolset_status_metric(views=()):
+    """OTelMetrics on an in-memory reader, its provider, and a function that collects the
     ``holmesgpt.toolset.status`` points as ``{(toolset, status): (value, attributes)}``."""
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -751,7 +750,7 @@ def toolset_status_metric():
     from holmes.core.otel_tracing import OTelMetrics
 
     reader = InMemoryMetricReader()
-    provider = MeterProvider(metric_readers=[reader])
+    provider = MeterProvider(metric_readers=[reader], views=views)
     metrics = OTelMetrics(provider.get_meter("test", "0.1.0"))
 
     def collect():
@@ -768,6 +767,12 @@ def toolset_status_metric():
                         points[key] = (point.value, attributes)
         return points
 
+    return metrics, provider, collect
+
+
+@pytest.fixture()
+def toolset_status_metric():
+    metrics, provider, collect = _toolset_status_metric()
     yield metrics, collect
     provider.shutdown()
 
@@ -828,6 +833,42 @@ class TestToolsetStatusMetric:
         points = collect()
         assert points[("remote-mcp", "failed")][0] == 0
         assert points[("remote-mcp", "enabled")][0] == 1
+
+    def test_status_is_read_once_per_export(self, toolset_status_metric):
+        metrics, collect = toolset_status_metric
+
+        class ChangesWhileExporting:
+            name = "remote-mcp"
+            type = ToolsetType.MCP
+            statuses = iter([ToolsetStatusEnum.ENABLED, ToolsetStatusEnum.FAILED])
+
+            @property
+            def status(self):
+                return next(self.statuses, ToolsetStatusEnum.FAILED)
+
+        metrics.set_toolsets_source(lambda: [ChangesWhileExporting()])
+
+        assert sum(value for value, _ in collect().values()) == 1
+
+    def test_production_view_keeps_every_dimension(self):
+        from opentelemetry.sdk.metrics import MeterProvider
+
+        from holmes.core import otel_tracing
+
+        with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+            with patch.object(otel_tracing, "MeterProvider", wraps=MeterProvider) as meter_provider:
+                tracer = otel_tracing.OpenTelemetryTracer(service_name="test")
+            tracer.shutdown()
+
+        metrics, provider, collect = _toolset_status_metric(meter_provider.call_args.kwargs["views"])
+        metrics.set_toolsets_source(lambda: [_toolset("remote-mcp", ToolsetStatusEnum.FAILED, ToolsetType.MCP)])
+
+        assert collect()[("remote-mcp", "failed")][1] == {
+            "holmesgpt_toolset_name": "remote-mcp",
+            "holmesgpt_toolset_type": "mcp",
+            "holmesgpt_toolset_status": "failed",
+        }
+        provider.shutdown()
 
     def test_reports_nothing_without_a_source(self, toolset_status_metric):
         _, collect = toolset_status_metric

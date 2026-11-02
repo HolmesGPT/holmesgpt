@@ -261,10 +261,12 @@ class OTelMetrics:
             attributes = {DIM_TOOLSET_NAME: toolset.name}
             if toolset.type:
                 attributes[DIM_TOOLSET_TYPE] = toolset.type.value
+            # Read once, so a concurrent change can't report two statuses in one export.
+            current_status = toolset.status
             for status in ToolsetStatusEnum:
                 observations.append(
                     Observation(
-                        int(toolset.status == status),
+                        int(current_status == status),
                         {**attributes, DIM_TOOLSET_STATUS: status.value},
                     )
                 )
