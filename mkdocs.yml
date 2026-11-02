@@ -7,6 +7,7 @@ edit_uri: edit/master/docs/
 exclude_docs: |
     _*
     /custom_fences.py
+    /fence_checks.py
     /overrides/
     snippets/
     README.md
@@ -235,9 +236,6 @@ markdown_extensions:
           base_path: docs
     - pymdownx.superfences:
           custom_fences:
-              - name: mermaid
-                class: mermaid
-                format: !!python/name:pymdownx.superfences.fence_code_format
               - name: robusta-region
                 class: robusta-region
                 format: !!python/name:docs.custom_fences.robusta_region_fence_format

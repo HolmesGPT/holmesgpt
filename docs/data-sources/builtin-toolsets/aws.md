@@ -297,12 +297,10 @@ mcpAddons:
       enabled: true
       profiles:
         dev:
-          account_id: "111111111111"
           role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-          description: "Development account"   # optional, shown to the LLM as the server description
+          description: "Development account"   # shown to the LLM as the server description
           region: "us-east-1"                  # optional, defaults to config.region
         prod:
-          account_id: "222222222222"
           role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
           description: "Production account"
           # Instead of the pod token, assume this role from another profile's credentials

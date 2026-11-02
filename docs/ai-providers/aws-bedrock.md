@@ -62,7 +62,7 @@ cli: |
   **For Claude Sonnet with 1M context window:**
 
   ```bash
-  export AWS_REGION_NAME="us-east-1"
+  export AWS_REGION_NAME="eu-south-2"
   export AWS_ACCESS_KEY_ID="your-access-key"
   export AWS_SECRET_ACCESS_KEY="your-secret-key"
   export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
