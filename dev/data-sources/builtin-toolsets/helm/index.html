@@ -5781,8 +5781,8 @@
 
 <h1 id="helm">Helm ✓<a class="headerlink" href="#helm" title="Permanent link">&para;</a></h1>
 <div class="admonition info">
-<p class="admonition-title">Enabled by Default</p>
-<p>This toolset is enabled by default. You do not need to configure it. You can disable it if you want to but doing so may negatively impact HolmesGPT's ability to investigate issues.</p>
+<p class="admonition-title">Enabled by default in the Holmes CLI</p>
+<p>The Holmes CLI enables this toolset by default when <code>helm</code> is installed. The Holmes server, which the Helm charts deploy, loads it only when the config enables it, as in <a href="#configuration">Configuration</a> below.</p>
 </div>
 <p>By enabling this toolset, HolmesGPT will be able to provide read access to a cluster's Helm charts and releases.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
@@ -5800,7 +5800,7 @@
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
+<p>When using the <strong>standalone Holmes Helm Chart</strong>, merge this into your <code>values.yaml</code>, appending list entries (such as <code>additionalEnvVars</code>) to the lists already there:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">toolsets</span><span class="p">:</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nt">helm/core</span><span class="p">:</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -5826,7 +5826,7 @@
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
+<p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), merge the keys under <code>holmes:</code> into the <code>holmes:</code> key of your <code>generated_values.yaml</code> (add one if it has none), appending list entries (such as <code>additionalEnvVars</code>) to the lists already there:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">holmes</span><span class="p">:</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">toolsets</span><span class="p">:</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">      </span><span class="nt">helm/core</span><span class="p">:</span>
@@ -5859,7 +5859,7 @@
 <div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="release-namespace-only-holmes-helm-chart" name="__tabbed_2" type="radio" /><input id="release-namespace-only-robusta-helm-chart" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="release-namespace-only-holmes-helm-chart">Holmes Helm Chart</label><label for="release-namespace-only-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<p>When using the <strong>standalone Holmes Helm Chart</strong>, update your <code>values.yaml</code>:</p>
+<p>When using the <strong>standalone Holmes Helm Chart</strong>, merge this into your <code>values.yaml</code>, appending list entries (such as <code>additionalEnvVars</code>) to the lists already there:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">namespaceScopedRBAC</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nt">toolsets</span><span class="p">:</span>
@@ -5884,7 +5884,7 @@
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), update your <code>generated_values.yaml</code>:</p>
+<p>When using the <strong>Robusta Helm Chart</strong> (which includes HolmesGPT), merge the keys under <code>holmes:</code> into the <code>holmes:</code> key of your <code>generated_values.yaml</code> (add one if it has none), appending list entries (such as <code>additionalEnvVars</code>) to the lists already there:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">holmes</span><span class="p">:</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">namespaceScopedRBAC</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
