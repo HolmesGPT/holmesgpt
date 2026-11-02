@@ -29,13 +29,13 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
           - name: view_dashboard
             description: "View a specific Grafana dashboard by ID or name"
             command: |
-              curl -s "${GRAFANA_URL}/api/dashboards/uid/{{ dashboard_uid }}" \
+              curl -s "${GRAFANA_URL}/api/dashboards/uid/"{{ dashboard_uid }} \
                 -H "Authorization: Bearer ${GRAFANA_TOKEN}"
 
           - name: search_dashboards
             description: "Search for dashboards related to specific keywords"
             command: |
-              curl -s "${GRAFANA_URL}/api/search?query={{ search_query }}" \
+              curl -s "${GRAFANA_URL}/api/search?query="{{ search_query }} \
                 -H "Authorization: Bearer ${GRAFANA_TOKEN}"
     ```
 
@@ -87,13 +87,13 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
           - name: view_dashboard
             description: "View a specific Grafana dashboard by ID or name"
             command: |
-              curl -s "${GRAFANA_URL}/api/dashboards/uid/{{ dashboard_uid }}" \
+              curl -s "${GRAFANA_URL}/api/dashboards/uid/"{{ dashboard_uid }} \
                 -H "Authorization: Bearer ${GRAFANA_TOKEN}"
 
           - name: search_dashboards
             description: "Search for dashboards related to specific keywords"
             command: |
-              curl -s "${GRAFANA_URL}/api/search?query={{ search_query }}" \
+              curl -s "${GRAFANA_URL}/api/search?query="{{ search_query }} \
                 -H "Authorization: Bearer ${GRAFANA_TOKEN}"
     ```
 
@@ -133,13 +133,13 @@ This example creates a toolset that helps HolmesGPT view and suggest relevant Gr
             - name: view_dashboard
               description: "View a specific Grafana dashboard by ID or name"
               command: |
-                curl -s "${GRAFANA_URL}/api/dashboards/uid/{{ dashboard_uid }}" \
+                curl -s "${GRAFANA_URL}/api/dashboards/uid/"{{ dashboard_uid }} \
                   -H "Authorization: Bearer ${GRAFANA_TOKEN}"
 
             - name: search_dashboards
               description: "Search for dashboards related to specific keywords"
               command: |
-                curl -s "${GRAFANA_URL}/api/search?query={{ search_query }}" \
+                curl -s "${GRAFANA_URL}/api/search?query="{{ search_query }} \
                   -H "Authorization: Bearer ${GRAFANA_TOKEN}"
     ```
 
@@ -306,19 +306,19 @@ This example shows how to create a toolset for fetching information from GitHub 
             description: "Get information about a GitHub repository"
             command: |
               curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/{{ owner }}/{{ repo }}"
+                "https://api.github.com/repos/"{{ owner }}/{{ repo }}
 
           - name: get_recent_commits
             description: "Get recent commits from a repository"
             command: |
               curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/{{ owner }}/{{ repo }}/commits?per_page={{ limit | default(10) }}"
+                "https://api.github.com/repos/"{{ owner }}/{{ repo }}"/commits?per_page="{{ limit | default(10) }}
 
           - name: search_issues
             description: "Search for issues in a repository"
             command: |
               curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/search/issues?q=repo:{{ owner }}/{{ repo }}+{{ search_query }}"
+                "https://api.github.com/search/issues?q=repo:"{{ owner }}/{{ repo }}+{{ search_query }}
     ```
 
     **Environment Variables:**
@@ -369,19 +369,19 @@ This example shows how to create a toolset for fetching information from GitHub 
             description: "Get information about a GitHub repository"
             command: |
               curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/{{ owner }}/{{ repo }}"
+                "https://api.github.com/repos/"{{ owner }}/{{ repo }}
 
           - name: get_recent_commits
             description: "Get recent commits from a repository"
             command: |
               curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/{{ owner }}/{{ repo }}/commits?per_page={{ limit | default(10) }}"
+                "https://api.github.com/repos/"{{ owner }}/{{ repo }}"/commits?per_page="{{ limit | default(10) }}
 
           - name: search_issues
             description: "Search for issues in a repository"
             command: |
               curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                "https://api.github.com/search/issues?q=repo:{{ owner }}/{{ repo }}+{{ search_query }}"
+                "https://api.github.com/search/issues?q=repo:"{{ owner }}/{{ repo }}+{{ search_query }}
     ```
 
     Apply the configuration:
@@ -421,19 +421,19 @@ This example shows how to create a toolset for fetching information from GitHub 
               description: "Get information about a GitHub repository"
               command: |
                 curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                  "https://api.github.com/repos/{{ owner }}/{{ repo }}"
+                  "https://api.github.com/repos/"{{ owner }}/{{ repo }}
 
             - name: get_recent_commits
               description: "Get recent commits from a repository"
               command: |
                 curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                  "https://api.github.com/repos/{{ owner }}/{{ repo }}/commits?per_page={{ limit | default(10) }}"
+                  "https://api.github.com/repos/"{{ owner }}/{{ repo }}"/commits?per_page="{{ limit | default(10) }}
 
             - name: search_issues
               description: "Search for issues in a repository"
               command: |
                 curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                  "https://api.github.com/search/issues?q=repo:{{ owner }}/{{ repo }}+{{ search_query }}"
+                  "https://api.github.com/search/issues?q=repo:"{{ owner }}/{{ repo }}+{{ search_query }}
     ```
 
     Apply the configuration:
@@ -485,6 +485,8 @@ HolmesGPT supports two types of variables in commands:
 - **`${VARIABLE}`**: Environment variables (not visible to the LLM)
 - **`{{ request_context.headers['Header-Name'] }}`**: Headers from the incoming HTTP request (see [HTTP Header Propagation](header-propagation.md))
 - **`{{ env.VAR_NAME }}`**: Environment variables accessible via Jinja2 templates
+
+Holmes shell-quotes the value of each `{{ variable }}` before it runs the command. Write a variable outside double quotes, as the examples above do (`"${GRAFANA_URL}/api/dashboards/uid/"{{ dashboard_uid }}`): inside double quotes the added quotes are literal characters, so `$(...)` in a value the LLM chose still runs.
 
 ### Tags
 

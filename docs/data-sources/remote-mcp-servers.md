@@ -138,14 +138,24 @@ USER root
 USER node
 
 EXPOSE 8000
-# Replace with your MCP server command. Examples:
-#   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-#   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
-#   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
-CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
+# Replace with your MCP server command, passed to --stdio as one string. Examples:
+#   CMD ["--port", "8000", "--stdio", "python3 -m your_mcp_module"]
+#   CMD ["--port", "8000", "--stdio", "python3 /app/stdio_server.py"]
+#   CMD ["--port", "8000", "--stdio", "npx -y @your-org/your-mcp-server@latest"]
+CMD ["--port", "8000", "--stdio", "python3 -m your_mcp_module"]
 ```
 
 **Step 2: Deploy the MCP server pod**
+
+The manifest passes your server an `API_KEY` from the Secret `mcp-credentials`, and the pod does not start until that Secret exists. Create it in the namespace you apply the manifest in (`default` in the Holmes config below), or remove the `env` block if your server needs no credentials:
+
+```bash
+kubectl create secret generic mcp-credentials \
+  --from-literal=api_key="<your-api-key>" \
+  -n default
+```
+
+Then apply the manifest:
 
 ```yaml
 apiVersion: v1

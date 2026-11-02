@@ -13,11 +13,10 @@ By enabling this toolset, HolmesGPT will be able to describe and find Kubernetes
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/core:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/core:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -112,11 +111,10 @@ By enabling this toolset, HolmesGPT will be able to read Kubernetes pod logs.
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/logs:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/logs:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -141,11 +139,10 @@ This toolset retrieves real-time CPU and memory usage for pods and nodes.
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/live-metrics:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/live-metrics:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -164,11 +161,10 @@ This toolset uses `kubectl` to proxy into a Prometheus service running in-cluste
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/kube-prometheus-stack:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/kube-prometheus-stack:
+        enabled: true
 ```
 
 **Capabilities:**
