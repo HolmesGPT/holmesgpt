@@ -45,89 +45,19 @@ This is the recommended approach if your ArgoCD is inside your Kubernetes cluste
 
 In Kubernetes, HolmesGPT needs permission to establish a port-forward to ArgoCD. The configuration below includes that authorization.
 
-=== "Holmes CLI"
-
-    Set the environment variables:
-
-    ```bash
-    export ARGOCD_AUTH_TOKEN="<your-argocd-token>"
-    export ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-argocd \
-      --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>" \
-      --from-literal=ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-argocd
-
-    customClusterRoleRules:
-        - apiGroups: [""]
-          resources: ["pods/portforward"]
-          verbs: ["create"]
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-argocd \
-      --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>" \
-      --from-literal=ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-argocd
-
-      customClusterRoleRules:
-          - apiGroups: [""]
-            resources: ["pods/portforward"]
-            verbs: ["create"]
-      toolsets:
-          argocd/core:
-              enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+customClusterRoleRules:
+    - apiGroups: [""]
+      resources: ["pods/portforward"]
+      verbs: ["create"]
+toolsets:
+    argocd/core:
+        enabled: true
+---
+secret:
+  - --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>"
+  - --from-literal=ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
+```
 
 !!! note
 
@@ -141,87 +71,17 @@ In Kubernetes, HolmesGPT needs permission to establish a port-forward to ArgoCD.
 
 This is the recommended approach if your ArgoCD is reachable through a public DNS.
 
-=== "Holmes CLI"
-
-    Set the environment variables:
-
-    ```bash
-    export ARGOCD_AUTH_TOKEN="<your-argocd-token>"
-    export ARGOCD_SERVER="argocd.example.com"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-    To test, run:
-
-    ```bash
-    holmes ask "Which ArgoCD applications are failing and why?"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-argocd-server-url \
-      --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>" \
-      --from-literal=ARGOCD_SERVER="argocd.example.com" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-argocd-server-url
-
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-argocd-server-url \
-      --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>" \
-      --from-literal=ARGOCD_SERVER="argocd.example.com" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-argocd-server-url
-
-      toolsets:
-          argocd/core:
-              enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config {secret-qualifier=server-url}
+toolsets:
+    argocd/core:
+        enabled: true
+---
+secret:
+  - --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>"
+  - --from-literal=ARGOCD_SERVER="argocd.example.com"
+test: |
+  holmes ask "Which ArgoCD applications are failing and why?"
+```
 
 ## Capabilities
 

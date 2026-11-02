@@ -45,7 +45,7 @@ These are the things to keep in mind when deciding whether to change the default
 
 **Per-subprocess, not aggregate.**
 
-Each tool call gets its own ceiling. Two concurrent tool calls can each allocate up to the limit, so the total memory in use can be a multiple of `TOOL_MEMORY_LIMIT_MB`.
+Each tool call gets its own ceiling. Holmes runs the tool calls of one LLM response at once, up to 16, and each can allocate up to the limit, so the total memory in use can be a multiple of `TOOL_MEMORY_LIMIT_MB`. Size the pod's `resources.limits.memory` for Holmes itself plus the limit times the number of memory-heavy calls you expect together: the example below, a 2000 MB limit in an 8192Mi pod, fits three.
 
 **Coordinate with your container memory limit.**
 
@@ -74,44 +74,21 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: TOOL_MEMORY_LIMIT_MB
+    value: "2000"
 
-    ```bash
-    export TOOL_MEMORY_LIMIT_MB=2000
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalEnvVars:
-      - name: TOOL_MEMORY_LIMIT_MB
-        value: "2000"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: TOOL_MEMORY_LIMIT_MB
-          value: "2000"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+# Raised with the tool limit, from the chart's default of 2048Mi
+resources:
+  limits:
+    memory: 8192Mi
+---
+cli: |
+  ```bash
+  export TOOL_MEMORY_LIMIT_MB=2000
+  ```
+```
 
 !!! note "Keep the pod memory limit in sync"
     Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).
