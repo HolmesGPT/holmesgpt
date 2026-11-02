@@ -35,7 +35,7 @@ def test_values_defaults_are_plug_and_play():
     # node diagnostics tool (dcgmEnabled), 1.4.0 the `ps` argument policy
     # (ROB-974) and the fail-closed file-read policy (ROB-973); the config keys
     # asserted below only take effect on the version that introduced them.
-    assert v["image"] == "kubernetes-remediation-mcp:1.4.0"
+    assert v["image"] == "kubernetes-remediation-mcp:1.5.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
