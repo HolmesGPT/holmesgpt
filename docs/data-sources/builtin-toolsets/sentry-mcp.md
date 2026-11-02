@@ -24,161 +24,119 @@ Before configuring the Sentry MCP server, you need a Sentry Auth Token.
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcpAddons:
+  sentry:
+    enabled: true
+    auth:
+      secretName: "holmes-sentry-mcp"
+---
+named-secrets:
+  - name: holmes-sentry-mcp
+    keys:
+      - --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN>
+cli: |
+  For CLI usage, you need to deploy the Sentry MCP server first, then configure Holmes to connect to it.
 
-    For CLI usage, you need to deploy the Sentry MCP server first, then configure Holmes to connect to it.
+  **Step 1: Create the Sentry Token Secret**
 
-    **Step 1: Create the Sentry Token Secret**
+  ```bash
+  kubectl create namespace holmes-mcp
 
-    ```bash
-    kubectl create namespace holmes-mcp
+  kubectl create secret generic sentry-mcp-token \
+    --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
+    -n holmes-mcp
+  ```
 
-    kubectl create secret generic sentry-mcp-token \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
-      -n holmes-mcp
-    ```
+  **Step 2: Deploy the Sentry MCP Server**
 
-    **Step 2: Deploy the Sentry MCP Server**
+  Create a file named `sentry-mcp-deployment.yaml`:
 
-    Create a file named `sentry-mcp-deployment.yaml`:
-
-    ```yaml
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: sentry-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: sentry-mcp-server
-      template:
-        metadata:
-          labels:
-            app: sentry-mcp-server
-        spec:
-          containers:
-          - name: sentry-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/sentry-mcp:1.0.1
-            imagePullPolicy: IfNotPresent
-            ports:
-            - containerPort: 8000
-              name: http
-            env:
-            - name: SENTRY_AUTH_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: sentry-mcp-token
-                  key: token
-            # Uncomment for self-hosted Sentry:
-            # - name: SENTRY_HOST
-            #   value: "https://sentry.mycompany.com"
-            resources:
-              requests:
-                memory: "128Mi"
-                cpu: "100m"
-              limits:
-                memory: "512Mi"
-            readinessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 5
-              periodSeconds: 10
-            livenessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 10
-              periodSeconds: 30
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: sentry-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: sentry-mcp-server
+    namespace: holmes-mcp
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
         app: sentry-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        protocol: TCP
-        name: http
-    ```
+    template:
+      metadata:
+        labels:
+          app: sentry-mcp-server
+      spec:
+        containers:
+        - name: sentry-mcp
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/sentry-mcp:1.0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8000
+            name: http
+          env:
+          - name: SENTRY_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: sentry-mcp-token
+                key: token
+          # Uncomment for self-hosted Sentry:
+          # - name: SENTRY_HOST
+          #   value: "https://sentry.mycompany.com"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: sentry-mcp-server
+    namespace: holmes-mcp
+  spec:
+    selector:
+      app: sentry-mcp-server
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  ```
 
-    Deploy it to your cluster:
+  Deploy it to your cluster:
 
-    ```bash
-    kubectl apply -f sentry-mcp-deployment.yaml
-    ```
+  ```bash
+  kubectl apply -f sentry-mcp-deployment.yaml
+  ```
 
-    **Step 3: Configure Holmes CLI**
+  **Step 3: Configure Holmes CLI**
 
-    Add the MCP server configuration to **~/.holmes/config.yaml**:
+  Add the MCP server configuration to **~/.holmes/config.yaml**:
 
-    ```yaml
-    mcp_servers:
-      sentry:
-        description: "Sentry error tracking and monitoring"
-        config:
-          url: "http://sentry-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
-          mode: sse
-    ```
+  ```yaml
+  mcp_servers:
+    sentry:
+      description: "Sentry error tracking and monitoring"
+      config:
+        url: "http://sentry-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+        mode: sse
+  ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-sentry-mcp \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      sentry:
-        enabled: true
-        auth:
-          secretName: "holmes-sentry-mcp"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-sentry-mcp \
-      --from-literal=token=<YOUR_SENTRY_AUTH_TOKEN> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        sentry:
-          enabled: true
-          auth:
-            secretName: "holmes-sentry-mcp"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ### Custom LLM Instructions
 
@@ -186,50 +144,17 @@ Reuses the `holmes-sentry-mcp` secret created in the [Configuration](#configurat
 
 To customize how Holmes uses Sentry, you can provide your own LLM instructions:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      sentry:
-        enabled: true
-        auth:
-          secretName: "holmes-sentry-mcp"
-        llmInstructions: |
-          Use the Sentry MCP to investigate application errors and crashes.
-          When investigating, always start by listing projects, then search for relevant issues,
-          and retrieve full stack traces before drawing conclusions.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        sentry:
-          enabled: true
-          auth:
-            secretName: "holmes-sentry-mcp"
-          llmInstructions: |
-            Use the Sentry MCP to investigate application errors and crashes.
-            When investigating, always start by listing projects, then search for relevant issues,
-            and retrieve full stack traces before drawing conclusions.
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  sentry:
+    enabled: true
+    auth:
+      secretName: "holmes-sentry-mcp"
+    llmInstructions: |
+      Use the Sentry MCP to investigate application errors and crashes.
+      When investigating, always start by listing projects, then search for relevant issues,
+      and retrieve full stack traces before drawing conclusions.
+```
 
 ### Self-Hosted Sentry
 
@@ -237,46 +162,15 @@ Reuses the `holmes-sentry-mcp` secret created in the [Configuration](#configurat
 
 For self-hosted Sentry, add the host configuration:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      sentry:
-        enabled: true
-        auth:
-          secretName: "holmes-sentry-mcp"
-        config:
-          host: "https://sentry.mycompany.com"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        sentry:
-          enabled: true
-          auth:
-            secretName: "holmes-sentry-mcp"
-          config:
-            host: "https://sentry.mycompany.com"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  sentry:
+    enabled: true
+    auth:
+      secretName: "holmes-sentry-mcp"
+    config:
+      host: "https://sentry.mycompany.com"
+```
 
 ## Available Tools
 

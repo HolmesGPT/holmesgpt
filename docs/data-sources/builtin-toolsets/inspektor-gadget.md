@@ -13,19 +13,21 @@ These toolsets run only in the Holmes CLI. They are tagged `cli`, so the Holmes 
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, verify your environment is configured:
 
-    First, verify your environment is configured:
+  ```bash
+  # Verify kubectl is accessible
+  kubectl version --client
 
-    ```bash
-    # Verify kubectl is accessible
-    kubectl version --client
+  # Set the environment variable to enable Inspektor Gadget
+  export ENABLE_INSPEKTOR_GADGET=true
+  ```
 
-    # Set the environment variable to enable Inspektor Gadget
-    export ENABLE_INSPEKTOR_GADGET=true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Capabilities
 

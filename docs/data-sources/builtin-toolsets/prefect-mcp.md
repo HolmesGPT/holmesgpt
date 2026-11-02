@@ -31,216 +31,143 @@ Before configuring the Prefect MCP server, you need:
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcpAddons:
+  prefect:
+    enabled: true
+    auth:
+      secretName: "holmes-prefect-mcp"
+    config:
+      apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
+---
+named-secrets:
+  - name: holmes-prefect-mcp
+    keys:
+      - --from-literal=token=<YOUR_PREFECT_API_KEY>
+cli: |
+  For CLI usage, you need to deploy the Prefect MCP server first, then configure Holmes to connect to it.
 
-    For CLI usage, you need to deploy the Prefect MCP server first, then configure Holmes to connect to it.
+  **Step 1: Create the Prefect Credentials Secret**
 
-    **Step 1: Create the Prefect Credentials Secret**
+  ```bash
+  kubectl create namespace holmes-mcp
 
-    ```bash
-    kubectl create namespace holmes-mcp
+  kubectl create secret generic prefect-mcp-credentials \
+    --from-literal=api-url=<YOUR_PREFECT_API_URL> \
+    --from-literal=token=<YOUR_PREFECT_API_KEY> \
+    -n holmes-mcp
+  ```
 
-    kubectl create secret generic prefect-mcp-credentials \
-      --from-literal=api-url=<YOUR_PREFECT_API_URL> \
-      --from-literal=token=<YOUR_PREFECT_API_KEY> \
-      -n holmes-mcp
-    ```
+  **Step 2: Deploy the Prefect MCP Server**
 
-    **Step 2: Deploy the Prefect MCP Server**
+  Create a file named `prefect-mcp-deployment.yaml`:
 
-    Create a file named `prefect-mcp-deployment.yaml`:
-
-    ```yaml
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: prefect-mcp-server
-      namespace: holmes-mcp
-    spec:
-      replicas: 1
-      selector:
-        matchLabels:
-          app: prefect-mcp-server
-      template:
-        metadata:
-          labels:
-            app: prefect-mcp-server
-        spec:
-          containers:
-          - name: prefect-mcp
-            image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/prefect-mcp:1.0.0
-            imagePullPolicy: IfNotPresent
-            ports:
-            - containerPort: 8000
-              name: http
-            env:
-            - name: PREFECT_API_URL
-              valueFrom:
-                secretKeyRef:
-                  name: prefect-mcp-credentials
-                  key: api-url
-            - name: PREFECT_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: prefect-mcp-credentials
-                  key: token
-            resources:
-              requests:
-                memory: "128Mi"
-                cpu: "100m"
-              limits:
-                memory: "512Mi"
-            readinessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 5
-              periodSeconds: 10
-            livenessProbe:
-              tcpSocket:
-                port: 8000
-              initialDelaySeconds: 10
-              periodSeconds: 30
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: prefect-mcp-server
-      namespace: holmes-mcp
-    spec:
-      selector:
+  ```yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: prefect-mcp-server
+    namespace: holmes-mcp
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
         app: prefect-mcp-server
-      ports:
-      - port: 8000
-        targetPort: 8000
-        protocol: TCP
-        name: http
-    ```
+    template:
+      metadata:
+        labels:
+          app: prefect-mcp-server
+      spec:
+        containers:
+        - name: prefect-mcp
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/prefect-mcp:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 8000
+            name: http
+          env:
+          - name: PREFECT_API_URL
+            valueFrom:
+              secretKeyRef:
+                name: prefect-mcp-credentials
+                key: api-url
+          - name: PREFECT_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: prefect-mcp-credentials
+                key: token
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+  ---
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: prefect-mcp-server
+    namespace: holmes-mcp
+  spec:
+    selector:
+      app: prefect-mcp-server
+    ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  ```
 
-    Deploy it to your cluster:
+  Deploy it to your cluster:
 
-    ```bash
-    kubectl apply -f prefect-mcp-deployment.yaml
-    ```
+  ```bash
+  kubectl apply -f prefect-mcp-deployment.yaml
+  ```
 
-    **Step 3: Configure Holmes CLI**
+  **Step 3: Configure Holmes CLI**
 
-    Add the MCP server configuration to **~/.holmes/config.yaml**:
+  Add the MCP server configuration to **~/.holmes/config.yaml**:
 
-    ```yaml
-    mcp_servers:
-      prefect:
-        description: "Prefect workflow orchestration and monitoring"
-        config:
-          url: "http://prefect-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
-          mode: sse
-        llm_instructions: |
-          Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
-          When investigating a failed flow run:
-            1. First get the flow run details to understand what failed
-            2. Retrieve the logs for the failed flow/task run
-            3. Check if the deployment is healthy and workers are running
-            4. Look at recent runs of the same flow to identify patterns
-    ```
+  ```yaml
+  mcp_servers:
+    prefect:
+      description: "Prefect workflow orchestration and monitoring"
+      config:
+        url: "http://prefect-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+        mode: sse
+      llm_instructions: |
+        Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
+        When investigating a failed flow run:
+          1. First get the flow run details to understand what failed
+          2. Retrieve the logs for the failed flow/task run
+          3. Check if the deployment is healthy and workers are running
+          4. Look at recent runs of the same flow to identify patterns
+  ```
 
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prefect-mcp \
-      --from-literal=token=<YOUR_PREFECT_API_KEY> \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      prefect:
-        enabled: true
-        auth:
-          secretName: "holmes-prefect-mcp"
-        config:
-          apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prefect-mcp \
-      --from-literal=token=<YOUR_PREFECT_API_KEY> \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        prefect:
-          enabled: true
-          auth:
-            secretName: "holmes-prefect-mcp"
-          config:
-            apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ### Self-hosted Prefect without an API key
 
 A self-hosted Prefect server that needs no API key takes no secret: leave `auth.secretName` unset, and the MCP server runs with no `PREFECT_API_KEY`. Set `apiUrl` to your server's API URL.
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      prefect:
-        enabled: true
-        config:
-          apiUrl: "http://prefect-server:4200/api"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        prefect:
-          enabled: true
-          config:
-            apiUrl: "http://prefect-server:4200/api"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  prefect:
+    enabled: true
+    config:
+      apiUrl: "http://prefect-server:4200/api"
+```
 
 ### Custom LLM Instructions
 
@@ -248,60 +175,22 @@ Reuses the `holmes-prefect-mcp` secret created in the [Configuration](#configura
 
 To customize how Holmes uses Prefect, you can provide your own LLM instructions:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      prefect:
-        enabled: true
-        auth:
-          secretName: "holmes-prefect-mcp"
-        config:
-          apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
-        llmInstructions: |
-          Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
-          When investigating a failed flow run:
-            1. First get the flow run details to understand what failed
-            2. Retrieve the logs for the failed flow/task run
-            3. Check if the deployment is healthy and workers are running
-            4. Look at recent runs of the same flow to identify patterns
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        prefect:
-          enabled: true
-          auth:
-            secretName: "holmes-prefect-mcp"
-          config:
-            apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
-          llmInstructions: |
-            Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
-            When investigating a failed flow run:
-              1. First get the flow run details to understand what failed
-              2. Retrieve the logs for the failed flow/task run
-              3. Check if the deployment is healthy and workers are running
-              4. Look at recent runs of the same flow to identify patterns
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+mcpAddons:
+  prefect:
+    enabled: true
+    auth:
+      secretName: "holmes-prefect-mcp"
+    config:
+      apiUrl: "https://api.prefect.cloud/api/accounts/<ACCOUNT_ID>/workspaces/<WORKSPACE_ID>"
+    llmInstructions: |
+      Use Prefect tools to investigate workflow failures, check flow run status, and troubleshoot orchestration issues.
+      When investigating a failed flow run:
+        1. First get the flow run details to understand what failed
+        2. Retrieve the logs for the failed flow/task run
+        3. Check if the deployment is healthy and workers are running
+        4. Look at recent runs of the same flow to identify patterns
+```
 
 ## Testing the Connection
 

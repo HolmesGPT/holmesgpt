@@ -6,9 +6,11 @@ A deployment tab group has only the tabs `Holmes CLI`, `Holmes Helm Chart` and
 `Robusta Helm Chart`, in that order. Its Holmes Helm Chart tab holds, in order:
 the service account line (when the page needs it), the secret step (when the
 values read a secret), the values step, and the upgrade step with
-`helm upgrade holmes robusta/holmes -f values.yaml`. Anything else fails with
-one error naming the page and line. Groups rendered from a deployment fence are
-checked by test_deployment_fences.py.
+`helm upgrade holmes robusta/holmes -f values.yaml`. Every deployment tab group
+is a deployment fence, checked in the fence's expansion with its errors naming
+the fence's line; a group written by hand in the page fails with one error
+naming the page and line. test_deployment_fences.py checks that every fence
+renders.
 """
 
 import re
@@ -32,8 +34,8 @@ DEPLOYMENT_LIKE_RE = re.compile(r"\b(Holmes|Robusta|Helm)\b")
 TAB_RE = re.compile(r'^(?P<indent> *)=== "(?P<label>[^"]*)"\s*$')
 CODE_FENCE_RE = re.compile(r"^(?P<fence>`{3,})(?P<info>.*)$")
 
-SERVICE_ACCOUNT_LINE = "Holmes runs as the service account "
-TWO_SECRETS_CAPTION = "Create the Kubernetes secrets in the namespace Holmes runs in:"
+# The service account line, up to the name it states.
+SERVICE_ACCOUNT_LINE = cf.SERVICE_ACCOUNT_LINE.partition("`")[0]
 SECRET_COMMAND = "kubectl create secret generic "
 
 # Robusta platform pages, which set up the platform rather than Holmes and are
@@ -63,9 +65,20 @@ def tab_groups(lines, offset=0):
     while i < len(lines):
         if lines[i].strip().startswith("~~~"):
             raise FenceError(offset + i + 1, "a `~~~` code fence; use backticks")
+        if cf.SUPPORTED_OPENING_RE.match(lines[i]):
+            # A custom fence ends at its own closing line; the code blocks of a
+            # `cli` field inside it are indented, and are not its end.
+            closing = next(
+                (j for j in range(i + 1, len(lines)) if lines[j] == cf.CLOSING_LINE),
+                None,
+            )
+            if closing is None:
+                raise FenceError(offset + i + 1, "custom fence with no closing line")
+            i = closing + 1
+            continue
         fence = CODE_FENCE_RE.match(lines[i].strip())
         if fence:
-            # Skip code blocks and deployment fences: a tab label inside one is not a tab.
+            # Skip code blocks: a tab label inside one is not a tab.
             closing = next(
                 (
                     j
@@ -145,7 +158,7 @@ def holmes_tab_problems(first, body):
             i = closing + 1
             continue
         text = line.strip()
-        if text in (cf.SECRET_CAPTION, TWO_SECRETS_CAPTION):
+        if text in (cf.SECRET_CAPTION, cf.SECRETS_CAPTION):
             expecting = "secret"
         elif text == cf.HOLMES_VALUES_CAPTION:
             expecting = "values"
@@ -163,34 +176,69 @@ def holmes_tab_problems(first, body):
     return problems
 
 
-def page_problems(path):
-    rel = path.relative_to(DOCS).as_posix()
+HAND_WRITTEN = (
+    "a deployment tab group written by hand; write it as a "
+    f"`{cf.TOOLSET_CONFIG_FENCE}` or `{cf.HELM_VALUES_FENCE}` fence"
+)
+
+
+def group_problems(lines, rendered):
+    """The ways the tab groups in `lines` depart from the standard, as (line, message).
+    A deployment tab group is allowed only in a fence's expansion (`rendered`)."""
     problems = []
-    try:
-        groups = list(tab_groups(path.read_text().split("\n")))
-    except FenceError as e:
-        return [f"{rel}:{e.line}: {e}"]
-    for number, labels, tabs in groups:
+    for number, labels, tabs in tab_groups(lines):
         deployment = [label for label in labels if label in DEPLOYMENT_LABELS]
         if not deployment:
             for label in labels:
                 if DEPLOYMENT_LIKE_RE.search(label):
-                    problems.append(f"{rel}:{number}: tab label {label!r} is not one of {', '.join(DEPLOYMENT_LABELS)}")
+                    problems.append((number, f"tab label {label!r} is not one of {', '.join(DEPLOYMENT_LABELS)}"))
+            continue
+        if not rendered:
+            problems.append((number, HAND_WRITTEN))
             continue
         if len(deployment) != len(labels):
-            problems.append(f"{rel}:{number}: deployment tabs mixed with other tabs: {labels}")
+            problems.append((number, f"deployment tabs mixed with other tabs: {labels}"))
             continue
         if labels != [label for label in DEPLOYMENT_LABELS if label in labels]:
-            problems.append(f"{rel}:{number}: tabs out of order: {labels}")
+            problems.append((number, f"tabs out of order: {labels}"))
         by_label = {label: (first, body) for label, first, body in tabs}
         if HOLMES_CHART not in by_label:
             if ROBUSTA_CHART in by_label:
-                problems.append(f"{rel}:{number}: a Robusta Helm Chart tab with no Holmes Helm Chart tab")
+                problems.append((number, "a Robusta Helm Chart tab with no Holmes Helm Chart tab"))
             continue
-        problems += [
-            f"{rel}:{line}: {message}"
-            for line, message in holmes_tab_problems(*by_label[HOLMES_CHART])
-        ]
+        problems += holmes_tab_problems(*by_label[HOLMES_CHART])
+    return problems
+
+
+def fence_expansions(rel, lines):
+    """(line, markdown) of every deployment fence in `lines` that renders."""
+    for i, line in enumerate(lines):
+        opening = cf.SUPPORTED_OPENING_RE.match(line)
+        if not opening or not opening["deployment"]:
+            continue
+        end = next((j for j in range(i + 1, len(lines)) if lines[j] == cf.CLOSING_LINE), None)
+        if end is None:
+            continue
+        try:
+            group = cf._deployment_section(opening, "\n".join(lines[i + 1 : end]).strip("\n"), rel)
+        except cf.FenceBodyError:
+            group = None
+        if group is not None:
+            yield i + 1, group
+
+
+def page_problems(path):
+    rel = path.relative_to(DOCS).as_posix()
+    lines = path.read_text().split("\n")
+    try:
+        problems = [f"{rel}:{line}: {message}" for line, message in group_problems(lines, rendered=False)]
+        for fence_line, group in fence_expansions(rel, lines):
+            problems += [
+                f"{rel}:{fence_line}: the fence renders, at line {line} of its expansion: {message}"
+                for line, message in group_problems(group.split("\n"), rendered=True)
+            ]
+    except FenceError as e:
+        return [f"{rel}:{e.line}: {e}"]
     return problems
 
 
