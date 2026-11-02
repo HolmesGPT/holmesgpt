@@ -87,7 +87,7 @@ mcp_servers:
       icon_url: "https://cdn.simpleicons.org/jira/0052CC"
     llm_instructions: |
       Use this to search Jira for tickets describing the same symptoms before
-      concluding an investigation.
+      concluding an investigation. Always pass the cloudId of the target site.
 
   atlassian-confluence:
     description: "Confluence pages via the Atlassian Rovo MCP server"
@@ -103,43 +103,6 @@ mcp_servers:
 secret:
   - --from-literal=ATLASSIAN_MCP_JIRA="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_JIRA_TOKEN>' | base64 | tr -d '\n')"
   - --from-literal=ATLASSIAN_MCP_CONFLUENCE="$(printf '%s:%s' '<YOUR_ATLASSIAN_EMAIL>' '<YOUR_CONFLUENCE_TOKEN>' | base64 | tr -d '\n')"
-cli: |
-  Export one base64 credential per token:
-
-  ```bash
-  export ATLASSIAN_MCP_JIRA=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_JIRA_TOKEN>" | base64 | tr -d '\n')
-  export ATLASSIAN_MCP_CONFLUENCE=$(printf '%s:%s' "<YOUR_ATLASSIAN_EMAIL>" "<YOUR_CONFLUENCE_TOKEN>" | base64 | tr -d '\n')
-  ```
-
-  Add the MCP servers to **~/.holmes/config.yaml**:
-
-  ```yaml
-  mcp_servers:
-    atlassian-jira:
-      description: "Jira issues via the Atlassian Rovo MCP server"
-      config:
-        mode: streamable-http
-        url: https://mcp.atlassian.com/v1/mcp
-        headers:
-          Authorization: "Basic {{ env.ATLASSIAN_MCP_JIRA }}"
-        icon_url: "https://cdn.simpleicons.org/jira/0052CC"
-      llm_instructions: |
-        Use this to search Jira for tickets describing the same symptoms before
-        concluding an investigation. Always pass the cloudId of the target site.
-
-    atlassian-confluence:
-      description: "Confluence pages via the Atlassian Rovo MCP server"
-      config:
-        mode: streamable-http
-        url: https://mcp.atlassian.com/v1/mcp
-        headers:
-          Authorization: "Basic {{ env.ATLASSIAN_MCP_CONFLUENCE }}"
-        icon_url: "https://cdn.simpleicons.org/confluence/172B4D"
-      llm_instructions: |
-        Use this to look up runbooks and architecture docs in Confluence.
-  ```
-
-  --8<-- "snippets/toolset_refresh_warning.md"
 ```
 
 The `{{ env.* }}` placeholders are resolved when Holmes loads its configuration, so the tokens themselves never have to appear in your values file or config file.
