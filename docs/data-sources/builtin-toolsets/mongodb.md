@@ -39,25 +39,6 @@ toolsets:
 ---
 secret:
   - --from-literal=MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb'
-cli: |
-  **~/.holmes/config.yaml:**
-
-  ```yaml
-  toolsets:
-    prod-mongo:
-      type: mongodb
-      config:
-        connection_url: "{{ env.PROD_MONGO_URL }}"
-      llm_instructions: "Production MongoDB with customer and order data"
-
-    analytics-mongo:
-      type: mongodb
-      config:
-        connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-      llm_instructions: "Analytics MongoDB for reporting"
-  ```
-
-  --8<-- "snippets/toolset_refresh_warning.md"
 ```
 
 ### Multiple instances

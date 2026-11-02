@@ -110,6 +110,14 @@ cli: |
 
   **Step 2: Deploy the MCP Server**
 
+  Create the bearer token the server requires on every request, and keep it set in the shell you run Holmes from:
+
+  ```bash
+  export K8S_REMEDIATION_MCP_TOKEN="$(openssl rand -hex 32)"
+  kubectl create secret generic k8s-remediation-mcp-auth -n holmes-mcp \
+    --from-literal=token="$K8S_REMEDIATION_MCP_TOKEN"
+  ```
+
   Create a file named `k8s-remediation-mcp-deployment.yaml`:
 
   ```yaml
@@ -136,8 +144,14 @@ cli: |
           ports:
           - containerPort: 8000
             name: http
-          # The defaults below ship in the image — listing them is optional.
           env:
+          # The bearer token every request must carry
+          - name: MCP_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: k8s-remediation-mcp-auth
+                key: token
+          # The defaults below ship in the image — listing them is optional.
           - name: KUBECTL_ALLOWED_COMMANDS
             value: "edit,patch,delete,scale,rollout,cordon,uncordon,drain,taint,label,annotate,run,exec"
           - name: KUBECTL_TIMEOUT
@@ -190,7 +204,15 @@ cli: |
   kubectl apply -f k8s-remediation-mcp-deployment.yaml
   ```
 
-  **Step 3: Configure Holmes CLI**
+  **Step 3: Forward the MCP server's port**
+
+  The Holmes CLI on your machine reaches the server through a port-forward. Keep it running while you use Holmes:
+
+  ```bash
+  kubectl port-forward -n holmes-mcp svc/k8s-remediation-mcp-server 8000:8000
+  ```
+
+  **Step 4: Configure Holmes CLI**
 
   Add the MCP server configuration to **~/.holmes/config.yaml**:
 
@@ -199,13 +221,24 @@ cli: |
     kubernetes_remediation:
       description: "Kubernetes remediation & deep diagnostics - execute kubectl and run diagnostic pods"
       config:
-        url: "http://k8s-remediation-mcp-server.holmes-mcp.svc.cluster.local:8000/mcp"
+        url: "http://localhost:8000/mcp"
         mode: streamable-http
+        extra_headers:
+          Authorization: "Bearer {{ env.K8S_REMEDIATION_MCP_TOKEN }}"
       approval_required_tools:
         - "run_kubectl_command"
   ```
 
   Only the mutating fallback (`run_kubectl_command`) is listed under `approval_required_tools`, so it requires confirmation before execution. The four read-only tools run immediately.
+
+  In a new shell, set the token again from the secret:
+
+  ```bash
+  export K8S_REMEDIATION_MCP_TOKEN="$(kubectl get secret k8s-remediation-mcp-auth -n holmes-mcp -o jsonpath='{.data.token}' | base64 -d)"
+  ```
+
+  !!! warning "The approval is enforced by Holmes, not by the server"
+      A client that has the token can call `run_kubectl_command` directly, with the server's service account and without approval, so keep the token as private as the service account's permissions. Where your cluster's network plugin enforces NetworkPolicies, also restrict ingress to the server with one. The Holmes Helm chart sets up both.
 
   --8<-- "snippets/toolset_refresh_warning.md"
 ```

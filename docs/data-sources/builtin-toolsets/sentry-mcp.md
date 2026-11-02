@@ -122,7 +122,15 @@ cli: |
   kubectl apply -f sentry-mcp-deployment.yaml
   ```
 
-  **Step 3: Configure Holmes CLI**
+  **Step 3: Forward the MCP server's port**
+
+  The Holmes CLI on your machine reaches the server through a port-forward. Keep it running while you use Holmes:
+
+  ```bash
+  kubectl port-forward -n holmes-mcp svc/sentry-mcp-server 8000:8000
+  ```
+
+  **Step 4: Configure Holmes CLI**
 
   Add the MCP server configuration to **~/.holmes/config.yaml**:
 
@@ -131,7 +139,7 @@ cli: |
     sentry:
       description: "Sentry error tracking and monitoring"
       config:
-        url: "http://sentry-mcp-server.holmes-mcp.svc.cluster.local:8000/sse"
+        url: "http://localhost:8000/sse"
         mode: sse
   ```
 
