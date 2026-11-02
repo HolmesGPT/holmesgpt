@@ -6414,7 +6414,7 @@
 <li>Set <strong><code>HOLMES_LANGFUSE_ATTRIBUTES=true</code></strong>. This is opt-in and <strong>off by default</strong> because it emits Langfuse-vendor-specific span attributes (<code>langfuse.*</code>) that would be noise for a generic OTel backend. Without it, Holmes exports only vendor-neutral OTel/<code>gen_ai.*</code> spans and the Langfuse Input/Output panels stay empty.</li>
 </ol>
 <p>Generate the Basic-auth value:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">echo</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;pk-lf-xxxx:sk-lf-xxxx&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">echo</span><span class="w"> </span>-n<span class="w"> </span><span class="s2">&quot;pk-lf-xxxx:sk-lf-xxxx&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>base64<span class="w"> </span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;\n&#39;</span>
 </span></code></pre></div>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="langfuse-holmes-cli" name="__tabbed_1" type="radio" /><input id="langfuse-helm--kubernetes" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="langfuse-holmes-cli">Holmes CLI</label><label for="langfuse-helm--kubernetes">Helm / Kubernetes</label></div>
 <div class="tabbed-content">

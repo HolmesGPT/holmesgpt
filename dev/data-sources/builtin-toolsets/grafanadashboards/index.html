@@ -6058,7 +6058,7 @@
 <p>When rendering a full dashboard, HolmesGPT captures the entire page (all rows) so that panels at the bottom are not cropped.</p>
 <h2 id="advanced-configuration">Advanced Configuration<a class="headerlink" href="#advanced-configuration" title="Permanent link">&para;</a></h2>
 <h3 id="ssl-verification">SSL Verification<a class="headerlink" href="#ssl-verification" title="Permanent link">&para;</a></h3>
-<p>For self-signed certificates, you can disable SSL verification:</p>
+<p>For self-signed certificates, you can disable SSL verification. Holmes then sends the API key without checking the server's certificate, so use this only for a Grafana you reach over a network you trust.</p>
 <p>In Kubernetes, this reuses the <code>holmes-grafanadashboards</code> secret created in the <a href="#configuration">Configuration</a> section above.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="ssl-verification-holmes-cli" name="__tabbed_3" type="radio" /><input id="ssl-verification-holmes-helm-chart" name="__tabbed_3" type="radio" /><input id="ssl-verification-robusta-helm-chart" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="ssl-verification-holmes-cli">Holmes CLI</label><label for="ssl-verification-holmes-helm-chart">Holmes Helm Chart</label><label for="ssl-verification-robusta-helm-chart">Robusta Helm Chart</label></div>
 <div class="tabbed-content">

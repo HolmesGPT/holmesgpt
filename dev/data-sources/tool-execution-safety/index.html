@@ -5898,7 +5898,7 @@
 <p><strong>Coordinate with your container memory limit.</strong></p>
 <p>On Kubernetes the tool limit operates <em>inside</em> the pod's cgroup memory limit. Keep <code>TOOL_MEMORY_LIMIT_MB</code> comfortably below your pod's <code>resources.limits.memory</code>:</p>
 <ul>
-<li>The Helm chart defaults to <code>resources.limits.memory: 1024Mi</code>.</li>
+<li>The Helm chart defaults to <code>resources.limits.memory: 2048Mi</code>, with the same memory request.</li>
 <li>The default <code>TOOL_MEMORY_LIMIT_MB</code> of 800 leaves headroom for Holmes itself, the Python runtime, and LLM client buffers.</li>
 </ul>
 <p>If you raise one, raise the other in lockstep.</p>
