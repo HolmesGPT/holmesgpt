@@ -1,6 +1,7 @@
 # Helm ✓
 
---8<-- "snippets/enabled_by_default.md"
+!!! info "Enabled by default in the Holmes CLI"
+    The Holmes CLI enables this toolset by default when `helm` is installed. The Holmes server, which the Helm charts deploy, loads it only when the config enables it, as in [Configuration](#configuration) below.
 
 By enabling this toolset, HolmesGPT will be able to provide read access to a cluster's Helm charts and releases.
 
