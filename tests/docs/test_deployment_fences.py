@@ -714,6 +714,13 @@ def test_a_non_string_environment_value_is_set_as_a_string_and_the_process_envir
             "`timeout_secondz` is not a field of NewrelicConfig",
         ),
         ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n  bad:\n    modle: x\n", 7, "model_list.yaml `bad`: Holmes refuses it"),
+        # A field the model refuses is blamed, not the entry or the config.
+        ("modelList:\n  gpt:\n    model: 5\n", 6, "model_list.yaml `gpt`: Holmes refuses it"),
+        (
+            "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      api_key: x\n      account_id: \"1\"\n      timeout_seconds: abc\n",
+            10,
+            "no config class of the toolset takes it",
+        ),
         # Helm's message names `tls.enabled` and `tls.secretName`; only the first is written.
         ("tls:\n  enabled: true\n", 5, "helm template fails"),
         # The Deployment's env entry is the values' entry, passed through.
@@ -743,13 +750,13 @@ def test_a_non_string_environment_value_is_set_as_a_string_and_the_process_envir
             "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      instances:\n"
             "        - name: prod\n          prometheus_url: http://p:9090\n"
             "        - name: dev\n          prometheus_url: [x]\n",
-            11,
+            12,
             "instance `dev`",
         ),
     ],
     ids=[
-        "chart-key", "toolset-config-key", "model-entry", "helm-names-a-key", "kubernetes-schema-env-entry",
-        "kubernetes-schema-undeclared-field", "addon-mcp-server", "instance-key", "key-shared-by-instances", "instance-without-a-key",
+        "chart-key", "toolset-config-key", "model-entry", "model-entry-field", "config-field", "helm-names-a-key", "kubernetes-schema-env-entry",
+        "kubernetes-schema-undeclared-field", "addon-mcp-server", "instance-key", "key-shared-by-instances", "instance-field",
     ],
 )
 def test_an_error_names_the_line_of_the_key_it_refuses(values, line, message):

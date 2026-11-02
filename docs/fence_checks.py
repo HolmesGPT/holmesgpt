@@ -316,6 +316,11 @@ def _config_errors(toolset: Toolset, at: tuple) -> List[FenceError]:
                 validated = cls.model_validate(copy.deepcopy(config))
             except ValidationError as e:
                 refusals.append(f"{cls.__name__}: {e}")
+                # The first setting the class refuses that the config writes.
+                blamed = blamed or next(
+                    (loc for loc in (tuple(error["loc"]) for error in e.errors()) if loc and _node_at(config, list(loc)) is not None),
+                    (),
+                )
                 continue
             undeclared = list(_undeclared(config, validated))
             if not undeclared:
@@ -417,7 +422,10 @@ def _model_errors(model_list: dict) -> List[FenceError]:
             substituted = replace_env_vars_values(entry)
             validated = ModelEntry.model_validate(substituted)
         except ValueError as e:
-            errors.append(FenceError(f"model_list.yaml `{name}`: Holmes refuses it: {e}", ("modelList", name)))
+            # A `ValidationError` names the field it refuses; a missing field is not written, so the entry's line serves.
+            fields = e.errors() if isinstance(e, ValidationError) else []
+            loc = tuple(fields[0]["loc"]) if fields else ()
+            errors.append(FenceError(f"model_list.yaml `{name}`: Holmes refuses it: {e}", ("modelList", name) + loc))
             continue
         nested = [(path, model) for path, model in _undeclared(substituted, validated) if len(path) > 1]
         if nested:
