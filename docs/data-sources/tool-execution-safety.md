@@ -74,44 +74,16 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    ```bash
-    export TOOL_MEMORY_LIMIT_MB=2000
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalEnvVars:
-      - name: TOOL_MEMORY_LIMIT_MB
-        value: "2000"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: TOOL_MEMORY_LIMIT_MB
-          value: "2000"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+additionalEnvVars:
+  - name: TOOL_MEMORY_LIMIT_MB
+    value: "2000"
+---
+cli: |
+  ```bash
+  export TOOL_MEMORY_LIMIT_MB=2000
+  ```
+```
 
 !!! note "Keep the pod memory limit in sync"
     Whenever you raise `TOOL_MEMORY_LIMIT_MB`, also raise `resources.limits.memory` on the Holmes pod so the cap actually has room to operate. See [Helm Resource Configuration](../reference/helm-configuration.md#resource-configuration).

@@ -16,28 +16,30 @@ This toolset runs only in the Holmes CLI. It is tagged `cli`, so the Holmes serv
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, ensure you're authenticated with Azure:
 
-    First, ensure you're authenticated with Azure:
+  ```bash
+  az login
+  az account set --subscription "<your subscription id>"
+  ```
 
-    ```bash
-    az login
-    az account set --subscription "<your subscription id>"
-    ```
+  Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+    aks/node-health:
+      enabled: true
+      config:
+        subscription_id: "<your Azure subscription ID>"
+        resource_group: "<your AKS resource group>"
+        cluster_name: "<your AKS cluster name>"
+  ```
 
-    ```yaml
-    toolsets:
-      aks/node-health:
-        enabled: true
-        config:
-          subscription_id: "<your Azure subscription ID>"
-          resource_group: "<your AKS resource group>"
-          cluster_name: "<your AKS cluster name>"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Advanced Configuration
 
