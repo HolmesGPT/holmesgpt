@@ -463,19 +463,52 @@ With the chart, a self-hosted MCP server pod is deployed using the `github-app-m
 
 A GitHub App installation token is scoped to a single installation — one organization or user account — so by default the server serves the one installation named by `GITHUB_APP_INSTALLATION_ID`.
 
-Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment:
+Reuses the `holmes-github-mcp-app` secret created in the [Using a GitHub App](#using-a-github-app) section above.
 
-```yaml
-mcpAddons:
-  github:
-    enabled: true
-    auth:
-      githubApp:
-        secretName: "holmes-github-mcp-app"
-        multiOrg: true    # alpha
-```
+Setting `multiOrg: true` switches to the alpha `github-app-mcp:2.0.0` image, which serves **every** organization the App is installed on from one deployment. Recreate that secret without its `GITHUB_APP_INSTALLATION_ID` key first, since a key left in pins the server to one installation:
 
-- Install the same App on every organization or user account Holmes should reach, and omit `GITHUB_APP_INSTALLATION_ID` from the secret.
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          githubApp:
+            secretName: "holmes-github-mcp-app"
+            multiOrg: true    # alpha
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            githubApp:
+              secretName: "holmes-github-mcp-app"
+              multiOrg: true    # alpha
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+- Install the same App on every organization or user account Holmes should reach.
 - The server discovers all installations at startup, and re-checks whenever a request names an organization it hasn't seen, so installing the App on a new organization requires no restart or config change.
 - Each tool call is routed to the right organization's credentials based on the `owner`/`org` it targets.
 - Requests that don't name an owner — and owners the App isn't installed on — use the first discovered installation.
@@ -545,31 +578,99 @@ HolmesGPT exposes two config knobs that control which tools the MCP server makes
 - **`config.toolsets`** — comma-separated list of toolset *groups*. Every tool in each selected group becomes available.
 - **`config.tools`** — comma-separated list of individual tool names. When set, this is a **hard allowlist** and takes precedence over `toolsets` (Holmes only gets exactly these tools regardless of what toolsets are configured). Leave empty to expose every tool from the selected toolsets.
 
-**Example — restrict by toolset group:**
+#### Restrict by toolset group
 
-```yaml
-mcpAddons:
-  github:
-    enabled: true
-    auth:
-      secretName: "holmes-github-mcp"
-    config:
-      # Only enable specific toolsets
-      toolsets: "pull_requests,actions"
-```
+Reuses the `holmes-github-mcp` secret created in the [Basic Configuration](#basic-configuration) section above.
 
-**Example — restrict to specific tools (bypasses `toolsets`):**
+=== "Holmes Helm Chart"
 
-```yaml
-mcpAddons:
-  github:
-    enabled: true
-    auth:
-      secretName: "holmes-github-mcp"
-    config:
-      # `tools` is a hard allowlist — `toolsets` is ignored when this is set.
-      tools: "get_file_contents,list_commits,list_workflow_runs,get_job_logs"
-```
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "holmes-github-mcp"
+        config:
+          # Only enable specific toolsets
+          toolsets: "pull_requests,actions"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "holmes-github-mcp"
+          config:
+            # Only enable specific toolsets
+            toolsets: "pull_requests,actions"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
+#### Restrict to specific tools (bypasses `toolsets`)
+
+Reuses the `holmes-github-mcp` secret created in the [Basic Configuration](#basic-configuration) section above.
+
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      github:
+        enabled: true
+        auth:
+          secretName: "holmes-github-mcp"
+        config:
+          # `tools` is a hard allowlist — `toolsets` is ignored when this is set.
+          tools: "get_file_contents,list_commits,list_workflow_runs,get_job_logs"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        github:
+          enabled: true
+          auth:
+            secretName: "holmes-github-mcp"
+          config:
+            # `tools` is a hard allowlist — `toolsets` is ignored when this is set.
+            tools: "get_file_contents,list_commits,list_workflow_runs,get_job_logs"
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 For the full list of available tools and toolsets, see the [GitHub MCP Server documentation](https://github.com/github/github-mcp-server).
 

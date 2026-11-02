@@ -2,97 +2,15 @@
 
 --8<-- "snippets/kubernetes_toolset_picker.md"
 
-The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server) gives Holmes access to Kubernetes clusters via the MCP protocol, with support for OAuth/OIDC authentication. It is intended to **replace** the built-in `kubernetes/core` and `kubernetes/logs` toolsets — the Helm examples below disable those to avoid overlap.
+The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server) gives Holmes access to Kubernetes clusters via the MCP protocol, with support for OAuth/OIDC authentication. Use it when Holmes should reach Kubernetes with each user's own identity, or reach several clusters from one Holmes through a kubeconfig. It then **replaces** the built-in `kubernetes/core` and `kubernetes/logs` toolsets, and the Helm examples below disable those to avoid overlap. For the cluster Holmes runs in, with Holmes's own identity, use the [built-in Kubernetes toolset](kubernetes.md): it reads the cluster through Holmes's own ServiceAccount and role, with no extra deployment.
 
 ## Which setup do I need?
 
 | Mode | Clusters Holmes can see | Authentication | Best for |
 |------|------------------------|----------------|----------|
-| **[Single Cluster](#single-cluster-serviceaccount)** | Just the cluster Holmes runs in | Pod's own ServiceAccount | Single-cluster setups, simplest path |
 | **[Multiple Clusters](#multiple-clusters-mounted-kubeconfig)** | Many clusters from one Holmes pod | Pre-issued tokens in a mounted kubeconfig | Investigating prod + staging + dev from one place |
 | **[Per-User Auth](#per-user-auth-oauth-or-oidc)** | One cluster, per-user identity | Each user's own SSO token (Microsoft Entra ID) | Enterprise SSO with per-user RBAC enforced on the API server |
 | **[Per-User Auth with Dex](#per-user-auth-with-dex-oidc)** | One cluster, per-user identity | Each user's own token issued by Dex | Clusters whose API server trusts Dex, federating LDAP, GitHub, Google, SAML or another IdP |
-
-## Single Cluster (ServiceAccount)
-
-The simplest setup. The MCP server runs in the same cluster it monitors and authenticates with its own ServiceAccount — no tokens to mint, no external IdP to configure.
-
-### Step 1: Deploy
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    # Disable built-in k8s toolsets to avoid overlap
-    toolsets:
-      kubernetes/core:
-        enabled: false
-      kubernetes/logs:
-        enabled: false
-      bash:
-        enabled: false
-
-    mcpAddons:
-      kubernetes:
-        enabled: true
-
-        serviceAccount:
-          create: true
-          name: "k8s-mcp-sa"
-          createClusterRoleBinding: true
-          clusterRole: "view"
-
-        config:
-          readOnly: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      # Disable built-in k8s toolsets to avoid overlap
-      toolsets:
-        kubernetes/core:
-          enabled: false
-        kubernetes/logs:
-          enabled: false
-        bash:
-          enabled: false
-
-      mcpAddons:
-        kubernetes:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            name: "k8s-mcp-sa"
-            createClusterRoleBinding: true
-            clusterRole: "view"
-
-          config:
-            readOnly: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
-
-### Step 2: Verify
-
-```bash
-kubectl get pods -n YOUR_NAMESPACE -l app.kubernetes.io/name=k8s-mcp-server
-```
 
 ## Multiple Clusters (Mounted Kubeconfig)
 

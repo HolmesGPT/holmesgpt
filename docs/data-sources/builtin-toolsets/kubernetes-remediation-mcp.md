@@ -246,14 +246,44 @@ Holmes can debug GPU nodes with `run_gpu_node_diagnostics` (server >= 1.3.0): it
 
 It is **off by default** — enable it via `gpuDiagnosticsEnabled`:
 
-```yaml
-mcpAddons:
-  kubernetesRemediation:
-    enabled: true
-    config:
-      gpuDiagnosticsEnabled: true
-      dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
-```
+=== "Holmes Helm Chart"
+
+    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+
+    ```yaml
+    mcpAddons:
+      kubernetesRemediation:
+        enabled: true
+        config:
+          gpuDiagnosticsEnabled: true
+          dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade holmes robusta/holmes -f values.yaml
+    ```
+
+=== "Robusta Helm Chart"
+
+    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
+
+    ```yaml
+    holmes:
+      mcpAddons:
+        kubernetesRemediation:
+          enabled: true
+          config:
+            gpuDiagnosticsEnabled: true
+            dcgmEnabled: true   # optional: dcgm_* checks; requires dcgmi installed on the GPU hosts
+    ```
+
+    Apply the configuration:
+
+    ```bash
+    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
 
 For custom nvidia-smi/dcgmi locations or other server knobs (`GPU_DIAG_NVIDIA_SMI_PATH`, `GPU_DIAG_TIMEOUT`, ...), use `additionalEnvVars`.
 
