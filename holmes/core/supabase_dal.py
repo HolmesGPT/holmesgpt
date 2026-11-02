@@ -343,7 +343,7 @@ class SupabaseDal:
         cache_key = f"{self.account_id}:{self.cluster}"
         sources = (
             lambda: KEY_CACHE.pop(cache_key, None),
-            lambda: fetch_supabase_api_key(self.account_id, self.cluster),
+            lambda: fetch_supabase_api_key(self.account_id, self.cluster, self.url),
         )
         for source in sources:
             key = source()
