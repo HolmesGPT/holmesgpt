@@ -73,11 +73,6 @@ except ImportError as e:
         "the chart checks need kubernetes-validate, a dev dependency: run `poetry install --with dev`"
     ) from e
 
-# kubernetes-validate reads and parses the kind's schema and its definitions file on every
-# `validate` call, so each object of each render pays for them; the schemas do not change in a
-# process. Remove this line once kubernetes-validate caches `schema_contents` itself.
-kubernetes_validate.utils.schema_contents = functools.cache(kubernetes_validate.utils.schema_contents)
-
 # The Kubernetes version whose API schemas, as kubernetes-validate bundles them, the rendered
 # objects are checked against.
 KUBERNETES_VERSION = "1.36"
