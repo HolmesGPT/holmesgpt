@@ -85,7 +85,8 @@ def test_two_builds_of_the_site_are_byte_identical(tmp_path):
         for site in sites
     ]
     for process in builds:
-        assert process.wait() == 0, process.stderr.read()
+        _, stderr = process.communicate()
+        assert process.returncode == 0, stderr
     files = [sorted(path.relative_to(site) for path in site.rglob("*") if path.is_file()) for site in sites]
     assert files[0] == files[1]
     assert [path for path in files[0] if (sites[0] / path).read_bytes() != (sites[1] / path).read_bytes()] == []
