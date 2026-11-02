@@ -313,30 +313,30 @@ RULE = 'customClusterRoleRules:\n  - apiGroups: [""]\n    resources: ["pods"]\n 
 
 
 @pytest.mark.parametrize(
-    "values, path",
+    "values, path, line",
     [
-        ("toolsets:\n", "toolsets"),
-        ("toolsets: {}\n", "toolsets"),
-        ("toolsets:\n  newrelic:\n", "toolsets.newrelic"),
-        ("modelList:\n", "modelList"),
-        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n    api_key: \"\"\n", "modelList.gpt.api_key"),
-        ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations"),
-        ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations"),
-        ("additionalEnvVars:\n  - name: TIMEOUT_SECONDS\n    value: \"\"\n", "additionalEnvVars[0].value"),
-        (f"{RULE}      - get\n      -\n", "customClusterRoleRules[0].verbs[1]"),
-        (f"{RULE}      - get\n      - null\n", "customClusterRoleRules[0].verbs[1]"),
-        (f"{RULE}      - get\n  - {{}}\n", "customClusterRoleRules[1]"),
-        (f"{RULE}      - get\n  - []\n", "customClusterRoleRules[1]"),
+        ("toolsets:\n", "toolsets", 4),
+        ("toolsets: {}\n", "toolsets", 4),
+        ("toolsets:\n  newrelic:\n", "toolsets.newrelic", 5),
+        ("modelList:\n", "modelList", 4),
+        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n    api_key: \"\"\n", "modelList.gpt.api_key", 7),
+        ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations", 5),
+        ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations", 7),
+        ("additionalEnvVars:\n  - name: TIMEOUT_SECONDS\n    value: \"\"\n", "additionalEnvVars[0].value", 6),
+        (f"{RULE}      - get\n      -\n", "customClusterRoleRules[0].verbs[1]", 9),
+        (f"{RULE}      - get\n      - null\n", "customClusterRoleRules[0].verbs[1]", 9),
+        (f"{RULE}      - get\n  - {{}}\n", "customClusterRoleRules[1]", 9),
+        (f"{RULE}      - get\n  - []\n", "customClusterRoleRules[1]", 9),
+        ("replicas: 1\n42:\n", "[42]", 5),
     ],
     ids=[
         "toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]",
-        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]",
+        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]", "int-key",
     ],
 )
-def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path):
+def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path, line):
     monkeypatch.chdir(REPO)
-    # The fence opens on line 3 of the page; the empty key is on its own line below.
-    line = 4 + custom_fences.key_lines(values)[custom_fences.empty_value(yaml.safe_load(values))]
+    # The fence opens on line 3 of the page, so its first values line is 4.
     with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: `{re.escape(path)}` has no value"):
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 

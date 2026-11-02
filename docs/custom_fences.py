@@ -376,7 +376,8 @@ def key_lines(text: str, path: tuple = (), node=None) -> Dict[tuple, int]:
     lines: Dict[tuple, int] = {}
     if isinstance(node, yaml.MappingNode):
         for key, value in node.value:
-            here = path + (key.value,)
+            # The key as `yaml.safe_load` loads it, `42:` an int, not the scalar's text.
+            here = path + (yaml.SafeLoader("").construct_object(key, deep=True),)
             lines[here] = key.start_mark.line
             lines.update(key_lines(text, here, value))
     elif isinstance(node, yaml.SequenceNode):
