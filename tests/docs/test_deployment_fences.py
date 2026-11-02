@@ -7,6 +7,7 @@ from typing import Optional
 
 import markdown
 import pytest
+import yaml
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
 from pydantic import BaseModel, ConfigDict, Field
@@ -86,14 +87,14 @@ def test_two_builds_of_the_site_are_byte_identical(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "body",
+    "body, line",
     [
-        "toolsets:\n  newrelic: [enabled\n",
-        "toolsets:\n  newrelic:\n    enabled: true\n---\ncli: [\n",
+        ("toolsets:\n  newrelic: [enabled\n", 5),
+        ("toolsets:\n  newrelic:\n    enabled: true\n---\ncli: [\n", 8),
     ],
     ids=["values", "fields"],
 )
-def test_a_fence_body_that_is_not_valid_yaml_fails_the_build(tmp_path, monkeypatch, body):
+def test_a_fence_body_that_is_not_valid_yaml_fails_the_build_at_the_line_of_the_error(tmp_path, monkeypatch, body, line):
     monkeypatch.chdir(REPO)
     docs = tmp_path / "docs"
     docs.mkdir()
@@ -101,7 +102,7 @@ def test_a_fence_body_that_is_not_valid_yaml_fails_the_build(tmp_path, monkeypat
     config = load_config(
         str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")
     )
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: the fence body is not valid YAML"):
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: the fence body is not valid YAML"):
         build(config)
 
 
@@ -188,9 +189,9 @@ FRONT_MATTER = "---\ntitle: Page\n---\n"
 @pytest.mark.parametrize(
     "text, line, error",
     [
-        (f"# Page\n\n{INCLUDE}```yaml-helm-values\nmodelList:\n```\n", 5, "`modelList` has no value"),
+        (f"# Page\n\n{INCLUDE}```yaml-helm-values\nmodelList:\n```\n", 6, "`modelList` has no value"),
         (f"# Page\n\n{INCLUDE}```multi-instance\ntoolset: x\n```\n", 5, "unsupported form"),
-        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\nmodelList:\n```\n", 6, "`modelList` has no value"),
+        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\nmodelList:\n```\n", 7, "`modelList` has no value"),
         (f"{FRONT_MATTER}# Page\n\n```multi-instance\ntoolset: x\n```\n", 6, "unsupported form"),
         (
             "# Page\n\n```yaml-helm-values\nextraEnvVarsSecrets:\n  - mine\nmodelList:\n  m:\n    api_key: \"{{{{ env.KEY }}}}\"\n```\n",
@@ -329,7 +330,9 @@ RULE = 'customClusterRoleRules:\n  - apiGroups: [""]\n    resources: ["pods"]\n 
 )
 def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path):
     monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` has no value"):
+    # The fence opens on line 3 of the page; the empty key is on its own line below.
+    line = 4 + custom_fences.key_lines(values)[custom_fences.empty_value(yaml.safe_load(values))]
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: `{re.escape(path)}` has no value"):
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 
 
@@ -365,7 +368,7 @@ CHART = REPO / "helm" / "holmes"
 def test_the_chart_the_kubernetes_schemas_and_holmes_take_every_helm_tab_of_a_page(path):
     page = path.relative_to(DOCS).as_posix()
     errors = [
-        f"{page}:{fence.line}: {error}"
+        f"{page}:{fence.line_of(error.path)}: {error}"
         for fence in custom_fences.deployment_fences(path.read_text(), page)
         if fence.values
         for error in fence_checks.check_fence(fence.values, fence.environment, CHART)
@@ -693,3 +696,30 @@ def test_a_non_string_environment_value_is_set_as_a_string_and_the_process_envir
     with fence_checks._environment({"RETRIES": 30, "DEBUG": True}):
         assert dict(os.environ) == {"RETRIES": "30", "DEBUG": "True"}
     assert dict(os.environ) == before
+
+
+@pytest.mark.parametrize(
+    "values, line, message",
+    [
+        ("podAnnotations:\n  team: sre\npodLabelz:\n  team: sre\n", 6, "`podLabelz` is not a key path"),
+        (
+            "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      api_key: x\n      account_id: \"1\"\n      timeout_secondz: 3\n",
+            10,
+            "`timeout_secondz` is not a field of NewrelicConfig",
+        ),
+        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n  bad:\n    modle: x\n", 7, "model_list.yaml `bad`: Holmes refuses it"),
+    ],
+    ids=["chart-key", "toolset-config-key", "model-entry"],
+)
+def test_an_error_names_the_line_of_the_key_it_refuses(values, line, message):
+    """The fence opens on line 3 of the page."""
+    fence = fence_of(f"```yaml-helm-values\n{values}```\n")
+    (error,) = fence_checks.check_fence(fence.values, fence.environment, CHART)
+    assert message in error
+    assert fence.line_of(error.path) == line
+
+
+def test_an_error_about_the_values_as_a_whole_names_the_fence_opening_line():
+    fence = fence_of("```yaml-helm-values\ntls:\n  enabled: true\n```\n")
+    (error,) = fence_checks.check_fence(fence.values, fence.environment, CHART)
+    assert "helm template fails" in error and fence.line_of(error.path) == 3
