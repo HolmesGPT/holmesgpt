@@ -33,7 +33,7 @@ sqlite:///[absolute_path_to_file]
 - `sqlite:////home/user/app.db` - Absolute path on Linux/Mac
 - `sqlite:////var/lib/app/data.db` - Another Linux example
 
-In Kubernetes, the database file is read from a mounted volume.
+In Kubernetes, the database file is read from a mounted volume. Each Kubernetes example on this page mounts it with a `hostPath` volume of `type: File`, which requires the file to exist at that path on the node the Holmes pod is scheduled on; where it does not, the volume fails to mount and the pod does not start.
 
 === "Holmes CLI"
 
