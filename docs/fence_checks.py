@@ -47,6 +47,18 @@ class FenceError(str):
         return error
 
 
+# libyaml's loader, which reads the renders several times faster than PyYAML's own.
+_Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def _load(text: str):
+    return yaml.load(text, Loader=_Loader)
+
+
+def _load_all(text: str):
+    return yaml.load_all(text, Loader=_Loader)
+
+
 # The release name the docs' commands install the chart as.
 RELEASE = "holmes"
 
@@ -60,6 +72,11 @@ except ImportError as e:
     raise ImportError(
         "the chart checks need kubernetes-validate, a dev dependency: run `poetry install --with dev`"
     ) from e
+
+# kubernetes-validate reads and parses the kind's schema and its definitions file on every
+# `validate` call, so each object of each render pays for them; the schemas do not change in a
+# process. Remove this line once kubernetes-validate caches `schema_contents` itself.
+kubernetes_validate.utils.schema_contents = functools.cache(kubernetes_validate.utils.schema_contents)
 
 # The Kubernetes version whose API schemas, as kubernetes-validate bundles them, the rendered
 # objects are checked against.
@@ -84,9 +101,10 @@ def _render(values: dict, chart_dir: Path) -> subprocess.CompletedProcess:
     )
 
 
+@functools.cache
 def chart_defaults(chart_dir: Path) -> dict:
     """The chart's `values.yaml`, with each value it passes on to Holmes free-form."""
-    defaults = yaml.safe_load((chart_dir / "values.yaml").read_text()) or {}
+    defaults = _load((chart_dir / "values.yaml").read_text()) or {}
     return {**defaults, **dict.fromkeys(PASSED_TO_HOLMES, {})}
 
 
@@ -112,7 +130,7 @@ def _schema_errors(render: str) -> List[FenceError]:
     """Why the Kubernetes API schemas refuse each object of the render, in strict mode, which
     refuses a field the schema does not declare."""
     errors = []
-    for document in yaml.safe_load_all(render):
+    for document in _load_all(render):
         if not document:
             continue
         name = f"{document['kind']} {document['metadata']['name']}"
@@ -322,15 +340,15 @@ def _holmes_errors(render: str, environment: Dict[str, str]) -> List[FenceError]
     data = next(
         (
             document["data"]
-            for document in yaml.safe_load_all(render)
+            for document in _load_all(render)
             if document and document["kind"] == "ConfigMap" and document["metadata"]["name"] == "custom-toolsets-configmap"
         ),
         None,
     )
     if data is None:
         return []
-    custom_toolset = _filled(yaml.safe_load(data["custom_toolset.yaml"]) or {})
-    model_list = _filled(yaml.safe_load(data["model_list.yaml"]) or {})
+    custom_toolset = _filled(_load(data["custom_toolset.yaml"]) or {})
+    model_list = _filled(_load(data["model_list.yaml"]) or {})
     _builtin_toolsets()
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "custom_toolset.yaml"

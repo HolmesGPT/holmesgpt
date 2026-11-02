@@ -79,8 +79,13 @@ def test_expanding_the_fences_imports_nothing_from_holmes(load):
 def test_two_builds_of_the_site_are_byte_identical(tmp_path):
     """Each build also runs the on_post_page check over every page."""
     sites = [tmp_path / "first", tmp_path / "second"]
-    for site in sites:
-        build(load_config(str(REPO / "mkdocs.yml"), site_dir=str(site)))
+    # Two processes at once: a build is about twenty seconds of the Markdown pipeline and Material, not of our code.
+    builds = [
+        subprocess.Popen([sys.executable, "-m", "mkdocs", "build", "-q", "-d", str(site)], cwd=REPO, stderr=subprocess.PIPE, text=True)
+        for site in sites
+    ]
+    for process in builds:
+        assert process.wait() == 0, process.stderr.read()
     files = [sorted(path.relative_to(site) for path in site.rglob("*") if path.is_file()) for site in sites]
     assert files[0] == files[1]
     assert [path for path in files[0] if (sites[0] / path).read_bytes() != (sites[1] / path).read_bytes()] == []
