@@ -375,11 +375,19 @@ def key_lines(text: str, path: tuple = (), node=None) -> Dict[tuple, int]:
         node = yaml.compose(text)
     lines: Dict[tuple, int] = {}
     if isinstance(node, yaml.MappingNode):
+        merged: Dict[tuple, int] = {}
         for key, value in node.value:
+            if key.tag == "tag:yaml.org,2002:merge":
+                # `<<:` adds the keys of the mappings it names, written where they are anchored;
+                # the first mapping named and this mapping's own keys win, as in `safe_load`.
+                for source in reversed(value.value if isinstance(value, yaml.SequenceNode) else [value]):
+                    merged.update(key_lines(text, path, source))
+                continue
             # The key as `yaml.safe_load` loads it, `42:` an int, not the scalar's text.
             here = path + (yaml.SafeLoader("").construct_object(key, deep=True),)
             lines[here] = key.start_mark.line
             lines.update(key_lines(text, here, value))
+        lines = {**merged, **lines}
     elif isinstance(node, yaml.SequenceNode):
         for index, item in enumerate(node.value):
             here = path + (index,)

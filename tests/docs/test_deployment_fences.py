@@ -329,10 +329,11 @@ RULE = 'customClusterRoleRules:\n  - apiGroups: [""]\n    resources: ["pods"]\n 
         (f"{RULE}      - get\n  - {{}}\n", "customClusterRoleRules[1]", 9),
         (f"{RULE}      - get\n  - []\n", "customClusterRoleRules[1]", 9),
         ("replicas: 1\n42:\n", "[42]", 5),
+        ("serviceAccount: &sa\n  create: true\nholmes:\n  <<: *sa\n  name:\n", "holmes.name", 8),
     ],
     ids=[
         "toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]",
-        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]", "int-key",
+        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]", "int-key", "merge-key",
     ],
 )
 def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path, line):
