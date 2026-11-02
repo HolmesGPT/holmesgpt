@@ -31,7 +31,7 @@ toolsets:
       - name: search_dashboards
         description: "Search for dashboards related to specific keywords"
         command: |
-          curl -s "${GRAFANA_URL}/api/search?query="{{ search_query }} \
+          curl -s -G "${GRAFANA_URL}/api/search" --data-urlencode query={{ search_query }} \
             -H "Authorization: Bearer ${GRAFANA_TOKEN}"
 ---
 secret:
@@ -59,14 +59,14 @@ cli: |
         - name: search_dashboards
           description: "Search for dashboards related to specific keywords"
           command: |
-            curl -s "${GRAFANA_URL}/api/search?query="{{ search_query }} \
+            curl -s -G "${GRAFANA_URL}/api/search" --data-urlencode query={{ search_query }} \
               -H "Authorization: Bearer ${GRAFANA_TOKEN}"
   ```
 
   **Environment Variables:**
 
   ```bash
-  export GRAFANA_URL="http://grafana.monitoring.svc.cluster.local:3000"
+  export GRAFANA_URL="https://grafana.example.com"  # Grafana's URL as your machine reaches it
   export GRAFANA_TOKEN="your-grafana-api-token"
   ```
 
@@ -195,7 +195,8 @@ toolsets:
         description: "Search for issues in a repository"
         command: |
           curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-            "https://api.github.com/search/issues?q=repo:"{{ owner }}/{{ repo }}+{{ search_query }}
+            -G "https://api.github.com/search/issues" \
+            --data-urlencode "q=repo:"{{ owner }}/{{ repo }}" "{{ search_query }}
 ---
 secret:
   - --from-literal=GITHUB_TOKEN="your-github-personal-access-token"
@@ -229,7 +230,8 @@ cli: |
           description: "Search for issues in a repository"
           command: |
             curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/search/issues?q=repo:"{{ owner }}/{{ repo }}+{{ search_query }}
+              -G "https://api.github.com/search/issues" \
+              --data-urlencode "q=repo:"{{ owner }}/{{ repo }}" "{{ search_query }}
   ```
 
   **Environment Variables:**

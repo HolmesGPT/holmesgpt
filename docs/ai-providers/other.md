@@ -19,11 +19,11 @@ Sign up at [Novita AI](https://novita.ai){:target="_blank"} to obtain your API k
 
 ### Step 3: Configure HolmesGPT
 
-!!! warning "Model Not in LiteLLM Registry"
-    Since DeepSeek 3.1 Terminus via Novita isn't in LiteLLM's model registry, you'll see warnings about using default token limits (200K input, 4k output). To fix this, set the correct values based on the model's actual capabilities when run via Novita:
+!!! note "Context window"
+    LiteLLM's model registry lists this model with a 131,072-token context window, but Novita serves it with a smaller one, so the configuration sets it:
 
     - **Context window**: 98,304 tokens
-    - **Max output**: 32,768 tokens
+    - **Max output**: 32,768 tokens, the registry's value, which Holmes uses without configuration
 
 #### Option 1: API Key Kept Out of the Configuration (Recommended)
 
@@ -38,26 +38,25 @@ modelList:
 secret:
   - --from-literal=NOVITA_API_KEY="your-novita-api-key"
 cli: |
-  **Set the API key and token limits:**
+  **Set the API key:**
 
   ```bash
   export NOVITA_API_KEY="your-novita-api-key"
-
-  # Override the default token limits with correct values
-  export OVERRIDE_MAX_CONTENT_SIZE=98304  # 98k context window
-  export OVERRIDE_MAX_OUTPUT_TOKEN=32768   # 32k max output
   ```
 
-  **Use the model:**
+  **Use the model, with its 98k context window:**
+
+  `OVERRIDE_MAX_CONTENT_SIZE` applies to every model that sets no `max_context_size`, so set it only on the command that uses this one.
 
   ```bash
+  OVERRIDE_MAX_CONTENT_SIZE=98304 \
   holmes ask "what pods are failing?" --model="novita/deepseek/deepseek-v3.1-terminus"
   ```
 
   **Or pass the API key directly:**
 
   ```bash
-  OVERRIDE_MAX_CONTENT_SIZE=98304 OVERRIDE_MAX_OUTPUT_TOKEN=32768 \
+  OVERRIDE_MAX_CONTENT_SIZE=98304 \
   holmes ask "what pods are failing?" \
     --model="novita/deepseek/deepseek-v3.1-terminus" \
     --api-key="your-novita-api-key"

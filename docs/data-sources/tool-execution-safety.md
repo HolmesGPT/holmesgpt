@@ -45,7 +45,7 @@ These are the things to keep in mind when deciding whether to change the default
 
 **Per-subprocess, not aggregate.**
 
-Each tool call gets its own ceiling. Two concurrent tool calls can each allocate up to the limit, so the total memory in use can be a multiple of `TOOL_MEMORY_LIMIT_MB`.
+Each tool call gets its own ceiling. Holmes runs the tool calls of one LLM response at once, up to 16, and each can allocate up to the limit, so the total memory in use can be a multiple of `TOOL_MEMORY_LIMIT_MB`. Size the pod's `resources.limits.memory` for Holmes itself plus the limit times the number of memory-heavy calls you expect together: the example below, a 2000 MB limit in an 8192Mi pod, fits three.
 
 **Coordinate with your container memory limit.**
 
@@ -78,6 +78,11 @@ When you raise `TOOL_MEMORY_LIMIT_MB`, raise the pod's `resources.limits.memory`
 additionalEnvVars:
   - name: TOOL_MEMORY_LIMIT_MB
     value: "2000"
+
+# Raised with the tool limit, from the chart's default of 2048Mi
+resources:
+  limits:
+    memory: 8192Mi
 ---
 cli: |
   ```bash

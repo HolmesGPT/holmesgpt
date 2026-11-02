@@ -14,23 +14,23 @@ additionalEnvVars:
     value: "true"  # Required for Gemini - see Environment Variables Reference
   # Optional: Set default model (use modelList key name)
   - name: MODEL
-    value: "gemini-pro"  # This refers to the key name in modelList below
+    value: "gemini-flash"  # This refers to the key name in modelList below
 
 # Configure at least one model using modelList
 modelList:
-  gemini-pro:
-    api_key: "{{ env.GEMINI_API_KEY }}"
-    model: gemini/gemini-pro
-    temperature: 1
-
   gemini-flash:
     api_key: "{{ env.GEMINI_API_KEY }}"
-    model: gemini/gemini-1.5-flash
+    model: gemini/gemini-3.8-flash
     temperature: 1
 
-  gemini-pro-exp:
+  gemini-flash-lite:
     api_key: "{{ env.GEMINI_API_KEY }}"
-    model: gemini/gemini-exp-1206
+    model: gemini/gemini-3.5-flash-lite
+    temperature: 1
+
+  gemini-pro:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-3.1-pro-preview
     temperature: 1
 ---
 secret:

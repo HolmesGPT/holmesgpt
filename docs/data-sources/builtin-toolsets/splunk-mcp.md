@@ -74,7 +74,6 @@ mcp_servers:
       mode: streamable-http
       headers:
         Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
-      # verify_ssl: false # Uncomment if using self-signed certificates:
     # You can modify the llm_instructions according to the data stored in Splunk in your organization 
     llm_instructions: |
       Use SPL (Search Processing Language) for queries.
@@ -84,6 +83,8 @@ mcp_servers:
 secret:
   - --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN>
 ```
+
+If the Splunk server's certificate is self-signed or issued by a private CA, trust that certificate or CA with the chart's `certificate` value, or the `CERTIFICATE` environment variable in the CLI (see [`CERTIFICATE`](../../reference/environment-variables.md#certificate)). Either one adds the CA to the certificates Holmes trusts for all its outbound HTTPS, not only for Splunk. Set `verify_ssl: false` under `config` only as a last resort: Holmes then sends the token without checking the server's identity.
 
 ## Available Tools
 
