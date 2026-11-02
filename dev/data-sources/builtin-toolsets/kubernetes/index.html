@@ -6063,7 +6063,7 @@
 <p>Holmes has three Kubernetes integrations. Most users only need the first:</p>
 <ul>
 <li><strong><a href="./">Kubernetes (built-in)</a></strong> — <em>default for most users.</em> Read-only access to cluster resources via <code>kubectl</code>, authenticated with the pod's ServiceAccount in-cluster or your local kubeconfig for CLI. No extra deployment.</li>
-<li><strong><a href="../kubernetes-mcp/">Kubernetes (MCP)</a></strong> — <em>use when you need OAuth/OIDC authentication</em> (e.g. AKS with Microsoft Entra ID, or per-user RBAC enforced by your identity provider). Replaces the built-in toolset.</li>
+<li><strong><a href="../kubernetes-mcp/">Kubernetes (MCP)</a></strong> — <em>use when you need OAuth/OIDC authentication</em> (e.g. AKS with Microsoft Entra ID, or per-user RBAC enforced by your identity provider), <em>or one Holmes reaching several clusters through a kubeconfig</em>. Replaces the built-in toolset.</li>
 <li><strong><a href="../kubernetes-remediation-mcp/">Kubernetes Remediation (MCP)</a></strong> — <em>add on top of either of the above when you want Holmes to perform write actions</em> (restart, scale, drain, patch, etc.). Complements the read-only toolsets rather than replacing them.</li>
 </ul>
 </div>
