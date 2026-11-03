@@ -19,6 +19,7 @@ GRANT SELECT ON information_schema.* TO holmes_readonly;
 ```
 
 **For all databases:**
+
 ```sql
 CREATE USER holmes_readonly IDENTIFIED BY 'your_secure_password';
 GRANT SELECT ON *.* TO holmes_readonly;
@@ -36,169 +37,64 @@ clickhouse+http://[username]:[password]@[host]:[port]/[database]
 
 Note: Use native protocol (port 9000) or HTTP interface (port 8123).
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  clickhouse-analytics:
+    type: database
+    config:
+      connection_url: "{{ env.CLICKHOUSE_URL }}"
+    llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
+---
+secret:
+  - --from-literal=CLICKHOUSE_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    clickhouse-analytics:
+      type: database
+      config:
+        connection_url: "clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics"
+      llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
 
-    ```yaml
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics"
-        llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
+    clickhouse-logs:
+      type: database
+      config:
+        connection_url: "clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs"
+        clickhouse_use_http_json: true
+      llm_instructions: "Log analytics database with application and system logs"
+  ```
 
-      clickhouse-logs:
-        type: database
-        config:
-          connection_url: "clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs"
-          clickhouse_use_http_json: true
-        llm_instructions: "Log analytics database with application and system logs"
-    ```
+  **Using environment variables:**
 
-    **Using environment variables:**
-
-    ```yaml
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_URL }}"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-clickhouse \
-      --from-literal=CLICKHOUSE_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-clickhouse
-
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_URL }}"
-        llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-clickhouse \
-      --from-literal=CLICKHOUSE_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-clickhouse
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_URL }}"
-          llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```yaml
+  toolsets:
+    clickhouse-analytics:
+      type: database
+      config:
+        connection_url: "{{ env.CLICKHOUSE_URL }}"
+  ```
+```
 
 ### Multiple instances
 
-=== "Holmes Helm Chart"
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  clickhouse-analytics:
+    type: database
+    config:
+      connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
 
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-clickhouse-instances \
-      --from-literal=CLICKHOUSE_ANALYTICS_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      --from-literal=CLICKHOUSE_LOGS_URL='clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs' \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-database-clickhouse-instances
-
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
-
-      clickhouse-logs:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-database-clickhouse-instances \
-      --from-literal=CLICKHOUSE_ANALYTICS_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      --from-literal=CLICKHOUSE_LOGS_URL='clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs' \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-database-clickhouse-instances
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
-
-        clickhouse-logs:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  clickhouse-logs:
+    type: database
+    config:
+      connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
+---
+secret:
+  - --from-literal=CLICKHOUSE_ANALYTICS_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics'
+  - --from-literal=CLICKHOUSE_LOGS_URL='clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs'
+```
 
 ## Configuration Options
 
@@ -220,7 +116,7 @@ ValueError: unconverted data remains: 789
 
 Enable JSONEachRow when you query tables that return high-precision `DateTime64` columns:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   clickhouse-otel-logs:
     type: database
