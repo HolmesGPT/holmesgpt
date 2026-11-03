@@ -10,7 +10,7 @@ metadata:
   labels:
     app: holmes
     {{- include "holmes.commonLabels" . | nindent 4 }}
-  {{- with (include "holmes.commonAnnotations" .) }}
+  {{- with (include "holmes.kubernetesRemediationMcp.deploymentAnnotations" . | trim) }}
   annotations:
     {{- . | nindent 4 }}
   {{- end }}
@@ -38,19 +38,16 @@ spec:
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        # checksum annotation triggering pod reload when .Values.toolsets changes by helm upgrade
-        checksum/toolset-config: {{ list .Values.toolsets .Values.modelList .Values.mcp_servers .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
+        # Rolls the pod when the toolset configmap it mounts, or the skill settings, change.
+        checksum/toolset-config: {{ list (include (print $.Template.BasePath "/toolset-config.yaml") .) .Values.customSkillPaths .Values.customSkills .Values.skillRepos | toYaml | sha256sum }}
         {{- if .Values.skillRepos }}
         # Rolls the pod when a skill repo credential Secret's DATA rotates —
         # the token env vars come from secretKeyRef, which a Secret update
         # alone does not refresh.
         checksum/skill-repo-secrets: {{ include "holmes.skillRepoSecretsChecksum" . }}
         {{- end }}
-        {{- if and .Values.mcpAddons.kubernetesRemediation.enabled .Values.mcpAddons.kubernetesRemediation.auth.enabled }}
-        # Roll this pod when the remediation MCP auth token rotates — the token
-        # is read from a Secret into env, so a content change alone would not
-        # restart anything.
-        checksum/k8s-remediation-auth-token: {{ include "holmes.kubernetesRemediationMcp.authTokenChecksum" . }}
+        {{- with (include "holmes.kubernetesRemediationMcp.podAuthAnnotations" .) }}
+        {{- . | nindent 8 }}
         {{- end }}
     spec:
       serviceAccountName: {{ include "holmes.serviceAccountName" . }}
@@ -261,6 +258,10 @@ spec:
           - name: SKILL_REPOS_DIR
             value: /var/holmes/skill-repos
           {{- end }}
+          {{- if include "holmes.awsMcp.multiAccount" . }}
+          - name: AWS_CONFIG_FILE
+            value: /etc/holmes/aws/config
+          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}
@@ -325,6 +326,14 @@ spec:
             mountPath: /etc/holmes/skills
             readOnly: true
           {{- end }}
+          {{- if include "holmes.awsMcp.multiAccount" . }}
+          - name: aws-mcp-config
+            mountPath: /etc/holmes/aws
+            readOnly: true
+          - name: aws-mcp-token
+            mountPath: /var/run/secrets/eks.amazonaws.com/serviceaccount
+            readOnly: true
+          {{- end }}
           {{- if .Values.additionalVolumeMounts -}}
           {{ toYaml .Values.additionalVolumeMounts | nindent 10 }}
           {{- end }}
@@ -384,6 +393,18 @@ spec:
               - key: {{ $name }}.SKILL.md
                 path: {{ $name }}/SKILL.md
               {{- end }}
+        {{- end }}
+        {{- if include "holmes.awsMcp.multiAccount" . }}
+        - name: aws-mcp-config
+          configMap:
+            name: {{ .Release.Name }}-aws-mcp-config
+        - name: aws-mcp-token
+          projected:
+            sources:
+            - serviceAccountToken:
+                path: token
+                expirationSeconds: 86400
+                audience: sts.amazonaws.com
         {{- end }}
         {{- if .Values.additionalVolumes -}}
         {{ toYaml .Values.additionalVolumes | nindent 8 }}

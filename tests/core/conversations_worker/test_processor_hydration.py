@@ -6,6 +6,8 @@ There is no row/seq nesting at this level — the RPC flattens all events from
 all matching ConversationEvents rows into a single list ordered by
 ``(seq, ord)``. Turn boundaries are detected by the ``user_message`` event.
 """
+import json
+
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 
@@ -56,6 +58,32 @@ def test_hydrate_followup_reconstructs_history():
     ]
     worker._hydrate_task_from_events(task, events)
     assert task.user_message_data["ask"] == "how are you?"
+    assert task.conversation_history == prev_messages
+
+
+def test_hydrate_followup_on_turn_written_by_older_holmes():
+    """Older Holmes also stored `prompt`, a JSON-string copy of `messages`;
+    history still comes from `messages`."""
+    worker = _make_worker()
+    task = _task(request_sequence=2)
+    prev_messages = [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "hi there"},
+    ]
+    events = [
+        {"event": "user_message", "data": {"ask": "hello"}, "ts": "1"},
+        {
+            "event": "ai_answer_end",
+            "data": {
+                "content": "hi there",
+                "messages": prev_messages,
+                "prompt": json.dumps([{"role": "user", "content": "stale"}]),
+            },
+            "ts": "2",
+        },
+        {"event": "user_message", "data": {"ask": "how are you?"}, "ts": "3"},
+    ]
+    worker._hydrate_task_from_events(task, events)
     assert task.conversation_history == prev_messages
 
 

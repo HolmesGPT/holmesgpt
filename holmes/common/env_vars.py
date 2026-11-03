@@ -168,6 +168,12 @@ LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS = int(
     os.environ.get("LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS", str(24 * 60 * 60))
 )
 
+# Max time one LLM call may spend backing off from rate-limit / overloaded /
+# 503 errors before the error is raised. 0 disables these retries.
+LLM_RATE_LIMIT_MAX_WAIT_SECONDS = float(
+    os.environ.get("LLM_RATE_LIMIT_MAX_WAIT_SECONDS", "30")
+)
+
 # Extra message fields to strip before sending messages to the provider API.
 # Comma-separated. Set this if a provider rejects a field with an error like:
 #   "messages.N.<field>: Extra inputs are not permitted"
@@ -239,6 +245,9 @@ TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10
 REMOTE_TOOL_RESULT_MAX_BYTES = int(
     os.environ.get("REMOTE_TOOL_RESULT_MAX_BYTES", 1024 * 1024)
 )
+# Holmes's own logs for the platform UI (the holmes_logs internal request).
+HOLMES_LOGS_DEFAULT_TAIL_LINES = int(os.environ.get("HOLMES_LOGS_DEFAULT_TAIL_LINES", 500))
+HOLMES_LOGS_MAX_TAIL_LINES = int(os.environ.get("HOLMES_LOGS_MAX_TAIL_LINES", 5000))
 # Results whose data exceeds this many chars are stored gzip+base64 in the DB
 # (relay inflates before replying, callers always see plain text).
 REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS = int(

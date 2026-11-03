@@ -1,5 +1,4 @@
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -7,38 +6,10 @@ import yaml
 
 import server
 from holmes.config import Config
-from holmes.core import toolset_manager as toolset_manager_module
 from holmes.core.tools import ToolsetStatusEnum, ToolsetTag
 
 STDIO_SERVER = Path(__file__).parent / "stdio_server.py"
 TAGS = [ToolsetTag.CORE, ToolsetTag.CLUSTER]
-
-
-class _ShiftedTime:
-    def __init__(self) -> None:
-        self.offset = 0.0
-
-    def __getattr__(self, name: str):
-        return getattr(time, name)
-
-    def monotonic(self) -> float:
-        return time.monotonic() + self.offset
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    """Lets a test move the status-check clock forward without sleeping.
-
-    Only the module that times status checks sees the shift; patching
-    time.monotonic itself would also shift background threads other tests
-    left running in this worker, such as the OAuth token refresh sweep."""
-    shifted = _ShiftedTime()
-    monkeypatch.setattr(toolset_manager_module, "time", shifted)
-
-    def advance(seconds: float) -> None:
-        shifted.offset += seconds
-
-    return advance
 
 
 def _stdio_server(sessions: Path, server_script: str, **server_fields) -> dict:
@@ -127,13 +98,13 @@ def test_failed_server_with_interval_does_not_shorten_the_refresh_loop(tmp_path,
     _refresh(with_interval)
     assert _example(with_interval).status == ToolsetStatusEnum.FAILED
     monkeypatch.setattr(server, "config", with_interval)
-    assert server._has_failed_mcp_toolsets() is False
+    assert server._failed_mcp_toolset_names() == []
 
     without_interval, _ = _mcp_config(tmp_path, "exit 1")
     _refresh(without_interval)
     assert _example(without_interval).status == ToolsetStatusEnum.FAILED
     monkeypatch.setattr(server, "config", without_interval)
-    assert server._has_failed_mcp_toolsets() is True
+    assert server._failed_mcp_toolset_names() == ["example"]
 
 
 def test_carried_over_server_keeps_its_tools_when_the_executor_is_rebuilt(tmp_path, clock):
@@ -169,6 +140,38 @@ def test_reload_checks_the_server_inside_its_interval(tmp_path):
     config.reload_toolsets()
     _refresh(config)
     assert _sessions_opened(sessions) == 2
+
+
+def test_refresh_keeps_an_executor_rebuilt_while_it_ran(tmp_path, monkeypatch):
+    """An admin reload can rebuild the executor while a refresh runs its
+    checks. The refresh must not replace that executor with the one it built
+    from the config it started with, but still reports the change it found,
+    so the server syncs the toolset statuses to the platform."""
+    server_down = tmp_path / "server_down"
+    config, _ = _mcp_config(tmp_path, f"test -e {server_down} && exit 1; {WORKING_SERVER}")
+    _refresh(config)
+    assert _example(config).status == ToolsetStatusEnum.ENABLED
+
+    refresh_toolsets = config.toolset_manager.refresh_toolsets_and_get_changes
+    rebuilt = []
+
+    def refresh_then_admin_reload(*args, **kwargs):
+        result = refresh_toolsets(*args, **kwargs)
+        # The reload clears the cache, so this refresh rebuilds the executor
+        # from the reloaded toolset manager.
+        config.reload_toolsets()
+        _refresh(config)
+        rebuilt.append(config.cached_tool_executor)
+        return result
+
+    monkeypatch.setattr(config.toolset_manager, "refresh_toolsets_and_get_changes", refresh_then_admin_reload)
+    server_down.touch()
+
+    # The server went down, so the refresh finds a change it would apply.
+    changes = config.refresh_tool_executor(None, toolset_tag_filter=TAGS)
+    assert config.cached_tool_executor is rebuilt[0]
+    assert changes == [("example", "enabled", "failed")]
+    assert _example(config).status == ToolsetStatusEnum.FAILED
 
 
 def _write_custom_toolsets(toolsets_file: Path, sessions: Path, **server_fields) -> None:

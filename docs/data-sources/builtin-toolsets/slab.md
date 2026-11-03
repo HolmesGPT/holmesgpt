@@ -6,78 +6,14 @@ Retrieve your Slab [API token](https://help.slab.com/en/articles/6545629-develop
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export SLAB_API_KEY="<your Slab API key>"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      slab:
-        enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-slab \
-      --from-literal=SLAB_API_KEY="<your Slab API key>" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-slab
-
-    toolsets:
-      slab:
-        enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-slab \
-      --from-literal=SLAB_API_KEY="<your Slab API key>" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-slab
-
-      toolsets:
-        slab:
-          enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  slab:
+    enabled: true
+---
+secret:
+  - --from-literal=SLAB_API_KEY="<your Slab API key>"
+```
 
 To test, run:
 

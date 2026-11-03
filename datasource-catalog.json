@@ -53,7 +53,7 @@
     {
       "id": "aws-mcp",
       "name": "AWS",
-      "description": "Query data from any AWS service",
+      "description": "Query any AWS API through the hosted AWS MCP Server",
       "categories": ["cloud-providers"],
       "iconUrl": "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/aws.svg",
       "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/aws/?tab=robusta-helm-chart",

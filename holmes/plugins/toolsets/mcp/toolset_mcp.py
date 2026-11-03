@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import fnmatch
 import json
 import logging
 import os
@@ -120,6 +121,7 @@ class MCPMode(str, Enum):
     SSE = "sse"
     STREAMABLE_HTTP = "streamable-http"
     STDIO = "stdio"
+    AWS = "aws"
 
 
 # Well-known, read-only "who am I" tools used to verify MCP authentication when
@@ -296,7 +298,7 @@ async def get_initialized_mcp_session(
             errlog.close()
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        httpx_factory = toolset._http_client_factory()
         rendered_headers = toolset._render_headers(request_context)
         async with sse_client(
             url,
@@ -316,7 +318,7 @@ async def get_initialized_mcp_session(
                 yield session
     else:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        httpx_factory = toolset._http_client_factory()
         rendered_headers = toolset._render_headers(request_context)
         async with streamablehttp_client(
             url,
@@ -344,6 +346,9 @@ class RemoteMCPTool(Tool):
     # Whether this is a relay cross-cluster tool. Decided once at creation (see
     # REMOTE_TOOL_NAME_PREFIX) so call-time logic reads state instead of the name.
     is_remote: bool = Field(default=False, exclude=True)
+    # The server's own inputSchema. `parameters` keeps only what the LLM is
+    # shown; the server validates against all of it.
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
 
     @property
     def collision_safe_name(self) -> str:
@@ -474,7 +479,7 @@ class RemoteMCPTool(Tool):
                     self.toolset,
                     is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX),
                 )
-                for tool in tools_result.tools
+                for tool in self.toolset._filter_allowed_tools(tools_result.tools)
             ]
 
             if real_tools:
@@ -697,6 +702,7 @@ class RemoteMCPTool(Tool):
             parameters=parameters,
             toolset=toolset,
             is_remote=is_remote,
+            input_schema=tool.inputSchema,
         )
 
     @classmethod
@@ -941,6 +947,9 @@ class RemoteMCPTool(Tool):
         if params and params.get("cli_command"):
             return f"{params.get('cli_command')}"
 
+        if (self.mcp_tool_name or self.name) == "aws___run_script" and params and isinstance(params.get("code"), str):
+            return f"aws run_script: {params['code'].strip().splitlines()[0][:120]}"
+
         # gcloud MCP run_gcloud_command
         if (self.mcp_tool_name or self.name) == "run_gcloud_command" and params and "args" in params:
             args = params.get("args", [])
@@ -962,7 +971,19 @@ class RemoteMCPToolset(Toolset):
     ]
     description: str = "MCP server toolset"
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
+    allowed_tools: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Tool names/patterns (fnmatch) to load from the MCP server. When set, "
+            "every other tool the server lists is dropped and never sent to the LLM. "
+            "Empty loads all tools."
+        ),
+    )
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
+    # Every tool name the server listed, before allowed_tools filtering. The auth
+    # health check picks from these, so filtering out an identity tool such as
+    # get_me does not silently skip it.
+    _listed_tool_names: Optional[List[str]] = None
 
     @property
     def is_oauth_enabled(self) -> bool:
@@ -989,8 +1010,26 @@ class RemoteMCPToolset(Toolset):
             RemoteMCPTool.create(
                 tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
             )
-            for tool in tools_result.tools
+            for tool in self._filter_allowed_tools(tools_result.tools)
         ]
+
+    def _filter_allowed_tools(self, tools: List[MCP_Tool]) -> List[MCP_Tool]:
+        """Keep only the tools matching `allowed_tools`; all of them when it is empty."""
+        self._listed_tool_names = [tool.name for tool in tools]
+        if not self.allowed_tools:
+            return list(tools)
+        kept = [
+            tool
+            for tool in tools
+            if any(fnmatch.fnmatch(tool.name, pattern) for pattern in self.allowed_tools)
+        ]
+        logging.info(
+            "MCP server %s: allowed_tools kept %d of %d tools",
+            self.name,
+            len(kept),
+            len(tools),
+        )
+        return kept
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
@@ -1110,16 +1149,7 @@ class RemoteMCPToolset(Toolset):
                     f'Invalid mode "{mode_value}", allowed modes are {", ".join(allowed_modes)}',
                 )
 
-            if mode_value == MCPMode.STDIO.value:
-                self._mcp_config = StdioMCPConfig(**config)
-            else:
-                self._mcp_config = MCPConfig(**config)
-                clean_url_str = str(self._mcp_config.url).rstrip("/")
-
-                if self._mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith(
-                    "/sse"
-                ):
-                    self._mcp_config.url = AnyUrl(clean_url_str + "/sse")
+            self._mcp_config = self._build_mcp_config(config)
 
             # For OAuth-protected servers, skip full MCP session init (it will 401).
             # Just verify the server is reachable and register a placeholder tool
@@ -1155,6 +1185,18 @@ class RemoteMCPToolset(Toolset):
                 ". If the server is still starting up, Holmes will retry automatically",
             )
 
+    def _build_mcp_config(self, config: dict) -> Union[MCPConfig, StdioMCPConfig]:
+        if config.get("mode") == MCPMode.STDIO.value:
+            return StdioMCPConfig(**config)
+        mcp_config = MCPConfig(**config)
+        clean_url_str = str(mcp_config.url).rstrip("/")
+        if mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith("/sse"):
+            mcp_config.url = AnyUrl(clean_url_str + "/sse")
+        return mcp_config
+
+    def _http_client_factory(self):
+        return create_mcp_http_client_factory(self._mcp_config.verify_ssl)  # type: ignore[union-attr]
+
     def _auto_detect_health_check_tool(self) -> Optional[str]:
         """Pick a default health-check tool from a known allowlist of read-only
         identity tools when none is explicitly configured.
@@ -1162,7 +1204,7 @@ class RemoteMCPToolset(Toolset):
         Returns the name of the first allowlisted tool the server exposes, or
         None if it exposes none (in which case the auth health check is skipped).
         """
-        tool_names = {(t.mcp_tool_name or t.name) for t in self.tools}
+        tool_names = set(self._health_check_tool_names())
         for candidate in DEFAULT_HEALTH_CHECK_TOOLS:
             if candidate in tool_names:
                 logging.info(
@@ -1183,6 +1225,13 @@ class RemoteMCPToolset(Toolset):
         )
         return None
 
+    def _health_check_tool_names(self) -> List[str]:
+        """Raw names of the tools the health check may call: everything the server
+        listed, including tools `allowed_tools` keeps away from the LLM."""
+        if self._listed_tool_names is not None:
+            return self._listed_tool_names
+        return [t.mcp_tool_name or t.name for t in self.tools]
+
     def _run_health_check_tool(self, tool_name: str) -> Tuple[bool, str]:
         """Invoke a tool to verify authentication actually works.
 
@@ -1190,9 +1239,8 @@ class RemoteMCPToolset(Toolset):
         GitHub token). This method calls a specified read-only tool with empty
         arguments to verify the connection is fully functional.
         """
-        matching_tools = [t for t in self.tools if (t.mcp_tool_name or t.name) == tool_name]
-        if not matching_tools:
-            available = [t.name for t in self.tools]
+        available = self._health_check_tool_names()
+        if tool_name not in available:
             return (
                 False,
                 f"MCP server {self.name}: health_check_tool '{tool_name}' not found. "
@@ -1216,7 +1264,7 @@ class RemoteMCPToolset(Toolset):
                     f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
                     f"failed - {error_text or 'unknown error'}",
                 )
-            logging.info("MCP server %s health check passed (tool: %s)", self.name, tool_name)
+            logging.debug("MCP server %s health check passed (tool: %s)", self.name, tool_name)
             return (True, "")
         except Exception as e:
             error_detail = _extract_root_error_message(e)
