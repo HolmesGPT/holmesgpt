@@ -18,12 +18,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import uuid
 
 import pytest
 from jinja2 import Template
 
 from holmes.core.tools import StructuredToolResultStatus, sanitize
 from holmes.plugins.toolsets import load_toolsets_from_file
+from tests.conftest import create_mock_tool_invoke_context
 
 KUBERNETES_YAML = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -317,8 +319,6 @@ def test_missing_namespace_does_not_leak_jinja_builtin(tool_name, fake_kubectl_e
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
 def test_tabular_query_oom_crash_surfaces_as_error_end_to_end(fake_kubectl_env):
-    from tests.conftest import create_mock_tool_invoke_context
-
     env, args_log, workdir = fake_kubectl_env
     # Run the real subprocess path (no mocks) with the fake kubectl on PATH.
     old_path = os.environ.get("PATH", "")
@@ -401,11 +401,12 @@ def test_namespace_param_is_injection_safe():
     """A hostile namespace value must be neutralized by sanitize(), like every
     other string param (mirrors the ROB-893 hardening)."""
     tool = TOOLS["kubernetes_tabular_query"]
+    marker = os.path.join(tempfile.gettempdir(), f"pwned-ns-{uuid.uuid4().hex}")
     context = tool._build_context(
         {
             "kind": "pods",
             "columns": "NAME:.metadata.name",
-            "namespace": "$(touch /tmp/pwned-ns)",
+            "namespace": f"$(touch {marker})",
         }
     )
     rendered = Template(os.path.expandvars(tool.script)).render(context)
@@ -429,7 +430,7 @@ def test_namespace_param_is_injection_safe():
             stderr=subprocess.DEVNULL,
             timeout=30,
         )
-        assert not os.path.exists("/tmp/pwned-ns")
+        assert not os.path.exists(marker)
 
 
 # --- namespace validation (SSRF, CWE-918) -------------------------------------
@@ -477,7 +478,9 @@ def test_api_tools_accept_valid_namespaces(fake_kubectl_env, tool_name, namespac
 @pytest.mark.parametrize("namespace", INVALID_NAMESPACES)
 def test_api_tools_reject_invalid_namespace(fake_kubectl_env, tool_name, namespace):
     """A malformed namespace must never reach the API path: the tool fails
-    fast with a clear error JSON and makes no kubectl call at all."""
+    with a clear error JSON and never issues the data query. Validation runs
+    after the kind lookup (cluster-scoped kinds ignore the namespace), so
+    api-resources may appear in the log — but no get --raw call must."""
     env, args_log, workdir = fake_kubectl_env
     tool = TOOLS[tool_name]
     rendered = _render_tool(
@@ -491,7 +494,71 @@ def test_api_tools_reject_invalid_namespace(fake_kubectl_env, tool_name, namespa
     assert payload[empty_key] == [], "error JSON must carry the empty results array"
     assert "Invalid namespace" in payload["stderr"], "clear error message expected"
     assert namespace in payload["stderr"], "error must name the offending value"
-    # Fail fast: validation runs before kubectl api-resources / get --raw, so
-    # the fake kubectl must never have been invoked (no args log at all).
     if os.path.exists(args_log):
-        assert _logged_kubectl_calls(args_log) == []
+        assert not any("--raw" in c for c in _logged_kubectl_calls(args_log))
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+@pytest.mark.parametrize("tool_name", ["kubernetes_jq_query", "kubernetes_count"])
+def test_api_tools_null_namespace_runs_cluster_wide(fake_kubectl_env, tool_name):
+    """A null namespace (strict tool calls send null for unset optionals,
+    which renders as the string 'None') must be treated as omitted, not
+    rejected: the query runs cluster-wide."""
+    env, args_log, workdir = fake_kubectl_env
+    tool = TOOLS[tool_name]
+    rendered = _render_tool(
+        tool,
+        {"kind": "pods", "jq_expr": ".items[]", "namespace": None},
+    )
+    result = _run_script(rendered, env, workdir)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "Invalid namespace" not in (payload["stderr"] or "")
+    calls = _logged_kubectl_calls(args_log)
+    raw_calls = [c for c in calls if "--raw" in c]
+    assert any("/api/v1/pods" in c for c in raw_calls)
+    assert not any("/namespaces/" in c for c in raw_calls)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+@pytest.mark.parametrize("tool_name", ["kubernetes_jq_query", "kubernetes_count"])
+def test_api_tools_invalid_namespace_ignored_for_cluster_scoped_kinds(
+    fake_kubectl_env, tool_name
+):
+    """Validation is gated on the kind being namespaced: an invalid namespace
+    with a cluster-scoped kind (nodes) must not fail the cluster-wide query."""
+    env, args_log, workdir = fake_kubectl_env
+    tool = TOOLS[tool_name]
+    rendered = _render_tool(
+        tool,
+        {"kind": "nodes", "jq_expr": ".items[]", "namespace": "Team-A"},
+    )
+    result = _run_script(rendered, env, workdir)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "Invalid namespace" not in (payload["stderr"] or "")
+    calls = _logged_kubectl_calls(args_log)
+    raw_calls = [c for c in calls if "--raw" in c]
+    assert any("/api/v1/nodes" in c for c in raw_calls)
+    assert not any("/namespaces/" in c for c in raw_calls)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+def test_count_ignores_inherited_namespace_env(fake_kubectl_env):
+    """kubernetes_count must use only the namespace argument, never an
+    inherited NAMESPACE process variable: an invalid env value must not
+    reject a valid namespaced query."""
+    env, args_log, workdir = fake_kubectl_env
+    env["NAMESPACE"] = "Team-A!!!"
+    tool = TOOLS["kubernetes_count"]
+    rendered = _render_tool(
+        tool,
+        {"kind": "pods", "jq_expr": ".items[]", "namespace": "team-a"},
+    )
+    result = _run_script(rendered, env, workdir)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "Invalid namespace" not in (payload["stderr"] or "")
+    calls = _logged_kubectl_calls(args_log)
+    raw_calls = [c for c in calls if "--raw" in c]
+    assert any("/api/v1/namespaces/team-a/pods" in c for c in raw_calls)

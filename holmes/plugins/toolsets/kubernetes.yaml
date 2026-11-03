@@ -70,7 +70,7 @@ toolsets:
           # Note: use $'\n' syntax instead of '\n' because Jinja2 interprets \n as literal newlines
           JQ_FILTER={{ jq_expr }}
           JQ_FILTER=$(printf '%s' "$JQ_FILTER" | tr $'\n\r' '  ')
-          NAMESPACE={{ namespace if namespace is string else '' }}
+          NAMESPACE="$SEL_NAMESPACE"
 
           err_file=$(mktemp)
           PROCESSED=0
@@ -92,27 +92,6 @@ toolsets:
               '{total_items_processed: $total, matches_found: 0, results: [], stderr: $stderr, scope: $scope, notes: $notes}'
             exit 0
           }
-
-          # The namespace becomes part of the raw API path, so anything other than a valid
-          # namespace name (e.g. 'default/services/x:80/proxy/?') could reach other API endpoints
-          if [ -n "$SEL_NAMESPACE" ] && ! [[ "$SEL_NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
-            fail "Invalid namespace '${SEL_NAMESPACE}': must be a Kubernetes namespace name (lowercase letters, digits and '-')."
-          fi
-
-          # SECURITY (SSRF, CWE-918): validate the namespace before it is
-          # interpolated into the --raw API path below. Kubernetes namespace
-          # names are RFC 1123 DNS labels; anything else (slashes, dots,
-          # "..", etc.) could reroute the request to an unintended API
-          # endpoint. Fail fast: no kubectl call happens for an invalid
-          # namespace.
-          if [ -n "$NAMESPACE" ]; then
-            if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
-              rm -f "$err_file"
-              jq -n --arg stderr "Invalid namespace '${NAMESPACE}': must be a valid Kubernetes namespace name (RFC 1123 DNS label: up to 63 characters of lowercase alphanumeric and '-', starting and ending with an alphanumeric character)" \
-                '{total_items_processed: 0, matches_found: 0, results: [], stderr: $stderr}'
-              exit 0
-            fi
-          fi
 
           # Get the API path for the resource kind using kubectl
           # Match the resource name (first column) as an EXACT string, not a
@@ -175,6 +154,17 @@ toolsets:
             fail "Unable to parse API info for resource kind '${KIND}'."
           fi
 
+          # Validate the namespace only for namespaced kinds, now that the
+          # kind lookup above has settled that: cluster-scoped kinds ignore
+          # the namespace (noted below), so an invalid value must not fail
+          # a cluster-wide query. The namespace becomes part of the raw API
+          # path, so anything other than a valid name (e.g.
+          # 'default/services/x:80/proxy/?') could reach other API endpoints
+          # (SSRF, CWE-918) — validate before it is interpolated into the path.
+          if [ -n "$SEL_NAMESPACE" ] && [ "$NAMESPACED" = "true" ] && ! [[ "$SEL_NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+            fail "Invalid namespace '${SEL_NAMESPACE}': must be a Kubernetes namespace name (lowercase letters, digits and '-')."
+          fi
+
           # Build API path: namespaced kinds can be listed within one namespace;
           # cluster-scoped kinds ignore the namespace (as kubectl does)
           if [[ "$API_VERSION" == "v1" ]]; then
@@ -210,12 +200,11 @@ toolsets:
           # Scope the listing to a single namespace when requested. Only
           # namespaced resource kinds support this; for cluster-scoped kinds
           # the namespace is ignored and the query stays cluster-wide.
-          # SECURITY: $NAMESPACE was validated as an RFC 1123 DNS label above
-          # (SSRF, CWE-918) before reaching this path interpolation, and was
-          # assigned from the sanitized namespace param in an unquoted slot (a
-          # missing/empty param renders as empty via the `is string` guard),
-          # so referencing "$NAMESPACE" inside double quotes here is safe
-          # (no re-evaluation of the stored value).
+          # SECURITY: $NAMESPACE is the normalized $SEL_NAMESPACE value (a null
+          # namespace renders as 'None' and is cleared above), validated as an
+          # RFC 1123 DNS label above (SSRF, CWE-918) before reaching this path
+          # interpolation, so referencing "$NAMESPACE" inside double quotes
+          # here is safe (no re-evaluation of the stored value).
           if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
             if [[ "$API_VERSION" == "v1" ]]; then
               API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
@@ -564,26 +553,6 @@ toolsets:
             exit 0
           }
 
-          # The namespace becomes part of the raw API path; see kubernetes_jq_query
-          if [ -n "$SEL_NAMESPACE" ] && ! [[ "$SEL_NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
-            fail "Invalid namespace '${SEL_NAMESPACE}': must be a Kubernetes namespace name (lowercase letters, digits and '-')."
-          fi
-
-          # SECURITY (SSRF, CWE-918): validate the namespace before it is
-          # interpolated into the --raw API path below. Kubernetes namespace
-          # names are RFC 1123 DNS labels; anything else (slashes, dots,
-          # "..", etc.) could reroute the request to an unintended API
-          # endpoint. Fail fast: no kubectl call happens for an invalid
-          # namespace.
-          if [ -n "$NAMESPACE" ]; then
-            if ! [[ "$NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
-              rm -f "$err_file"
-              jq -n --arg stderr "Invalid namespace '${NAMESPACE}': must be a valid Kubernetes namespace name (RFC 1123 DNS label: up to 63 characters of lowercase alphanumeric and '-', starting and ending with an alphanumeric character)" \
-                '{total_items_processed: 0, matches_found: 0, preview: [], stderr: $stderr}'
-              exit 0
-            fi
-          fi
-
           # Get the API path for the resource kind
           # Match the resource name (first column) as an EXACT string, not a
           # grep regex - otherwise a kind like '.*' or 'a|b' would match the
@@ -641,6 +610,17 @@ toolsets:
             fail "Unable to parse API info for resource kind '${KIND}'."
           fi
 
+          # Validate the namespace only for namespaced kinds, now that the
+          # kind lookup above has settled that: cluster-scoped kinds ignore
+          # the namespace (noted below), so an invalid value must not fail
+          # a cluster-wide query. The namespace becomes part of the raw API
+          # path, so anything other than a valid name (e.g.
+          # 'default/services/x:80/proxy/?') could reach other API endpoints
+          # (SSRF, CWE-918) — validate before it is interpolated into the path.
+          if [ -n "$SEL_NAMESPACE" ] && [ "$NAMESPACED" = "true" ] && ! [[ "$SEL_NAMESPACE" =~ ^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$ ]]; then
+            fail "Invalid namespace '${SEL_NAMESPACE}': must be a Kubernetes namespace name (lowercase letters, digits and '-')."
+          fi
+
           # Build API path: namespaced kinds can be listed within one namespace;
           # cluster-scoped kinds ignore the namespace (as kubectl does)
           if [[ "$API_VERSION" == "v1" ]]; then
@@ -676,20 +656,6 @@ toolsets:
           # Scope the listing to a single namespace when requested. Only
           # namespaced resource kinds support this; for cluster-scoped kinds
           # the namespace is ignored and the query stays cluster-wide.
-          # SECURITY: $NAMESPACE was validated as an RFC 1123 DNS label above
-          # (SSRF, CWE-918) before reaching this path interpolation, and was
-          # assigned from the sanitized namespace param in an unquoted slot (a
-          # missing/empty param renders as empty via the `is string` guard),
-          # so referencing "$NAMESPACE" inside double quotes here is safe
-          # (no re-evaluation of the stored value).
-          if [ -n "$NAMESPACE" ] && [ "$IS_NAMESPACED" = "true" ]; then
-            if [[ "$API_VERSION" == "v1" ]]; then
-              API_PATH="/api/v1/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
-            else
-              API_PATH="/apis/${API_VERSION}/namespaces/${NAMESPACE}/${RESOURCE_NAME}"
-            fi
-          fi
-
           # Process resources in chunks using API pagination
           LIMIT=500
           CONTINUE=""
