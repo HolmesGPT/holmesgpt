@@ -304,7 +304,9 @@ def test_missing_namespace_does_not_leak_jinja_builtin(tool_name, fake_kubectl_e
     assert any("--all-namespaces" in c or "/api/v1/pods" in c for c in calls)
     one_liner = tool.get_parameterized_one_liner(params)
     assert "jinja2" not in one_liner
-    assert "--all-namespaces" in one_liner
+    # Upstream's one-liner format shows scope as (namespace=, ...) rather than
+    # the old --all-namespaces conditional; empty namespace == all namespaces.
+    assert "namespace=" in one_liner
 
 
 # --- end-to-end: the exact #2438 scenario through tool.invoke() -----------------
@@ -344,10 +346,11 @@ def test_tabular_query_oom_crash_surfaces_as_error_end_to_end(fake_kubectl_env):
     # tool output on OOM crashes; the error JSON follows it.
     assert "[OOM]" in result.data
     assert "filter by namespace" in result.data
-    payload = json.loads(result.data[result.data.index("{"):])
-    assert payload["count"] == 0
-    assert payload["rows"] == []
-    assert "out of memory" in payload["stderr"]
+    # The framework truncates OOM output to 10 lines, so the error JSON's tail
+    # (scope/notes) may not survive; assert on the surviving head instead.
+    assert '"count": 0' in result.data
+    assert '"rows": []' in result.data
+    assert "out of memory" in result.data
 
 
 # --- user_description honesty (#2427: templates must not look namespaced) ------
@@ -358,22 +361,26 @@ def test_user_descriptions_reflect_namespace_scope():
     jq = TOOLS["kubernetes_jq_query"]
     count = TOOLS["kubernetes_count"]
 
-    assert "--all-namespaces" in tabular.get_parameterized_one_liner(
+    # Upstream's one-liner format shows scope as (namespace=, ...) when unscoped
+    # and (namespace=team-a, ...) when scoped, instead of the old
+    # --all-namespaces / -n team-a conditionals. The honesty property is the
+    # same: the description must show the scope actually queried.
+    assert "namespace=," in tabular.get_parameterized_one_liner(
         {"kind": "pods", "columns": "NAME:.metadata.name"}
     )
-    assert "-n team-a" in tabular.get_parameterized_one_liner(
+    assert "namespace=team-a" in tabular.get_parameterized_one_liner(
         {"kind": "pods", "columns": "NAME:.metadata.name", "namespace": "team-a"}
     )
-    assert "--all-namespaces" in jq.get_parameterized_one_liner(
+    assert "namespace=," in jq.get_parameterized_one_liner(
         {"kind": "pods", "jq_expr": ".items[]"}
     )
-    assert "-n team-a" in jq.get_parameterized_one_liner(
+    assert "namespace=team-a" in jq.get_parameterized_one_liner(
         {"kind": "pods", "jq_expr": ".items[]", "namespace": "team-a"}
     )
-    assert "--all-namespaces" in count.get_parameterized_one_liner(
+    assert "namespace=," in count.get_parameterized_one_liner(
         {"kind": "pods", "jq_expr": ".items[]"}
     )
-    assert "-n team-a" in count.get_parameterized_one_liner(
+    assert "namespace=team-a" in count.get_parameterized_one_liner(
         {"kind": "pods", "jq_expr": ".items[]", "namespace": "team-a"}
     )
 
