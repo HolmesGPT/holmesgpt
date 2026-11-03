@@ -62,17 +62,9 @@ before_test: |
   T_5H=$(ts "hours=5")
   T_6H=$(ts "hours=6")
 
-  # Clean up existing test index
-  echo "Cleaning up existing test index..."
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
   # Create logs index
   echo "Creating prod logs index..."
-  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{
+  es_ensure_index "$LOGS_INDEX" '{
       "settings": {"number_of_shards": 1, "number_of_replicas": 0},
       "mappings": {"properties": {
         "timestamp": {"type": "date"},
@@ -83,12 +75,7 @@ before_test: |
         "correlation_id": {"type": "keyword"},
         "host": {"type": "keyword"}
       }}
-    }')
-  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
-    echo "Failed to create logs index: $CREATE_RESPONSE"
-    exit 1
-  fi
-  sleep 2
+    }'
 
   # Insert log data for Company.Ops (main platform service) and Company.Ops.Radar.WebJob
   # Both have job processing failures but NEITHER is companyopswebjob
@@ -121,15 +108,7 @@ before_test: |
   BULK_EOF
   sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
 
-  BULK_RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
-    -H "Content-Type: application/x-ndjson" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    --data-binary @"$BULK_FILE")
-  if echo "$BULK_RESPONSE" | grep -q '"errors":true'; then
-    echo "Bulk insert had errors: $BULK_RESPONSE"
-    rm -f "$BULK_FILE"
-    exit 1
-  fi
+  es_bulk_load_idempotent "$LOGS_INDEX" "$BULK_FILE" "254"
   rm -f "$BULK_FILE"
 
   # Refresh index

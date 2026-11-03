@@ -1,0 +1,7 @@
+{{- if and .Values.mcpAddons.aws.enabled (not .Values.mcpAddons.aws.hosted.enabled) }}
+WARNING: the aws-api-mcp-server pod (mcpAddons.aws) is deprecated by AWS and will be removed soon.
+Switch to the hosted AWS MCP Server with mcpAddons.aws.hosted.enabled: true. If your IAM role trusts
+system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.mcpAddons.aws.serviceAccount.name }}, also trust
+system:serviceaccount:{{ .Release.Namespace }}:{{ include "holmes.serviceAccountName" . }}.
+See https://holmesgpt.dev/data-sources/builtin-toolsets/aws/
+{{- end }}

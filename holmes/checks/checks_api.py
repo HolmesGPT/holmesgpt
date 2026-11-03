@@ -4,6 +4,7 @@ import time
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from holmes.plugins.destinations.webhook.utils import resolve_webhook_headers
 from litellm.exceptions import AuthenticationError
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,7 @@ from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
+from holmes.plugins.destinations.webhook.plugin import WebhookDestination
 
 checks_app = FastAPI()
 
@@ -41,6 +43,10 @@ class CheckExecutionRequest(BaseModel):
         default_factory=list
     )  # TODO: change to DestinationConfig after deciding on the schema.
     model: Optional[str] = Field(None, description="The model to use for the check.")
+    namespace: Optional[str] = Field(
+        None,
+        description="Namespace the check runs in (e.g. the HealthCheck CRD namespace).",
+    )
 
 
 class NotificationStatus(BaseModel):
@@ -155,6 +161,19 @@ def execute_health_check(
                     presentation_status=IssueStatus.OPEN,
                     presentation_key_metadata=f"*Check:* `{check_name}`\n*Query:* {request.query}",
                     show_status_in_title=False,  # Don't append " - open" to the title
+                    # Check execution context read by destination plugins (e.g.
+                    # the webhook payload builder) to build a stable schema.
+                    raw={
+                        "check_name": check_name,
+                        "namespace": request.namespace,
+                        "status": result.status.value,
+                        "message": result.message,
+                        "rationale": result.rationale,
+                        "error": result.error,
+                        "model_used": ai_model,
+                        "duration_seconds": result.duration,
+                        "query": request.query,
+                    },
                 )
 
                 # Create LLM result for the destination
@@ -172,12 +191,13 @@ def execute_health_check(
                     else:
                         dest_type = dest.lower()
                         dest_config = {}
-
+                        
+                    notification = NotificationStatus(
+                        type=dest_type, status="pending"
+                    )
+                    
                     if dest_type == "slack":
                         slack_channel = None
-                        notification = NotificationStatus(
-                            type="slack", status="pending"
-                        )
 
                         try:
                             # Check if SLACK_TOKEN is configured (from destination config or env var)
@@ -187,6 +207,7 @@ def execute_health_check(
                             slack_channel = dest_config.get(
                                 "channel"
                             ) or os.environ.get("SLACK_CHANNEL")
+                            
                             if slack_token and slack_channel:
                                 notification.channel = slack_channel
                                 slack_dest = SlackDestination(
@@ -213,9 +234,49 @@ def execute_health_check(
                                 f"Failed to send Slack notification: {e}", exc_info=True
                             )
 
-                        notifications.append(notification)
-                    # Add other destination types here (pagerduty, etc.) as needed
+                    elif dest_type == "webhook":
+                        try:
+                            webhook_url = dest_config.get("webhook_url") or os.environ.get(
+                                "WEBHOOK_URL"
+                            )
+                            webhook_method = (
+                                dest_config.get("webhook_method") 
+                                or os.environ.get(
+                                    "WEBHOOK_METHOD"
+                                ) 
+                                or "POST"
+                            )
 
+                            webhook_headers = resolve_webhook_headers(
+                                dest_config.get("webhook_headers"),
+                                os.environ.get("WEBHOOK_HEADERS"),
+                            )
+                        
+                            if webhook_url:
+                                webhook_dest = WebhookDestination(
+                                    method=webhook_method, webhook_url=webhook_url, headers=webhook_headers
+                                )
+
+                                webhook_dest.send_issue(issue, llm_result)
+                                notification.status = "sent"
+                            else:
+                                notification.status = "skipped"
+                                notification.error = (
+                                    "WEBHOOK_URL not configured"
+                                )
+                                logging.warning(
+                                    "WEBHOOK_URL not configured, skipping Webhook notification"
+                                )
+                        except Exception as e:
+                            notification.status = "failed"
+                            notification.error = str(e)
+                            logging.error(
+                                f"Failed to send Webhook notification: {e}", exc_info=True
+                            )
+                    # Add other destination types here (pagerduty, etc.) as needed
+                    
+                    notifications.append(notification)
+                    
             except Exception as e:
                 logging.error(
                     f"Failed to process alert destinations: {e}", exc_info=True

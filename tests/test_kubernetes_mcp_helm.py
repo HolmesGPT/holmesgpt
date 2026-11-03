@@ -22,12 +22,14 @@ MIIBszCCAVmgAwIBAgIUTESTONLYTESTONLYTESTONLYTESTONLYwCgYIKoZIzj0E
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm binary not installed")
 
 
-def _render(tmp_path, ca_pem=None, server_config=None):
+def _render(tmp_path, ca_pem=None, server_config=None, extra_set=()):
     args = [
         "helm", "template", "t", str(HELM_DIR), "--namespace", "holmes",
         "--show-only", TEMPLATE,
         "--set", "mcpAddons.kubernetes.enabled=true",
     ]
+    for value in extra_set:
+        args += ["--set", value]
     if server_config is not None:
         config_file = tmp_path / "server-config.toml"
         config_file.write_text(server_config)
@@ -76,3 +78,17 @@ def test_ca_without_server_config_still_mounts(tmp_path):
     pod = _pod(_render(tmp_path, ca_pem=CA_PEM))
     assert [v["name"] for v in pod["volumes"]] == ["mcp-ca"]
     assert [m["mountPath"] for m in pod["containers"][0]["volumeMounts"]] == [CA_PATH]
+
+
+def _args(docs):
+    return _pod(docs)["containers"][0]["args"]
+
+
+def test_log_level_defaults_to_one(tmp_path):
+    args = _args(_render(tmp_path))
+    assert args[args.index("--log-level") + 1] == "1"
+
+
+def test_log_level_can_be_overridden(tmp_path):
+    args = _args(_render(tmp_path, extra_set=["mcpAddons.kubernetes.config.logLevel=3"]))
+    assert args[args.index("--log-level") + 1] == "3"

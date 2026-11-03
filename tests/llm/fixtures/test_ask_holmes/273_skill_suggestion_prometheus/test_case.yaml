@@ -38,6 +38,7 @@ tags:
   - metrics
   - skills
   - medium
+  - benchmark
 
 port_forwards:
   - namespace: app-273

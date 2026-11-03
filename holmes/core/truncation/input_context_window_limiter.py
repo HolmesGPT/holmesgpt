@@ -12,13 +12,15 @@ from typing import Any, Optional
 import sentry_sdk
 from pydantic import BaseModel
 
+from holmes.common import env_vars
 from holmes.common.env_vars import ENABLE_CONVERSATION_HISTORY_COMPACTION
 from holmes.core.llm import (
     LLM,
     ContextWindowUsage,
     get_context_window_compaction_threshold_pct,
 )
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import rate_limit_retry_scope
+from holmes.core.llm_usage import RequestStats, attach_unrecorded_usage
 from holmes.core.truncation.compaction import compact_conversation_history
 from holmes.utils.stream import StreamEvents, StreamMessage
 
@@ -97,9 +99,13 @@ def compact_if_necessary(
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
-        compaction_result = compact_conversation_history(
-            original_conversation_history=messages, llm=llm, tools=tools
-        )
+        # All of compaction's requests (one per chunk) share one budget.
+        with rate_limit_retry_scope(
+            total_max_wait_seconds=env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS
+        ):
+            compaction_result = compact_conversation_history(
+                original_conversation_history=messages, llm=llm, tools=tools
+            )
         compaction_usage = compaction_result.usage
         compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
         compacted_total_tokens = compacted_tokens.total_tokens
@@ -187,7 +193,10 @@ def compact_if_necessary(
                 data={"content": failure_msg},
             )
         )
-        raise CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
+        error = CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
+        if compaction_usage is not None:
+            attach_unrecorded_usage(error, compaction_usage)
+        raise error
 
     elapsed_ms = (time.monotonic() - t0) * 1000
     logging.debug(f"compact_if_necessary: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")

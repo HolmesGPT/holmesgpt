@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 
 display_logger = logging.getLogger("holmes.display.config")
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import sentry_sdk
 import yaml  # type: ignore
@@ -38,6 +38,7 @@ from holmes.plugins.skills.skill_loader import (
 if TYPE_CHECKING:
     from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
+    from holmes.plugins.destinations.webhook.plugin import WebhookDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
     from holmes.plugins.sources.opsgenie import OpsGenieSource
@@ -132,6 +133,10 @@ class Config(RobustaBaseConfig):
 
     slack_token: Optional[SecretStr] = None
     slack_channel: Optional[str] = None
+
+    webhook_url: Optional[str] = None
+    webhook_method: Optional[str] = None
+    webhook_headers: Optional[Dict[str, Any]] = None
 
     pagerduty_api_key: Optional[SecretStr] = None
     pagerduty_user_email: Optional[str] = None
@@ -330,6 +335,28 @@ class Config(RobustaBaseConfig):
             skill_repos = parse_skill_repos_env()
             if skill_repos:
                 self.skill_repos = skill_repos
+
+        # Webhook destination settings (global fallbacks)
+        if self.webhook_url is None:
+            webhook_url_env = os.environ.get("WEBHOOK_URL")
+            if webhook_url_env:
+                self.webhook_url = webhook_url_env
+        if self.webhook_method is None:
+            webhook_method_env = os.environ.get("WEBHOOK_METHOD")
+            if webhook_method_env:
+                self.webhook_method = webhook_method_env
+        if self.webhook_headers is None:
+            webhook_headers_env = os.environ.get("WEBHOOK_HEADERS")
+            if webhook_headers_env:
+                from holmes.plugins.destinations.webhook.utils import InvalidWebhookHeadersError, resolve_webhook_headers
+                try:
+                    self.webhook_headers = resolve_webhook_headers(
+                        None,
+                        webhook_headers_env,
+                    )
+                except InvalidWebhookHeadersError as e:
+                    logging.warning("Invalid WEBHOOK_HEADERS: %s", e)
+                    self.webhook_headers = None
 
     @classmethod
     def load_from_env(cls):
@@ -578,7 +605,7 @@ class Config(RobustaBaseConfig):
 
         If neither condition holds, the cached executor is left in place.
         """
-        logging.info(
+        logging.debug(
             "Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s",
             toolset_tag_filter,
             enable_all_toolsets_possible,
@@ -709,6 +736,7 @@ class Config(RobustaBaseConfig):
         tracer=None,
         tool_results_dir: Optional[Path] = None,
         on_event: EventCallback = None,
+        conversation_id: Optional[str] = None,
     ) -> "ToolCallingLLM":
         """
         Create a ToolCallingLLM with explicit behavioral controls.
@@ -716,6 +744,9 @@ class Config(RobustaBaseConfig):
         Executor parameters (toolset_tag_filter, enable_all_toolsets_possible,
         prerequisite_cache, reuse_executor) are forwarded to
         :meth:`create_tool_executor`.
+
+        ``conversation_id``: sent to relay on Robusta-hosted models; see
+        ``ROBUSTA_CONVERSATION_ID_HEADER``.
 
         The defaults are the CLI's. Known issue: a server caller must pass the
         server's executor key explicitly (see :meth:`create_server_tool_executor`),
@@ -752,7 +783,12 @@ class Config(RobustaBaseConfig):
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         # Create LLM first so model info appears during toolset loading
-        llm = self._get_llm(model_key=model, tracer=tracer, on_event=on_event)
+        llm = self._get_llm(
+            model_key=model,
+            tracer=tracer,
+            on_event=on_event,
+            conversation_id=conversation_id,
+        )
         tool_executor = self.create_tool_executor(
             dal=dal,
             toolset_tag_filter=toolset_tag_filter,
@@ -876,6 +912,18 @@ class Config(RobustaBaseConfig):
             raise ValueError("--slack-channel must be specified")
         return SlackDestination(self.slack_token.get_secret_value(), self.slack_channel)
 
+    def create_webhook_destination(self) -> "WebhookDestination":
+        from holmes.plugins.destinations.webhook.plugin import WebhookDestination
+
+        webhook_url = self.webhook_url or os.environ.get("WEBHOOK_URL")
+        if webhook_url is None:
+            raise ValueError("--webhook-url or WEBHOOK_URL must be specified")
+        method = self.webhook_method or os.environ.get("WEBHOOK_METHOD") or "POST"
+        headers = self.webhook_headers or {}
+        return WebhookDestination(
+            method=method, webhook_url=webhook_url, headers=headers
+        )
+
     @staticmethod
     def _format_token_count(n: int) -> str:
         """Format a token count for display: 1048576 → '1M', 32768 → '32K'."""
@@ -893,7 +941,13 @@ class Config(RobustaBaseConfig):
         model_key: Optional[str] = None,
         tracer=None,
         on_event: EventCallback = None,
+        conversation_id: Optional[str] = None,
     ) -> "DefaultLLM":
+        """Build a fresh DefaultLLM for ``model_key``.
+
+        ``conversation_id``: sent to relay on Robusta-hosted models; see
+        ``ROBUSTA_CONVERSATION_ID_HEADER``.
+        """
         sentry_sdk.set_tag("requested_model", model_key)
         model_entry = self.llm_model_registry.get_model_params(model_key)
         model_params = model_entry.model_dump(exclude_none=True)
@@ -928,6 +982,7 @@ class Config(RobustaBaseConfig):
             tracer=tracer,
             name=model_name,
             is_robusta_model=is_robusta_model,
+            conversation_id=conversation_id,
         )  # type: ignore
         context_size = self._format_token_count(llm.get_context_window_size())
         max_response = self._format_token_count(llm.get_maximum_output_token())

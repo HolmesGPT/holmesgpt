@@ -173,6 +173,25 @@ def test_recorder_state_uses_workers_dal_and_streaming_flag():
     assert build_call.args[1] is ai
 
 
+def test_llm_names_the_claimed_conversations_row():
+    """The worker names the row it claimed, never the request's
+    conversation_id."""
+    worker, ai = _bare_worker()
+    task = ConversationTask(
+        conversation_id="row-1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+    )
+    chat_request = _chat_request()
+    chat_request.conversation_id = "from-the-request"
+    _run(worker, ai, task=task, chat_request=chat_request)
+
+    create_call = worker.config.create_toolcalling_llm.call_args
+    assert create_call.kwargs["conversation_id"] == "row-1"
+
+
 # --------------------------------------------------------------------------
 # user_id comes from the Conversations row; request_source falls back to
 # Conversations.metadata.

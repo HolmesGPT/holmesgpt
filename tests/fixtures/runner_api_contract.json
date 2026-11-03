@@ -480,34 +480,6 @@
     },
     "ChatResponse": {
       "$defs": {
-        "FollowUpAction": {
-          "properties": {
-            "action_label": {
-              "title": "Action Label",
-              "type": "string"
-            },
-            "id": {
-              "title": "Id",
-              "type": "string"
-            },
-            "pre_action_notification_text": {
-              "title": "Pre Action Notification Text",
-              "type": "string"
-            },
-            "prompt": {
-              "title": "Prompt",
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "action_label",
-            "pre_action_notification_text",
-            "prompt"
-          ],
-          "title": "FollowUpAction",
-          "type": "object"
-        },
         "PendingToolApproval": {
           "description": "Represents a tool call that requires user approval.",
           "properties": {
@@ -756,21 +728,6 @@
           },
           "title": "Conversation History",
           "type": "array"
-        },
-        "follow_up_actions": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/FollowUpAction"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": [],
-          "title": "Follow Up Actions"
         },
         "metadata": {
           "anyOf": [

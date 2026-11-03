@@ -25,70 +25,21 @@ HolmesGPT needs read access to Crossplane CRDs. If you use Kubernetes RBAC, ensu
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-        crossplane/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-    To test, run:
-
-    ```bash
-    holmes ask "Which Crossplane managed resources are failing and why?"
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    customClusterRoleRules:
-        - apiGroups: ["pkg.crossplane.io"]
-          resources: ["providers", "providerrevisions"]
-          verbs: ["get", "list"]
-        - apiGroups: ["apiextensions.crossplane.io"]
-          resources: ["compositeresourcedefinitions", "compositions"]
-          verbs: ["get", "list"]
-    toolsets:
-        crossplane/core:
-            enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      customClusterRoleRules:
-          - apiGroups: ["pkg.crossplane.io"]
-            resources: ["providers", "providerrevisions"]
-            verbs: ["get", "list"]
-          - apiGroups: ["apiextensions.crossplane.io"]
-            resources: ["compositeresourcedefinitions", "compositions"]
-            verbs: ["get", "list"]
-      toolsets:
-          crossplane/core:
-              enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+customClusterRoleRules:
+    - apiGroups: ["pkg.crossplane.io"]
+      resources: ["providers", "providerrevisions"]
+      verbs: ["get", "list"]
+    - apiGroups: ["apiextensions.crossplane.io"]
+      resources: ["compositeresourcedefinitions", "compositions"]
+      verbs: ["get", "list"]
+toolsets:
+    crossplane/core:
+        enabled: true
+---
+test: |
+  holmes ask "Which Crossplane managed resources are failing and why?"
+```
 
 ## Common Use Cases
 

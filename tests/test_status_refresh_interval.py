@@ -98,13 +98,13 @@ def test_failed_server_with_interval_does_not_shorten_the_refresh_loop(tmp_path,
     _refresh(with_interval)
     assert _example(with_interval).status == ToolsetStatusEnum.FAILED
     monkeypatch.setattr(server, "config", with_interval)
-    assert server._has_failed_mcp_toolsets() is False
+    assert server._failed_mcp_toolset_names() == []
 
     without_interval, _ = _mcp_config(tmp_path, "exit 1")
     _refresh(without_interval)
     assert _example(without_interval).status == ToolsetStatusEnum.FAILED
     monkeypatch.setattr(server, "config", without_interval)
-    assert server._has_failed_mcp_toolsets() is True
+    assert server._failed_mcp_toolset_names() == ["example"]
 
 
 def test_carried_over_server_keeps_its_tools_when_the_executor_is_rebuilt(tmp_path, clock):
