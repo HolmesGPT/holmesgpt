@@ -11,72 +11,39 @@ To add an OAuth MCP server, set `mode: streamable-http` and `oauth.enabled: true
 
 In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+mcp_servers:
+  my-server:
+    description: "Description of the MCP server"
+    config:
+      mode: streamable-http
+      url: https://example.com/mcp
+      oauth:
+        enabled: true
+---
+cli: |
+  Set the `CUSTOM_TOOLSET_LOCATION` environment variable pointing to a YAML file with your MCP server configuration:
 
-    Set the `CUSTOM_TOOLSET_LOCATION` environment variable pointing to a YAML file with your MCP server configuration:
+  ```bash
+  export CUSTOM_TOOLSET_LOCATION=/Users/.../custom_toolset.yaml
+  ```
 
-    ```bash
-    export CUSTOM_TOOLSET_LOCATION=/Users/.../custom_toolset.yaml
-    ```
+  In that file, define your OAuth MCP servers:
 
-    In that file, define your OAuth MCP servers:
+  ```yaml
+  toolsets:
+    # ... your toolsets
 
-    ```yaml
-    toolsets:
-      # ... your toolsets
-
-    mcp_servers:
-      my-server:
-        description: "Description of the MCP server"
-        config:
-          mode: streamable-http
-          url: https://example.com/mcp
-          oauth:
-            enabled: true
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcp_servers:
-      my-server:
-        description: "Description of the MCP server"
-        config:
-          mode: streamable-http
-          url: https://example.com/mcp
-          oauth:
-            enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        my-server:
-          description: "Description of the MCP server"
-          config:
-            mode: streamable-http
-            url: https://example.com/mcp
-            oauth:
-              enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  mcp_servers:
+    my-server:
+      description: "Description of the MCP server"
+      config:
+        mode: streamable-http
+        url: https://example.com/mcp
+        oauth:
+          enabled: true
+  ```
+```
 
 ## Example: Atlassian
 
@@ -101,59 +68,16 @@ CLI users can skip this step.
 
 In Kubernetes, the browser login and the stored token go through the Robusta platform, so Holmes must be connected to your Robusta account.
 
-=== "Holmes CLI"
-
-    ```yaml
-    mcp_servers:
-      atlassian:
-        description: "Atlassian Jira + Confluence MCP server"
-        config:
-          mode: streamable-http
-          url: https://mcp.atlassian.com/v1/mcp
-          oauth:
-            enabled: true
-    ```
-
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    mcp_servers:
-      atlassian:
-        config:
-          mode: streamable-http
-          url: https://mcp.atlassian.com/v1/mcp
-          oauth:
-            enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        atlassian:
-          config:
-            mode: streamable-http
-            url: https://mcp.atlassian.com/v1/mcp
-            oauth:
-              enabled: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  atlassian:
+    description: "Atlassian Jira + Confluence MCP server"
+    config:
+      mode: streamable-http
+      url: https://mcp.atlassian.com/v1/mcp
+      oauth:
+        enabled: true
+```
 
 ## How It Works
 
