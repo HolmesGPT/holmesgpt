@@ -37,6 +37,7 @@ KNOWN_PARAMS = {
     "max_tokens",
     "modalities",
     "n",
+    "output_config",
     "parallel_tool_calls",
     "prediction",
     "presence_penalty",
