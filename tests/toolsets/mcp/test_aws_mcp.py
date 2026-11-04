@@ -176,6 +176,11 @@ TWO_ACCOUNTS = {
 }
 
 
+def test_unquoted_account_id_is_accepted():
+    config = AwsMCPConfig(region="us-east-1", accounts={"dev": {"account_id": 131540503002}})
+    assert config.accounts["dev"].account_id == "131540503002"
+
+
 def _tool_call(account=None) -> dict:
     arguments = {"account": account} if account else {}
     return {**TOOL_CALL, "params": {"name": "aws___list_regions", "arguments": arguments}}

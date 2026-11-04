@@ -38,7 +38,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from holmes.clients.robusta_client import fetch_supabase_api_key
+from holmes.clients.robusta_client import (
+    fetch_supabase_api_key,
+    robusta_api_endpoint,
+)
 from holmes.common.env_vars import (
     ROBUSTA_ACCOUNT_ID,
     ROBUSTA_CONFIG_PATH,
@@ -1066,6 +1069,10 @@ class SupabaseDal:
             returning=ReturnMethod.minimal,  # must use this, because the user cannot read this table
         ).execute()
         return token
+
+    @property
+    def api_endpoint(self) -> str:
+        return robusta_api_endpoint(self.url)
 
     def get_ai_credentials(self) -> Tuple[str, str]:
         if not self.enabled:
