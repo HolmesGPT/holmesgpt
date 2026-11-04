@@ -1190,6 +1190,12 @@ class RemoteMCPToolset(Toolset):
             return StdioMCPConfig(**config)
         mcp_config = MCPConfig(**config)
         clean_url_str = str(mcp_config.url).rstrip("/")
+        if "aws-mcp-server" in clean_url_str:
+            logging.warning(
+                "MCP server %s uses the self-hosted AWS MCP server, which is deprecated and will be removed in an upcoming release. "
+                "Switch to the hosted AWS MCP Server: https://holmesgpt.dev/data-sources/builtin-toolsets/aws/",
+                self.name,
+            )
         if mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith("/sse"):
             mcp_config.url = AnyUrl(clean_url_str + "/sse")
         return mcp_config
