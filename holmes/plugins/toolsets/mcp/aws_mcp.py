@@ -8,7 +8,7 @@ import httpx
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.exceptions import BotoCoreError, ClientError
-from pydantic import AnyUrl, BaseModel, Field, model_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
 from holmes.core.tools import ToolParameter
@@ -24,6 +24,8 @@ AWS_MCP_URL_TEMPLATE = "https://aws-mcp.{region}.api.aws/mcp"
 
 
 class AwsAccountConfig(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
     account_id: Optional[str] = None
     region: Optional[str] = None
     description: Optional[str] = None
