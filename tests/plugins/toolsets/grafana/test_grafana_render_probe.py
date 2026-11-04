@@ -29,8 +29,16 @@ def _render_tool_names(rsps: responses.RequestsMock, enable_rendering: bool = Tr
         ({"body": requests.exceptions.ReadTimeout("Read timed out")}, True),
         ({"status": 404}, False),
         ({"body": requests.exceptions.ConnectionError("refused")}, False),
+        ({"body": requests.exceptions.ConnectTimeout("connect timed out")}, False),
     ],
-    ids=["probe-200", "probe-500", "probe-timeout", "probe-404", "probe-connection-error"],
+    ids=[
+        "probe-200",
+        "probe-500",
+        "probe-read-timeout",
+        "probe-404",
+        "probe-connection-error",
+        "probe-connect-timeout",
+    ],
 )
 def test_render_probe(probe_response, expected):
     with responses.RequestsMock() as rsps:

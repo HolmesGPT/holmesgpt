@@ -457,3 +457,81 @@ class TestNullOptionalParams:
     def test_drop_unset_optionals_without_schema(self):
         params = {"timeout": None}
         assert drop_unset_optionals(params, {}) is params
+
+    def test_stringified_object_optional_null_is_dropped(self):
+        schema = _schema(
+            filter=ToolParameter(
+                type="object",
+                properties={
+                    "name": ToolParameter(type="string"),
+                    "limit": ToolParameter(type="integer", required=False),
+                },
+            )
+        )
+        result = coerce_params({"filter": '{"name": "a", "limit": null}'}, schema)
+        assert result == {"filter": {"name": "a"}}
+
+    def test_any_of_object_branch_optional_null_is_dropped(self):
+        param = ToolParameter(
+            any_of=[
+                ToolParameter(type="string"),
+                ToolParameter(
+                    type="object",
+                    properties={
+                        "name": ToolParameter(type="string"),
+                        "limit": ToolParameter(type="integer", required=False),
+                    },
+                ),
+            ]
+        )
+        result = coerce_params({"v": {"name": "a", "limit": None}}, _schema(v=param))
+        assert result == {"v": {"name": "a"}}
+
+    def test_any_of_picks_the_branch_that_declares_every_key(self):
+        param = ToolParameter(
+            any_of=[
+                ToolParameter(
+                    type="object",
+                    properties={"id": ToolParameter(type="string")},
+                ),
+                ToolParameter(
+                    type="object",
+                    properties={
+                        "name": ToolParameter(type="string"),
+                        "limit": ToolParameter(type="integer", required=False),
+                    },
+                ),
+            ]
+        )
+        result = coerce_params({"v": {"name": "a", "limit": None}}, _schema(v=param))
+        assert result == {"v": {"name": "a"}}
+
+    def test_any_of_without_matching_branch_is_left_alone(self):
+        param = ToolParameter(
+            any_of=[
+                ToolParameter(
+                    type="object",
+                    properties={"limit": ToolParameter(type="integer", required=False)},
+                ),
+            ]
+        )
+        params = {"v": {"limit": None, "other": 1}}
+        assert drop_unset_optionals(params, _schema(v=param)) is params
+
+    def test_array_items_any_of_branch_optional_null_is_dropped(self):
+        schema = _schema(
+            objs=ToolParameter(
+                type="array",
+                items=ToolParameter(
+                    any_of=[
+                        ToolParameter(type="string"),
+                        ToolParameter(
+                            type="object",
+                            properties={"op": ToolParameter(type="string", required=False)},
+                        ),
+                    ]
+                ),
+            )
+        )
+        result = coerce_params({"objs": [{"op": None}, "x"]}, schema)
+        assert result == {"objs": [{}, "x"]}
