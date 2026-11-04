@@ -8,7 +8,7 @@ Holmes connects to the hosted [AWS MCP Server](https://docs.aws.amazon.com/agent
 - **CLI users**: Holmes uses your local AWS credentials (`~/.aws`, environment variables or a named profile)
 
 !!! warning "Migrating from the AWS API MCP server pod"
-    Without `mcpAddons.aws.hosted.enabled: true` the chart still deploys the previous `aws-api-mcp-server` pod with the `aws-api-mcp-sa` service account, so existing values keep working. That server is [deprecated by AWS](https://github.com/awslabs/mcp/blob/main/src/aws-api-mcp-server/MIGRATION.md): to switch, set `hosted.enabled: true`, point the IAM role's trust policy at the **Holmes service account** instead (`system:serviceaccount:NAMESPACE:robusta-holmes-service-account`) and annotate it as shown below. In hosted mode `mcpAddons.aws.serviceAccount`, `image`, `networkPolicy` and `resources` are ignored. Export your current values with `helm get values RELEASE -n NAMESPACE > values.yaml` before upgrading.
+    Without `mcpAddons.aws.hosted.enabled: true` the chart still deploys the previous `aws-api-mcp-server` pod with the `aws-api-mcp-sa` service account, so existing values keep working. That server is [deprecated by AWS](https://github.com/awslabs/mcp/blob/main/src/aws-api-mcp-server/MIGRATION.md) and will be removed from the chart in an upcoming release: to switch, set `hosted.enabled: true`, point the IAM role's trust policy at the **Holmes service account** instead (`system:serviceaccount:NAMESPACE:robusta-holmes-service-account`) and annotate it as shown below. In hosted mode `mcpAddons.aws.serviceAccount`, `image`, `networkPolicy` and `resources` are ignored. Export your current values with `helm get values RELEASE -n NAMESPACE > values.yaml` before upgrading.
 
 ## Single Account Setup
 
@@ -190,7 +190,7 @@ If you have a single Holmes agent that needs to query AWS resources across multi
 ??? info "How It Works"
     When multi-account mode is enabled:
 
-    1. Holmes gets one MCP server per account (`aws_dev`, `aws_prod`, ...), each signing with its own AWS profile
+    1. Holmes gets one AWS toolset (`aws_api`) for all accounts; every tool call names an account, and Holmes signs it with that account's AWS profile
     2. The chart renders an AWS config file where every profile assumes the account's IAM role with the pod's projected service account token (`AssumeRoleWithWebIdentity`); the AWS SDK refreshes the credentials itself
     3. The IAM roles in the target accounts trust the Holmes service account of your cluster
 
@@ -281,7 +281,7 @@ aws eks describe-cluster --name <cluster-name> --query "cluster.identity.oidc.is
 
 ### Step 4: Configure Helm Chart
 
-Once the IAM roles are set up, configure the Helm chart to enable multi-account mode. The setup script writes this block to `holmes_config.yaml` for you. CLI users instead add one `mode: aws` server per account to `~/.holmes/config.yaml`, each with its own `profile` from `~/.aws/config`.
+Once the IAM roles are set up, configure the Helm chart to enable multi-account mode. The setup script writes this block to `holmes_config.yaml` for you. CLI users instead add one `mode: aws` server to `~/.holmes/config.yaml` with an `accounts` map keyed by profile names from `~/.aws/config`.
 
 ```yaml-helm-values
 # No IRSA annotation needed: each role is assumed with the pod's projected token
@@ -298,7 +298,7 @@ mcpAddons:
       profiles:
         dev:
           role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-          description: "Development account"   # shown to the LLM as the server description
+          description: "Development account"   # shown to the LLM when it picks an account
           region: "us-east-1"                  # optional, defaults to config.region
         prod:
           role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
@@ -307,8 +307,8 @@ mcpAddons:
           # (or set credential_source, e.g. EcsContainer for EKS Pod Identity):
           # source_profile: dev
       llm_account_descriptions: |
-        aws_dev is the development account and contains the development resources.
-        aws_prod is the production account and contains the production resources.
+        dev is the development account and contains the development resources.
+        prod is the production account and contains the production resources.
 ```
 
 ## Example Usage
