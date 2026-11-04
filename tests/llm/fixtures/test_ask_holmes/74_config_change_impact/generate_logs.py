@@ -114,6 +114,7 @@ def main():
                 )
 
     sys.stdout.flush()
+    open("/tmp/ready", "w").close()
     # Keep pod running
     while True:
         time.sleep(3600)

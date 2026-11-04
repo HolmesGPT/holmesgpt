@@ -190,6 +190,27 @@ def _declares_null(schema: Any) -> bool:
     return any(_declares_null(branch) for branch in branches)
 
 
+def _object_properties(schema: Any, value: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The properties describing *value*: the schema's own, else those of the
+    first ``anyOf`` object branch that declares every key *value* has."""
+    properties = _schema_attr(schema, "properties")
+    if properties:
+        return properties
+    branches = _schema_attr(schema, "any_of") or _schema_attr(schema, "anyOf") or []
+    for branch in branches:
+        branch_properties = _schema_attr(branch, "properties")
+        if branch_properties and set(value) <= set(branch_properties):
+            return branch_properties
+    return None
+
+
+def _drop_in_item(item: Any, items_schema: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    properties = _object_properties(items_schema, item)
+    return drop_unset_optionals(item, properties) if properties else item
+
+
 def drop_unset_optionals(params: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
     """Strict tool calling makes every optional param required-but-nullable, so
     models send ``null`` for "not set"; tools must see it as omitted, or
@@ -210,18 +231,15 @@ def drop_unset_optionals(params: Dict[str, Any], schema: Dict[str, Any]) -> Dict
             continue
 
         new_value = value
-        properties = _schema_attr(param_schema, "properties")
-        items = _schema_attr(param_schema, "items")
-        if properties and isinstance(value, dict):
-            new_value = drop_unset_optionals(value, properties)
-        elif items is not None and isinstance(value, list):
-            item_properties = _schema_attr(items, "properties")
-            if item_properties:
-                new_items = [
-                    drop_unset_optionals(item, item_properties) if isinstance(item, dict) else item
-                    for item in value
-                ]
-                if any(new is not old for new, old in zip(new_items, value)):
+        if isinstance(value, dict):
+            properties = _object_properties(param_schema, value)
+            if properties:
+                new_value = drop_unset_optionals(value, properties)
+        elif isinstance(value, list):
+            items = _schema_attr(param_schema, "items")
+            if items is not None:
+                new_items = [_drop_in_item(item, items) for item in value]
+                if any(new is not old for new, old in zip(new_items, value, strict=True)):
                     new_value = new_items
 
         if new_value is not value:
@@ -266,7 +284,6 @@ def coerce_params(
     if not schema or not params:
         return params
 
-    params = drop_unset_optionals(params, schema)
     coerced: Optional[Dict[str, Any]] = None  # lazy-copy on first change
 
     for name, param_schema in schema.items():
@@ -289,4 +306,5 @@ def coerce_params(
                 coerced = dict(params)
             coerced[name] = new_value
 
-    return coerced if coerced is not None else dict(params)
+    # After coercion, so optionals inside a stringified object are dropped too.
+    return drop_unset_optionals(coerced if coerced is not None else dict(params), schema)
