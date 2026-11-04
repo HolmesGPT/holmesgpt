@@ -227,6 +227,56 @@ def _is_gemini_route(litellm_model_name: str) -> bool:
     return False
 
 
+def _is_bedrock_route(litellm_model_name: str, args: Dict[str, Any]) -> bool:
+    """True if litellm sends this model to Bedrock.
+
+    Asks litellm rather than checking for a `bedrock/` prefix: litellm also routes
+    bare Bedrock ids (e.g. `us.anthropic.claude-opus-4-6-v1`) to Bedrock.
+    """
+    custom_llm_provider = args.get("custom_llm_provider")
+    if custom_llm_provider == "bedrock":
+        return True
+    try:
+        _, provider, _, _ = litellm.get_llm_provider(
+            model=litellm_model_name, custom_llm_provider=custom_llm_provider
+        )
+    except Exception:
+        # Unknown to litellm: the completion call will raise its own error.
+        return False
+    return provider == "bedrock"
+
+
+def _strip_strict_schema_from_tools(
+    tools: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Return the tools without their strict-schema signals, leaving the caller's dicts untouched.
+
+    litellm 1.90+ sends two signals to Bedrock Converse for Claude models:
+    `function.strict` as `toolSpec.strict`, and the top-level
+    `parameters.additionalProperties` inside the toolSpec schema. Either one makes
+    Bedrock compile the schemas as strict, and it then rejects a request with more
+    than 16 union-typed parameters across its tools ("Schemas contains too many
+    parameters with union types"). Strict mode makes every optional parameter
+    nullable, so Holmes' toolsets exceed that. Older litellm sent neither, so
+    removing both restores the request Bedrock got before the upgrade. Relay does
+    the same in `_relax_bedrock_tool_schema`. Union types and nested
+    `additionalProperties` stay: Bedrock accepts them when not compiling strict.
+    """
+    stripped: List[Dict[str, Any]] = []
+    for tool in tools:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        if isinstance(function, dict):
+            new_function = {k: v for k, v in function.items() if k != "strict"}
+            parameters = new_function.get("parameters")
+            if isinstance(parameters, dict) and "additionalProperties" in parameters:
+                new_function["parameters"] = {
+                    k: v for k, v in parameters.items() if k != "additionalProperties"
+                }
+            tool = {**tool, "function": new_function}
+        stripped.append(tool)
+    return stripped
+
+
 class ContextWindowUsage(BaseModel):
     total_tokens: int
     tools_tokens: int
@@ -920,6 +970,9 @@ class DefaultLLM(LLM):
         ]
 
         litellm_model_name = self.get_litellm_corrected_name_for_robusta_ai()
+
+        if "tools" in tools_args and _is_bedrock_route(litellm_model_name, self.args):
+            tools_args["tools"] = _strip_strict_schema_from_tools(tools_args["tools"])
 
         # When Azure AD (Entra ID) token auth is enabled, obtain a cached token
         # and pass it to litellm instead of an API key.
