@@ -292,20 +292,21 @@ TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_acco
 
 
 @pytest.mark.parametrize(
-    "fence",
+    "fence, line, message",
     [
-        f"```yaml-toolset-config\n{TOOLSET}---\ncli:\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\ntest:\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n",
-        "```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\ntest: |\n  holmes toolset list\n  holmes ask hi\n```\n",
+        (f"```yaml-toolset-config\n{TOOLSET}---\ncli:\n```\n", 10, "`cli` has no value"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\ntest:\n```\n", 10, "`test` has no value"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n", 10, "`named-secrets` has no value"),
+        ("```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n", 8, "`deployment-values` has no value"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n", 10, "`secrets`: Extra inputs are not permitted"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\ntest: |\n  holmes toolset list\n  holmes ask hi\n```\n", 10, "`test`: "),
     ],
     ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field", "multi-line-test"],
 )
-def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_path, monkeypatch, fence):
+def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build_at_its_line(tmp_path, monkeypatch, fence, line, message):
     monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
+    # The fence opens on line 3 of the page.
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: {re.escape(message)}"):
         build_page(tmp_path, fence)
 
 
@@ -364,6 +365,22 @@ def test_a_reuse_fence_with_a_field_other_than_cli_fails_the_build(tmp_path, mon
         build_page(tmp_path, fence)
 
 
+
+
+@pytest.mark.parametrize(
+    "fields, line, message",
+    [
+        ("secret: invalid\n", 10, "`secret`: "),
+        ("named-secrets:\n  - name: dd-ca\n    keys: 5\n", 12, "`named-secrets[0].keys`: "),
+        ("cli: holmes toolset list\ntest: holmes toolset list\n", 10, "Value error, `test` ends a derived CLI tab"),
+    ],
+    ids=["field", "nested-field", "fields-together"],
+)
+def test_refused_fields_fail_the_build_at_the_refused_line(tmp_path, monkeypatch, fields, line, message):
+    monkeypatch.chdir(REPO)
+    # The fence opens on line 3 of the page and its `---` is on line 9.
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: {re.escape(message)}"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{DATADOG}---\n{fields}```\n")
 
 
 CHART = REPO / "helm" / "holmes"

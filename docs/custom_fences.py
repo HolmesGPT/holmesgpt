@@ -496,14 +496,6 @@ class Form(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    @model_validator(mode="before")
-    @classmethod
-    def every_field_has_a_value(cls, data):
-        # `None` stands for an absent field, so a field written with no value is refused here.
-        if isinstance(data, dict) and None in data.values():
-            raise ValueError("a field with no value")
-        return data
-
 
 class NamedSecret(Form):
     name: Text
@@ -636,19 +628,27 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     fields_data = _block_mapping(fields_text, fields_line) if split < len(lines) else {}
     if values is None or fields_data is None:
         return None
+    # `None` stands for an absent field, so a key written with no value is refused before
+    # the fields are validated.
+    for text, part, first_line in ((values_text, values, values_line), (fields_text, fields_data, fields_line)):
+        empty = empty_value(part)
+        if empty:
+            raise FenceBodyError(f"`{key_path(empty)}` has no value", first_line + key_lines(text).get(empty, 0))
     toolset_config = opening["deployment"] == TOOLSET_CONFIG_FENCE
     try:
         fields = (ToolsetConfigFields if toolset_config else HelmValuesFields).model_validate(fields_data)
-    except ValidationError:
-        return None
+    except ValidationError as e:
+        # A field written but refused names its own line; a refusal of the fields together
+        # (`test` beside `cli`) names the fields' first line.
+        error = e.errors()[0]
+        written = key_lines(fields_text)
+        path = tuple(error["loc"])
+        while path and path not in written:
+            path = path[:-1]
+        where = f"`{key_path(tuple(error['loc']))}`: " if error["loc"] else ""
+        raise FenceBodyError(f"{where}{error['msg']}", fields_line + written.get(path, 0)) from e
     if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
         return None
-    empty = empty_value(values)
-    if empty:
-        raise FenceBodyError(
-            f"`{key_path(empty)}` has no value", values_line + key_lines(values_text).get(empty, 0)
-        )
-
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.
         if not isinstance(fields, ToolsetConfigFields) or opening["option"] or fields.model_fields_set != {"cli"}:
