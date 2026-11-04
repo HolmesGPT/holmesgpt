@@ -1,21 +1,16 @@
 description: |
   A test case that simulates an issue real customer bumped into.
   When holmes was asked about a pod that died some time ago and could not find any information about it , it made up an answer about his condition.
-  This test checks the new fetch_resource_issue_metadata function to allow holmes to get historical issues from our timeline and find the pod kill reason in history.
+  This test checks the fetch_resource_issues_metadata function (mocked as a local
+  MCP server - see mock_issues_mcp.py, since the real one now lives in relay's
+  platform-mcp app) to allow holmes to get historical issues from our timeline
+  and find the pod kill reason in history.
 
 user_prompt: "why did my pod analytics-exporter-fast-76897854c-xxljr died around 2025-10-19?"
 expected_output:
   - The result mentions the analytics-exporter-fast pod was OOMKILLED
 before_test:
 after_test:
-
-skip: true
-skip_reason: >
-  fetch_resource_issues_metadata moved from the local robusta toolset to the
-  Robusta platform MCP server (relay's platform-mcp app), which enforces
-  per-user cluster RBAC server-side. This eval mocks the tool through
-  TestSupabaseDal, which no longer backs it - it needs a platform-mcp mock
-  to run again.
 
 test_type: "server"
 
