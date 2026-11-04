@@ -1,10 +1,11 @@
 """Regression checks for the hosted AWS MCP Server Helm wiring.
 
 With `hosted.enabled` Holmes signs requests to the hosted AWS MCP Server itself:
-no AWS MCP pod is rendered and one `mode: aws` server is emitted per account.
+no AWS MCP pod is rendered and one `mode: aws` server holds every account.
 Without it the chart keeps deploying the legacy aws-api-mcp-server pod unchanged.
 """
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -58,3 +59,36 @@ def test_multi_account_config_uses_web_identity_profiles():
     holmes = (HELM_DIR / "templates" / "holmes.yaml").read_text()
     assert "AWS_CONFIG_FILE" in holmes
     assert "audience: sts.amazonaws.com" in holmes
+
+
+def _rendered_mcp_servers(*set_args: str) -> dict:
+    args = ["helm", "template", "t", str(HELM_DIR)]
+    for arg in set_args:
+        args += ["--set-string", arg]
+    rendered = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+    for doc in yaml.safe_load_all(rendered):
+        for value in ((doc or {}).get("data") or {}).values():
+            if "mcp_servers" in value:
+                return yaml.safe_load(value)["mcp_servers"]
+    return {}
+
+
+def test_multi_account_renders_one_server_with_all_accounts():
+    profiles = "mcpAddons.aws.multiAccount.profiles"
+    servers = _rendered_mcp_servers(
+        "mcpAddons.aws.enabled=true",
+        "mcpAddons.aws.hosted.enabled=true",
+        "mcpAddons.aws.multiAccount.enabled=true",
+        f"{profiles}.dev.role_arn=arn:aws:iam::1:role/r",
+        f"{profiles}.dev.account_id=1",
+        f"{profiles}.prod.role_arn=arn:aws:iam::2:role/r",
+        f"{profiles}.prod.region=us-east-2",
+        f"{profiles}.staging.role_arn=arn:aws:iam::3:role/r",
+        f"{profiles}.staging.description=Staging",
+    )
+    assert list(servers) == ["aws_api"]
+    assert servers["aws_api"]["config"]["accounts"] == {
+        "dev": {"account_id": "1"},
+        "prod": {"region": "us-east-2"},
+        "staging": {"description": "Staging"},
+    }

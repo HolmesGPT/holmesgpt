@@ -346,6 +346,9 @@ class RemoteMCPTool(Tool):
     # Whether this is a relay cross-cluster tool. Decided once at creation (see
     # REMOTE_TOOL_NAME_PREFIX) so call-time logic reads state instead of the name.
     is_remote: bool = Field(default=False, exclude=True)
+    # The server's own inputSchema. `parameters` keeps only what the LLM is
+    # shown; the server validates against all of it.
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
 
     @property
     def collision_safe_name(self) -> str:
@@ -441,8 +444,8 @@ class RemoteMCPTool(Tool):
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
-            with lock:
+            lock_key = f"{self.toolset._mcp_config.get_lock_string()}#{params.get('account', '')}"
+            with get_server_lock(lock_key):
                 return asyncio.run(
                     self._invoke_async(
                         params,
@@ -699,6 +702,7 @@ class RemoteMCPTool(Tool):
             parameters=parameters,
             toolset=toolset,
             is_remote=is_remote,
+            input_schema=tool.inputSchema,
         )
 
     @classmethod
@@ -1186,6 +1190,12 @@ class RemoteMCPToolset(Toolset):
             return StdioMCPConfig(**config)
         mcp_config = MCPConfig(**config)
         clean_url_str = str(mcp_config.url).rstrip("/")
+        if "aws-mcp-server" in clean_url_str:
+            logging.warning(
+                "MCP server %s uses the self-hosted AWS MCP server, which is deprecated and will be removed in an upcoming release. "
+                "Switch to the hosted AWS MCP Server: https://holmesgpt.dev/data-sources/builtin-toolsets/aws/",
+                self.name,
+            )
         if mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith("/sse"):
             mcp_config.url = AnyUrl(clean_url_str + "/sse")
         return mcp_config

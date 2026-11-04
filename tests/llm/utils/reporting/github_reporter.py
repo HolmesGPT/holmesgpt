@@ -511,6 +511,8 @@ def generate_markdown_report(
     ask_holmes_mock_failures = 0
     ask_holmes_skipped = 0
     ask_holmes_setup_failures = 0
+    ask_holmes_infra_errors = 0
+    skill_check_failures: List[str] = []
 
     for result in sorted_results:
         status = TestStatus(result)
@@ -521,10 +523,14 @@ def generate_markdown_report(
                 ask_holmes_skipped += 1
             elif status.is_setup_failure:
                 ask_holmes_setup_failures += 1
+            elif status.infra_error:
+                ask_holmes_infra_errors += 1
             elif status.passed:
                 ask_holmes_passed += 1
             elif status.is_regression:
                 ask_holmes_regressions += 1
+                if status.skill_check_failure:
+                    skill_check_failures.append(result["test_case_name"])
             elif status.is_mock_failure:
                 ask_holmes_mock_failures += 1
     # Generate summary lines
@@ -534,9 +540,20 @@ def generate_markdown_report(
             markdown += f", {ask_holmes_skipped} skipped"
         if ask_holmes_setup_failures > 0:
             markdown += f", {ask_holmes_setup_failures} setup failures"
+        if ask_holmes_infra_errors > 0:
+            markdown += (
+                f", {ask_holmes_infra_errors} provider errors/timeouts "
+                f"(the model never answered)"
+            )
         if ask_holmes_mock_failures > 0:
             markdown += f", {ask_holmes_mock_failures} mock failures"
         markdown += "\n"
+        if skill_check_failures:
+            markdown += (
+                f"- :jigsaw: {len(skill_check_failures)} of the regressions failed "
+                f"the skill-suggestion check (the judge's verdict on the answer "
+                f"is kept separately): {', '.join(skill_check_failures)}\n"
+            )
 
     # Warn (above the table) when the run attempted bash commands that were denied
     # by the eval's allow/deny list. These are listed in the "Denied commands" column.

@@ -67,6 +67,31 @@ class TestSingleTurn:
         assert data.get("content"), "ai_answer_end must have non-empty content"
         assert data.get("messages"), "ai_answer_end must include conversation_history"
 
+    def test_answer_end_has_no_json_encoded_fields(self, supabase_fx: SupabaseFixture):
+        """ConversationEvents.events is jsonb: ai_answer_end must not carry a
+        JSON document as a string (the old `prompt` duplicate of `messages`)."""
+        conv = supabase_fx.create_conversation(
+            ask="What color is the sky? One word.",
+            title="integ: answer-end-encoding",
+        )
+        cid = conv["conversation_id"]
+        supabase_fx.wait_for_terminal(cid, request_sequence=1, timeout=120)
+
+        terminal = supabase_fx.find_terminal_event(cid)
+        assert terminal is not None and terminal["event"] == "ai_answer_end"
+        data = terminal.get("data") or {}
+        assert "prompt" not in data
+        assert isinstance(data.get("messages"), list)
+        for key, value in data.items():
+            if isinstance(value, str):
+                try:
+                    decoded = json.loads(value)
+                except ValueError:
+                    continue
+                assert not isinstance(decoded, (dict, list)), (
+                    f"ai_answer_end.{key} is a JSON-encoded string"
+                )
+
     def test_single_turn_compacts_prior_events(self, supabase_fx: SupabaseFixture):
         """After a single turn, all event rows before the ai_answer_end row
         should be marked compacted=true (the terminal carries the full history)."""

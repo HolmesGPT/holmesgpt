@@ -207,7 +207,7 @@ additionalEnvVars:
 Generate the Basic-auth value:
 
 ```bash
-echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64
+echo -n "pk-lf-xxxx:sk-lf-xxxx" | base64 | tr -d '\n'
 ```
 
 === "Holmes CLI"

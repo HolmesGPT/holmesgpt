@@ -854,6 +854,9 @@ def _collect_test_results_from_stats(terminalreporter):
                 "mock_data_failure": False,
                 "user_prompt": user_props.get("user_prompt", ""),
                 "is_setup_failure": user_props.get("is_setup_failure", False),
+                # Skill check that failed the run (see reporting/skill_check.py)
+                "fail_reason": user_props.get("fail_reason"),
+                "suggested_skill_titles": user_props.get("suggested_skill_titles"),
                 # Throttling flags
                 "failed_due_to_throttling": user_props.get(
                     "failed_due_to_throttling", False

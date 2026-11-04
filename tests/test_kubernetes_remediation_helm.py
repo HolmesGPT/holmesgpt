@@ -35,7 +35,7 @@ def test_values_defaults_are_plug_and_play():
     # node diagnostics tool (dcgmEnabled), 1.4.0 the `ps` argument policy
     # (ROB-974) and the fail-closed file-read policy (ROB-973); the config keys
     # asserted below only take effect on the version that introduced them.
-    assert v["image"] == "kubernetes-remediation-mcp:1.4.0"
+    assert v["image"] == "kubernetes-remediation-mcp:1.5.0"
     assert v["serviceAccount"]["clusterRole"] == ""  # chart creates scoped role
     assert v["networkPolicy"]["enabled"] is True
     assert v["config"]["allowArbitraryKubectlCommands"] is True
@@ -154,6 +154,17 @@ def test_gpu_diagnostics_chart_wiring():
     assert "pods/attach" in rbac
     # kubectl run --rm -i also watches the pod; without it kubectl polls noisily
     assert '"get", "list", "watch", "create", "delete"' in rbac
+
+
+def test_exec_argv_allowlist_values_render_as_server_env():
+    assert _values()["config"]["preapprovedExecDisabledBinaries"] == ""
+    assert set(_values()["config"]["preapprovedExecArgvAllowlists"]) == {"nvidia-smi", "dmesg"}
+    text = (TEMPLATE_DIR / "deployment.yaml").read_text()
+    assert (
+        'KUBECTL_PREAPPROVED_EXEC_ARGV_ALLOWLISTS: {{ include "holmes.kubernetesRemediationMcp.preapprovedExecArgvAllowlists" . | quote }}'
+        in text
+    )
+    assert "| toJson" in (TEMPLATE_DIR / "_helpers.tpl").read_text()
 
 
 def test_values_support_additional_env_vars():
