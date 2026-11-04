@@ -97,6 +97,9 @@ def _coerce_single_value(
     (string → int, string → bool, etc.) are skipped because they can be lossy
     or ambiguous.
     """
+    if value is None:
+        return value
+
     # --- Already the right type? Nothing to do. ---
     expected_types = _EXPECTED_PYTHON_TYPES.get(expected, ())
     if expected_types and isinstance(value, expected_types):
@@ -173,6 +176,62 @@ def _coerce_single_value(
     return value
 
 
+def _schema_attr(schema: Any, name: str, default: Any = None) -> Any:
+    if isinstance(schema, dict):
+        return schema.get(name, default)
+    return getattr(schema, name, default)
+
+
+def _declares_null(schema: Any) -> bool:
+    raw = _schema_attr(schema, "type")
+    if raw == "null" or (isinstance(raw, list) and "null" in raw):
+        return True
+    branches = _schema_attr(schema, "any_of") or _schema_attr(schema, "anyOf") or []
+    return any(_declares_null(branch) for branch in branches)
+
+
+def drop_unset_optionals(params: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Strict tool calling makes every optional param required-but-nullable, so
+    models send ``null`` for "not set"; tools must see it as omitted, or
+    ``params.get("timeout", 60)`` returns ``None``."""
+    if not schema or not isinstance(params, dict):
+        return params
+
+    result: Optional[Dict[str, Any]] = None
+    for name, param_schema in schema.items():
+        if name not in params:
+            continue
+        value = params[name]
+        if value is None:
+            if _schema_attr(param_schema, "required", True) is False and not _declares_null(param_schema):
+                if result is None:
+                    result = dict(params)
+                del result[name]
+            continue
+
+        new_value = value
+        properties = _schema_attr(param_schema, "properties")
+        items = _schema_attr(param_schema, "items")
+        if properties and isinstance(value, dict):
+            new_value = drop_unset_optionals(value, properties)
+        elif items is not None and isinstance(value, list):
+            item_properties = _schema_attr(items, "properties")
+            if item_properties:
+                new_items = [
+                    drop_unset_optionals(item, item_properties) if isinstance(item, dict) else item
+                    for item in value
+                ]
+                if any(new is not old for new, old in zip(new_items, value)):
+                    new_value = new_items
+
+        if new_value is not value:
+            if result is None:
+                result = dict(params)
+            result[name] = new_value
+
+    return result if result is not None else params
+
+
 def coerce_params(
     params: Dict[str, Any],
     schema: Dict[str, Any],
@@ -207,6 +266,7 @@ def coerce_params(
     if not schema or not params:
         return params
 
+    params = drop_unset_optionals(params, schema)
     coerced: Optional[Dict[str, Any]] = None  # lazy-copy on first change
 
     for name, param_schema in schema.items():
