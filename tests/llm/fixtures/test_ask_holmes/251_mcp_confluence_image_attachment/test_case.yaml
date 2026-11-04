@@ -23,6 +23,11 @@ expected_output:
 
 include_tool_calls: true
 
+toolsets_matrix:
+  - toolsets_gwsa.yaml
+  - toolsets_gwuser.yaml
+  - toolsets_oauth.yaml
+
 tags:
   - confluence
   - images

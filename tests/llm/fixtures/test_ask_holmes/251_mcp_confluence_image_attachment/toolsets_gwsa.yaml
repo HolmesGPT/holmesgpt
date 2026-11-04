@@ -1,0 +1,24 @@
+# MCP Atlassian server (stdio mode via uvx) for Confluence image attachment tests.
+# The service-account token is scoped, so it only works as a Bearer token through the
+# api.atlassian.com gateway; mcp-atlassian does that for a "bring your own" OAuth token.
+toolsets:
+  atlassian-mcp:
+    type: mcp
+    enabled: true
+    config:
+      mode: stdio
+      command: "uvx"
+      args: ["--with", "atlassian-python-api==4.0.7", "mcp-atlassian==0.21.0"]
+      env:
+        CONFLUENCE_URL: "{{ env.CONFLUENCE_SA_BASE_URL }}/wiki"
+        CONFLUENCE_USERNAME: "{{ env.CONFLUENCE_SA_USER }}"
+        CONFLUENCE_API_TOKEN: "{{ env.CONFLUENCE_SA_API_KEY }}"
+        READ_ONLY_MODE: "true"
+  confluence:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
