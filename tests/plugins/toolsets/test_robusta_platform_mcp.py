@@ -39,7 +39,8 @@ def test_constructs_when_dal_enabled():
     assert toolset.enabled is True
 
 
-def test_url_follows_the_dal_api_endpoint():
+def test_url_follows_the_dal_api_endpoint(monkeypatch):
+    monkeypatch.delenv("ROBUSTA_MCP_ENDPOINT", raising=False)
     dal = MagicMock()
     dal.api_endpoint = "https://api.eu.robusta.dev"
     dal.enabled = True
