@@ -5,7 +5,7 @@ import pytest
 import requests
 
 from holmes.clients import robusta_client as robusta_client_module
-from holmes.clients.robusta_client import fetch_supabase_api_key
+from holmes.clients.robusta_client import fetch_supabase_api_key, robusta_api_endpoint
 
 SAAS_STORE = "https://sp.robusta.dev"
 SELF_HOSTED_STORE = "https://robusta-platform-db.example.internal"
@@ -174,3 +174,16 @@ def test_skip_log_shows_only_the_store_host(caplog):
         )
     assert "db.example.internal" in caplog.text
     assert "secret" not in caplog.text and "k=v" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "store_url, expected",
+    [
+        ("https://sp.eu.robusta.dev", "https://api.eu.robusta.dev"),
+        ("https://sp.ap.robusta.dev", "https://api.ap.robusta.dev"),
+        (SELF_HOSTED_STORE, "https://api.robusta.dev"),
+        (None, "https://api.robusta.dev"),
+    ],
+)
+def test_api_endpoint_follows_the_store_region(store_url, expected):
+    assert robusta_api_endpoint(store_url) == expected
