@@ -444,8 +444,8 @@ class RemoteMCPTool(Tool):
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
-            with lock:
+            lock_key = f"{self.toolset._mcp_config.get_lock_string()}#{params.get('account', '')}"
+            with get_server_lock(lock_key):
                 return asyncio.run(
                     self._invoke_async(
                         params,

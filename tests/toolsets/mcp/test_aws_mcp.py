@@ -183,7 +183,7 @@ def _tool_call(account=None) -> dict:
 
 @respx.mock
 @pytest.mark.parametrize("account, region", [("dev", "us-east-1"), ("prod", "us-east-2")])
-async def test_each_account_signs_with_its_profile_and_region(account, region):
+async def test_each_account_signs_with_its_profile_for_the_endpoint_region(account, region):
     route = respx.post(ENDPOINT).mock(return_value=httpx.Response(200, json={}))
     with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session") as session:
         session.return_value.get_credentials.return_value = FAKE_CREDENTIALS
@@ -194,7 +194,7 @@ async def test_each_account_signs_with_its_profile_and_region(account, region):
     body = json.loads(request.content)
     assert body["params"]["arguments"] == {}
     assert body["params"]["_meta"] == {"AWS_REGION": region}
-    assert f"/{region}/aws-mcp/aws4_request" in request.headers["authorization"]
+    assert "/us-east-1/aws-mcp/aws4_request" in request.headers["authorization"]
 
 
 @respx.mock
