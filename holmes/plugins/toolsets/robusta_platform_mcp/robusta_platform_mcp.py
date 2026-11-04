@@ -36,6 +36,7 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
+    REMOTE_TOOL_NAME_PREFIX,
     RemoteMCPTool,
     RemoteMCPToolset,
 )
@@ -113,7 +114,9 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         else:
             tools_result = asyncio.run(self._get_server_tools())
         return [
-            RobustaPlatformMCPTool.create(tool, self)
+            RobustaPlatformMCPTool.create(
+                tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
+            )
             for tool in self._filter_allowed_tools(tools_result.tools)
         ]
 

@@ -224,6 +224,43 @@ def _serializable_images(images: Any) -> List[Dict[str, str]]:
     return [image for image in whole if image is not None]
 
 
+# Relay stamps the approvals and session prefixes it verified from its own
+# records; an older relay forwarded the caller's claim instead, so a row
+# without the stamp is never trusted.
+RELAY_VERIFIER = "relay"
+
+
+def _unverified_approval_reason(approval: Any, row_id: Any) -> Optional[str]:
+    if not isinstance(approval, dict):
+        return "no approval reference"
+    if approval.get("verified_by") != RELAY_VERIFIER:
+        return "approval reference not issued by relay"
+    request_id = approval.get("approval_request_id")
+    if not isinstance(request_id, str) or not request_id or request_id == row_id:
+        return "approval reference names no earlier request"
+    approved_by = approval.get("approved_by")
+    if not isinstance(approved_by, str) or not approved_by:
+        return "approval reference names no approver"
+    return None
+
+
+def _verified_session_prefixes(
+    tool_request: Dict[str, Any], metadata: Dict[str, Any]
+) -> List[str]:
+    prefixes = tool_request.get("session_approved_prefixes") or []
+    if not prefixes:
+        return []
+    if metadata.get("session_prefixes_verified_by") != RELAY_VERIFIER:
+        logging.warning(
+            "ToolCallWorker: ignoring session prefixes relay did not verify"
+        )
+        return []
+    if not isinstance(prefixes, list) or not all(isinstance(p, str) for p in prefixes):
+        logging.warning("ToolCallWorker: ignoring malformed session prefixes")
+        return []
+    return prefixes
+
+
 INTERNAL_KIND_OAUTH_CALLBACK = "oauth_callback"
 INTERNAL_KIND_HOLMES_LOGS = "holmes_logs"
 
@@ -506,7 +543,22 @@ class ToolCallWorker:
 
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
         user_approved = bool(metadata.get("remote_tool_approved"))
-        session_approved_prefixes = tool_request.get("session_approved_prefixes") or []
+        if user_approved:
+            refusal = _unverified_approval_reason(
+                metadata.get("remote_tool_approval"), row.get("id")
+            )
+            if refusal:
+                logging.warning(
+                    "ToolCallWorker: refusing approved call %s to '%s': %s",
+                    row.get("id"),
+                    tool_name,
+                    refusal,
+                )
+                return _error_response(
+                    f"the approval for '{tool_name}' was not verified by relay "
+                    f"({refusal}); the tool was not run"
+                )
+        session_approved_prefixes = _verified_session_prefixes(tool_request, metadata)
 
         # 4. Tool invocation context.
         context = ToolInvokeContext(

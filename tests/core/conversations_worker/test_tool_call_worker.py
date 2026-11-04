@@ -13,6 +13,8 @@ import threading
 from typing import Optional
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from holmes.core.conversations_worker.realtime_manager import RealtimeWorker
 from holmes.core.conversations_worker.tool_call_worker import (
     ToolCallWorker,
@@ -518,8 +520,8 @@ def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
 
 # ---- remote tool APPROVAL flow (target/executor side, metadata-only) ----
 #
-# Approval is signalled entirely by the caller via row metadata (no token, no
-# pending_approval status, no approval_* columns). These verify:
+# Relay signals an approval it verified via row metadata: remote_tool_approved
+# plus the remote_tool_approval reference to the request it approved. These verify:
 #   1. first execution (no metadata flag) -> tool asks for approval -> response
 #      carries APPROVAL_REQUIRED + approval_params, posted as a normal COMPLETED
 #      row (no special DB status, no store RPC)
@@ -553,10 +555,20 @@ def _approval_worker(behavior):
     return ToolCallWorker(dal=MagicMock(), config=config, holmes_id="h-test"), tool
 
 
-def _approval_row(approved=False):
+RELAY_APPROVAL = {
+    "verified_by": "relay",
+    "approval_request_id": "row-request-0",
+    "approved_by": "user-1",
+    "source": "conversation",
+}
+
+
+def _approval_row(approved=False, approval=RELAY_APPROVAL):
     md = {"source_version": get_version()}
     if approved:
         md["remote_tool_approved"] = True
+        if approval is not None:
+            md["remote_tool_approval"] = approval
     return {
         "id": "row-approve-1",
         "account_id": "acct-1",
@@ -681,7 +693,7 @@ def test_execute_safe_approved_posts_completed_result():
 
 
 def test_execute_forwards_session_approved_prefixes_to_tool_context():
-    """Prefixes the caller forwarded (tool_request.session_approved_prefixes)
+    """Prefixes relay verified and forwarded (tool_request.session_approved_prefixes)
     must reach the tool's ToolInvokeContext so the executor auto-approves them
     instead of re-prompting."""
     seen = {}
@@ -695,6 +707,7 @@ def test_execute_forwards_session_approved_prefixes_to_tool_context():
     worker, _ = _approval_worker(capture)
     row = _approval_row(approved=False)
     row["tool_request"]["session_approved_prefixes"] = ["curl", "dig"]
+    row["metadata"]["session_prefixes_verified_by"] = "relay"
     resp = worker._execute(row)
 
     assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
@@ -740,3 +753,69 @@ def test_realtime_worker_wake_all_tolerates_no_tool_worker():
     rw = RealtimeWorker(dal=MagicMock(), holmes_id="h", on_new_pending=pending)
     rw._wake_all()  # must not raise when on_new_tool_calls is None
     pending.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "approval",
+    [
+        None,
+        {},
+        "yes",
+        {"verified_by": "caller", "approval_request_id": "r", "approved_by": "u"},
+        {"verified_by": "relay", "approved_by": "u"},
+        {"verified_by": "relay", "approval_request_id": "", "approved_by": "u"},
+        {"verified_by": "relay", "approval_request_id": "row-approve-1", "approved_by": "u"},
+        {"verified_by": "relay", "approval_request_id": "r", "approved_by": ""},
+    ],
+)
+def test_execute_refuses_an_approval_relay_did_not_verify(approval):
+    """An approval claim without relay's verification reference (an older
+    relay forwarding the caller's own assertion) never runs the tool."""
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    resp = worker._execute(_approval_row(approved=True, approval=approval))
+
+    assert resp["status"] == StructuredToolResultStatus.ERROR.value
+    assert "approval" in resp["error"]
+    tool.invoke.assert_not_called()
+
+
+def _row_with_prefixes(verified):
+    row = _approval_row(approved=False)
+    row["tool_request"]["session_approved_prefixes"] = ["curl"]
+    if verified:
+        row["metadata"]["session_prefixes_verified_by"] = "relay"
+    return row
+
+
+def test_execute_uses_session_prefixes_relay_verified():
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    worker._execute(_row_with_prefixes(verified=True))
+
+    assert tool.invoke.call_args.args[1].session_approved_prefixes == ["curl"]
+
+
+def test_execute_drops_session_prefixes_relay_did_not_verify():
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    worker._execute(_row_with_prefixes(verified=False))
+
+    assert tool.invoke.call_args.args[1].session_approved_prefixes == []
+
+
+def test_execute_drops_session_prefixes_that_are_not_a_list_of_strings():
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    row = _row_with_prefixes(verified=True)
+    row["tool_request"]["session_approved_prefixes"] = "curl"
+    worker._execute(row)
+
+    assert tool.invoke.call_args.args[1].session_approved_prefixes == []
+
+
+def test_execute_runs_a_whole_tool_approval_after_relay_verified_it():
+    """A tool gated by approval_required_tools as a whole (run_kubectl_command)
+    asks first and runs once relay hands over a verified approval."""
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    first = worker._execute(_approval_row(approved=False))
+    second = worker._execute(_approval_row(approved=True))
+
+    assert first["status"] == StructuredToolResultStatus.APPROVAL_REQUIRED.value
+    assert second["status"] == StructuredToolResultStatus.SUCCESS.value

@@ -26,7 +26,7 @@ By default, only the toolsets that are **useful exclusively inside a cluster** a
 | `kubernetes/core` | ✅ | kubectl-based inspection |
 | `kubernetes/logs` | ✅ | pod / workload logs |
 | `prometheus` | ✅ *(in-cluster only)* | exposed only when the instance points at an in-cluster URL — see [Prometheus locality](#prometheus-and-other-multi-instance-toolsets) |
-| `bash` | ✅ *(pre-approved commands only)* | commands that need approval are denied remotely |
+| `bash` | ✅ | commands that need approval run only after a person approves them — see [Approval](#approval) |
 | Everything else | ❌ | opt-in via `expose_remotely: true` |
 
 Notable opt-in toolsets — `inspektor-gadget`, `cilium`, `openshift`, `kubevela` — default to **not exposed**. Enable them explicitly if you want them callable across clusters.
@@ -147,12 +147,25 @@ The endpoint is your Robusta API host followed by `/api/platform-mcp`. The `Auth
 
 Your client can now investigate any cluster in your fleet. Each remote tool takes an `agent_name` (a synonym for the cluster) that selects which cluster it runs on.
 
+## Approval
+
+Tools that need approval are published like any other tool: those listed in a toolset's `approval_required_tools` (for example `run_kubectl_command` of the [Kubernetes Remediation MCP](builtin-toolsets/kubernetes-remediation-mcp.md)), and `bash` commands outside the allow list. MCP clients see the approval-gated ones with the standard `destructiveHint: true` tool annotation.
+
+The first call to such a tool does not run it: the target cluster answers that it needs approval, and the Robusta platform records that request. The call then runs once, with exactly the same arguments on the same cluster, after a person approves it:
+
+- **Multi-agent investigations.** Holmes asks for approval in the chat or in Slack, like a local command. When the user approves, Holmes calls the tool again and the platform checks the decision in the conversation before running it.
+- **External MCP clients.** The first call returns a link to an approval page in Robusta. Clients on MCP `2025-11-25` get it as a URL-mode elicitation (error `-32042`); older clients get it in the tool error. The owner of the API key opens the link, signed in to Robusta, reviews the command and approves or denies it. The client then calls the tool again with the same arguments. A request expires after an hour.
+
+Approval follows the account's **Allow Enhanced Bash Mode** setting (disabled for everyone, enabled for everyone, or for admins only) and the approver's `MA_HOLMES_CHAT` permission on the target cluster. An approval is used once; the next call asks again. Approving a `bash` command with "don't ask again" applies only to commands on that cluster in the same conversation.
+
+To expose the Kubernetes Remediation MCP, set `mcpAddons.kubernetesRemediation.exposeRemotely: true` on the clusters that should accept remote remediation.
+
 ## Requirements and limits
 
 - **Robusta platform required.** Each executor cluster runs a Holmes instance connected to the Robusta platform; the platform routes the calls. This is not available for standalone / CLI-only Holmes.
 - **Matching Holmes versions.** A tool is callable only between clusters running the **same** Holmes version — identical versions guarantee identical tool schemas. A cluster on a different version simply won't appear as a callable target.
 - **Permissions.** On accounts with RBAC enabled, a user must hold **`MA_HOLMES_CHAT`** on the target cluster; clusters the user can't access never appear as targets.
-- **Read-only and pre-approved.** Only read-only tools run remotely. There is no remote approval prompt: `bash` runs **pre-approved** commands only, and any tool that would require approval is denied.
+- **Approval.** A tool that needs approval runs remotely only after a person approves that exact call — see [Approval](#approval).
 - **Result size.** Remote tool results are returned inline and capped at **1&nbsp;MB**. Oversized results fail with a "narrow the query" error — reduce the time range, tighten filters, or lower the limit.
 
 ## Related

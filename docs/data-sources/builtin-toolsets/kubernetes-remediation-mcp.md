@@ -510,6 +510,8 @@ Otherwise, in order of preference:
 | `allowArbitraryKubectlCommands` | `true` | enable the approval-gated fallback |
 | `timeout` | `60` | per-command timeout (s) |
 
+To let Holmes in your other clusters, and Robusta MCP Server clients, run these tools on this cluster, set `mcpAddons.kubernetesRemediation.exposeRemotely: true`. `run_kubectl_command` still runs only after a person approves each call; see [Cross-Cluster Tools](../cross-cluster-tools.md#approval).
+
 ## Common Use Cases
 
 ```bash
