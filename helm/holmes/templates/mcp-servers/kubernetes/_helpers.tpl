@@ -16,9 +16,26 @@ Use the Kubernetes MCP when investigating:
 - Kubernetes events and cluster-level diagnostics
 - Helm release status and management
 
+## Which Cluster These Tools Reach
+
+These tools reach the clusters in this server's kubeconfig — NOT necessarily the
+cluster Holmes itself runs on. Do not assume the two are the same.
+
+- `configuration_contexts_list` enumerates the reachable clusters. It is
+  registered ONLY when the kubeconfig holds more than one context, so its
+  absence means a single cluster is configured — not that context selection
+  failed. When it is absent, every tool here targets that one cluster; say
+  which cluster you queried only if you can identify it, and never guess a name.
+- When it IS available, call it before other tools and pass an explicit
+  `context` argument, rather than relying on the default.
+- For the LOCAL cluster Holmes runs on, prefer the `bash` toolset.
+- For other clusters in the Robusta FLEET, use the platform's `remote_*` tools
+  with an `agent_name`. Those are a different mechanism from the kubeconfig
+  contexts here; do not confuse a context name with an `agent_name`.
+
 ## Investigation Workflow
 
-1. **Check cluster context**: Use configuration tools to verify which cluster you're connected to
+1. **Check cluster context**: Establish which cluster you are querying (see above)
 2. **List namespaces**: Identify the relevant namespace for the investigation
 3. **Check events**: Look at Kubernetes events for warnings and errors
 4. **Inspect pods**: Get pod status, logs, and resource usage
