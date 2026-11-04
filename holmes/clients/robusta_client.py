@@ -27,7 +27,7 @@ FETCH_MODELS_ATTEMPTS = 5
 # The v3 catalog is an envelope that carries the account's opt-out. A platform
 # that does not serve it answers 404, the fetch fails like any other client
 # error, and the registry loads its legacy single-model entry.
-MODELS_URL = f"{ROBUSTA_API_ENDPOINT}/api/llm/models/v3"
+MODELS_PATH = "/api/llm/models/v3"
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +106,9 @@ def _is_robusta_saas_url(url: str) -> bool:
     return host == "robusta.dev" or host.endswith((".robusta.dev", ".supabase.co"))
 
 
-# Each SaaS store's key is served by its own region's API. Helm values generated before 2026-05 leave
+# Each SaaS store is served by its own region's API. Helm values generated before 2026-05 leave
 # ROBUSTA_API_ENDPOINT on the US default even for EU/AP accounts.
-SAAS_STORE_KEY_ENDPOINTS = {
+SAAS_STORE_API_ENDPOINTS = {
     # each region's custom domain and the Supabase project domain it points to
     "sp.robusta.dev": "https://api.robusta.dev",
     "xvyhpoxfmtpuqqeyqkso.supabase.co": "https://api.robusta.dev",
@@ -117,6 +117,12 @@ SAAS_STORE_KEY_ENDPOINTS = {
     "sp.ap.robusta.dev": "https://api.ap.robusta.dev",
     "xvtsnzetsdaiyobgdlic.supabase.co": "https://api.ap.robusta.dev",
 }
+
+
+def robusta_api_endpoint(store_url: Optional[str]) -> str:
+    return SAAS_STORE_API_ENDPOINTS.get(
+        _hostname(store_url or ""), ROBUSTA_API_ENDPOINT
+    )
 
 
 def should_fetch_keys_from_saas(store_url: str) -> bool:
@@ -147,10 +153,7 @@ def fetch_supabase_api_key(
         "component_version": get_version(),
     }
     try:
-        api_endpoint = SAAS_STORE_KEY_ENDPOINTS.get(
-            _hostname(store_url), ROBUSTA_API_ENDPOINT
-        )
-        return _request_supabase_api_key(api_endpoint, params)
+        return _request_supabase_api_key(robusta_api_endpoint(store_url), params)
     except Exception as e:
         logger.warning(f"Failed to fetch the api key from relay: {e}")
         return None
@@ -168,9 +171,11 @@ def fetch_supabase_api_key(
     before_sleep=_log_fetch_retry,
     reraise=True,
 )
-def _request_robusta_models(account_id: str, token: str) -> RobustaModelsResponse:
+def _request_robusta_models(
+    account_id: str, token: str, api_endpoint: str
+) -> RobustaModelsResponse:
     resp = requests.post(
-        MODELS_URL,
+        f"{api_endpoint}{MODELS_PATH}",
         json={"session_token": token, "account_id": account_id},
         timeout=10,
     )
@@ -179,10 +184,13 @@ def _request_robusta_models(account_id: str, token: str) -> RobustaModelsRespons
 
 
 def fetch_robusta_models(
-    account_id: str, token: str, log_failure: bool = True
+    account_id: str,
+    token: str,
+    log_failure: bool = True,
+    api_endpoint: str = ROBUSTA_API_ENDPOINT,
 ) -> Optional[RobustaModelsResponse]:
     try:
-        return _request_robusta_models(account_id, token)
+        return _request_robusta_models(account_id, token, api_endpoint)
     except Exception:
         if log_failure:
             logging.exception("Failed to fetch robusta models for account")

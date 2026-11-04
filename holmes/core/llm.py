@@ -44,7 +44,6 @@ from holmes.common.env_vars import (
     LOAD_ALL_ROBUSTA_MODELS,
     REASONING_EFFORT,
     ROBUSTA_AI,
-    ROBUSTA_API_ENDPOINT,
     THINKING,
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT,
     TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS,
@@ -1197,7 +1196,7 @@ class LLMModelRegistry:
             account_id, token = self.dal.get_ai_credentials()
 
             robusta_models: RobustaModelsResponse | None = fetch_robusta_models(
-                account_id, token
+                account_id, token, api_endpoint=self.dal.api_endpoint
             )
             if robusta_models and robusta_models.robusta_ai_disabled:
                 # Deliberate, not a blip: never fall back to the legacy entry.
@@ -1273,7 +1272,9 @@ class LLMModelRegistry:
 
             try:
                 robusta_models = fetch_robusta_models(
-                    *self.dal.get_ai_credentials(), log_failure=log_this_failure
+                    *self.dal.get_ai_credentials(),
+                    log_failure=log_this_failure,
+                    api_endpoint=self.dal.api_endpoint,
                 )
             except Exception:
                 self._robusta_refresh_failures += 1
@@ -1384,7 +1385,7 @@ class LLMModelRegistry:
             self._llms[ROBUSTA_AI_MODEL_NAME] = ModelEntry(
                 name=ROBUSTA_AI_MODEL_NAME,
                 model="gpt-4o",  # TODO: tech debt, this isn't really
-                base_url=ROBUSTA_API_ENDPOINT,
+                base_url=self.dal.api_endpoint,
                 is_robusta_model=True,
             )
             self._default_robusta_model = ROBUSTA_AI_MODEL_NAME
@@ -1534,7 +1535,7 @@ class LLMModelRegistry:
         entry = self._create_model_entry(
             model=model_data.model,
             model_name=model_name,
-            base_url=f"{ROBUSTA_API_ENDPOINT}/llm/{model_name}",
+            base_url=f"{self.dal.api_endpoint}/llm/{model_name}",
             is_robusta_model=True,
         )
         entry.custom_args = model_data.holmes_args or {}  # type: ignore[assignment]

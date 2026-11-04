@@ -8,6 +8,7 @@ stale one inherited from the base ``RemoteMCPToolset``).
 
 from unittest.mock import MagicMock, patch
 
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     TOOLSET_NAME,
     RobustaPlatformMCPTool,
@@ -20,12 +21,14 @@ def test_returns_none_when_dal_disabled():
     assert make_robusta_platform_mcp_toolset(None) is None
 
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = False
     assert make_robusta_platform_mcp_toolset(dal) is None
 
 
 def test_constructs_when_dal_enabled():
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.account_id = "acct-1"
     dal.get_ai_credentials.return_value = ("acct-1", "tok-1")
@@ -36,8 +39,19 @@ def test_constructs_when_dal_enabled():
     assert toolset.enabled is True
 
 
+def test_url_follows_the_dal_api_endpoint():
+    dal = MagicMock()
+    dal.api_endpoint = "https://api.eu.robusta.dev"
+    dal.enabled = True
+
+    toolset = make_robusta_platform_mcp_toolset(dal)
+
+    assert toolset.config["url"] == "https://api.eu.robusta.dev/api/platform-mcp"
+
+
 def test_renders_dynamic_bearer_header():
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.account_id = "acct-1"
     dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
@@ -73,6 +87,7 @@ def test_render_headers_strips_stale_authorization_when_dal_disabled():
     """If DAL flips disabled at runtime, never serve up a stale Authorization
     header inherited from the base implementation."""
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.account_id = "acct-1"
     dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
@@ -93,6 +108,7 @@ def test_render_headers_strips_stale_authorization_on_credentials_error():
     """If get_ai_credentials() raises, never serve up a stale Authorization
     header inherited from the base implementation."""
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.account_id = "acct-1"
     dal.get_ai_credentials.side_effect = RuntimeError("supabase down")
@@ -111,6 +127,7 @@ def test_render_headers_drops_auth_but_keeps_identity_headers_on_error():
     the result still carries the always-sent identity headers (version +
     user id) — and no Authorization."""
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.get_ai_credentials.side_effect = RuntimeError("supabase down")
     toolset = make_robusta_platform_mcp_toolset(dal)
@@ -127,6 +144,7 @@ def test_render_headers_injects_cluster_and_conversation_headers():
     onto every MCP request as X-Robusta-* headers so the relay can pass
     them into the tool handler without trusting LLM-supplied arguments."""
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
     toolset = make_robusta_platform_mcp_toolset(dal)
@@ -145,6 +163,7 @@ def test_render_headers_omits_robusta_headers_when_context_missing():
     """When cluster_name / conversation_id aren't in the request context
     (e.g. CLI mode), don't emit empty X-Robusta-* headers."""
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
     toolset = make_robusta_platform_mcp_toolset(dal)
@@ -165,6 +184,7 @@ def test_render_headers_strips_authorization_case_insensitively():
     """HTTP headers are case-insensitive; a user-supplied lowercase
     'authorization' in extra_headers must not leak through the sanitiser."""
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.get_ai_credentials.side_effect = RuntimeError("supabase down")
     toolset = make_robusta_platform_mcp_toolset(dal)
@@ -183,6 +203,7 @@ def test_render_headers_strips_authorization_case_insensitively():
 
 def _toolset():
     dal = MagicMock()
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.enabled = True
     dal.account_id = "acct-1"
     dal.get_ai_credentials.return_value = ("acct-1", "tok-abc")
