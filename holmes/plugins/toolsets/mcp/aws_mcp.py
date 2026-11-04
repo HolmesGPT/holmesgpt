@@ -103,6 +103,7 @@ async def _sign_request_hook(config: AwsMCPConfig, request: httpx.Request) -> No
     profile, region = _pick_account(config, body if is_jsonrpc else {})
     if is_jsonrpc:
         _set_region_meta(body, region, request)
+    logging.debug("Signing AWS MCP request with profile %s in %s", profile, region)
     credentials = aws_session(profile).get_credentials()
     if credentials is None:
         raise ValueError(
