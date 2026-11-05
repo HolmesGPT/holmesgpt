@@ -448,8 +448,8 @@ class RemoteMCPTool(Tool):
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
-            with lock:
+            lock_key = f"{self.toolset._mcp_config.get_lock_string()}#{params.get('account', '')}"
+            with get_server_lock(lock_key):
                 return asyncio.run(
                     self._invoke_async(
                         params,
@@ -1194,6 +1194,12 @@ class RemoteMCPToolset(Toolset):
             return StdioMCPConfig(**config)
         mcp_config = MCPConfig(**config)
         clean_url_str = str(mcp_config.url).rstrip("/")
+        if "aws-mcp-server" in clean_url_str:
+            logging.warning(
+                "MCP server %s uses the self-hosted AWS MCP server, which is deprecated and will be removed in an upcoming release. "
+                "Switch to the hosted AWS MCP Server: https://holmesgpt.dev/data-sources/builtin-toolsets/aws/",
+                self.name,
+            )
         if mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith("/sse"):
             mcp_config.url = AnyUrl(clean_url_str + "/sse")
         return mcp_config

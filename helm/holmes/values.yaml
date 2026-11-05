@@ -305,8 +305,8 @@ mcpAddons:
 
     # Multi-account configuration
     # When multiAccount.profiles is defined, the chart will use EKS token projection.
-    # With hosted.enabled each profile becomes its own MCP server (aws_<profile>); a profile
-    # may set description, and source_profile or credential_source to assume its role_arn
+    # With hosted.enabled all profiles share one MCP server (aws_api) and each tool call
+    # picks one; a profile may set description, and source_profile or credential_source to assume its role_arn
     # from other credentials instead of the projected token.
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
