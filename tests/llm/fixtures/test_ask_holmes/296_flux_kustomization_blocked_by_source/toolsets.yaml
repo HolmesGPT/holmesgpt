@@ -1,0 +1,3 @@
+toolsets:
+  flux/core:
+    enabled: true
