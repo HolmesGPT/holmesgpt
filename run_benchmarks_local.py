@@ -7,6 +7,7 @@ mirroring the behavior of the CI/CD workflow.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -319,6 +320,10 @@ If you are not redirected automatically, [click here]({history_relative}).
         self.check_environment()
         self.setup_environment()
         exit_code = self.run_tests()
+        if exit_code in (0, 1) and not any_test_ran(Path("eval_results.json")):
+            # No report, so CI opens no empty results PR; ::error shows on the run page
+            print("::error title=No tests ran::Every test errored before running. See the pytest errors above.")
+            return 5  # pytest's "no tests collected"
         report_file = self.generate_report()
         self.show_summary(report_file)
         return exit_code
@@ -412,6 +417,19 @@ Environment variables:
     )
 
     return parser.parse_args()
+
+
+def any_test_ran(report: Path) -> bool:
+    """Whether the pytest JSON report has a passed or failed test, not only errors.
+
+    Errors in every xdist worker's collection exit pytest with 1, like a normal
+    run with failures (Oct 4 2026: a model missing from the model list).
+    """
+    try:
+        summary = json.loads(report.read_text())["summary"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return summary.get("passed", 0) + summary.get("failed", 0) > 0
 
 
 def main():
