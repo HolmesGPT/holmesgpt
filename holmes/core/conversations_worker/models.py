@@ -1,5 +1,7 @@
+import logging
+import re
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field, PrivateAttr
 
@@ -54,6 +56,54 @@ class RemoteToolCallStatus(str, Enum):
     TIMEOUT = "timeout"
 
 
+# Executor names (ROB-1369). A Conversations row's ``executor`` column names the
+# executor that must run it; callers may introduce further names without a
+# Holmes release (see sizing.py for how an executor is sized).
+MANUAL_EXECUTOR = "manual"  # a person is waiting: chat, follow-ups, "Investigate now"
+AUTO_EXECUTOR = "auto"  # background: auto-triage, bulk investigations, workflows
+# What a row gets when nothing names an executor (the DB column default too).
+DEFAULT_EXECUTOR = MANUAL_EXECUTOR
+
+# Executor names come from broadcast payloads and DB rows written by other
+# services; keep them to a conservative slug so a bad payload can't name an
+# executor something unloggable or unbounded. Same rule as the DB CHECK and relay.
+_EXECUTOR_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def is_valid_executor_name(name: object) -> bool:
+    return isinstance(name, str) and bool(_EXECUTOR_NAME_RE.fullmatch(name))
+
+
+# Error events the worker writes for a row it will never finish. The codes are
+# a contract with the frontend (unmapped codes render ``description`` as-is).
+#
+# Shutdown: when the pod is asked to stop (SIGTERM from a rollout, node drain,
+# scale-down), conversations mid-turn are never going to finish — the threads
+# are daemons and nothing else picks the row back up (the claim RPCs only take
+# 'pending'). They are retired with this error event, then status 'timeout'.
+SHUTDOWN_REASON = "Holmes Restarted"
+SHUTDOWN_ERROR_DESCRIPTION = (
+    f"{SHUTDOWN_REASON} — this request was interrupted before it finished. "
+    "Ask again to retry."
+)
+SHUTDOWN_ERROR_CODE = 5205
+# A row naming an executor this agent cannot run (executor cap reached).
+EXECUTOR_UNAVAILABLE_ERROR_CODE = 5206
+
+
+def conversation_identity(conv: Dict[str, Any]) -> Optional[Tuple[str, int]]:
+    """``(conversation_id, request_sequence)`` of a Conversations row, or None
+    when the row does not carry a usable identity."""
+    cid = conv.get("conversation_id")
+    seq = conv.get("request_sequence", 1)
+    if not cid:
+        return None
+    try:
+        return str(cid), int(seq)
+    except (TypeError, ValueError):
+        return None
+
+
 class ConversationTask(BaseModel):
     """A claimed conversation ready for processing."""
 
@@ -62,11 +112,43 @@ class ConversationTask(BaseModel):
     cluster_id: str
     origin: str
     request_sequence: int
+    executor: str = DEFAULT_EXECUTOR
     metadata: Dict[str, Any] = Field(default_factory=dict)
     title: Optional[str] = None
     # Conversations.user_id (RLS-bound owner). The only identity source for
     # the turn: OAuth tokens, personal skills, relay RBAC, usage attribution.
     user_id: Optional[str] = None
+
+    @classmethod
+    def from_row(cls, conv: Dict[str, Any]) -> Optional["ConversationTask"]:
+        """A task from a claimed Conversations row, or None for a row that does
+        not parse (logged)."""
+        identity = conversation_identity(conv)
+        if identity is None:
+            logging.error(
+                "Conversation row without a usable identity: %s",
+                {k: conv.get(k) for k in ("conversation_id", "request_sequence")},
+            )
+            return None
+        try:
+            return cls(
+                conversation_id=identity[0],
+                account_id=conv["account_id"],
+                cluster_id=conv["cluster_id"],
+                origin=conv.get("origin", "chat"),
+                request_sequence=identity[1],
+                metadata=conv.get("metadata") or {},
+                title=conv.get("title"),
+                user_id=conv.get("user_id"),
+                executor=conv.get("executor") or DEFAULT_EXECUTOR,
+            )
+        except Exception:
+            logging.exception(
+                "Failed to build conversation task from row (conversation_id=%s)",
+                identity[0],
+                exc_info=True,
+            )
+            return None
 
     @property
     def active_key(self) -> tuple:

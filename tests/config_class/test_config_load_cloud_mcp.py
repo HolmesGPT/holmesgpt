@@ -12,6 +12,7 @@ import yaml
 
 from holmes.core.tools import ToolsetType
 from holmes.plugins.toolsets import load_toolsets_from_config
+from holmes.plugins.toolsets.mcp.aws_mcp import AwsMCPConfig, AwsMCPToolset
 from holmes.plugins.toolsets.mcp.toolset_mcp import MCPMode, RemoteMCPToolset, StdioMCPConfig
 
 
@@ -28,7 +29,7 @@ def _prepare_mcp_servers(mcp_servers: Dict[str, Dict[str, Any]]) -> Dict[str, Di
     return mcp_servers
 
 
-# --- AWS MCP config (stdio via uvx) ---
+# --- AWS MCP config (stdio via the uvx SigV4 proxy) ---
 
 aws_mcp_config_str = """
   aws_api:
@@ -36,16 +37,37 @@ aws_mcp_config_str = """
     config:
       mode: stdio
       command: "uvx"
-      args: ["awslabs.aws-api-mcp-server@latest"]
+      args: ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
       env:
         AWS_REGION: "us-east-1"
-        READ_OPERATIONS_ONLY: "true"
     llm_instructions: |
       IMPORTANT: When investigating AWS issues, always:
       1. Gather current resource state
       2. Check CloudTrail for recent changes
       3. Collect CloudWatch metrics
 """
+
+
+aws_mcp_hosted_config_str = """
+  aws_prod:
+    description: "AWS production account"
+    config:
+      mode: aws
+      region: "eu-west-1"
+      profile: "prod"
+"""
+
+
+def test_load_aws_mcp_hosted_config():
+    """mode: aws loads the SigV4-signing AwsMCPToolset pointed at the regional endpoint."""
+    mcp_servers = _prepare_mcp_servers(yaml.safe_load(aws_mcp_hosted_config_str))
+    toolset = load_toolsets_from_config(toolsets=mcp_servers, strict_check=False)[0]
+
+    assert isinstance(toolset, AwsMCPToolset)
+    assert toolset.type == ToolsetType.MCP
+    config = AwsMCPConfig(**toolset.config)
+    assert str(config.url) == "https://aws-mcp.eu-west-1.api.aws/mcp"
+    assert config.profile == "prod"
 
 
 def test_load_aws_mcp_stdio_config():
@@ -69,14 +91,13 @@ def test_aws_mcp_stdio_config_fields():
     toolset = definitions[0]
     assert toolset.config["mode"] == "stdio"
     assert toolset.config["command"] == "uvx"
-    assert toolset.config["args"] == ["awslabs.aws-api-mcp-server@latest"]
+    assert toolset.config["args"] == ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
     assert toolset.config["env"]["AWS_REGION"] == "us-east-1"
-    assert toolset.config["env"]["READ_OPERATIONS_ONLY"] == "true"
     # Verify StdioMCPConfig can parse the config dict
     parsed = StdioMCPConfig(**toolset.config)
     assert parsed.mode == MCPMode.STDIO
     assert parsed.command == "uvx"
-    assert parsed.args == ["awslabs.aws-api-mcp-server@latest"]
+    assert parsed.args == ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
 
 
 # --- Azure MCP config (stdio via azure-api-mcp Go binary) ---
@@ -194,10 +215,9 @@ multi_provider_config_str = """
     config:
       mode: stdio
       command: "uvx"
-      args: ["awslabs.aws-api-mcp-server@latest"]
+      args: ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
       env:
         AWS_REGION: "us-east-1"
-        READ_OPERATIONS_ONLY: "true"
     llm_instructions: "Use for investigating AWS infrastructure."
   azure_api:
     description: "Azure API - query Azure resources"
@@ -254,11 +274,10 @@ config_with_env_vars_str = """
     config:
       mode: stdio
       command: "uvx"
-      args: ["awslabs.aws-api-mcp-server@latest"]
+      args: ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
       env:
         AWS_REGION: "{{ env.AWS_REGION }}"
-        AWS_API_MCP_PROFILE_NAME: "{{ env.AWS_PROFILE }}"
-        READ_OPERATIONS_ONLY: "true"
+        AWS_PROFILE: "{{ env.AWS_PROFILE }}"
 """
 
 
@@ -278,8 +297,7 @@ def test_mcp_stdio_config_with_env_var_substitution():
         toolset = definitions[0]
         assert isinstance(toolset, RemoteMCPToolset)
         assert toolset.config["env"]["AWS_REGION"] == "eu-west-1"
-        assert toolset.config["env"]["AWS_API_MCP_PROFILE_NAME"] == "production"
-        assert toolset.config["env"]["READ_OPERATIONS_ONLY"] == "true"
+        assert toolset.config["env"]["AWS_PROFILE"] == "production"
     finally:
         os.environ.clear()
         os.environ.update(original_env)

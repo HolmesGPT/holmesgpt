@@ -7,6 +7,7 @@ edit_uri: edit/master/docs/
 exclude_docs: |
     _*
     /custom_fences.py
+    /fence_checks.py
     /overrides/
     snippets/
     README.md
@@ -80,7 +81,6 @@ nav:
                 - "Internet": data-sources/builtin-toolsets/internet.md
                 - "Kafka": data-sources/builtin-toolsets/kafka.md
                 - "Kubernetes": data-sources/builtin-toolsets/kubernetes.md
-                - "Kubectl Run": data-sources/builtin-toolsets/kubectl-run.md
                 - "Kubernetes Remediation (MCP)": data-sources/builtin-toolsets/kubernetes-remediation-mcp.md
                 - "KubeVela": data-sources/builtin-toolsets/kubevela.md
                 - "MariaDB": data-sources/builtin-toolsets/database-mariadb.md
@@ -236,9 +236,6 @@ markdown_extensions:
           base_path: docs
     - pymdownx.superfences:
           custom_fences:
-              - name: mermaid
-                class: mermaid
-                format: !!python/name:pymdownx.superfences.fence_code_format
               - name: robusta-region
                 class: robusta-region
                 format: !!python/name:docs.custom_fences.robusta_region_fence_format
@@ -251,7 +248,7 @@ markdown_extensions:
     - pymdownx.tasklist:
           custom_checkbox: true
     - pymdownx.tilde
-    # The fences that expand to markdown (yaml-toolset-config, multi-instance); the hook below tells them which page they are on.
+    # The fences that expand to markdown (yaml-toolset-config, yaml-helm-values, multi-instance); the hook below tells them which page they are on.
     - docs.custom_fences
 
 hooks:

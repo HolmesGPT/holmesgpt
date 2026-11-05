@@ -1,0 +1,28 @@
+name: 'Verify Models'
+description: 'Run tests/llm/test_model_config.py against model list entries before running evals'
+
+inputs:
+  models:
+    description: 'Comma-separated model list keys to verify (empty verifies every model in the list)'
+    required: false
+    default: ''
+  working-directory:
+    description: 'Working directory containing the HolmesGPT checkout'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verify model configs
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        VERIFY_MODELS: ${{ inputs.models }}
+        CLASSIFIER_MODEL: ${{ env.CLASSIFIER_MODEL || 'gpt-4.1' }}
+        RUN_LIVE: "true"
+      run: |
+        poetry run pytest tests/llm/test_model_config.py --no-cov -n auto -p no:sugar -rfs \
+          --json-report --json-report-file=/tmp/verify-models-report.json
+        # The llm conftest skips every test if its API pre-check fails
+        jq -e '.summary.passed > 0' /tmp/verify-models-report.json > /dev/null

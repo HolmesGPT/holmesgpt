@@ -46,7 +46,6 @@ def mock_chat_function():
             analysis="Test analysis",
             conversation_history=[],
             tool_calls=[],
-            follow_up_actions=[],
             metadata={"test": "metadata"},
         )
 
@@ -460,6 +459,19 @@ class TestScheduledPromptsExecutor:
         assert call_args.args[0].trace_span is not None
         assert isinstance(call_args.args[0].trace_span, ScheduledPromptsHeartbeatSpan)
         assert isinstance(response, ChatResponse)
+
+    def test_execute_prompt_always_explicit_fast_mode(
+        self, executor, sample_scheduled_prompt_payload
+    ):
+        """ROB-574: scheduled prompts always run in fast mode, explicitly and
+        with no toggle, so the report lands in ChatResponse.analysis rather
+        than behind a trailing TodoWrite call on every Holmes version."""
+        executor._execute_prompt(ScheduledPrompt(**sample_scheduled_prompt_payload))
+        chat_request = executor.chat_function.call_args.args[0]
+        assert chat_request.behavior_controls == {
+            "todowrite_instructions": False,
+            "todowrite_reminder": False,
+        }
 
 
 class TestScheduledPromptsHeartbeatSpan:

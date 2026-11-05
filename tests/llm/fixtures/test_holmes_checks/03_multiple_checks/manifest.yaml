@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: app-03
+  name: app-check-03
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: test-app
-  namespace: app-03
+  namespace: app-check-03
 spec:
   replicas: 3
   selector:
@@ -35,7 +35,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: test-app-service
-  namespace: app-03
+  namespace: app-check-03
 spec:
   selector:
     app: test-app

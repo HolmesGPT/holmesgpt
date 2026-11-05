@@ -15,20 +15,20 @@ import ssl
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import colorlog
-import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
-from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, process_oauth_callback
-from holmes.core.oauth_utils import _get_token_manager
+from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_oauth_callback
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from litellm.exceptions import AuthenticationError
 from holmes import get_version, is_official_release
 from holmes.common.env_vars import (
@@ -53,6 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.llm_rate_limit import is_rate_limit_error
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
@@ -60,13 +61,12 @@ from holmes.core.conversations import (
 from holmes.core.models import (
     ChatRequest,
     ChatResponse,
-    FollowUpAction,
     OAuthCallbackRequest,
     OAuthCallbackResponse,
 )
 from holmes.core.prompt import PromptComponent
 from holmes.core.tool_calling_llm import RelayRefusal
-from holmes.core.tools import PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetTag, ToolsetType
+from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode, ToolsetStatusEnum, ToolsetType
 from holmes.core.scheduled_prompts import ScheduledPromptsExecutor
 from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
@@ -85,6 +85,7 @@ from holmes.utils.log import (
     JSON_LOG_FMT,
     JSON_LOG_RENAME_FIELDS,
     build_json_formatter,
+    suppress_noisy_third_party_logs,
 )
 from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
@@ -127,9 +128,7 @@ def init_logging():
         )
     logging.getLogger().setLevel(logging_level)
 
-    httpx_logger = logging.getLogger("httpx")
-    if httpx_logger:
-        httpx_logger.setLevel(logging.WARNING)
+    suppress_noisy_third_party_logs()
 
     litellm_logger = logging.getLogger("LiteLLM")
     if litellm_logger:
@@ -246,11 +245,11 @@ def sync_before_server_start():
         holmes_sync_toolsets_status(dal, config)
     except Exception:
         logging.error("Failed to synchronise holmes toolsets", exc_info=True)
-    if conversation_worker is not None:
+    if conversation_runtime is not None:
         try:
-            conversation_worker.start()
+            conversation_runtime.start()
         except Exception:
-            logging.error("Failed to start conversation worker", exc_info=True)
+            logging.error("Failed to start conversation runtime", exc_info=True)
     if not ENABLED_SCHEDULED_PROMPTS:
         return
     # No need to check if dal is enabled again, done at the start of this function
@@ -260,15 +259,20 @@ def sync_before_server_start():
         logging.error("Failed to start scheduled prompts executor", exc_info=True)
 
 
-def _has_failed_mcp_toolsets() -> bool:
-    """Check if any MCP toolsets are in FAILED state."""
+def _failed_mcp_toolset_names() -> List[str]:
+    """Names of the MCP toolsets in FAILED state that the shortened backoff
+    cycles would re-check. A toolset with its own status refresh interval is
+    re-checked on that interval, not on backoff cycles."""
     executor = config.cached_tool_executor  # thread-safe property
     if not executor:
-        return False
-    return any(
-        t.type == ToolsetType.MCP and t.status == ToolsetStatusEnum.FAILED
+        return []
+    return [
+        t.name
         for t in executor.toolsets
-    )
+        if t.type == ToolsetType.MCP
+        and t.status == ToolsetStatusEnum.FAILED
+        and t.status_refresh_interval_seconds is None
+    ]
 
 
 def _get_next_refresh_interval(
@@ -300,12 +304,13 @@ def _toolset_status_refresh_loop():
 
         while True:
             # Use shorter intervals when MCP servers are failing
+            failed_mcp = _failed_mcp_toolset_names()
             sleep_time, backoff_index = _get_next_refresh_interval(
-                _has_failed_mcp_toolsets(), backoff_index, interval
+                bool(failed_mcp), backoff_index, interval
             )
             if sleep_time < interval:
                 logging.info(
-                    f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
+                    f"Failed MCP server(s) detected: {', '.join(failed_mcp)}, retrying in {sleep_time} seconds"
                 )
 
             time.sleep(sleep_time)
@@ -330,14 +335,13 @@ def _toolset_status_refresh_loop():
             try:
                 # Re-discover platform-mcp tools so the dynamic remote-tool
                 # surface (new clusters, flipped account flag) reaches a
-                # RUNNING caller without a pod restart.
-                executor = config.create_tool_executor(
-                    dal,
-                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
-                    enable_all_toolsets_possible=False,
-                    reuse_executor=True,
-                )
-                refresh_platform_mcp_tools(executor)
+                # RUNNING caller without a pod restart. With no executor built
+                # yet, the refresh below builds it, which discovers the tools;
+                # building it here would make that refresh check every toolset
+                # again in the same cycle.
+                executor = config.cached_tool_executor
+                if executor is not None:
+                    refresh_platform_mcp_tools(executor)
             except Exception:
                 logging.error(
                     "Failed to refresh platform-mcp tools", exc_info=True
@@ -345,7 +349,7 @@ def _toolset_status_refresh_loop():
             try:
                 changes = config.refresh_tool_executor(
                     dal,
-                    toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+                    toolset_tag_filter=SERVER_TOOLSET_TAGS,
                     enable_all_toolsets_possible=False,
                 )
                 if changes:
@@ -417,7 +421,33 @@ if ENABLE_TELEMETRY and SENTRY_DSN:
             "Skipping sentry initialization - not an official release and DEVELOPMENT_MODE not enabled"
         )
 
-app = FastAPI()
+
+def stop_conversation_runtime():
+    """Retire in-flight conversations before the process goes away.
+
+    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
+    a graceful shutdown, which runs this via the app lifespan. Without it the
+    daemon executor threads are simply frozen at interpreter exit and every
+    conversation the pod was mid-turn on stays 'running' with a dead assignee
+    until the stale-conversation sweep retires it. SIGKILL / OOM kill still
+    bypass this — the pg_cron sweep stays the backstop.
+    """
+    if conversation_runtime is None:
+        return
+    try:
+        conversation_runtime.stop()
+    except Exception:
+        logging.error("Failed to stop conversation runtime", exc_info=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    # stop() blocks on Supabase writes and thread joins; keep it off the event loop.
+    await run_in_threadpool(stop_conversation_runtime)
+
+
+app = FastAPI(lifespan=lifespan)
 _SERVER_START_TIME = time.time()
 
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
@@ -480,8 +510,7 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
         bool(request.code_verifier), request.redirect_uri,
     )
     try:
-        executor = config.create_tool_executor(dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED)
-        return process_oauth_callback(request, executor.toolsets, _get_token_manager(), executor=executor)
+        return handle_oauth_callback(request, config, dal)
     except OAuthConfigLookupError as e:
         logging.error("OAuth config error for '%s': %s", request.toolset_name, e.detail)
         raise HTTPException(status_code=400, detail=e.detail)
@@ -491,16 +520,6 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
     except Exception as e:
         logging.error(f"OAuth callback failed for '{request.toolset_name}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-def already_answered(conversation_history: Optional[List[dict]]) -> bool:
-    if conversation_history is None:
-        return False
-
-    for message in conversation_history:
-        if message["role"] == "assistant":
-            return True
-    return False
 
 
 def extract_passthrough_headers(request: Request) -> dict:
@@ -585,29 +604,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 except ValueError:
                     logging.warning(f"Unknown behavior_controls key '{k}', ignoring")
 
-        follow_up_actions = []
-        if not already_answered(chat_request.conversation_history):
-            follow_up_actions = [
-                FollowUpAction(
-                    id="logs",
-                    action_label="Logs",
-                    prompt="Show me the relevant logs",
-                    pre_action_notification_text="Fetching relevant logs...",
-                ),
-                FollowUpAction(
-                    id="graphs",
-                    action_label="Graphs",
-                    prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
-                    pre_action_notification_text="Drawing some graphs...",
-                ),
-                FollowUpAction(
-                    id="articles",
-                    action_label="Articles",
-                    prompt="List the relevant runbooks and links used. Write a short summary for each",
-                    pre_action_notification_text="Looking up and summarizing runbooks and links...",
-                ),
-            ]
-
         request_context = extract_passthrough_headers(http_request)
         if chat_request.user_id:
             request_context.setdefault("headers", {})
@@ -624,9 +620,11 @@ def chat(chat_request: ChatRequest, http_request: Request):
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
 
+        # No conversation_id: here it is caller-supplied (a ChatHistory id, a
+        # Teams activity id, or anything); see ROBUSTA_CONVERSATION_ID_HEADER.
         ai = config.create_toolcalling_llm(
             dal=dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
+            toolset_tag_filter=SERVER_TOOLSET_TAGS,
             enable_all_toolsets_possible=False,
             prerequisite_cache=PrerequisiteCacheMode.DISABLED,
             reuse_executor=True,
@@ -726,7 +724,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
             )
             stream = stream_chat_formatter(
                 recorded_stream,
-                [f.model_dump() for f in follow_up_actions],
                 model=chat_request.model or config.model,
             )
             return StreamingResponse(
@@ -813,7 +810,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
-                    follow_up_actions=follow_up_actions,
                     metadata=response_metadata,
                 )
                 return response
@@ -837,9 +833,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
     except Exception as e:
+        if is_rate_limit_error(e):
+            raise HTTPException(status_code=429, detail=getattr(e, "message", str(e)))
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -848,37 +844,11 @@ scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
 )
 
-conversation_worker = None
+conversation_runtime = None
 if ENABLE_CONVERSATION_WORKER:
-    from holmes.core.conversations_worker import ConversationWorker
+    from holmes.core.conversations_worker import ConversationRuntime
 
-    conversation_worker = ConversationWorker(
-        dal=dal, config=config, chat_function=chat
-    )
-
-
-@app.on_event("shutdown")
-def stop_conversation_worker():
-    """Retire in-flight conversations before the process goes away.
-
-    uvicorn turns SIGTERM (rollout, node drain, scale-down, `docker stop`) into
-    a graceful shutdown, which runs this hook. Without it nothing ever called
-    ConversationWorker.stop(): the worker threads are daemons, so they were
-    simply frozen at interpreter exit and every conversation the pod was
-    mid-turn on stayed 'running' with a dead assignee until the stale-conversation
-    sweep retired it — up to hours of spinner in the UI. stop() now marks those
-    rows 'timeout' with a "Holmes Restarted" error event first.
-
-    Declared as a sync def on purpose: Starlette runs it in a threadpool, and
-    the body is blocking (Supabase writes plus bounded thread joins). SIGKILL /
-    OOM kill still bypass all of this — the pg_cron sweep stays the backstop.
-    """
-    if conversation_worker is None:
-        return
-    try:
-        conversation_worker.stop()
-    except Exception:
-        logging.error("Failed to stop conversation worker", exc_info=True)
+    conversation_runtime = ConversationRuntime(dal=dal, config=config)
 
 
 @app.get("/api/model")
@@ -925,9 +895,7 @@ class InfoResponse(BaseModel):
 @app.get("/api/info", response_model=InfoResponse, response_model_exclude_none=True)
 def get_info(detail: Optional[str] = None) -> InfoResponse:
     """Return server info. Use ?detail=full for per-toolset breakdown."""
-    executor = config.create_tool_executor(
-        dal=dal, reuse_executor=True, prerequisite_cache=PrerequisiteCacheMode.DISABLED,
-    )
+    executor = config.create_server_tool_executor(dal)
     all_toolsets = executor.toolsets
 
     enabled_count = sum(1 for t in all_toolsets if t.status == ToolsetStatusEnum.ENABLED)
@@ -975,8 +943,10 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     return resp
 
 
+# async so it runs on the event loop: the threadpool can be full of chats
+# waiting on the LLM, and a liveness probe that times out restarts the pod.
 @app.get("/healthz")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
 

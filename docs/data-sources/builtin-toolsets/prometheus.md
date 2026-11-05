@@ -67,56 +67,45 @@ To use a Coralogix PromQL endpoint with HolmesGPT:
 
 1. Go to [Coralogix Documentation](https://coralogix.com/docs/integrations/coralogix-endpoints/#promql) and choose the relevant PromQL endpoint for your region.
 2. In Coralogix, create an API key with permissions to query metrics (Data Flow → API Keys).
-3. Create a Kubernetes secret for the API key and expose it as an environment variable in your Helm values:
 
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CORALOGIX_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: coralogix-api-key
-              key: CORALOGIX_API_KEY
-    ```
+Then configure HolmesGPT with the endpoint and the API key:
 
-4. Add the following under your toolsets in the Helm chart:
-
-    ```yaml
-    holmes:
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: coralogix
-          config:
-            prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
-            additional_headers:
-              token: "{{ env.CORALOGIX_API_KEY }}"
-            discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
-            tool_calls_return_data: true
-    ```
+```yaml-toolset-config {secret-qualifier=coralogix}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: coralogix
+    config:
+      prometheus_url: "https://prom-api.eu2.coralogix.com"  # Use your region's endpoint
+      additional_headers:
+        token: "{{ env.CORALOGIX_API_KEY }}"
+      discover_metrics_from_last_hours: 72  # Look back 72 hours for metrics
+      tool_calls_return_data: true
+```
 
 ---
 
 ### AWS Managed Prometheus (AMP)
 
+The secret, its `extraEnvVarsSecrets` entry and the environment variables below are for static access keys only. With IRSA, or with an AWS profile in the CLI, skip the secret and the exports, and remove the `holmes-prometheus-amp` entry from `extraEnvVarsSecrets` and the `aws_access_key` and `aws_secret_access_key` lines.
+
 To connect HolmesGPT to AWS Managed Prometheus:
 
-```yaml
-holmes:
-  toolsets:
-    prometheus/metrics:
-      enabled: true
-      subtype: aws-managed-prometheus
-      config:
-        prometheus_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
-        aws_region: us-east-1
-        aws_service_name: aps  # Default value, can be omitted
-        # Optional: Specify credentials (otherwise uses default AWS credential chain)
-        aws_access_key: "{{ env.AWS_ACCESS_KEY_ID }}"
-        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        # Optional: Assume a role for cross-account access
-        assume_role_arn: "arn:aws:iam::123456789012:role/PrometheusReadRole"
-        refresh_interval_seconds: 900  # Refresh AWS credentials every 15 minutes (default)
+```yaml-toolset-config {secret-qualifier=amp}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: aws-managed-prometheus
+    config:
+      prometheus_url: https://aps-workspaces.us-east-1.amazonaws.com/workspaces/ws-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/
+      aws_region: us-east-1
+      aws_service_name: aps  # Default value, can be omitted
+      # Optional: Specify credentials (otherwise uses default AWS credential chain)
+      aws_access_key: "{{ env.AWS_ACCESS_KEY_ID }}"
+      aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+      # Optional: Assume a role for cross-account access
+      assume_role_arn: "arn:aws:iam::123456789012:role/PrometheusReadRole"
+      refresh_interval_seconds: 900  # Refresh AWS credentials every 15 minutes (default)
 ```
 
 **Notes:**
@@ -139,15 +128,14 @@ Before configuring Holmes, make sure you have:
 
 To connect HolmesGPT to Google Cloud Managed Prometheus:
 
-```yaml
-holmes:
-  toolsets:
-    prometheus/metrics:
-      enabled: true
-      subtype: google-managed-prometheus
-      config:
-        # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
-        prometheus_url: http://frontend.default.svc.cluster.local:9090
+```yaml-toolset-config
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: google-managed-prometheus
+    config:
+      # Set this to the URL of your Prometheus Frontend endpoint, it may change based on the namespace you deployed frontend to.
+      prometheus_url: http://frontend.default.svc.cluster.local:9090
 ```
 
 **Notes:**
@@ -165,21 +153,20 @@ Before configuring Holmes, make sure you have:
 
 #### Using a service principal (client secret)
 
-```yaml
-holmes:
-  toolsets:
-    prometheus/metrics:
-      enabled: true
-      subtype: azure-managed-prometheus
-      config:
-        prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
-  additionalEnvVars:
-    - name: AZURE_CLIENT_ID
-      value: "<your-app-client-id>"
-    - name: AZURE_TENANT_ID
-      value: "<your-tenant-id>"
-    - name: AZURE_CLIENT_SECRET
-      value: "<your-client-secret>"
+HolmesGPT reads the service principal from the `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_CLIENT_SECRET` environment variables.
+
+```yaml-toolset-config {secret-qualifier=azure}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: azure-managed-prometheus
+    config:
+      prometheus_url: "https://<your-workspace>.<region>.prometheus.monitor.azure.com:443/"
+---
+secret:
+  - --from-literal=AZURE_CLIENT_ID="<your-app-client-id>"
+  - --from-literal=AZURE_TENANT_ID="<your-tenant-id>"
+  - --from-literal=AZURE_CLIENT_SECRET="<your-client-secret>"
 ```
 
 **Notes:**
@@ -207,93 +194,19 @@ The query endpoint URL format is: `https://prometheus-prod-XX-prod-REGION.grafan
 
 The Basic auth credentials are `<instance_id>:<cloud_access_policy_token>` base64-encoded.
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-          additional_headers:
-            Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus \
-      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-prometheus
-
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-          additional_headers:
-            Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus \
-      --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-prometheus
-
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: grafana-cloud
-          config:
-            prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
-            additional_headers:
-              Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: grafana-cloud
+    config:
+      prometheus_url: "https://prometheus-prod-XX-prod-REGION.grafana.net/api/prom"
+      additional_headers:
+        Authorization: "{{ env.GRAFANA_CLOUD_PROM_AUTH }}"
+---
+secret:
+  - --from-literal=GRAFANA_CLOUD_PROM_AUTH="Basic $(echo -n 'INSTANCE_ID:CLOUD_ACCESS_POLICY_TOKEN' | base64 | tr -d '\n')"
+```
 
 #### Option 2: Grafana API Proxy
 
@@ -311,101 +224,64 @@ curl -H "Authorization: Bearer YOUR_GLSA_TOKEN" \
      jq '.[] | select(.type=="prometheus") | {name, uid}'
 ```
 
-=== "Holmes CLI"
-
-    Set the environment variable:
-
-    ```bash
-    export GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-          additional_headers:
-            Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus-grafana-proxy \
-      --from-literal=GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-prometheus-grafana-proxy
-
-    toolsets:
-      prometheus/metrics:
-        enabled: true
-        subtype: grafana-cloud
-        config:
-          prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-          additional_headers:
-            Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-prometheus-grafana-proxy \
-      --from-literal=GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-prometheus-grafana-proxy
-
-      toolsets:
-        prometheus/metrics:
-          enabled: true
-          subtype: grafana-cloud
-          config:
-            prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
-            additional_headers:
-              Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config {secret-qualifier=grafana-proxy}
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    subtype: grafana-cloud
+    config:
+      prometheus_url: "https://YOUR-INSTANCE.grafana.net/api/datasources/proxy/uid/PROMETHEUS_DATASOURCE_UID"
+      additional_headers:
+        Authorization: "Bearer {{ env.GRAFANA_CLOUD_SA_TOKEN }}"
+---
+secret:
+  - --from-literal=GRAFANA_CLOUD_SA_TOKEN=YOUR_GLSA_TOKEN
+```
 
 ---
+
+## Multi-Tenant Prometheus
+
+For multi-tenant Prometheus-compatible backends such as Grafana Mimir, where one URL serves many tenants and the tenant is chosen per request by a header (e.g. `X-Scope-OrgID`), and the tenant to query is the value of a Kubernetes label on the investigated resource, use the dedicated `prometheus/multi-tenant-metrics` toolset instead of `prometheus/metrics`.
+
+```yaml
+toolsets:
+    prometheus/multi-tenant-metrics:
+        enabled: true
+        config:
+            prometheus_url: http://mimir.monitoring.svc.cluster.local/prometheus
+            tenant_label: productline       # Kubernetes label whose value is the tenant
+            tenant_header: X-Scope-OrgID    # default
+            additional_labels:              # optional: matchers the LLM adds to every query
+                k8s_cluster_name: prod-eu-1
+```
+
+**How it works:** every tool in this toolset requires a `tenant` parameter. Before calling any tool, the LLM is instructed to look up the `tenant_label` label (e.g. `productline`) on the Kubernetes resource being investigated using a kubernetes tool, and pass the value as `tenant`. Each call goes to the same `{prometheus_url}api/v1/...` with the header `{tenant_header}: {tenant}`. There is no default tenant: if the resource has no value for the configured label, the tool returns an error instead of guessing.
+
+This toolset replaces `prometheus/metrics` for this use case and exposes tools with the same names. Disable `prometheus/metrics` in the same deployment (it is enabled by default in the Helm chart), or one toolset's tools will replace the other's:
+
+```yaml
+toolsets:
+    prometheus/metrics:
+        enabled: false
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `prometheus_url` | (required) | Base URL of the Prometheus-compatible API, the same for every tenant |
+| `tenant_label` | `productline` | Kubernetes label name used to generate the LLM instructions telling it which label to look up first |
+| `tenant_header` | `X-Scope-OrgID` | HTTP header that carries `tenant` on every request. Overrides a header of the same name in `additional_headers` |
+| `additional_labels` | (none) | Label matchers the LLM is instructed to add to every PromQL query and discovery selector (e.g. `k8s_cluster_name: prod-eu-1`). Enforced through the prompt, not by rewriting queries |
+| `additional_headers` | `{}` | HTTP headers sent with every request (e.g. `Authorization: Bearer <token>`) |
+| `verify_ssl` | `true` | Enable SSL certificate verification |
+
+It also accepts the same `discover_metrics_from_last_hours`, `query_timeout_seconds_default`, `query_timeout_seconds_hard_max`, `metadata_timeout_seconds_default`, `metadata_timeout_seconds_hard_max`, `tool_calls_return_data`, and `query_response_size_limit_pct` options as `prometheus/metrics` (see [Advanced Configuration](#advanced-configuration) below for their meaning).
 
 ## Advanced Configuration
 
 You can further customize the Prometheus toolset with the following options:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   prometheus/metrics:
     enabled: true

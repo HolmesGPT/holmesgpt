@@ -32,7 +32,10 @@ They run at different points in the pipeline and serve different purposes.
 
 - Checks if `(total_tokens + max_output_tokens) > (context_window_size * threshold_pct / 100)`.
 - If so, sends the conversation history to the LLM with a compaction prompt, asking it to produce a concise summary.
+- When the history fits one request (`context_window - max_output_tokens - prompt tokens`), it is sent in its native shape with the tools attached, which reuses the agentic call's prompt cache.
+- Otherwise, or when that request fails, the history is flattened to text with no tools attached and summarized in chunks: each request carries the summary so far and the next messages that fit, so no message is dropped. A message bigger than a quarter of a request is split into labelled parts. A request the provider rejects as too long is resent, and the rest are sent, with half the budget (the local token count can undercount the provider's tokenizer); any other failure ends compaction.
 - Replaces the old messages with: system prompt + compacted summary + last user message.
+- After a compaction the repeated-tool-call check normally starts over (`RESET_REPEATED_TOOL_CALL_CHECK_AFTER_COMPACTION`). When the history did not fit one request, calls whose output was at least half the per-tool cap (`TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_PCT` / `TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS`) stay in the check, so repeating one is refused: fetching the same output again would overflow the window and compact again. This relies on the repeated-tool-call safeguard, so it does not apply when `TOOL_CALL_SAFEGUARDS_ENABLED` is off.
 - Tracks compaction cost in `RequestStats`.
 
 **Guard:** Controlled by `ENABLE_CONVERSATION_HISTORY_COMPACTION` env var (defaults to true).

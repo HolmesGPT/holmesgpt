@@ -29,10 +29,10 @@ from holmes.config import (
     SupportedTicketSources,
 )
 from holmes.core.prompt import (
-    PromptComponent,
     build_initial_ask_messages,
     build_system_prompt,
     generate_user_prompt,
+    todowrite_overrides,
 )
 from holmes.core.resource_instruction import ResourceInstructionDocument
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
@@ -261,7 +261,13 @@ def ask(
     fast_mode: bool = typer.Option(
         False,
         "--fast-mode",
-        help="Skip TodoWrite planning phase for faster responses",
+        help="[Deprecated] Fast mode is now the default; this flag has no effect. Use --extended-planning to turn the TodoWrite planning phase on.",
+    ),
+    extended_planning: bool = typer.Option(
+        False,
+        "--extended-planning",
+        "--enable-todos",
+        help="Enable the TodoWrite planning phase (off by default for faster responses)",
     ),
 ):
     """
@@ -271,6 +277,10 @@ def ask(
     if bash_always_deny and bash_always_allow:
         raise typer.BadParameter(
             "--bash-always-deny and --bash-always-allow are mutually exclusive. Choose one."
+        )
+    if fast_mode and extended_planning:
+        raise typer.BadParameter(
+            "--fast-mode and --extended-planning are mutually exclusive. Choose one."
         )
 
     console = init_logging(verbose, log_costs)  # type: ignore
@@ -340,13 +350,13 @@ def ask(
     if echo_request and not interactive and prompt:
         console.print(f"[bold {USER_COLOR}]User:[/bold {USER_COLOR}] {prompt}")
 
-    # Build prompt component overrides for fast mode
-    prompt_component_overrides = None
     if fast_mode:
-        prompt_component_overrides = {
-            PromptComponent.TODOWRITE_INSTRUCTIONS: False,
-            PromptComponent.TODOWRITE_REMINDER: False,
-        }
+        console.print(
+            "[bold yellow]--fast-mode is deprecated: fast mode is now the default.[/bold yellow]"
+        )
+    prompt_component_overrides = (
+        todowrite_overrides(True) if extended_planning else None
+    )
 
     with tool_result_storage() as tool_results_dir:
         init_renderer = None

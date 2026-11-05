@@ -1,13 +1,13 @@
 #!/bin/bash
 # Build CVE-patched Go binaries for the holmes Docker image.
 #
-# All binaries built by this script are built with Go 1.26.7 to fix the stdlib
+# All binaries built by this script are built with Go 1.26.9 to fix the stdlib
 # batch CVE-2026-33818/56853/56858/56859/56860/56862 plus CVE-2026-39821/46600
-# (all High, fixed in Go 1.26.6), on top of the earlier fixes in 1.26.3/1.26.5.
+# (all High, fixed in Go 1.26.6), plus the Go 1.26.9 stdlib batch.
 #
 # Two x/* replaces are applied to every binary that pulls them in, because the
 # same advisories hit all of them:
-#   golang.org/x/net    -> v0.59.0  CVE-2026-33814 (fixed 0.53.0) plus
+#   golang.org/x/net    -> v0.60.0  CVE-2026-33814 (fixed 0.53.0) plus
 #                                   CVE-2026-25681/27136/39821 (High) and
 #                                   CVE-2026-25680/42502/42506 (Medium, >60d),
 #                                   all fixed in 0.55.0; 0.56.0 adds the
@@ -36,7 +36,8 @@
 #   Also replaced: grpc -> v1.83.2 (GHSA-hrxh-6v49-42gf, plus CVE-2026-84304
 #   HTTP/2 DATA-frame heap exhaustion fixed 1.83.1 and CVE-2026-84445 xDS
 #   server panic fixed 1.83.2), oras-go -> v2.6.2 (CVE-2026-50151/50163),
-#   mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d).
+#   mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d), klauspost/compress
+#   -> v1.18.7 (CVE-2026-63209, High: integer overflow in dictionary processing).
 #   Revert to plain upstream binary when ArgoCD ships go-git >= 5.19.2 and
 #   go-billy >= 5.9.0 (blocked on go-git/go-git#1551 upstream).
 #
@@ -53,12 +54,11 @@
 #   Revert to upstream binary when Helm releases a version built with
 #   Go >= 1.26.6, grpc >= 1.83.2, x/crypto >= 0.56.0 and oras-go >= 2.6.2.
 #
-# kubectl is NOT built here — the official dl.k8s.io binary (pinned via
-#   KUBECTL_VERSION in the Dockerfile) is used instead. v1.37.0 is built with
-#   Go 1.26.6 and vendors x/net v0.57.0 / x/sys v0.47.0 / x/text v0.40.0, so it
-#   scans clean with no replaces needed. A from-source kubectl rebuild with an
-#   x/net replace existed briefly (while no fixed upstream release existed) and
-#   was reverted — see git history if it ever needs to come back.
+# kubectl: rebuilt from source with x/net v0.60.0 / x/text v0.42.0 and Go
+#   1.26.9. The latest release (v1.37.1) ships Go 1.26.8 / x/net v0.57.0 /
+#   x/text v0.40.0. Revert to the official binary once a release has them.
+#   golang.org/x/text -> v0.42.0 on every binary (High, fixed 0.41.0;
+#   x/net v0.60.0 requires 0.42.0).
 #
 # Known findings left in the image (no upstream fix exists):
 #   GO-2026-5932  (x/crypto/openpgp) — the package is unmaintained by design.
@@ -75,9 +75,10 @@ set -euo pipefail
 # CVE-2026-33818/56853/56858/56859/56860/56862 plus CVE-2026-39821/46600, on
 # top of the earlier fixes in 1.26.3/1.26.5. Go auto-downloads it if the
 # locally installed go is older (requires local go >= 1.21).
-export GOTOOLCHAIN=go1.26.7
+# Go 1.26.9: stdlib CVE fixes over 1.26.6/1.26.7.
+export GOTOOLCHAIN=go1.26.9
 
-MIN_GO_VERSION="1.26.6"
+MIN_GO_VERSION="1.26.9"
 # Minimum *local* Go that can bootstrap the GOTOOLCHAIN auto-download above
 # (the GOTOOLCHAIN mechanism landed in Go 1.21). Intentionally lower than
 # MIN_GO_VERSION: the pinned build toolchain is fetched automatically, so the
@@ -122,24 +123,29 @@ apply_x_replaces() {
   echo "==> Pinning x/net to $X_NET_PATCHED_VERSION (CVE-2026-33814/25681/27136/39821; >= 0.58.0 required by grpc $GRPC_PATCHED_VERSION) and x/crypto to $X_CRYPTO_PATCHED_VERSION (CVE-2026-39828/39829/39830/39831/39832/39835/42508/46595/46597/56855/78662)..."
   go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
   go mod edit -replace="golang.org/x/crypto=golang.org/x/crypto@$X_CRYPTO_PATCHED_VERSION"
+  go mod edit -replace="golang.org/x/text=golang.org/x/text@$X_TEXT_PATCHED_VERSION"
 }
 
 assert_x_replaces() {
   assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
   assert_module_version "golang.org/x/crypto" "$X_CRYPTO_PATCHED_VERSION"
+  assert_module_version "golang.org/x/text" "$X_TEXT_PATCHED_VERSION"
 }
 
-ARGOCD_VERSION=v3.3.11
+ARGOCD_VERSION=v3.3.15
 ARGOCD_VERSION_NO_V="${ARGOCD_VERSION#v}"
 GO_GIT_PATCHED_VERSION=v5.19.2
 GO_BILLY_PATCHED_VERSION=v5.9.0
 HELM_VERSION=v3.22.0
 GRPC_PATCHED_VERSION=v1.83.2
 SLACK_GO_PATCHED_VERSION=v0.23.1
-X_NET_PATCHED_VERSION=v0.59.0
+X_NET_PATCHED_VERSION=v0.60.0
+X_TEXT_PATCHED_VERSION=v0.42.0
+KUBECTL_VERSION=v1.37.1
 X_CRYPTO_PATCHED_VERSION=v0.56.0
 ORAS_GO_PATCHED_VERSION=v2.6.2
 MONGO_DRIVER_PATCHED_VERSION=v1.17.7
+KLAUSPOST_COMPRESS_PATCHED_VERSION=v1.18.7
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTDIR="$REPO_ROOT/bin/go-cve-rebuild"
@@ -164,6 +170,8 @@ go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHE
 go mod edit -replace="oras.land/oras-go/v2=oras.land/oras-go/v2@$ORAS_GO_PATCHED_VERSION"
 # mongo-driver v1.17.6 has CVE-2026-2303 (Medium, published 2026-02-10); fixed in v1.17.7
 go mod edit -replace="go.mongodb.org/mongo-driver=go.mongodb.org/mongo-driver@$MONGO_DRIVER_PATCHED_VERSION"
+# klauspost/compress v1.18.0 has CVE-2026-63209 (High); fixed in v1.18.7
+go mod edit -replace="github.com/klauspost/compress=github.com/klauspost/compress@$KLAUSPOST_COMPRESS_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-git/v5" "$GO_GIT_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-billy/v5" "$GO_BILLY_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/slack-go/slack" "$SLACK_GO_PATCHED_VERSION"
@@ -171,6 +179,7 @@ GOFLAGS=-mod=mod assert_x_replaces
 GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "oras.land/oras-go/v2" "$ORAS_GO_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "go.mongodb.org/mongo-driver" "$MONGO_DRIVER_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "github.com/klauspost/compress" "$KLAUSPOST_COMPRESS_PATCHED_VERSION"
 
 ARGOCD_LDFLAGS="-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V"
 
@@ -208,9 +217,35 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOFLAGS=-mod=mod go build \
   -ldflags "$HELM_LDFLAGS" \
   -o "$OUTDIR/arm64/helm" ./cmd/helm
 
+echo "==> Cloning kubernetes $KUBECTL_VERSION (kubectl)..."
+git clone --depth 1 --branch "$KUBECTL_VERSION" https://github.com/kubernetes/kubernetes.git "$TMPDIR/kubernetes"
+cd "$TMPDIR/kubernetes"
+
+KUBECTL_MAJOR="$(echo "${KUBECTL_VERSION#v}" | cut -d. -f1)"
+KUBECTL_MINOR="$(echo "${KUBECTL_VERSION#v}" | cut -d. -f2)"
+KUBECTL_LDFLAGS="-w -s \
+  -X k8s.io/component-base/version.gitVersion=$KUBECTL_VERSION \
+  -X k8s.io/component-base/version.gitMajor=$KUBECTL_MAJOR \
+  -X k8s.io/component-base/version.gitMinor=$KUBECTL_MINOR \
+  -X k8s.io/component-base/version.gitTreeState=clean"
+
+# go.work ignores go.mod replaces; GOWORK=off honors them.
+export GOWORK=off
+go mod edit -replace="golang.org/x/net=golang.org/x/net@$X_NET_PATCHED_VERSION"
+go mod edit -replace="golang.org/x/text=golang.org/x/text@$X_TEXT_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/net" "$X_NET_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "golang.org/x/text" "$X_TEXT_PATCHED_VERSION"
+
+for arch in amd64 arm64; do
+  echo "==> Building kubectl for linux/$arch..."
+  CGO_ENABLED=0 GOOS=linux GOARCH=$arch GOFLAGS=-mod=mod go build \
+    -ldflags "$KUBECTL_LDFLAGS" \
+    -o "$OUTDIR/$arch/kubectl" ./cmd/kubectl
+done
+
 echo "==> Compressing binaries..."
 for arch in amd64 arm64; do
-  for f in argocd helm; do
+  for f in argocd helm kubectl; do
     gzip -f "$OUTDIR/$arch/$f"
   done
 done
@@ -223,7 +258,7 @@ else
   SHA256_CMD="shasum -a 256"
 fi
 for arch in amd64 arm64; do
-  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz; do
+  (cd "$OUTDIR/$arch" && for f in argocd.gz helm.gz kubectl.gz; do
     $SHA256_CMD "$f" > "$f.sha256"
   done)
 done

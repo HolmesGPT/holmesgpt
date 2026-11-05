@@ -30,6 +30,72 @@ This page documents all environment variables that can be used to configure Holm
 - `VERTEXAI_LOCATION` - Vertex AI location (e.g., "us-central1")
 - `GOOGLE_APPLICATION_CREDENTIALS` - Path to service account key JSON file
 
+## Robusta AI { #robusta-ai }
+
+These settings matter with the Robusta platform, except that the interactive CLI also uses `ROBUSTA_API_ENDPOINT` to check for the latest Holmes release. See [Robusta AI](../ai-providers/robusta-ai.md) for setting it up.
+
+### ROBUSTA_AI
+**Default:** not set
+
+Server only, when it is configured from environment variables (as with the Helm chart). `true` makes the Holmes server load the models the Robusta platform offers the account (Robusta AI); `false` keeps them out. When not set, the server loads them only when neither `MODEL` nor a model list is configured. The CLI never loads them.
+
+### ROBUSTA_API_ENDPOINT
+**Default:**
+
+```robusta-region
+https://api.robusta.dev
+```
+
+Base URL of the Robusta platform API. When Holmes connects to the platform, it fetches the data store's API key from it (`/api/config/supabase-keys`), and when the fetch or the login with the fetched key fails, it uses the `api_key` in the Robusta UI token (or `STORE_API_KEY` without a token) instead. Holmes also fetches the account's Robusta AI models from it, sends Robusta AI completions through it, and reaches the Robusta platform MCP server under it (unless `ROBUSTA_MCP_ENDPOINT` is set). The interactive CLI also checks it for the latest Holmes release, with or without the platform. Set it to your region's API, or to a self-hosted platform's API URL:
+
+=== "Holmes Helm Chart"
+
+    ```robusta-region {lang=yaml}
+    additionalEnvVars:
+      - name: ROBUSTA_API_ENDPOINT
+        value: "https://api.robusta.dev"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```robusta-region {lang=yaml}
+    holmes:
+      additionalEnvVars:
+        - name: ROBUSTA_API_ENDPOINT
+          value: "https://api.robusta.dev"
+    ```
+
+### ROBUSTA_UI_DOMAIN
+**Default:**
+
+```robusta-region
+https://platform.robusta.dev
+```
+
+Base URL of the Robusta UI. Holmes builds links to platform chats on it, accepts conversation links on its host, and fetches the additional system prompt for scheduled prompts from it. Set it to your region's UI, or to a self-hosted platform's UI URL:
+
+=== "Holmes Helm Chart"
+
+    ```robusta-region {lang=yaml}
+    additionalEnvVars:
+      - name: ROBUSTA_UI_DOMAIN
+        value: "https://platform.robusta.dev"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```robusta-region {lang=yaml}
+    holmes:
+      additionalEnvVars:
+        - name: ROBUSTA_UI_DOMAIN
+          value: "https://platform.robusta.dev"
+    ```
+
+### ROBUSTA_UI_TOKEN
+**Default:** not set
+
+The Robusta UI token: base64-encoded JSON carrying the account ID and the credentials and URL of the account's data store. Holmes uses it to connect to the Robusta platform. When it is not set, Holmes reads the token of the `robusta_sink` in the Robusta config file (`ROBUSTA_CONFIG_PATH`, default `/etc/robusta/config/active_playbooks.yaml`). Without a token, Holmes connects with `ROBUSTA_ACCOUNT_ID`, `STORE_URL`, `STORE_API_KEY`, `STORE_EMAIL` and `STORE_PASSWORD` when all five are set (see [Robusta toolset](../data-sources/builtin-toolsets/robusta.md)); otherwise it does not connect to the platform and cannot use Robusta AI. A `robusta_sink` in the config file without a token is an error.
+
 ## LLM Tool Calling Configuration
 
 ### HOLMES_DISABLE_STRICT_TOOL_CALLS
@@ -55,6 +121,31 @@ export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
 ```
 
 **Note:** This setting is typically only needed when using Gemini models. Other providers handle empty parameter objects correctly.
+
+## LLM Rate Limits
+
+### LLM_RATE_LIMIT_MAX_WAIT_SECONDS
+**Default:** `30`
+
+Maximum time a single LLM call may spend backing off from provider rate-limit errors (HTTP 429, Bedrock throttling), Anthropic overloaded errors (HTTP 529) and service-unavailable errors (HTTP 503, e.g. Bedrock `ServiceUnavailableException`) before the error is returned. HolmesGPT waits at least as long as the provider's `Retry-After` header asks, and otherwise backs off exponentially with jitter from 2 to 60 seconds. A backoff that would go over the budget is shortened to what is left; if the provider's `Retry-After` alone goes over it, the error is returned without waiting. Time spent in the requests themselves is not counted, so a call whose failing attempts are each slow takes longer than the budget overall. Only the failing LLM call is retried, so tool calls already made during an investigation are kept. Set to `0` to disable these retries.
+
+Not retried:
+
+- A Robusta AI account that has reached its limit, since waiting does not clear it. Other providers' quota errors look like ordinary rate limits (Gemini words its per-minute limit the same way as OpenAI's out-of-credit error), so they are retried until the budget runs out.
+- Tool-output summarization by the fast model, which falls back to the unsummarized output instead.
+
+Interrupting the CLI (Esc) stops the backoff. Server requests run until the budget is used up.
+
+When the budget runs out the error is returned as before: rate limits as HTTP 429 from `/api/chat` (code `5204` in a stream), overloaded and service-unavailable errors as HTTP 500.
+
+Conversation-history compaction may summarize in several requests; they all share one budget, and an exhausted budget is returned as the errors above.
+
+Some providers' SDKs (OpenAI, Azure) also retry a rate limit once or twice within each attempt. That time does not count towards the budget.
+
+**Example:**
+```bash
+export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=180
+```
 
 ## Server Security
 
@@ -184,6 +275,77 @@ Serve the HolmesGPT API over **HTTPS directly from the application** (in-app TLS
 !!! note "Certificate rotation"
     The server reads the certificate once at startup and does not hot-reload it. After rotating the certificate (or its secret), restart the process/pod for the new certificate to take effect.
 
+## Proxies { #http-proxy }
+
+Holmes sends its outbound HTTP and HTTPS traffic through a proxy when the standard proxy variables are set: LLM calls, the Robusta platform and its realtime connection, and the toolsets' HTTP calls, except the ClickHouse HTTP query path and the in-process Kubernetes client (Kubernetes API calls from the Prometheus service discovery and Holmes's own log reader), which ignore the proxy variables. The commands tools run (`kubectl` and other CLIs) inherit the variables too, so each follows its own proxy handling.
+
+| Variable | Description |
+| --- | --- |
+| `HTTPS_PROXY` | Proxy URL for `https://` (and `wss://`) requests, e.g. `http://proxy.example.com:3128`. |
+| `HTTP_PROXY` | Proxy URL for `http://` requests. |
+| `NO_PROXY` | Comma-separated hosts and domain suffixes reached directly, without the proxy. |
+
+The lowercase forms (`https_proxy`, `http_proxy`, `no_proxy`) work too. Add the in-cluster services Holmes queries to `NO_PROXY` (for example `.svc,.cluster.local`), or their requests go to the proxy too. The `kubectl` commands the toolsets run inherit these variables and honor them, so add the Kubernetes API's address as well when `kubectl` should reach it directly.
+
+=== "Holmes CLI"
+
+    ```bash
+    export HTTPS_PROXY=http://proxy.example.com:3128
+    export HTTP_PROXY=http://proxy.example.com:3128
+    export NO_PROXY=localhost,127.0.0.1,.svc,.cluster.local
+    ```
+
+=== "Holmes Helm Chart"
+
+    ```yaml
+    additionalEnvVars:
+      - name: HTTPS_PROXY
+        value: "http://proxy.example.com:3128"
+      - name: HTTP_PROXY
+        value: "http://proxy.example.com:3128"
+      - name: NO_PROXY
+        value: "localhost,127.0.0.1,.svc,.cluster.local"
+    ```
+
+=== "Robusta Helm Chart"
+
+    ```yaml
+    holmes:
+      additionalEnvVars:
+        - name: HTTPS_PROXY
+          value: "http://proxy.example.com:3128"
+        - name: HTTP_PROXY
+          value: "http://proxy.example.com:3128"
+        - name: NO_PROXY
+          value: "localhost,127.0.0.1,.svc,.cluster.local"
+    ```
+
+The Helm chart's MCP server add-ons take their own `additionalEnvVars`; set the proxy variables there too for them to reach out through the proxy.
+
+If the proxy intercepts TLS, give Holmes its CA with [`CERTIFICATE`](#certificate).
+
+## LLM Provider Hosts { #llm-provider-hosts }
+
+The hosts Holmes connects to for each LLM provider, over HTTPS (port 443) unless the row names a host you configure, which uses that URL's scheme and port. Allow only the providers you use.
+
+| Provider | Hosts |
+| --- | --- |
+| OpenAI | `api.openai.com` |
+| Anthropic | `api.anthropic.com` |
+| Google Gemini | `generativelanguage.googleapis.com` |
+| Google Vertex AI | `<location>-aiplatform.googleapis.com` (`aiplatform.googleapis.com` for the `global` location, `aiplatform.<location>.rep.googleapis.com` for a multi-region location such as `us` or `eu`), and `oauth2.googleapis.com` for service account tokens |
+| AWS Bedrock | `bedrock-runtime.<region>.amazonaws.com`, and `sts.<region>.amazonaws.com` (or `sts.amazonaws.com` for the global endpoint) when Holmes assumes a role |
+| Azure AI Foundry / Azure OpenAI | The host of `AZURE_API_BASE` (e.g. `<resource>.services.ai.azure.com`, `<resource>.cognitiveservices.azure.com` or `<resource>.openai.azure.com`), and `login.microsoftonline.com` with `AZURE_AD_TOKEN_AUTH`, workload identity or a service principal (managed identity uses the instance metadata endpoint instead) |
+| OpenRouter | `openrouter.ai` |
+| OpenAI-compatible endpoints | The host of `OPENAI_API_BASE` |
+| GitHub Models | `models.inference.ai.azure.com` |
+| GitHub Copilot | The API host GitHub returns with the Copilot token (under `*.githubcopilot.com`; see [GitHub's Copilot allowlist reference](https://docs.github.com/en/copilot/reference/allowlist-reference)), and `github.com` and `api.github.com` for the device login and token exchange |
+| Baseten | `inference.baseten.co` |
+| Ollama | The host of `OLLAMA_API_BASE` |
+| Robusta AI | The host of [`ROBUSTA_API_ENDPOINT`](#robusta_api_endpoint), and the data store host (the store URL in your `ROBUSTA_UI_TOKEN`, the Robusta config file's token or `STORE_URL`) for the session token and realtime connection. See [the platform allowlist](troubleshooting.md#firewall-blocking-robusta-platform) |
+
+With every provider, LiteLLM downloads its model catalog from `raw.githubusercontent.com` at startup and on each refresh (see [`LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS`](#litellm_cost_map_refresh_interval_seconds)); allow it or point [`LITELLM_MODEL_COST_MAP_URL`](#litellm_model_cost_map_url) at a mirror. It also fetches an Anthropic beta-headers file from the same host and falls back to a bundled copy when that fails, so a mirror for the cost map alone does not remove all traffic to it. Set `LITELLM_LOCAL_MODEL_COST_MAP=True` to skip the catalog download, refreshes included, and `LITELLM_LOCAL_ANTHROPIC_BETA_HEADERS=True` to skip the beta-headers download; both use the bundled copies.
+
 ## Tool Result Size Limits
 
 These variables control how HolmesGPT handles large tool responses that exceed the LLM context window.
@@ -260,6 +422,26 @@ Wall-clock timeout (in seconds) for every `command:`/`script:` toolset tool Holm
 export TOOL_SUBPROCESS_TIMEOUT_SECONDS=600
 ```
 
+## Holmes Logs in the Robusta UI
+
+The Robusta UI shows Holmes's own pod logs. The whole result is limited to `REMOTE_TOOL_RESULT_MAX_BYTES` (default 1 MB) after JSON encoding; when the logs are longer, the newest lines are kept.
+
+### HOLMES_LOGS_DEFAULT_TAIL_LINES
+**Default:** `500`
+
+Lines per container that the UI gets when it does not ask for a number.
+
+### HOLMES_LOGS_MAX_TAIL_LINES
+**Default:** `5000`
+
+The largest number of lines per container that a request can ask for.
+
+## Conversation Worker Executors
+
+The conversation runtime (Robusta platform deployments) runs each conversation on a named **executor**. `Conversations.executor` names it: `manual` for live user asks (chat, follow-ups, a single "Investigate now") and `auto` for background work (auto-triage, "Add to queue" / bulk investigations, triggered workflows). Executors are created on demand and sized from the account setting `conversation_executors.<name>` (Settings → LLMs sets `manual`, Settings → Triage sets `auto`; applied live, no restart), falling back to the built-in default (`manual`=10, `auto`=1). `CONVERSATION_WORKER_MAX_CONCURRENT` (default 5) only sizes an executor whose name has no built-in default.
+
+**Upgrade note.** Before executors existed, one shared pool of `CONVERSATION_WORKER_MAX_CONCURRENT` (5) ran everything. With the defaults above an agent now runs up to 11 conversations at once (10 `manual` + 1 `auto`), and `CONVERSATION_WORKER_MAX_CONCURRENT` no longer sizes those two executors. Deployments that tuned it should set the concurrency in Settings instead.
+
 ## HolmesGPT Configuration
 
 ### MODEL_LIST_FILE_LOCATION
@@ -295,6 +477,11 @@ additionalEnvVars:
   - name: LITELLM_MODEL_COST_MAP_URL
     value: https://api.robusta.dev/litellm/model_prices_and_context_window.json
 ```
+
+### LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS
+LiteLLM downloads its model catalog once at startup, so a model released while Holmes is running is missing from it until a restart. When a lookup for a model's context window, max output tokens, or pricing finds nothing, Holmes re-downloads the catalog, at most once per this interval.
+
+**Default:** `86400` (once a day)
 
 ### HOLMES_CONFIG_PATH
 Path to a custom HolmesGPT configuration file. If not set, defaults to `~/.holmes/config.yaml`.

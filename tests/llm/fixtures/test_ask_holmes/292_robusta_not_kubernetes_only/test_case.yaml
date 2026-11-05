@@ -1,0 +1,10 @@
+description: |
+  ROB-1468: Robusta is not limited to Kubernetes - Holmes connected to Robusta
+  must not tell users it only works with Kubernetes clusters.
+user_prompt: "We mostly run on VMs and only have a couple of Kubernetes clusters. Is Robusta a good fit for us, or is it only for Kubernetes?"
+expected_output:
+  - States that Robusta is not limited to Kubernetes and also covers non-Kubernetes environments such as VMs
+  - Does not claim Robusta is a Kubernetes-only or Kubernetes-focused product
+tags:
+  - question-answer
+  - fast

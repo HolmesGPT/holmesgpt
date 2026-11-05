@@ -1,0 +1,157 @@
+{{- /*
+Creates the remediation MCP token Secret at deploy time instead of rendering
+it: a rendered random token differs on every clusterless render (ArgoCD,
+`helm template`) and would roll both pods on each sync. ArgoCD runs this as a
+PreSync hook.
+The Secret records auth.rotation; when the value changes, the hook replaces the
+token and restarts both Deployments. Rendering the value onto the Deployments
+is what makes Helm/ArgoCD run the hook for a rotation.
+*/ -}}
+{{- define "holmes.kubernetesRemediationMcp.authBootstrapName" -}}
+{{- printf "%s-k8s-remediation-mcp-auth-bootstrap" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "holmes.kubernetesRemediationMcp.authBootstrapMetadata" -}}
+name: {{ include "holmes.kubernetesRemediationMcp.authBootstrapName" .ctx }}
+namespace: {{ .ctx.Release.Namespace }}
+labels:
+  app.kubernetes.io/component: mcp-server-auth-bootstrap
+  app.kubernetes.io/part-of: holmes
+  {{- include "holmes.commonLabels" .ctx | nindent 2 }}
+annotations:
+  helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+  helm.sh/hook-weight: {{ .weight | quote }}
+  helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- with (include "holmes.commonAnnotations" .ctx) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+{{- end -}}
+{{- $k8s := .Values.mcpAddons.kubernetesRemediation }}
+{{- if and $k8s.enabled $k8s.auth.enabled (not $k8s.auth.existingSecret) }}
+{{- $name := include "holmes.kubernetesRemediationMcp.authBootstrapName" . }}
+{{- $secretName := include "holmes.kubernetesRemediationMcp.authSecretName" . }}
+{{- $legacySecretName := printf "%s-k8s-remediation-mcp-auth" .Release.Name }}
+{{- $deployments := list (printf "%s-holmes" .Release.Name) (printf "%s-k8s-remediation-mcp-server" .Release.Name) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
+rules:
+# create cannot be scoped by resourceNames.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: [{{ $secretName | quote }}]
+  verbs: ["get", "delete"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: [{{ $legacySecretName | quote }}]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  resourceNames: {{ toJson $deployments }}
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  {{- include "holmes.kubernetesRemediationMcp.authBootstrapMetadata" (dict "ctx" . "weight" "-5") | nindent 2 }}
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  # Lets tools that apply hooks as plain manifests re-run it on a later apply.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mcp-server-auth-bootstrap
+        app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
+      {{- with (include "holmes.commonAnnotations" .) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $k8s.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $k8s.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $k8s.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: bootstrap
+        # The server image already ships kubectl and python.
+        image: "{{ $k8s.registry }}/{{ $k8s.image }}"
+        imagePullPolicy: {{ $k8s.imagePullPolicy | default "IfNotPresent" }}
+        env:
+        - name: HOME
+          value: /tmp
+        - name: NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: SECRET_NAME
+          value: {{ $secretName | quote }}
+        - name: LEGACY_SECRET_NAME
+          value: {{ $legacySecretName | quote }}
+        - name: DEPLOYMENTS
+          value: {{ join " " $deployments | quote }}
+        - name: ROTATION
+          value: {{ include "holmes.kubernetesRemediationMcp.authRotation" . | quote }}
+        - name: SECRET_LABELS
+          value: {{ include "holmes.commonLabels" . | fromYaml | default dict | toJson | quote }}
+        - name: SECRET_ANNOTATIONS
+          value: {{ include "holmes.commonAnnotations" . | fromYaml | default dict | toJson | quote }}
+        command: ["python3", "-c"]
+        args:
+        - |
+          {{- .Files.Get "files/remediation_bootstrap.py" | trim | nindent 10 }}
+        # The server's resources, so namespace quotas that admit it admit this.
+        resources:
+          {{- toYaml $k8s.resources | nindent 10 }}
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          medium: Memory
+{{- end }}

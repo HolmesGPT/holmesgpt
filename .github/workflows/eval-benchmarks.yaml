@@ -5,18 +5,19 @@ on:
   workflow_dispatch:
     inputs:
       benchmark_type:
-        description: 'Benchmark type (fast-benchmark or full-benchmark). Cannot be combined with custom test_markers.'
+        description: 'Benchmark type (fast-benchmark, full-benchmark or advanced-benchmark). Cannot be combined with custom test_markers.'
         required: false
         type: choice
         options:
           - 'fast-benchmark'
           - 'full-benchmark'
+          - 'advanced-benchmark'
         default: 'fast-benchmark'
       models:
         description: 'Comma-separated list of models to test'
         required: false
         # NOTE: Keep in sync with DEFAULT_BENCHMARK_MODELS env var
-        default: 'opus-5,sonnet-5,haiku-4.5,gpt-5.4,gpt-5.5,gpt-5.3-codex,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-flash,deepseek-v4-pro,kimi-k3,glm-5.3'
+        default: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
       test_markers:
         description: 'Custom pytest markers (ONLY use if not using benchmark_type). Cannot be combined with benchmark_type.'
         required: false
@@ -30,6 +31,16 @@ on:
         required: false
         type: boolean
         default: true
+      verify_models:
+        description: 'Run the model config verification step before the benchmarks.'
+        required: false
+        type: boolean
+        default: false
+      notify:
+        description: 'Send Slack notifications when the run finishes. Uncheck for quiet bulk runs.'
+        required: false
+        type: boolean
+        default: true
 
   # Run weekly on Sunday at 2 AM UTC
   schedule:
@@ -38,7 +49,13 @@ on:
 env:
   # Default models for benchmarks - single source of truth
   # NOTE: Keep workflow_dispatch default in sync with this for UI display
-  DEFAULT_BENCHMARK_MODELS: 'opus-5,sonnet-5,haiku-4.5,gpt-5.4,gpt-5.5,gpt-5.3-codex,gemini-3.1-pro-preview,qwen-next-80B-instruct,qwen-next-80B-thinking,deepseek-flash,deepseek-v4-pro,kimi-k3,glm-5.3'
+  DEFAULT_BENCHMARK_MODELS: 'opus-5.5-medium,sonnet-5.5-medium,gpt-6.1-sol-high,haiku-4.5,gemini-3.1-pro-preview,deepseek-v4-pro,kimi-k3,glm-5.3'
+  # Tool commands run under `ulimit -v`, which caps virtual address space,
+  # so Go binaries (kubectl, helm) can crash at startup before using any
+  # memory. Under parallel eval load the 800 MB default crashed ~20% of
+  # kubectl calls and 1200 MB crashed every one; 1536 MB crashed none in
+  # 1,600 runs. ROB-819 replaces the ulimit itself.
+  TOOL_MEMORY_LIMIT_MB: "1536"
 
 jobs:
   run-benchmarks:
@@ -121,6 +138,24 @@ jobs:
           ${{ secrets.MODEL_LIST_YAML }}
           EOF
 
+      - name: Verify models
+        if: ${{ inputs.verify_models }}
+        uses: ./.github/actions/verify-models
+        with:
+          models: ${{ github.event.inputs.models || env.DEFAULT_BENCHMARK_MODELS }}
+        env:
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+
       - name: Run evaluation benchmarks
         id: run-benchmarks
         env:
@@ -141,14 +176,35 @@ jobs:
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
           MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
           EXPERIMENT_ID: "ci-benchmark-${{ github.run_id }}"
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           BENCHMARK_ARGS_JSON: ${{ steps.build-command.outputs.args_json }}
+          # Keeps the log streaming live while stdout is a pipe into tee.
+          PYTHONUNBUFFERED: "1"
         run: |
           # Read the arguments back as an array. Executing "${ARGS[@]}" passes
           # each element as one argv entry with no shell re-parsing, so a
           # crafted dispatch input cannot reach the secrets in this step's env.
           mapfile -t -d '' ARGS < <(jq -j '.[] | (., "\u0000")' <<< "$BENCHMARK_ARGS_JSON")
           echo "Running: ./run_benchmarks_local.py ${ARGS[*]}"
-          ./run_benchmarks_local.py "${ARGS[@]}"
+          set -o pipefail
+          ./run_benchmarks_local.py "${ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/eval-output.log"
+
+      # The Braintrust SDK drops a whole upload batch when the API rejects one
+      # record in it, so results vanish from the experiment while every test
+      # still reports normally. Warn rather than fail: the pytest output and
+      # report still hold every result.
+      - name: Check for dropped Braintrust uploads
+        if: always()
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/eval-output.log"
+          [[ -f "$LOG" ]] || exit 0
+          DROPS=$(grep -c "Dropping batch" "$LOG" || true)
+          if [[ "$DROPS" -gt 0 ]]; then
+            echo "::warning title=Braintrust uploads dropped::Braintrust dropped $DROPS upload batches, so the experiment is missing results. Search the eval step's log for 'Dropping batch' to see the rejected records."
+            echo "> [!WARNING]" >> "$GITHUB_STEP_SUMMARY"
+            echo "> Braintrust dropped $DROPS upload batches; the experiment is missing results." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload eval results
         if: always()
@@ -216,7 +272,8 @@ jobs:
           fi
 
       - name: Notify Slack on success
-        if: steps.run-benchmarks.outcome == 'success'
+        # github.event.inputs.notify is empty on scheduled runs, so they always notify
+        if: steps.run-benchmarks.outcome == 'success' && (github.ref_name == 'master' || github.ref_name == 'main') && github.event.inputs.notify != 'false'
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
         run: |
@@ -232,7 +289,10 @@ jobs:
             -d "{\"channel\": \"#backend\", \"text\": \"${TEXT}\"}"
 
       - name: Notify Slack on failure or cancellation
-        if: steps.run-benchmarks.outcome != 'success'
+        # github.event.inputs.notify is empty on scheduled runs, so they always notify
+        # failure()/cancelled() needed: without a status-check function GitHub
+        # implies success(), which skips this step exactly when it should run
+        if: (failure() || cancelled()) && steps.run-benchmarks.outcome != 'success' && (github.ref_name == 'master' || github.ref_name == 'main') && github.event.inputs.notify != 'false'
         env:
           SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
         run: |

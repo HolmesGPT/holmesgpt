@@ -13,11 +13,10 @@ By enabling this toolset, HolmesGPT will be able to describe and find Kubernetes
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/core:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/core:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -27,6 +26,33 @@ holmes:
 | kubernetes_jq_query | Query Kubernetes resources using jq filters with pagination |
 | kubernetes_tabular_query | Extract specific fields from resources in tabular format with optional filtering |
 | kubernetes_count | Count Kubernetes resources matching a jq filter |
+
+All three tools accept optional parameters that narrow the query on the Kubernetes API server, before any data is sent to HolmesGPT:
+
+| Parameter | Example | Notes |
+|-----------|---------|-------|
+| `namespace` | `payments` | Ignored for cluster-scoped kinds such as `nodes` |
+| `label_selector` | `app=checkout,tier!=db` or `env in (prod,staging)` | Standard Kubernetes label selector syntax |
+| `field_selector` | `status.phase!=Running` or `spec.nodeName=node-1` | Supported fields depend on the kind; unsupported fields return the API server's error |
+
+When none are set, the tools query every namespace. Each result includes a `scope` object showing the namespace and selectors that were applied.
+
+#### Large Clusters
+
+On clusters with thousands of namespaces or pods, unscoped queries are slow. Tell HolmesGPT about your cluster so it scopes its queries with the parameters above, by adding instructions to the Core toolset:
+
+```yaml-toolset-config
+toolsets:
+  kubernetes/core:
+    enabled: true
+    llm_instructions: |
+      This cluster is very large (thousands of namespaces and pods). Always pass
+      namespace and/or label_selector to kubernetes_jq_query, kubernetes_count and
+      kubernetes_tabular_query. Avoid unscoped cluster-wide queries unless the
+      question truly needs every namespace.
+```
+
+Adapt the text to your environment, for example by naming the label that identifies each team's workloads. Robusta platform users can add the same text to their account's Global Instructions instead.
 
 ### Logs
 
@@ -39,11 +65,10 @@ By enabling this toolset, HolmesGPT will be able to read Kubernetes pod logs.
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/logs:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/logs:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -68,11 +93,10 @@ This toolset retrieves real-time CPU and memory usage for pods and nodes.
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/live-metrics:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/live-metrics:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -91,11 +115,10 @@ This toolset uses `kubectl` to proxy into a Prometheus service running in-cluste
 
 **Configuration:**
 
-```yaml
-holmes:
-    toolsets:
-        kubernetes/kube-prometheus-stack:
-            enabled: true
+```yaml-toolset-config
+toolsets:
+    kubernetes/kube-prometheus-stack:
+        enabled: true
 ```
 
 **Capabilities:**
@@ -151,52 +174,18 @@ HolmesGPT may require access to additional Kubernetes resources or CRDs for spec
 
 HolmesGPT includes read-only permissions for common Kubernetes operators and tools by default. These can be individually enabled or disabled:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    crdPermissions:
-      argo: true
-      flux: true
-      kafka: true
-      keda: true
-      crossplane: true
-      istio: true
-      gatewayApi: true
-      velero: true
-      externalSecrets: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      crdPermissions:
-        argo: true
-        flux: true
-        kafka: true
-        keda: true
-        crossplane: true
-        istio: true
-        gatewayApi: true
-        velero: true
-        externalSecrets: true
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+crdPermissions:
+  argo: true
+  flux: true
+  kafka: true
+  keda: true
+  crossplane: true
+  istio: true
+  gatewayApi: true
+  velero: true
+  externalSecrets: true
+```
 
 #### Adding Custom Permissions
 
@@ -211,72 +200,18 @@ For resources not covered by the default CRD permissions, you can add custom Clu
 
 To enable HolmesGPT to analyze cert-manager certificates and issuers (not included in default permissions), add custom ClusterRole rules:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    customClusterRoleRules:
-      - apiGroups: ["cert-manager.io"]
-        resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
-        verbs: ["get", "list", "watch"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      customClusterRoleRules:
-        - apiGroups: ["cert-manager.io"]
-          resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
-          verbs: ["get", "list", "watch"]
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+customClusterRoleRules:
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
+    verbs: ["get", "list", "watch"]
+```
 
 #### Using an Existing ServiceAccount
 
 If you prefer to use an existing ServiceAccount with custom permissions instead of having the Helm chart create one:
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    createServiceAccount: false
-    customServiceAccountName: "your-existing-service-account"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      createServiceAccount: false
-      customServiceAccountName: "your-existing-service-account"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-helm-values
+createServiceAccount: false
+customServiceAccountName: "your-existing-service-account"
+```

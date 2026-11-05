@@ -217,6 +217,11 @@ class ToolsetTag(str, Enum):
     CLI = "cli"
 
 
+# The toolset tags of the Holmes server's cached tool executor. See
+# Config.create_server_tool_executor for how server callers must request it.
+SERVER_TOOLSET_TAGS = [ToolsetTag.CORE, ToolsetTag.CLUSTER]
+
+
 class ToolsetType(str, Enum):
     BUILTIN = "built-in"
     CUSTOMIZED = "custom"
@@ -258,6 +263,11 @@ class ToolParameter(BaseModel):
         """
         # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
         if self.additional_properties is not None and self.additional_properties is not False:
+            return False
+        # A free-form object (no properties, additionalProperties unspecified) would be
+        # closed with additionalProperties: false, leaving `{}` as its only valid value.
+        types = self.type if isinstance(self.type, list) else [self.type]
+        if "object" in types and not self.properties and self.additional_properties is None:
             return False
         # Recursively check nested properties
         if self.properties:
@@ -424,7 +434,7 @@ class Tool(ABC, BaseModel):
         show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
         line_count = output_str.count("\n") + 1 if output_str else 0
         display_logger.info(
-            f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
+            f"  [dim]Finished {tool_number_str}with status {transformed_result.status.value} in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
 
@@ -858,6 +868,17 @@ class Toolset(BaseModel):
             "this cluster (kubectl, in-cluster prometheus, ...)."
         ),
     )
+    status_refresh_interval_seconds: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Re-check this toolset at most once per this many seconds during the "
+            "server's periodic status refresh, keeping its last status and tools in "
+            "between. Unset, it is re-checked on every refresh "
+            "(TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS)."
+        ),
+    )
+
     def remote_exposure_default(
         self, instance_config: Optional[Dict[str, Any]] = None
     ) -> Optional[bool]:
@@ -1298,6 +1319,8 @@ class ToolsetDBModel(BaseModel):
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
+    # The publishing Holmes version; the platform routes remote tools by it.
+    version: Optional[str] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 

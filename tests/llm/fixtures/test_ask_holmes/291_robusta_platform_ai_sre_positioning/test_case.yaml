@@ -1,0 +1,11 @@
+description: |
+  ROB-1468: when Holmes runs connected to Robusta, it must describe Robusta as an
+  AI SRE platform, not as a Kubernetes observability tool (what models say from
+  training data alone).
+user_prompt: "in one short sentence, what is the Robusta platform used for?"
+expected_output:
+  - Describes Robusta as an AI SRE platform, i.e. AI that investigates alerts or incidents and finds their root cause
+  - Does not describe Robusta as a Kubernetes monitoring, observability, or alerting tool
+tags:
+  - question-answer
+  - fast

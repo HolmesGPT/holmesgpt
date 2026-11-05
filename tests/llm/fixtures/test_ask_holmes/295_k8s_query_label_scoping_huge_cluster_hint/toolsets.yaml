@@ -1,0 +1,14 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+    # Same guidance as the "Large Clusters" section of
+    # docs/data-sources/builtin-toolsets/kubernetes.md
+    llm_instructions: |
+      This cluster is very large (thousands of namespaces and pods). Always pass
+      namespace and/or label_selector to kubernetes_jq_query, kubernetes_count and
+      kubernetes_tabular_query. Avoid unscoped cluster-wide queries unless the
+      question truly needs every namespace.
+  # The default eval toolsets include bash with kubectl; a scoped `kubectl get` there
+  # would answer correctly but skip the query tools this eval checks
+  bash:
+    enabled: false

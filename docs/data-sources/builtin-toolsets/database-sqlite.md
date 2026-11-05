@@ -33,178 +33,102 @@ sqlite:///[absolute_path_to_file]
 - `sqlite:////home/user/app.db` - Absolute path on Linux/Mac
 - `sqlite:////var/lib/app/data.db` - Another Linux example
 
-In Kubernetes, the database file is read from a mounted volume.
+In Kubernetes, the database file is read from a mounted volume. Each Kubernetes example on this page mounts it with a `hostPath` volume of `type: File`, which requires the file to exist at that path on the node the Holmes pod is scheduled on; where it does not, the volume fails to mount and the pod does not start.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalVolumes:
+  - name: sqlite-db
+    hostPath:
+      path: /path/on/host/database.db
+      type: File
 
-    **~/.holmes/config.yaml:**
+additionalVolumeMounts:
+  - name: sqlite-db
+    mountPath: /data/database.db
+    readOnly: true
 
-    ```yaml
-    toolsets:
-      dev-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////absolute/path/to/database.db"
-        llm_instructions: "Local development database with test data"
+toolsets:
+  app-sqlite:
+    type: database
+    config:
+      connection_url: "sqlite:////data/database.db"
+    llm_instructions: "Application database mounted from host"
+---
+cli: |
+  **~/.holmes/config.yaml:**
 
-      app-cache-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////var/lib/app/cache.db"
-        llm_instructions: "Application cache database"
-    ```
+  ```yaml
+  toolsets:
+    dev-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/database.db"
+      llm_instructions: "Local development database with test data"
 
-    **In-memory database (testing only):**
+    app-cache-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////var/lib/app/cache.db"
+      llm_instructions: "Application cache database"
+  ```
 
-    ```yaml
-    connection_url: "sqlite:///:memory:"
-    ```
+  **In-memory database (testing only):**
 
-=== "Holmes Helm Chart"
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    additionalVolumes:
-      - name: sqlite-db
-        hostPath:
-          path: /path/on/host/database.db
-          type: File
-
-    additionalVolumeMounts:
-      - name: sqlite-db
-        mountPath: /data/database.db
-        readOnly: true
-
-    toolsets:
-      app-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////data/database.db"
-        llm_instructions: "Application database mounted from host"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalVolumes:
-        - name: sqlite-db
-          hostPath:
-            path: /path/on/host/database.db
-            type: File
-
-      additionalVolumeMounts:
-        - name: sqlite-db
-          mountPath: /data/database.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/database.db"
-          llm_instructions: "Application database mounted from host"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  ```yaml
+  connection_url: "sqlite:///:memory:"
+  ```
+```
 
 ### Multiple instances
 
-=== "Holmes Helm Chart"
+```yaml-toolset-config
+additionalVolumes:
+  - name: app-db
+    hostPath:
+      path: /data/app.db
+      type: File
+  - name: cache-db
+    hostPath:
+      path: /data/cache.db
+      type: File
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+additionalVolumeMounts:
+  - name: app-db
+    mountPath: /data/app.db
+    readOnly: true
+  - name: cache-db
+    mountPath: /data/cache.db
+    readOnly: true
 
-    ```yaml
-    additionalVolumes:
-      - name: app-db
-        hostPath:
-          path: /data/app.db
-          type: File
-      - name: cache-db
-        hostPath:
-          path: /data/cache.db
-          type: File
+toolsets:
+  app-sqlite:
+    type: database
+    config:
+      connection_url: "sqlite:////data/app.db"
 
-    additionalVolumeMounts:
-      - name: app-db
-        mountPath: /data/app.db
-        readOnly: true
-      - name: cache-db
-        mountPath: /data/cache.db
-        readOnly: true
+  cache-sqlite:
+    type: database
+    config:
+      connection_url: "sqlite:////data/cache.db"
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**, with the paths of the database files on your machine. Create the file if it doesn't exist:
 
-    toolsets:
-      app-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////data/app.db"
+  ```yaml
+  toolsets:
+    app-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/app.db"
 
-      cache-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////data/cache.db"
-    ```
+    cache-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/cache.db"
+  ```
 
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalVolumes:
-        - name: app-db
-          hostPath:
-            path: /data/app.db
-            type: File
-        - name: cache-db
-          hostPath:
-            path: /data/cache.db
-            type: File
-
-      additionalVolumeMounts:
-        - name: app-db
-          mountPath: /data/app.db
-          readOnly: true
-        - name: cache-db
-          mountPath: /data/cache.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/app.db"
-
-        cache-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/cache.db"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Configuration Options
 
