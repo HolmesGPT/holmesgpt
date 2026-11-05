@@ -7,6 +7,7 @@ mirroring the behavior of the CI/CD workflow.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -414,6 +415,19 @@ Environment variables:
     return parser.parse_args()
 
 
+def any_test_ran(report: Path) -> bool:
+    """Whether the pytest JSON report has a passed or failed test, not only errors.
+
+    Errors in every xdist worker's collection exit pytest with 1, like a normal
+    run with failures (Oct 4 2026: a model missing from the model list).
+    """
+    try:
+        summary = json.loads(report.read_text())["summary"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return summary.get("passed", 0) + summary.get("failed", 0) > 0
+
+
 def main():
     """Main entry point."""
     args = parse_args()
@@ -456,6 +470,9 @@ def main():
 
     # Exit 0 or 1 = normal run (all pass, or some tests failed - both are valid benchmark results)
     # Exit 2+ = crash (interrupted, INTERNALERROR, usage error, no tests collected)
+    if exit_code in (0, 1) and not any_test_ran(Path("eval_results.json")):
+        print("❌ No test ran: every test errored before running. See the errors above.")
+        sys.exit(1)
     sys.exit(0 if exit_code in (0, 1) else exit_code)
 
 
