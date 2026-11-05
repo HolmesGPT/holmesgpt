@@ -22,21 +22,35 @@ class HolmesAPIClient:
     - Error handling and logging
     """
 
-    def __init__(self, base_url: str, timeout: int = 300):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 300,
+        api_key: Optional[str] = None,
+    ):
         """
         Initialize the Holmes API client.
 
         Args:
             base_url: Base URL of the Holmes API server (e.g., "http://holmes-api:80")
             timeout: Default timeout for requests in seconds
+            api_key: Optional API key. When set, sent as the X-API-Key header on
+                every request to authenticate against a Holmes API server that has
+                HOLMES_API_KEY configured. When None/empty, no auth header is sent.
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._api_key = api_key or None
+        headers = {"X-API-Key": self._api_key} if self._api_key else None
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout=timeout, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            headers=headers,
         )
-        logger.info(f"Initialized Holmes API client for {self.base_url}")
+        logger.info(
+            f"Initialized Holmes API client for {self.base_url} "
+            f"(api_key_set={bool(self._api_key)})"
+        )
 
     @retry(
         stop=stop_after_attempt(3),
