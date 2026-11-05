@@ -3,7 +3,8 @@
 import pytest
 
 from holmes.core.json_schema_coerce import coerce_params
-from holmes.core.tools import ToolParameter
+from holmes.core.tools import ToolParameter, YAMLTool
+from tests.conftest import create_mock_tool_invoke_context
 
 
 # ---------------------------------------------------------------------------
@@ -331,3 +332,89 @@ class TestGeneralBehavior:
             {"tags": {"type": ["array", "null"]}},
         )
         assert result["tags"] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# The string "null" for a param that accepts null
+# ---------------------------------------------------------------------------
+
+class TestStringNull:
+    """Some providers turn a JSON null into the string "null" (glm-5.3 on OpenRouter
+    since Nov 2026). Holmes must treat it as null, or e.g. kubectl gets `-l null`."""
+
+    def test_optional_string_becomes_none(self):
+        result = coerce_params(
+            {"label_selector": "null"},
+            _schema(label_selector=ToolParameter(type="string", required=False)),
+        )
+        assert result["label_selector"] is None
+
+    def test_nullable_type_becomes_none(self):
+        result = coerce_params(
+            {"label_selector": "null"},
+            _schema(label_selector=ToolParameter(type=["string", "null"])),
+        )
+        assert result["label_selector"] is None
+
+    def test_optional_array_becomes_none_not_wrapped(self):
+        result = coerce_params(
+            {"tags": "null"},
+            _schema(tags=ToolParameter(type="array", required=False)),
+        )
+        assert result["tags"] is None
+
+    def test_optional_integer_becomes_none(self):
+        result = coerce_params(
+            {"limit": "null"},
+            _schema(limit=ToolParameter(type="integer", required=False)),
+        )
+        assert result["limit"] is None
+
+    def test_applies_in_strict_mode(self):
+        result = coerce_params(
+            {"limit": "null"},
+            _schema(limit=ToolParameter(type="integer", required=False)),
+            strict=True,
+        )
+        assert result["limit"] is None
+
+    def test_raw_dict_nullable_type_becomes_none(self):
+        result = coerce_params(
+            {"tags": "null"},
+            {"tags": {"type": ["string", "null"]}},
+        )
+        assert result["tags"] is None
+
+    def test_required_non_nullable_string_kept(self):
+        """A required string can't be null, so "null" is the value the model meant."""
+        result = coerce_params(
+            {"query": "null"},
+            _schema(query=ToolParameter(type="string", required=True)),
+        )
+        assert result["query"] == "null"
+
+    @pytest.mark.parametrize("value", ["Null", "NULL", "None", "nil", "", "null "])
+    def test_other_spellings_kept(self, value):
+        result = coerce_params(
+            {"label_selector": value},
+            _schema(label_selector=ToolParameter(type="string", required=False)),
+        )
+        assert result["label_selector"] == value
+
+
+def test_yaml_tool_renders_string_null_like_omitted():
+    """End to end through Tool.invoke: "null" reaches the template as None, the same
+    as a real JSON null, which the kubernetes query scripts already treat as unset."""
+    tool = YAMLTool(
+        name="echo_selector",
+        description="Echo the label selector",
+        command="echo sel={{ label_selector }}",
+        parameters={"label_selector": ToolParameter(type="string", required=False)},
+    )
+    context = create_mock_tool_invoke_context()
+
+    from_string = tool.invoke({"label_selector": "null"}, context)
+    from_null = tool.invoke({"label_selector": None}, context)
+
+    assert from_string.data.strip() == "sel=None"
+    assert from_string.data == from_null.data
