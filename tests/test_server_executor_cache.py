@@ -13,6 +13,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
 import server
 from holmes.admin import admin_api
@@ -22,6 +24,8 @@ from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 from holmes.core.conversations_worker.tool_call_worker import ToolCallWorker
 from holmes.core.models import ChatRequest
+from holmes.core.otel_tracing import OTelMetrics
+from holmes.core.tracing import TracingFactory
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from tests.test_status_refresh_interval import WORKING_SERVER, _mcp_config, _refresh, _sessions_opened
 
@@ -262,3 +266,43 @@ def test_refresh_loop_rediscovers_platform_mcp_tools_on_the_cached_executor(buil
     _run_refresh_loop(config, monkeypatch, cycles=1)
 
     assert rediscovered == [executor]
+
+
+def test_toolset_status_metric_reports_the_cached_executor(built_server, monkeypatch):
+    """The metric reads the executor the server caches, and an export neither
+    builds an executor nor re-checks a toolset."""
+    config, sessions = built_server
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader])
+    monkeypatch.setattr(TracingFactory, "_metrics", OTelMetrics(provider.get_meter("test")))
+    executor_requests = []
+    monkeypatch.setattr(Config, "create_tool_executor", lambda *a, **kw: executor_requests.append(kw))
+
+    server._register_toolset_status_metric()
+    data = reader.get_metrics_data()
+    provider.shutdown()
+
+    reported = {
+        (p.attributes["holmesgpt_toolset_name"], p.attributes["holmesgpt_toolset_status"])
+        for m in data.resource_metrics[0].scope_metrics[0].metrics
+        if m.name == "holmesgpt.toolset.status"
+        for p in m.data.data_points
+        if p.value == 1
+    }
+    assert reported == {(t.name, t.status.value) for t in config.cached_tool_executor.toolsets}
+    assert executor_requests == []
+    assert _sessions_opened(sessions) == 1
+
+
+def test_toolset_status_metric_is_empty_until_the_executor_is_built(tmp_path, monkeypatch):
+    config, _ = _mcp_config(tmp_path, WORKING_SERVER)
+    monkeypatch.setattr(server, "config", config)
+
+    assert config.cached_tool_executor is None
+    assert server._cached_toolsets() == []
+
+
+def test_toolset_status_metric_is_not_registered_when_metrics_are_off(monkeypatch):
+    monkeypatch.setattr(TracingFactory, "_metrics", None)
+    server._register_toolset_status_metric()
+    assert TracingFactory.get_metrics() is None
