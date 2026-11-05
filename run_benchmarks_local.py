@@ -320,6 +320,10 @@ If you are not redirected automatically, [click here]({history_relative}).
         self.check_environment()
         self.setup_environment()
         exit_code = self.run_tests()
+        if exit_code in (0, 1) and not any_test_ran(Path("eval_results.json")):
+            # No report, so CI opens no empty results PR; ::error shows on the run page
+            print("::error title=No tests ran::Every test errored before running. See the pytest errors above.")
+            return 5  # pytest's "no tests collected"
         report_file = self.generate_report()
         self.show_summary(report_file)
         return exit_code
@@ -470,9 +474,6 @@ def main():
 
     # Exit 0 or 1 = normal run (all pass, or some tests failed - both are valid benchmark results)
     # Exit 2+ = crash (interrupted, INTERNALERROR, usage error, no tests collected)
-    if exit_code in (0, 1) and not any_test_ran(Path("eval_results.json")):
-        print("❌ No test ran: every test errored before running. See the errors above.")
-        sys.exit(1)
     sys.exit(0 if exit_code in (0, 1) else exit_code)
 
 
