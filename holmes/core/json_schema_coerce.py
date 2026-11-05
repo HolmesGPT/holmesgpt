@@ -95,6 +95,7 @@ def _coerce_single_value(
     value: Any,
     expected: str,
     *,
+    nullable: bool,
     strict: bool,
     tool_name: str,
 ) -> Any:
@@ -108,6 +109,16 @@ def _coerce_single_value(
     (string → int, string → bool, etc.) are skipped because they can be lossy
     or ambiguous.
     """
+    # --- The string "null" → null, for a param that accepts null ---
+    # glm-5.3 on OpenRouter has sent "null" for every unset optional param since
+    # Nov 2026 (likely the serving provider's tool-call parser), and kubectl then
+    # fails with "invalid selector: 'null'". First, because "null" is already a
+    # valid string and an array param would otherwise become ["null"]. Applies
+    # in strict mode too: it is a null, not a lossy type guess.
+    if nullable and value == "null":
+        logger.debug("Coerced param '%s' from string 'null' to null for tool '%s'", name, tool_name)
+        return None
+
     # --- Already the right type? Nothing to do. ---
     expected_types = _EXPECTED_PYTHON_TYPES.get(expected, ())
     if expected_types and isinstance(value, expected_types):
@@ -225,24 +236,16 @@ def coerce_params(
             continue
 
         value = params[name]
+        expected = _primary_type(param_schema)
 
-        # The string "null" for a param that accepts null means null. glm-5.3 on
-        # OpenRouter has sent it for every unset optional param since Nov 2026
-        # (likely the serving provider's tool-call parser), and kubectl then fails
-        # with "invalid selector: 'null'". Checked first, so an array param gets
-        # None rather than ["null"], and also in strict mode: it is a null, not a
-        # lossy type guess.
-        if value == "null" and _accepts_null(param_schema):
-            logger.debug("Coerced param '%s' from string 'null' to null for tool '%s'", name, tool_name)
-            new_value: Any = None
-        else:
-            new_value = _coerce_single_value(
-                name,
-                value,
-                _primary_type(param_schema),
-                strict=strict,
-                tool_name=tool_name,
-            )
+        new_value = _coerce_single_value(
+            name,
+            value,
+            expected,
+            nullable=_accepts_null(param_schema),
+            strict=strict,
+            tool_name=tool_name,
+        )
 
         if new_value is not value:
             if coerced is None:
