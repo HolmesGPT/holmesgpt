@@ -1,4 +1,5 @@
 import json
+import os
 from abc import ABC
 from typing import Any, ClassVar, Dict, Optional, Tuple, Type
 
@@ -904,6 +905,9 @@ class ElasticsearchDataToolset(ElasticsearchBaseToolset):
             ElasticsearchMappings(self),
             ElasticsearchListIndices(self),
         ]
+        self._load_llm_instructions_from_file(
+            os.path.dirname(__file__), "elasticsearch_data_instructions.jinja2"
+        )
 
 
 class ElasticsearchClusterToolset(ElasticsearchBaseToolset):
