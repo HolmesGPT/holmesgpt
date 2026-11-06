@@ -34,8 +34,8 @@ toolsets:
         command: "docker top {{ container_id }}"
 
       - name: "docker_events"
-        description: "Get real-time events from the Docker server"
-        command: "docker events"
+        description: "Get up to 500 Docker events from the last 10 minutes as a completed snapshot"
+        command: "docker events --since 10m --until 1s | tail -n 500"
 
       - name: "docker_history"
         description: "Show the history of an image"

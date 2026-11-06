@@ -1,0 +1,21 @@
+toolsets:
+  # Fixture-level config is merged with the eval defaults, so every non-Docker
+  # default must be explicitly disabled to prevent a Kubernetes-first diagnosis.
+  docker/core:
+    enabled: true
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  internet:
+    enabled: false
+  connectivity_check:
+    enabled: false
+  robusta:
+    enabled: false
+  bash:
+    enabled: false
+  skills:
+    enabled: false
