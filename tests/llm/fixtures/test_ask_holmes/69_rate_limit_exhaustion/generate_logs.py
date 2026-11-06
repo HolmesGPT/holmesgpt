@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
 from datetime import datetime
 
@@ -27,8 +28,7 @@ def generate_log_entry(status=200, req_per_sec=10, client_ip=None, message="OK")
 
 
 def main():
-    # Generate 80,000 normal traffic logs (10 req/sec)
-    for i in range(80000):
+    for i in range(12800):
         print(
             generate_log_entry(
                 status=200,
@@ -55,8 +55,7 @@ def main():
         )
     )
 
-    # Generate 60 seconds of spike traffic (1000 req/sec)
-    for i in range(60000):
+    for i in range(9600):
         print(
             generate_log_entry(
                 status=200,
@@ -66,8 +65,8 @@ def main():
             )
         )
 
-    # Rate limiting kicks in - 5,000 rejected requests
-    for i in range(5000):
+    # Rate limiting kicks in
+    for i in range(800):
         print(
             generate_log_entry(
                 status=429,
@@ -78,7 +77,7 @@ def main():
         )
 
     # Back to normal traffic
-    for i in range(5000):
+    for i in range(800):
         print(
             generate_log_entry(
                 status=200,
@@ -87,6 +86,7 @@ def main():
             )
         )
 
+    sys.stdout.flush()
     # Keep pod running
     while True:
         time.sleep(3600)

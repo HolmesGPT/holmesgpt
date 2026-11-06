@@ -1,3 +1,9 @@
 toolsets:
   internet:
     enabled: false
+  # The expected output needs HTTP status codes, which tcp_check cannot return.
+  bash:
+    enabled: true
+    config:
+      allow:
+        - "curl"
