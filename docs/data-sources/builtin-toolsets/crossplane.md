@@ -25,41 +25,21 @@ HolmesGPT needs read access to Crossplane CRDs. If you use Kubernetes RBAC, ensu
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**:
-
-    ```yaml
-    toolsets:
-        crossplane/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-    To test, run:
-
-    ```bash
-    holmes ask "Which Crossplane managed resources are failing and why?"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        customClusterRoleRules:
-            - apiGroups: ["pkg.crossplane.io"]
-              resources: ["providers", "providerrevisions"]
-              verbs: ["get", "list"]
-            - apiGroups: ["apiextensions.crossplane.io"]
-              resources: ["compositeresourcedefinitions", "compositions"]
-              verbs: ["get", "list"]
-        toolsets:
-            crossplane/core:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+```yaml-toolset-config
+customClusterRoleRules:
+    - apiGroups: ["pkg.crossplane.io"]
+      resources: ["providers", "providerrevisions"]
+      verbs: ["get", "list"]
+    - apiGroups: ["apiextensions.crossplane.io"]
+      resources: ["compositeresourcedefinitions", "compositions"]
+      verbs: ["get", "list"]
+toolsets:
+    crossplane/core:
+        enabled: true
+---
+test: |
+  holmes ask "Which Crossplane managed resources are failing and why?"
+```
 
 ## Common Use Cases
 

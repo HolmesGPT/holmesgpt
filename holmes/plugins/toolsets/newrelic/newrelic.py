@@ -254,6 +254,12 @@ class NewrelicConfig(ToolsetConfig):
         title="Multi-Account Mode",
         description="Enable multi-account support for querying across accounts",
     )
+    timeout_seconds: int = Field(
+        default=30,
+        gt=0,
+        title="Request Timeout",
+        description="Request timeout in seconds for New Relic API calls",
+    )
 
 
 class NewRelicToolset(Toolset):
@@ -263,6 +269,7 @@ class NewRelicToolset(Toolset):
     account_id: Optional[str] = None
     is_eu_datacenter: bool = False
     enable_multi_account: bool = False
+    timeout_seconds: int = 30
 
     @property
     def base_url(self) -> str:
@@ -302,6 +309,7 @@ class NewRelicToolset(Toolset):
             api_key=self.api_key,
             account_id=effective_account_id,
             is_eu_datacenter=self.is_eu_datacenter,
+            timeout_seconds=self.timeout_seconds,
         )
 
     def __init__(self):
@@ -327,6 +335,7 @@ class NewRelicToolset(Toolset):
             self.api_key = nr_config.api_key
             self.is_eu_datacenter = nr_config.is_eu_datacenter or False
             self.enable_multi_account = nr_config.enable_multi_account or False
+            self.timeout_seconds = nr_config.timeout_seconds
         except Exception as e:
             logging.exception("Failed to parse New Relic configuration")
             return False, f"Invalid New Relic configuration: {e}"

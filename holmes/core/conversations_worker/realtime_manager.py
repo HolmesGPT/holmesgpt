@@ -1,9 +1,9 @@
 """
-Realtime manager for the ConversationWorker.
+Realtime manager for the conversation runtime.
 
 Runs an asyncio event loop in a background daemon thread. Manages a Supabase
-Realtime subscription that notifies the worker when new pending conversations
-appear.  Two subscription modes are supported (selected via the
+Realtime subscription that notifies the executors when new pending
+conversations appear.  Two subscription modes are supported (selected via the
 ``CONVERSATION_WORKER_USE_REALTIME_BROADCAST`` env var):
 
  1. **Postgres Changes** — subscribes to INSERT/UPDATE on the
@@ -12,9 +12,9 @@ appear.  Two subscription modes are supported (selected via the
     ``holmes:submit:{account_id}:{cluster_id}``.  The initiator (Frontend /
     Relay) must send a broadcast after creating the conversation.
 
-Communication with the sync ConversationWorker is via a callback that is
-invoked when a pending-conversation notification arrives. The callback MUST
-be thread-safe (the worker passes a threading.Event.set).
+Communication with the sync consumers is via callbacks invoked when a
+notification arrives. The callbacks MUST be thread-safe and non-blocking
+(they wake a claim loop).
 """
 from __future__ import annotations
 
@@ -23,9 +23,11 @@ import logging
 import os
 import ssl
 import threading
+import time
 import urllib.parse
 from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
 
+import jwt
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
 from realtime._async.client import AsyncRealtimeClient
@@ -53,6 +55,15 @@ _RECONNECT_LOG_FULL_EVERY = 10
 # reconnect loop can never be stalled indefinitely by a hung auth call.
 _RECONNECT_SIGN_IN_TIMEOUT_SECONDS = 90
 
+# Must exceed the auth refresh interval so a tick lands inside it.
+_AUTH_REFRESH_LEEWAY_SECONDS = 300
+
+
+def _expires_within(token: str, seconds: float) -> bool:
+    # Signature is irrelevant; exp is our own claim.
+    exp = jwt.decode(token, options={"verify_signature": False})["exp"]
+    return exp - time.time() <= seconds
+
 
 # ---- channel topic helpers ----
 
@@ -69,6 +80,24 @@ def broadcast_submit_topic(account_id: str, cluster_id: str) -> str:
     after creating the conversation via RPC.
     """
     return f"holmes:submit:{account_id}:{cluster_id}"
+
+
+def extract_executor(payload: Any) -> Optional[str]:
+    """The ``executor`` a 'pending_conversations' broadcast names, or None.
+
+    Publishers (frontend, relay, the SQL RPCs) send ``{conversation_id,
+    executor}``; the realtime client wraps it as ``{"event", "type",
+    "payload": {...}}``. Legacy publishers omit ``executor`` — the worker then
+    falls back to discovery. Non-string values are treated as absent.
+    """
+    if not isinstance(payload, dict):
+        return None
+    inner = payload.get("payload")
+    source = inner if isinstance(inner, dict) else payload
+    executor = source.get("executor")
+    if isinstance(executor, str) and executor:
+        return executor
+    return None
 
 
 def _build_ssl_context() -> ssl.SSLContext:
@@ -187,39 +216,30 @@ def _install_realtime_log_filter_if_needed() -> None:
 class RealtimeWorker:
     """Owns ALL generic Supabase Realtime plumbing for the holmes:submit
     channel — connection, auth refresh, reconnection, subscribe states —
-    and routes received broadcasts to the right worker:
+    and routes received broadcasts to the right consumer:
 
-      * 'pending_conversations' -> conversation_worker.claim_pending_conversations()
-      * 'pending_tool_calls'    -> tool_call_worker.claim_pending_tool_calls()
+      * 'pending_conversations' -> on_new_pending(executor)
+        (``executor`` from the broadcast payload; None wakes discovery —
+        the runtime passes ExecutorRegistry.on_pending)
+      * 'pending_tool_calls'    -> on_new_tool_calls()
+        (the runtime passes ToolCallWorker.claim_pending_tool_calls)
 
-    Both routing targets MUST be non-blocking (they just wake the worker's
-    claim loop). On (re)subscribe both workers are notified so anything
-    missed during a disconnect gets drained.
+    Both routing targets MUST be non-blocking (they just wake a claim loop).
+    On (re)subscribe both are notified so anything missed during a
+    disconnect gets drained.
     """
 
     def __init__(
         self,
         dal: "SupabaseDal",
         holmes_id: str,
-        conversation_worker: Optional[Any] = None,
-        tool_call_worker: Optional[Any] = None,
-        use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
-        on_new_pending: Optional[Callable[[], None]] = None,
+        on_new_pending: Callable[[Optional[str]], None],
         on_new_tool_calls: Optional[Callable[[], None]] = None,
+        use_broadcast: bool = CONVERSATION_WORKER_USE_REALTIME_BROADCAST,
     ) -> None:
         self.dal = dal
         self.holmes_id = holmes_id
-        # Routing targets. The worker objects are the primary surface;
-        # the raw callables remain as low-level overrides (tests).
-        if on_new_pending is None and conversation_worker is not None:
-            on_new_pending = conversation_worker.claim_pending_conversations
-        if on_new_pending is None:
-            raise ValueError(
-                "RealtimeWorker needs a conversation_worker or on_new_pending"
-            )
         self.on_new_pending = on_new_pending
-        if on_new_tool_calls is None and tool_call_worker is not None:
-            on_new_tool_calls = tool_call_worker.claim_pending_tool_calls
         self.on_new_tool_calls = on_new_tool_calls
         self._use_broadcast = use_broadcast
 
@@ -243,7 +263,7 @@ class RealtimeWorker:
         re-drained — the pgchanges path can't tell which kind of row changed,
         and a reconnect must recover both. Event-specific broadcast callbacks
         stay specific; this is the drain-everything path."""
-        self.on_new_pending()
+        self.on_new_pending(None)
         if self.on_new_tool_calls is not None:
             self.on_new_tool_calls()
 
@@ -328,7 +348,9 @@ class RealtimeWorker:
                 # own full teardown/reconnect on any failure signal.
                 unhealthy_reason = self._channel_unhealthy()
                 if unhealthy_reason is not None:
-                    logging.warning(
+                    # A first reconnect is routine and self-healing.
+                    logging.log(
+                        logging.INFO if reconnect_attempts == 0 else logging.WARNING,
                         "Realtime channel unhealthy (%s), reconnecting",
                         unhealthy_reason,
                     )
@@ -415,7 +437,7 @@ class RealtimeWorker:
                     "Error closing client during _run exit", exc_info=True
                 )
             try:
-                self.on_new_pending()
+                self.on_new_pending(None)
             except Exception:
                 logging.debug(
                     "on_new_pending callback failed during shutdown",
@@ -488,7 +510,7 @@ class RealtimeWorker:
         await self._connect_and_subscribe()
 
     async def _maybe_refresh_auth(self) -> None:
-        """Re-push the Supabase JWT to the realtime client if it rotated."""
+        """Re-push the Supabase JWT, re-signing in first if it is near expiry."""
         if not self._client:
             return
         try:
@@ -496,6 +518,11 @@ class RealtimeWorker:
             if session is None:
                 return
             new_jwt = session.access_token
+            if new_jwt and _expires_within(new_jwt, _AUTH_REFRESH_LEEWAY_SECONDS):
+                # Nothing else refreshes the JWT on a realtime-only path.
+                await asyncio.to_thread(self.dal.sign_in)
+                session = self.dal.client.auth.get_session()  # type: ignore[attr-defined]
+                new_jwt = session.access_token if session is not None else None
             if not new_jwt or new_jwt == self._last_auth_jwt:
                 return
             await self._client.set_auth(new_jwt)
@@ -664,11 +691,13 @@ class RealtimeWorker:
 
         def _on_broadcast(payload: Dict[str, Any]) -> None:
             try:
+                executor = extract_executor(payload)
                 logging.info(
-                    "RealtimeWorker: Broadcast notification: %s",
+                    "RealtimeWorker: Broadcast notification: %s (executor=%s)",
                     payload.get("event"),
+                    executor,
                 )
-                self.on_new_pending()
+                self.on_new_pending(executor)
             except Exception:
                 logging.exception("Error in broadcast callback", exc_info=True)
 

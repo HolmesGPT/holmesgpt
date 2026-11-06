@@ -39,12 +39,18 @@ Vague questions produce poor results.
 
 Older LLM models lack reasoning capability for complex problems.
 
-**Solution:**
+**Solution:** use a newer model. With the CLI, pass `--model` or set `model` in `~/.holmes/config.yaml`:
+
 ```yaml
-config:
-  model: "anthropic/claude-sonnet-4-5-20250929"
-  temperature: 0.1
-  maxTokens: 2000
+model: "anthropic/claude-sonnet-4-5-20250929"
+```
+
+With the Holmes Helm chart, set the `MODEL` environment variable in your values:
+
+```yaml
+additionalEnvVars:
+  - name: MODEL
+    value: "anthropic/claude-sonnet-4-5-20250929"
 ```
 
 See [benchmark results](../development/evaluations/latest-results.md) for detailed model performance comparisons.

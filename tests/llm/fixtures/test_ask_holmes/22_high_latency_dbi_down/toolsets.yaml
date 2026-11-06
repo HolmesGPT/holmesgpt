@@ -3,7 +3,5 @@ toolsets:
     enabled: False
   kubernetes/core:
     enabled: true
-  kubernetes/kube-lineage-extras:
-    enabled: true
   kubernetes/logs:
     enabled: true

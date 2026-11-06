@@ -1,1 +1,0 @@
-# Azure SQL Tool Classes

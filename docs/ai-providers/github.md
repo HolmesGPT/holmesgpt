@@ -15,81 +15,36 @@ Browse the full list of available models at [github.com/marketplace/models](http
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: MODEL
+    value: "gpt-4-1"
 
-    **Using Environment Variables:**
-    ```bash
-    export GITHUB_API_KEY="your-github-token"
-    holmes ask "what pods are failing?" --model="github/gpt-4.1"
-    ```
+modelList:
+  gpt-4-1:
+    api_key: "{{ env.GITHUB_API_KEY }}"
+    model: github/gpt-4.1
+    temperature: 0
+---
+secret:
+  - --from-literal=GITHUB_API_KEY="your-github-token"
+cli: |
+  **Using Environment Variables:**
 
-    **Using Command Line Parameters:**
+  ```bash
+  export GITHUB_API_KEY="your-github-token"
+  holmes ask "what pods are failing?" --model="github/gpt-4.1"
+  ```
 
-    ```bash
-    holmes ask "what pods are failing?" --model="github/gpt-4.1" --api-key="your-github-token"
-    ```
+  **Using Command Line Parameters:**
 
-    !!! note "Model Naming"
-        Use `github/` prefix followed by the model name, dropping the company prefix. For example, `openai/gpt-4.1` in the catalog becomes `github/gpt-4.1`.
+  ```bash
+  holmes ask "what pods are failing?" --model="github/gpt-4.1" --api-key="your-github-token"
+  ```
 
-=== "Holmes Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=github-api-key="your-github-token" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: GITHUB_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: github-api-key
-
-    modelList:
-      gpt-4-1:
-        api_key: "{{ env.GITHUB_API_KEY }}"
-        model: github/gpt-4.1
-        temperature: 0
-
-    config:
-      model: "gpt-4-1"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=github-api-key="your-github-token" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: GITHUB_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: github-api-key
-
-      modelList:
-        gpt-4o:
-          api_key: "{{ env.GITHUB_API_KEY }}"
-          model: github/gpt-4o
-          temperature: 0
-
-      config:
-        model: "gpt-4o"
-    ```
+  !!! note "Model Naming"
+      Use `github/` prefix followed by the model name, dropping the company prefix. For example, `openai/gpt-4.1` in the catalog becomes `github/gpt-4.1`.
+```
 
 ## Additional Resources
 

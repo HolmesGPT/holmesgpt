@@ -44,10 +44,9 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:simple-postgresql:{ .lg .middle } **PostgreSQL**](database-postgresql.md)
 -   [:simple-sqlite:{ .lg .middle } **SQLite**](database-sqlite.md)
 -   [:material-database:{ .lg .middle } **SQL Server**](database-sqlserver.md)
--   [:material-database:{ .lg .middle } **Azure SQL Database**](azure-sql.md)
+-   [:material-microsoft-azure:{ .lg .middle } **Azure SQL Database**](database-sqlserver.md#azure-sql-database)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB**](mongodb.md)
 -   [:simple-mongodb:{ .lg .middle } **MongoDB Atlas**](mongodb-atlas.md)
--   [:simple-mariadb:{ .lg .middle } **MariaDB (MCP)**](mariadb-mcp.md)
 
 </div>
 
@@ -93,7 +92,6 @@ HolmesGPT includes pre-built integrations for popular monitoring and observabili
 -   [:material-package:{ .lg .middle } **Helm**](helm.md)
 -   [:simple-redhatopenshift:{ .lg .middle } **OpenShift**](openshift.md)
 -   [:simple-kubernetes:{ .lg .middle } **KubeVela**](kubevela.md)
--   [:simple-kubernetes:{ .lg .middle } **Kubectl Run**](kubectl-run.md)
 -   [:simple-argo:{ .lg .middle } **ArgoCD**](argocd.md)
 -   [:simple-cilium:{ .lg .middle } **Cilium**](cilium.md)
 -   [:material-cloud-sync:{ .lg .middle } **Crossplane**](crossplane.md)

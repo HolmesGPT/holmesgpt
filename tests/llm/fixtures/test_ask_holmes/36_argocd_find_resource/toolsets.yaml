@@ -6,7 +6,5 @@ toolsets:
     enabled: true
   argocd/core:
     enabled: true
-  kubernetes/kube-lineage-extras:
-    enabled: true
   kubernetes/logs:
     enabled: true

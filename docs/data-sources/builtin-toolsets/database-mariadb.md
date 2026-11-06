@@ -22,153 +22,71 @@ FLUSH PRIVILEGES;
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+mysql+pymysql://[username]:[password]@[host]:[port]/[database]
+```
 
-    ```yaml
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb"
-        llm_instructions: "Application database with user and session data"
+Note: MariaDB uses MySQL wire protocol, so use `mysql+pymysql://` in the connection URL.
 
-      cache-mariadb:
-        type: database
-        config:
-          connection_url: "mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache"
-        llm_instructions: "Cache database for session storage"
-    ```
+```yaml-toolset-config
+toolsets:
+  app-mariadb:
+    type: database
+    config:
+      connection_url: "{{ env.MARIADB_URL }}"
+    llm_instructions: "Application database with user and session data"
+---
+secret:
+  - --from-literal=MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **Using environment variables:**
+  ```yaml
+  toolsets:
+    app-mariadb:
+      type: database
+      config:
+        connection_url: "mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb"
+      llm_instructions: "Application database with user and session data"
 
-    ```yaml
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.MARIADB_URL }}"
-    ```
+    cache-mariadb:
+      type: database
+      config:
+        connection_url: "mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache"
+      llm_instructions: "Cache database for session storage"
+  ```
 
-    **Connection URL format:**
-    ```
-    mysql+pymysql://[username]:[password]@[host]:[port]/[database]
-    ```
+  **Using environment variables:**
 
-    Note: MariaDB uses MySQL wire protocol, so use `mysql+pymysql://` in the connection URL.
+  ```yaml
+  toolsets:
+    app-mariadb:
+      type: database
+      config:
+        connection_url: "{{ env.MARIADB_URL }}"
+  ```
+```
 
-=== "Holmes Helm Chart"
+### Multiple instances
 
-    **Step 1: Create secret with credentials**
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  app-mariadb:
+    type: database
+    config:
+      connection_url: "{{ env.APP_MARIADB_URL }}"
 
-    ```bash
-    kubectl create secret generic mariadb-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n holmes
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    additionalEnvVars:
-      - name: MARIADB_URL
-        valueFrom:
-          secretKeyRef:
-            name: mariadb-credentials
-            key: url
-
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.MARIADB_URL }}"
-        llm_instructions: "Application database with user and session data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    additionalEnvVars:
-      - name: APP_MARIADB_URL
-        valueFrom:
-          secretKeyRef:
-            name: mariadb-app
-            key: url
-      - name: CACHE_MARIADB_URL
-        valueFrom:
-          secretKeyRef:
-            name: mariadb-cache
-            key: url
-
-    toolsets:
-      app-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.APP_MARIADB_URL }}"
-
-      cache-mariadb:
-        type: database
-        config:
-          connection_url: "{{ env.CACHE_MARIADB_URL }}"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic mariadb-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-credentials
-              key: url
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.MARIADB_URL }}"
-          llm_instructions: "Application database with user and session data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: APP_MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-app
-              key: url
-        - name: CACHE_MARIADB_URL
-          valueFrom:
-            secretKeyRef:
-              name: mariadb-cache
-              key: url
-
-      toolsets:
-        app-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.APP_MARIADB_URL }}"
-
-        cache-mariadb:
-          type: database
-          config:
-            connection_url: "{{ env.CACHE_MARIADB_URL }}"
-    ```
+  cache-mariadb:
+    type: database
+    config:
+      connection_url: "{{ env.CACHE_MARIADB_URL }}"
+---
+secret:
+  - --from-literal=APP_MARIADB_URL='mysql+pymysql://holmes_readonly:your_secure_password@mariadb.example.com:3306/appdb'
+  - --from-literal=CACHE_MARIADB_URL='mysql+pymysql://cache_user:pass@cache-mariadb.internal:3306/cache'
+```
 
 ## Configuration Options
 
@@ -191,3 +109,13 @@ FLUSH PRIVILEGES;
 ```
 "List tables by size"
 ```
+
+## Migrating from the MariaDB MCP addon
+
+Earlier versions shipped a separate MariaDB MCP server, enabled through
+`mcpAddons.mariadb` in the Helm chart. That addon has been removed and the chart no
+longer renders it, so leaving the old value in place gives you no MariaDB access at all.
+
+To migrate, remove the `mcpAddons.mariadb` block from your Helm values and configure
+this data source with your connection URL as shown above. The MCP server's read-only
+mode is replaced by the `read_only` option, which defaults to `true`.

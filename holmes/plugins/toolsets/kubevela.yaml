@@ -51,7 +51,20 @@ toolsets:
 
       - name: "vela_port_forward"
         description: "Check port-forward capability for debugging (informational only, doesn't create actual port-forward)"
-        command: "echo 'Port-forward available with: vela port-forward {{ app_name }} -n {{ namespace }}{% if port %} {{ port }}{% endif %}'"
+        script: |
+          #!/bin/bash
+          # SECURITY: assign sanitized params to shell variables (unquoted slot)
+          # and reference them only as "$VAR". Interpolating app_name etc.
+          # directly inside the single-quoted echo let the sanitized value's own
+          # quote close the string and run $(...) command substitution.
+          APP_NAME={{ app_name }}
+          NAMESPACE={{ namespace }}
+          MSG="Port-forward available with: vela port-forward $APP_NAME -n $NAMESPACE"
+          {% if port %}
+          PORT={{ port }}
+          MSG="$MSG $PORT"
+          {% endif %}
+          echo "$MSG"
 
       - name: "vela_component_list"
         description: "List available component definitions in the cluster"

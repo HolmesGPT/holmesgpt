@@ -23,6 +23,7 @@ from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.models import StructuredToolResult, StructuredToolResultStatus
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import Tool, ToolInvokeContext, ToolParameter, Toolset
+from holmes.utils.approval_tokens import mint_prefix_token
 from holmes.utils.stream import StreamEvents
 from server import app
 
@@ -30,6 +31,18 @@ from server import app
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+def _signed_metadata(prefixes, agent=None, extra=None, suffix=""):
+    """Build a 'tool_call_metadata=...' blob with a valid server signature,
+    matching what Holmes writes for saved bash prefixes. Without the signature
+    the prefixes are rejected as forged (approval.session-prefix-forgery)."""
+    meta = dict(extra or {})
+    meta["bash_session_approved_prefixes"] = prefixes
+    if agent is not None:
+        meta["bash_session_approved_agent"] = agent
+    meta["bash_session_approval_token"] = mint_prefix_token(prefixes, agent)
+    return f"tool_call_metadata={json.dumps(meta)}{suffix}"
 
 
 def create_mock_llm_response(content: str, tool_calls=None):
@@ -519,7 +532,14 @@ class TestExtractBashSessionPrefixesWithArrayContent:
                 "content": [
                     {
                         "type": "text",
-                        "text": 'tool_call_metadata={"tool_name": "bash", "tool_call_id": "tooluse_abc123", "bash_session_approved_prefixes": ["rm"]}Output: file removed',
+                        "text": _signed_metadata(
+                            ["rm"],
+                            extra={
+                                "tool_name": "bash",
+                                "tool_call_id": "tooluse_abc123",
+                            },
+                            suffix="Output: file removed",
+                        ),
                     }
                 ],
             },
@@ -540,7 +560,10 @@ class TestExtractBashSessionPrefixesWithArrayContent:
                 "role": "tool",
                 "tool_call_id": "call_123",
                 "name": "bash",
-                "content": 'tool_call_metadata={"tool_name": "bash", "tool_call_id": "call_123", "bash_session_approved_prefixes": ["kubectl get"]}',
+                "content": _signed_metadata(
+                    ["kubectl get"],
+                    extra={"tool_name": "bash", "tool_call_id": "call_123"},
+                ),
             },
         ]
 
@@ -556,14 +579,14 @@ class TestExtractBashSessionPrefixesWithArrayContent:
         messages = [
             {
                 "role": "tool",
-                "content": 'tool_call_metadata={"bash_session_approved_prefixes": ["kubectl get"]}',
+                "content": _signed_metadata(["kubectl get"]),
             },
             {
                 "role": "tool",
                 "content": [
                     {
                         "type": "text",
-                        "text": 'tool_call_metadata={"bash_session_approved_prefixes": ["rm", "grep"]}',
+                        "text": _signed_metadata(["rm", "grep"]),
                     }
                 ],
             },

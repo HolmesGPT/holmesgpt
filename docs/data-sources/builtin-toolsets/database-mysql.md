@@ -21,6 +21,7 @@ FLUSH PRIVILEGES;
 ```
 
 **For specific database only:**
+
 ```sql
 CREATE USER 'holmes_readonly'@'%' IDENTIFIED BY 'your_secure_password';
 GRANT SELECT, SHOW VIEW ON your_database.* TO 'holmes_readonly'@'%';
@@ -32,151 +33,69 @@ FLUSH PRIVILEGES;
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+mysql+pymysql://[username]:[password]@[host]:[port]/[database]
+```
 
-    ```yaml
-    toolsets:
-      orders-mysql:
-        type: database
-        config:
-          connection_url: "mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders"
-        llm_instructions: "Orders database with customer and product data"
+```yaml-toolset-config
+toolsets:
+  orders-mysql:
+    type: database
+    config:
+      connection_url: "{{ env.MYSQL_URL }}"
+    llm_instructions: "Orders database with customer and product data"
+---
+secret:
+  - --from-literal=MYSQL_URL='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders'
+cli: |
+  **~/.holmes/config.yaml:**
 
-      analytics-mysql:
-        type: database
-        config:
-          connection_url: "mysql+pymysql://analyst:pass@analytics-mysql.internal:3306/analytics"
-        llm_instructions: "Analytics database for reporting queries"
-    ```
+  ```yaml
+  toolsets:
+    orders-mysql:
+      type: database
+      config:
+        connection_url: "mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders"
+      llm_instructions: "Orders database with customer and product data"
 
-    **Using environment variables:**
+    analytics-mysql:
+      type: database
+      config:
+        connection_url: "mysql+pymysql://analyst:pass@analytics-mysql.internal:3306/analytics"
+      llm_instructions: "Analytics database for reporting queries"
+  ```
 
-    ```yaml
-    toolsets:
-      orders-mysql:
-        type: database
-        config:
-          connection_url: "{{ env.MYSQL_URL }}"
-    ```
+  **Using environment variables:**
 
-    **Connection URL format:**
-    ```
-    mysql+pymysql://[username]:[password]@[host]:[port]/[database]
-    ```
+  ```yaml
+  toolsets:
+    orders-mysql:
+      type: database
+      config:
+        connection_url: "{{ env.MYSQL_URL }}"
+  ```
+```
 
-=== "Holmes Helm Chart"
+### Multiple instances
 
-    **Step 1: Create secret with credentials**
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  orders-mysql:
+    type: database
+    config:
+      connection_url: "{{ env.ORDERS_MYSQL_URL }}"
 
-    ```bash
-    kubectl create secret generic mysql-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
-      -n holmes
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    additionalEnvVars:
-      - name: MYSQL_URL
-        valueFrom:
-          secretKeyRef:
-            name: mysql-credentials
-            key: url
-
-    toolsets:
-      orders-mysql:
-        type: database
-        config:
-          connection_url: "{{ env.MYSQL_URL }}"
-        llm_instructions: "Orders database with customer and product data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    additionalEnvVars:
-      - name: ORDERS_MYSQL_URL
-        valueFrom:
-          secretKeyRef:
-            name: mysql-orders
-            key: url
-      - name: ANALYTICS_MYSQL_URL
-        valueFrom:
-          secretKeyRef:
-            name: mysql-analytics
-            key: url
-
-    toolsets:
-      orders-mysql:
-        type: database
-        config:
-          connection_url: "{{ env.ORDERS_MYSQL_URL }}"
-
-      analytics-mysql:
-        type: database
-        config:
-          connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic mysql-credentials \
-      --from-literal=url='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-credentials
-              key: url
-
-      toolsets:
-        orders-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.MYSQL_URL }}"
-          llm_instructions: "Orders database with customer and product data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: ORDERS_MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-orders
-              key: url
-        - name: ANALYTICS_MYSQL_URL
-          valueFrom:
-            secretKeyRef:
-              name: mysql-analytics
-              key: url
-
-      toolsets:
-        orders-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.ORDERS_MYSQL_URL }}"
-
-        analytics-mysql:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
-    ```
+  analytics-mysql:
+    type: database
+    config:
+      connection_url: "{{ env.ANALYTICS_MYSQL_URL }}"
+---
+secret:
+  - --from-literal=ORDERS_MYSQL_URL='mysql+pymysql://holmes_readonly:your_secure_password@mysql.example.com:3306/orders'
+  - --from-literal=ANALYTICS_MYSQL_URL='mysql+pymysql://analyst:pass@analytics-mysql.internal:3306/analytics'
+```
 
 ## Configuration Options
 

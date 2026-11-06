@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import responses as responses_
 
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.tracing import get_active_branch_name, readable_timestamp
 from tests.llm.conftest import show_llm_summary_report
 from tests.llm.utils.braintrust import get_braintrust_url
@@ -97,6 +98,32 @@ def pytest_addoption(parser):
     )
 
 
+_SCALAR_LOG_VALUE_TYPES = (str, int, float, bool, type(None))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_logreport(report):
+    """Make pytest-json-report's captured log records safe to relay from xdist workers.
+
+    pytest-json-report copies each LogRecord's __dict__ into the report, and xdist
+    sends the report to the controller with execnet, which only serializes builtin
+    types. litellm >= 1.103 stamps records on its own loggers and on third-party ones
+    such as `backoff` with `litellm_redacted = object()`, so a test that logs through
+    them crashes its worker with "DumpError: can't serialize <class 'object'>".
+    Must run before xdist's own pytest_runtest_logreport, hence tryfirst.
+    """
+    extra = getattr(report, "_json_report_extra", None)
+    if not isinstance(extra, dict):
+        return
+    for stage in extra.values():
+        if not isinstance(stage, dict):
+            continue
+        for record in stage.get("log") or []:
+            for key, value in record.items():
+                if not isinstance(value, _SCALAR_LOG_VALUE_TYPES):
+                    record[key] = repr(value)
+
+
 def pytest_configure(config):
     """Configure pytest settings"""
     # Disable SSL verification if SSL_VERIFY env var is set to false/0
@@ -133,15 +160,21 @@ def pytest_configure(config):
     if confluence_base and not os.environ.get("CONFLUENCE_SA_BASE_URL"):
         parsed = urllib.parse.urlparse(confluence_base)
         if parsed.scheme not in ("http", "https"):
-            logging.warning(f"CONFLUENCE_BASE_URL has unsupported scheme '{parsed.scheme}', skipping SA URL derivation")
+            logging.warning(
+                f"CONFLUENCE_BASE_URL has unsupported scheme '{parsed.scheme}', skipping SA URL derivation"
+            )
         else:
             try:
                 tenant_url = f"{confluence_base.rstrip('/')}/_edge/tenant_info"
                 with urllib.request.urlopen(tenant_url, timeout=10) as resp:
                     cloud_id = json.loads(resp.read())["cloudId"]
-                os.environ["CONFLUENCE_SA_BASE_URL"] = f"https://api.atlassian.com/ex/confluence/{cloud_id}"
+                os.environ["CONFLUENCE_SA_BASE_URL"] = (
+                    f"https://api.atlassian.com/ex/confluence/{cloud_id}"
+                )
                 os.environ["CONFLUENCE_CLOUD_ID"] = cloud_id
-                logging.info(f"Auto-derived CONFLUENCE_SA_BASE_URL and CONFLUENCE_CLOUD_ID from cloud ID {cloud_id}")
+                logging.info(
+                    f"Auto-derived CONFLUENCE_SA_BASE_URL and CONFLUENCE_CLOUD_ID from cloud ID {cloud_id}"
+                )
             except Exception as e:
                 logging.warning(f"Could not auto-derive CONFLUENCE_SA_BASE_URL: {e}")
 
@@ -254,6 +287,7 @@ def storage_dal_mock():
         mock_supabase_dal_instance = MagicMock()
         MockSupabaseDal.return_value = mock_supabase_dal_instance
         mock_supabase_dal_instance.sign_in.return_value = "mock_supabase_user_id"
+        mock_supabase_dal_instance.api_endpoint = ROBUSTA_API_ENDPOINT
         mock_supabase_dal_instance.get_ai_credentials.return_value = (
             "mock_account_id",
             "mock_session_token",
@@ -273,6 +307,7 @@ def responses():
             "https://api.eu.newrelic.com/graphql"
         )  # Allow New Relic API calls
         rsps.add_passthru("http://localhost")
+        rsps.add_passthru("https://oauth2.googleapis.com")  # Vertex AI auth
 
         # Allow all Datadog API calls to pass through (all regions and endpoints)
         rsps.add_passthru("https://api.datadoghq.com")
@@ -287,6 +322,8 @@ def responses():
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.com"))
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.us"))
         rsps.add_passthru(re.compile(r"https://.*\.coralogix\.in"))
+        # Coralogix docs site (domain-table drift check in test_domain_map_sync.py)
+        rsps.add_passthru("https://coralogix.com")
 
         # Allow Elasticsearch/OpenSearch Cloud API calls (various hosting regions)
         rsps.add_passthru(re.compile(r"https://.*\.cloud\.es\.io"))  # Elastic Cloud
@@ -304,6 +341,12 @@ def responses():
         rsps.add_passthru("https://burgergooglenetworkspam.co.uk")
         rsps.add_passthru("https://www.google.com")
         rsps.add_passthru("https://www.burgergooglenetworkspam.co.uk")
+        # example.com — stable public host for the internet-toolset SSRF eval
+        # (286_internet_fetch_public_url_allowed).
+        rsps.add_passthru("https://www.example.com")
+        rsps.add_passthru("http://www.example.com")
+        rsps.add_passthru("https://example.com")
+        rsps.add_passthru("http://example.com")
         yield rsps
 
 

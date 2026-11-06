@@ -22,147 +22,43 @@ The `readAnyDatabase` role grants read access to all databases. The `clusterMoni
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+mongodb://[username]:[password]@[host]:[port]/[database]
+mongodb+srv://[username]:[password]@[cluster].mongodb.net/[database]
+```
 
-    ```yaml
-    toolsets:
-      prod-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.PROD_MONGO_URL }}"
-        llm_instructions: "Production MongoDB with customer and order data"
+```yaml-toolset-config
+toolsets:
+  prod-mongo:
+    type: mongodb
+    config:
+      connection_url: "{{ env.MONGO_URL }}"
+    llm_instructions: "Production MongoDB database"
+---
+secret:
+  - --from-literal=MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb'
+```
 
-      analytics-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-        llm_instructions: "Analytics MongoDB for reporting"
-    ```
+### Multiple instances
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  prod-mongo:
+    type: mongodb
+    config:
+      connection_url: "{{ env.PROD_MONGO_URL }}"
 
-    **Connection URL format:**
-
-    ```
-    mongodb://[username]:[password]@[host]:[port]/[database]
-    mongodb+srv://[username]:[password]@[cluster].mongodb.net/[database]
-    ```
-
-=== "Holmes Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic mongodb-credentials \
-      --from-literal=url='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb' \
-      -n holmes
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    additionalEnvVars:
-      - name: MONGO_URL
-        valueFrom:
-          secretKeyRef:
-            name: mongodb-credentials
-            key: url
-
-    toolsets:
-      prod-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.MONGO_URL }}"
-        llm_instructions: "Production MongoDB database"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    additionalEnvVars:
-      - name: PROD_MONGO_URL
-        valueFrom:
-          secretKeyRef:
-            name: mongo-prod
-            key: url
-      - name: ANALYTICS_MONGO_URL
-        valueFrom:
-          secretKeyRef:
-            name: mongo-analytics
-            key: url
-
-    toolsets:
-      prod-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.PROD_MONGO_URL }}"
-
-      analytics-mongo:
-        type: mongodb
-        config:
-          connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic mongodb-credentials \
-      --from-literal=url='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: MONGO_URL
-          valueFrom:
-            secretKeyRef:
-              name: mongodb-credentials
-              key: url
-
-      toolsets:
-        prod-mongo:
-          type: mongodb
-          config:
-            connection_url: "{{ env.MONGO_URL }}"
-          llm_instructions: "Production MongoDB database"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: PROD_MONGO_URL
-          valueFrom:
-            secretKeyRef:
-              name: mongo-prod
-              key: url
-        - name: ANALYTICS_MONGO_URL
-          valueFrom:
-            secretKeyRef:
-              name: mongo-analytics
-              key: url
-
-      toolsets:
-        prod-mongo:
-          type: mongodb
-          config:
-            connection_url: "{{ env.PROD_MONGO_URL }}"
-
-        analytics-mongo:
-          type: mongodb
-          config:
-            connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+  analytics-mongo:
+    type: mongodb
+    config:
+      connection_url: "{{ env.ANALYTICS_MONGO_URL }}"
+---
+secret:
+  - --from-literal=PROD_MONGO_URL='mongodb://holmes_readonly:your_secure_password@mongo.example.com:27017/mydb'
+  - --from-literal=ANALYTICS_MONGO_URL='mongodb://analyst:your_secure_password@analytics-mongo.example.com:27017/analytics'
+```
 
 ## Configuration Options
 

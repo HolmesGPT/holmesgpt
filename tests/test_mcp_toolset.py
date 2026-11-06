@@ -1,10 +1,12 @@
 import asyncio
 import base64 as _b64
 import copy
+import json
 import logging
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -24,6 +26,7 @@ if sys.version_info < (3, 11):
     from exceptiongroup import ExceptionGroup
 
 import holmes.utils.env as env_utils
+from holmes.plugins.toolsets import load_toolsets_from_config
 from holmes.core.tools import (
     StructuredToolResultStatus,
     ToolInvokeContext,
@@ -521,6 +524,182 @@ class TestMCPGeneral:
         monkeypatch.setattr(mcp_toolset, "_get_server_tools", mock_get_server_tools)
         mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
         assert len(list(mcp_toolset.tools)) == 1
+
+    @staticmethod
+    def _three_tool_server():
+        async def mock_get_server_tools():
+            schema = {"type": "object", "properties": {}, "required": []}
+            return ListToolsResult(
+                tools=[
+                    Tool(name="incident_list", inputSchema=schema),
+                    Tool(name="incident_update", inputSchema=schema),
+                    Tool(name="insights_dashboard_add_chart", inputSchema=schema),
+                ]
+            )
+
+        return mock_get_server_tools
+
+    def test_allowed_tools_drops_unlisted_tools(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            config={"url": "http://0.0.0.0/3005"},
+            allowed_tools=["incident_*"],
+        )
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", self._three_tool_server())
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert sorted(t.name for t in mcp_toolset.tools) == [
+            "incident_list",
+            "incident_update",
+        ]
+
+    def test_allowed_tools_exact_names(self, monkeypatch, suppress_migration_warnings):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            config={"url": "http://0.0.0.0/3005"},
+            allowed_tools=["incident_list", "not_on_server"],
+        )
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", self._three_tool_server())
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert [t.name for t in mcp_toolset.tools] == ["incident_list"]
+
+    def test_empty_allowed_tools_loads_everything(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp", config={"url": "http://0.0.0.0/3005"}
+        )
+        monkeypatch.setattr(mcp_toolset, "_get_server_tools", self._three_tool_server())
+
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        assert len(mcp_toolset.tools) == 3
+
+    def test_allowed_tools_read_from_mcp_servers_config(self):
+        toolsets = load_toolsets_from_config(
+            {
+                "incident_io": {
+                    "type": "mcp",
+                    "config": {"url": "http://0.0.0.0/3005"},
+                    "allowed_tools": ["incident_*"],
+                    "approval_required_tools": ["incident_update"],
+                }
+            }
+        )
+
+        assert toolsets[0].allowed_tools == ["incident_*"]
+        assert toolsets[0].approval_required_tools == ["incident_update"]
+
+    @staticmethod
+    def _github_like_server():
+        async def mock_get_server_tools():
+            schema = {"type": "object", "properties": {}}
+            return ListToolsResult(
+                tools=[
+                    Tool(name="list_repos", inputSchema=schema),
+                    Tool(name="get_me", inputSchema=schema),
+                ]
+            )
+
+        return mock_get_server_tools
+
+    def test_auto_health_check_runs_on_tool_excluded_by_allowed_tools(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Filtering get_me out of the LLM's tools must not skip the auth check."""
+        toolset = RemoteMCPToolset(
+            name="github",
+            config={"url": "http://localhost:8000"},
+            allowed_tools=["list_repos"],
+        )
+        monkeypatch.setattr(toolset, "_get_server_tools", self._github_like_server())
+        called_with = {}
+
+        async def mock_call_health_check(tool_name):
+            called_with["tool_name"] = tool_name
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text="401 Unauthorized")],
+            )
+
+        monkeypatch.setattr(
+            toolset, "_call_health_check_tool_async", mock_call_health_check
+        )
+
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+
+        assert ok is False
+        assert called_with["tool_name"] == "get_me"
+        assert "401 Unauthorized" in msg
+        assert [t.name for t in toolset.tools] == ["list_repos"]
+
+    def test_configured_health_check_tool_need_not_be_allowed(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        toolset = RemoteMCPToolset(
+            name="github",
+            config={"url": "http://localhost:8000", "health_check_tool": "get_me"},
+            allowed_tools=["list_repos"],
+        )
+        monkeypatch.setattr(toolset, "_get_server_tools", self._github_like_server())
+
+        async def mock_call_health_check(tool_name):
+            return CallToolResult(
+                isError=False, content=[TextContent(type="text", text="ok")]
+            )
+
+        monkeypatch.setattr(
+            toolset, "_call_health_check_tool_async", mock_call_health_check
+        )
+
+        ok, msg = toolset.prerequisites_callable(config=toolset.config)
+
+        assert ok is True, msg
+        assert [t.name for t in toolset.tools] == ["list_repos"]
+
+    def test_oauth_connect_applies_allowed_tools(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        toolset = RemoteMCPToolset(
+            name="incident_io",
+            config={"url": "http://localhost:8000/mcp", "mode": "streamable-http"},
+            allowed_tools=["incident_*"],
+        )
+        toolset._mcp_config = MCPConfig(
+            url="http://localhost:8000/mcp", mode=MCPMode.STREAMABLE_HTTP
+        )
+        server = self._three_tool_server()
+
+        async def mock_get_server_tools_with_context(request_context):
+            return await server()
+
+        monkeypatch.setattr(
+            toolset,
+            "_get_server_tools_with_context",
+            mock_get_server_tools_with_context,
+        )
+        connect = RemoteMCPTool.create(
+            Tool(
+                name=toolset.connect_tool_name,
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            toolset,
+        )
+
+        result = connect._invoke_oauth_connect(
+            {}, SimpleNamespace(request_context={})
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS, result.error
+        assert sorted(t.name for t in result.oauth_tools) == [
+            "incident_list",
+            "incident_update",
+        ]
 
     def test_toolset_returns_configured_headers(
         self, monkeypatch, suppress_migration_warnings
@@ -3296,3 +3475,267 @@ class TestMCPHealthCheckTool:
 
         ok, _ = toolset.prerequisites_callable(config=toolset.config)
         assert ok is True
+
+
+class TestMCPStructuredContent:
+    """CallToolResult.structuredContent must reach the LLM.
+
+    Reproduces the CircleCI MCP list_runs bug: the server puts a human summary
+    ("Found 5 run(s)") in content[] and the machine-readable runs[] — including
+    the ids every drill-down needs — in structuredContent.  Reading content[]
+    alone left the model with nothing to act on.
+    """
+
+    def _setup_mocks(self, mock_session):
+        mock_read_stream = AsyncMock()
+        mock_write_stream = AsyncMock()
+
+        mock_client_context = AsyncMock()
+        mock_client_context.__aenter__ = AsyncMock(
+            return_value=(mock_read_stream, mock_write_stream, None)
+        )
+        mock_client_context.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session_context = AsyncMock()
+        mock_session_context.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_context.__aexit__ = AsyncMock(return_value=None)
+
+        return mock_client_context, mock_session_context
+
+    def _patch_clients(self, mock_client_context, mock_session_context):
+        return patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.streamablehttp_client",
+            return_value=mock_client_context,
+        ), patch(
+            "holmes.plugins.toolsets.mcp.toolset_mcp.ClientSession",
+            return_value=mock_session_context,
+        )
+
+    def _make_mcp_tool(self, monkeypatch, input_schema=None):
+        tool = Tool(
+            name="list_runs",
+            inputSchema=input_schema
+            or {"type": "object", "properties": {}, "required": []},
+            description="List pipeline runs",
+        )
+        toolset = RemoteMCPToolset(
+            name="test_toolset",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234/mcp/messages",
+                "mode": "streamable-http",
+            },
+        )
+
+        async def mock_get_server_tools():
+            return ListToolsResult(tools=[])
+
+        monkeypatch.setattr(toolset, "_get_server_tools", mock_get_server_tools)
+        toolset.prerequisites_callable(config=toolset.config)
+        return RemoteMCPTool.create(tool, toolset)
+
+    def _run_invoke(
+        self,
+        monkeypatch,
+        content_blocks,
+        structured_content=None,
+        params=None,
+        input_schema=None,
+    ):
+        """Invoke the tool against a mocked session, returning (result, session)."""
+        mcp_tool = self._make_mcp_tool(monkeypatch, input_schema)
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock(return_value=None)
+        mock_session.call_tool = AsyncMock(
+            return_value=CallToolResult(
+                content=content_blocks,
+                structuredContent=structured_content,
+                isError=False,
+            )
+        )
+        mock_client_context, mock_session_context = self._setup_mocks(mock_session)
+        client_patch, session_patch = self._patch_clients(
+            mock_client_context, mock_session_context
+        )
+        with client_patch, session_patch:
+            result = asyncio.run(mcp_tool._invoke_async(params or {}, None))
+        return result, mock_session
+
+    def test_structured_content_reaches_the_llm(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """The ids in structuredContent must survive into result.data."""
+        structured = {
+            "runs": [
+                {
+                    "id": "0196f1f0-0000-4000-8000-000000000001",
+                    "attributes": {"current_outcome": "failed"},
+                },
+                {
+                    "id": "0196f1f0-0000-4000-8000-000000000002",
+                    "attributes": {"current_outcome": "success"},
+                },
+            ]
+        }
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text="Found 5 run(s)")],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        # The human summary is kept, but it is no longer the whole story.
+        assert "Found 5 run(s)" in result.data
+        assert "0196f1f0-0000-4000-8000-000000000001" in result.data
+        assert "current_outcome" in result.data
+
+    def test_no_structured_content_is_unchanged(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Servers that return no structuredContent must behave exactly as before."""
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text="Found 5 run(s)")],
+            structured_content=None,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "Found 5 run(s)"
+        assert "null" not in result.data
+        assert not result.data.endswith("\n")
+
+    def test_structured_content_not_duplicated(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Servers that also serialize the payload into content[] must not double it.
+
+        The MCP spec recommends returning the serialized JSON in a text block
+        for backwards compatibility, so this is the common well-behaved case.
+        """
+        structured = {"runs": [{"id": "run-1"}]}
+        serialized = json.dumps(structured)
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=serialized)],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == serialized
+        assert result.data.count("run-1") == 1
+
+    def test_pretty_printed_duplicate_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Dedup must survive the serialization the reference SDK actually uses.
+
+        The MCP Python SDK serializes structuredContent into the text block with
+        ``json.dumps(..., indent=2)``, and other servers emit compact JSON with
+        no spaces after the separators.  Comparing raw strings only dedups the
+        one case where the server happens to match Python's json.dumps defaults,
+        so every real well-behaved server would get its whole payload twice.
+        """
+        structured = {"runs": [{"id": "run-1", "attributes": {"outcome": "failed"}}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=json.dumps(structured, indent=2))],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data.count("run-1") == 1
+        assert result.data == json.dumps(structured, default=str)
+
+    def test_compact_duplicate_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A non-Python server's compact JSON text block must also dedup."""
+        structured = {"runs": [{"id": "run-1"}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [
+                TextContent(
+                    type="text", text=json.dumps(structured, separators=(",", ":"))
+                )
+            ],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data.count("run-1") == 1
+
+    def test_json_text_that_differs_is_still_kept(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A text block that is valid JSON but *not* the payload must be kept.
+
+        Dedup by parsed equality must not swallow a genuinely different JSON
+        text block, or content[] data would be lost.
+        """
+        structured = {"runs": [{"id": "run-1"}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=json.dumps({"summary": "5 runs"}))],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "summary" in result.data
+        assert "run-1" in result.data
+
+    def test_null_optional_param_is_dropped(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """An optional param the model set to null must not reach the server.
+
+        Strict tool schemas advertise optional params as anyOf[<type>, null] and
+        list them in "required", so models emit explicit nulls to mean "omit
+        this".  MCP servers validate against their own inputSchema, where those
+        params are plain strings, and reject the null.
+        """
+        input_schema = {
+            "type": "object",
+            "properties": {
+                "projectSlug": {"type": "string"},
+                "branch": {"type": "string"},
+                "status": {"type": "string"},
+            },
+            "required": ["projectSlug"],
+        }
+        params = {
+            "projectSlug": "gh/example-org/example-repo",
+            "branch": None,
+            "status": None,
+        }
+        result, mock_session = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text="Found 5 run(s)")],
+            params=params,
+            input_schema=input_schema,
+        )
+
+        mock_session.call_tool.assert_awaited_once_with(
+            "list_runs", {"projectSlug": "gh/example-org/example-repo"}
+        )
+        # The trace still shows what the model actually asked for.
+        assert result.params == params
+
+    def test_null_required_param_is_preserved(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A required param set to null is the server's error to report, not ours."""
+        input_schema = {
+            "type": "object",
+            "properties": {"projectSlug": {"type": "string"}},
+            "required": ["projectSlug"],
+        }
+        _, mock_session = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text="Found 5 run(s)")],
+            params={"projectSlug": None},
+            input_schema=input_schema,
+        )
+
+        mock_session.call_tool.assert_awaited_once_with(
+            "list_runs", {"projectSlug": None}
+        )

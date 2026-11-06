@@ -14,67 +14,38 @@ All database connectors use `type: database` and share the same configuration pa
 | ClickHouse | `clickhouse://` or `clickhouse+http://` | [ClickHouse](builtin-toolsets/database-clickhouse.md) |
 | SQL Server | `mssql://` | [SQL Server](builtin-toolsets/database-sqlserver.md) |
 | SQLite | `sqlite:///` | [SQLite](builtin-toolsets/database-sqlite.md) |
-| Azure SQL Database | Specialized toolset | [Azure SQL Database](builtin-toolsets/azure-sql.md) |
 | MongoDB Atlas | Specialized toolset | [MongoDB Atlas](builtin-toolsets/mongodb-atlas.md) |
-| MariaDB (MCP) | MCP server | [MariaDB MCP](builtin-toolsets/mariadb-mcp.md) |
 
 ## Quick Start
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.POSTGRES_URL }}"
+    llm_instructions: "Production PostgreSQL database"
+---
+secret:
+  - --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://holmes:password@db.example.com:5432/mydb"
+      llm_instructions: "Production PostgreSQL with customer and order data"
 
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://holmes:password@db.example.com:5432/mydb"
-        llm_instructions: "Production PostgreSQL with customer and order data"
-
-      analytics-clickhouse:
-        type: database
-        config:
-          connection_url: "clickhouse://analyst:pass@clickhouse.internal:8123/analytics"
-        llm_instructions: "ClickHouse analytics warehouse"
-    ```
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    additionalEnvVars:
-      - name: POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-credentials
-            key: url
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-        llm_instructions: "Production PostgreSQL database"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
+    analytics-clickhouse:
+      type: database
+      config:
+        connection_url: "clickhouse://analyst:pass@clickhouse.internal:8123/analytics"
+      llm_instructions: "ClickHouse analytics warehouse"
+  ```
+```
 
 ## Configuration Options
 
@@ -121,11 +92,7 @@ sqlite:///path/to/database.db
 
 Some databases have dedicated toolsets with features beyond SQL queries:
 
-- **[Azure SQL Database](builtin-toolsets/azure-sql.md)** -- Uses the Azure management API to provide Query Store analysis, performance metrics, connection monitoring, and storage analysis. Use this alongside or instead of the generic `type: database` connector for deeper Azure SQL insights.
-
 - **[MongoDB Atlas](builtin-toolsets/mongodb-atlas.md)** -- Connects to the Atlas Admin API to analyze logs, alerts, events, slow queries, and cluster metrics. This is a separate toolset (not `type: database`) since MongoDB uses a different query model.
-
-- **[MariaDB MCP](builtin-toolsets/mariadb-mcp.md)** -- An MCP-based alternative for MariaDB that provides schema inspection and query capabilities through the MCP protocol.
 
 ## Common Use Cases
 

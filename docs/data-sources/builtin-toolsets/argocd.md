@@ -43,46 +43,21 @@ In addition to setting permissions and generating an auth token, you will need t
 
 This is the recommended approach if your ArgoCD is inside your Kubernetes cluster.
 
-HolmesGPT needs permission to establish a port-forward to ArgoCD. The configuration below includes that authorization.
+In Kubernetes, HolmesGPT needs permission to establish a port-forward to ArgoCD. The configuration below includes that authorization.
 
-=== "Holmes CLI"
-
-    Set the following environment variables:
-
-    ```bash
-    export ARGOCD_AUTH_TOKEN="<your-argocd-token>"
-    export ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
-    ```
-
-    Then add the following to **~/.holmes/config.yaml**:
-
-    ```yaml
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        customClusterRoleRules:
-            - apiGroups: [""]
-              resources: ["pods/portforward"]
-              verbs: ["create"]
-        additionalEnvVars:
-            - name: ARGOCD_AUTH_TOKEN
-              value: "<your-argocd-token>"
-            - name: ARGOCD_OPTS
-              value: "--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
-        toolsets:
-            argocd/core:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+```yaml-toolset-config
+customClusterRoleRules:
+    - apiGroups: [""]
+      resources: ["pods/portforward"]
+      verbs: ["create"]
+toolsets:
+    argocd/core:
+        enabled: true
+---
+secret:
+  - --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>"
+  - --from-literal=ARGOCD_OPTS="--port-forward --port-forward-namespace <your_argocd_namespace> --server <your_server_address> --grpc-web"
+```
 
 !!! note
 
@@ -96,50 +71,17 @@ HolmesGPT needs permission to establish a port-forward to ArgoCD. The configurat
 
 This is the recommended approach if your ArgoCD is reachable through a public DNS.
 
-=== "Holmes CLI"
-
-    Set the following environment variables:
-
-    ```bash
-    export ARGOCD_AUTH_TOKEN="<your-argocd-token>"
-    export ARGOCD_SERVER="argocd.example.com"
-    ```
-
-    Then add the following to **~/.holmes/config.yaml**:
-
-    ```yaml
-    toolsets:
-        argocd/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-    To test, run:
-
-    ```bash
-    holmes ask "Which ArgoCD applications are failing and why?"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: ARGOCD_AUTH_TOKEN
-              value: "<your-argocd-token>"
-            - name: ARGOCD_SERVER
-              value: "argocd.example.com"
-        toolsets:
-            argocd/core:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
-
-!!! note
-
-    In production, always use a Kubernetes secret instead of hardcoding the token value in your Helm values.
+```yaml-toolset-config {secret-qualifier=server-url}
+toolsets:
+    argocd/core:
+        enabled: true
+---
+secret:
+  - --from-literal=ARGOCD_AUTH_TOKEN="<your-argocd-token>"
+  - --from-literal=ARGOCD_SERVER="argocd.example.com"
+test: |
+  holmes ask "Which ArgoCD applications are failing and why?"
+```
 
 ## Capabilities
 

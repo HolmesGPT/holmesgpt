@@ -12,13 +12,15 @@ from typing import Any, Optional
 import sentry_sdk
 from pydantic import BaseModel
 
+from holmes.common import env_vars
 from holmes.common.env_vars import ENABLE_CONVERSATION_HISTORY_COMPACTION
 from holmes.core.llm import (
     LLM,
     ContextWindowUsage,
     get_context_window_compaction_threshold_pct,
 )
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_rate_limit import rate_limit_retry_scope
+from holmes.core.llm_usage import RequestStats, attach_unrecorded_usage
 from holmes.core.truncation.compaction import compact_conversation_history
 from holmes.utils.stream import StreamEvents, StreamMessage
 
@@ -61,6 +63,7 @@ class CompactionInsufficientError(Exception):
     """Raised when conversation compaction was not sufficient to fit the context window."""
 
     def __init__(self, message: str, events: list[StreamMessage], compaction_usage: Optional[RequestStats] = None):
+        """Store the failure message plus the stream events and usage gathered so far."""
         super().__init__(message)
         self.events = events
         self.compaction_usage = compaction_usage
@@ -75,12 +78,14 @@ class ContextWindowLimiterOutput(BaseModel):
     tokens: ContextWindowUsage
     conversation_history_compacted: bool
     compaction_usage: Optional["RequestStats"] = None
+    compaction_overflowing_tool_call_ids: list[str] = []
 
 
 @sentry_sdk.trace
 def compact_if_necessary(
     llm: LLM, messages: list[dict], tools: Optional[list[dict[str, Any]]]
 ) -> ContextWindowLimiterOutput:
+    """Compact the conversation history when it approaches the context-window threshold."""
     t0 = time.monotonic()
     events = []
     metadata = {}
@@ -88,14 +93,19 @@ def compact_if_necessary(
     max_context_size = llm.get_context_window_size()
     maximum_output_token = llm.get_maximum_output_token()
     conversation_history_compacted = False
+    compaction_overflowing_tool_call_ids: list[str] = []
     compaction_usage = RequestStats()
     if ENABLE_CONVERSATION_HISTORY_COMPACTION and (
         initial_tokens.total_tokens + maximum_output_token
     ) > (max_context_size * get_context_window_compaction_threshold_pct() / 100):
         num_messages_before = len(messages)
-        compaction_result = compact_conversation_history(
-            original_conversation_history=messages, llm=llm
-        )
+        # All of compaction's requests (one per chunk) share one budget.
+        with rate_limit_retry_scope(
+            total_max_wait_seconds=env_vars.LLM_RATE_LIMIT_MAX_WAIT_SECONDS
+        ):
+            compaction_result = compact_conversation_history(
+                original_conversation_history=messages, llm=llm, tools=tools
+            )
         compaction_usage = compaction_result.usage
         compacted_tokens = llm.count_tokens(compaction_result.messages_after_compaction, tools=tools)
         compacted_total_tokens = compacted_tokens.total_tokens
@@ -107,14 +117,9 @@ def compact_if_necessary(
             compaction_message = f"The conversation history has been compacted from {initial_tokens.total_tokens} to {compacted_total_tokens} tokens"
             logging.info(compaction_message)
             conversation_history_compacted = True
+            compaction_overflowing_tool_call_ids = compaction_result.overflowing_tool_call_ids
 
-            # Extract the LLM-generated summary from the compacted messages
-            # Structure is: [system_prompt?, last_user_prompt?, assistant_summary, continuation_marker]
-            compaction_summary = None
-            for msg in compaction_result.messages_after_compaction:
-                if msg.get("role") == "assistant":
-                    compaction_summary = msg.get("content")
-                    break
+            compaction_summary = compaction_result.summary
 
             compaction_stats: dict = {
                 "initial_tokens": initial_tokens.total_tokens,
@@ -124,13 +129,23 @@ def compact_if_necessary(
                 "num_messages_after": num_messages_after,
                 "max_context_size": max_context_size,
                 "threshold_pct": get_context_window_compaction_threshold_pct(),
+                # Whether the cache-friendly primary summarization request was
+                # abandoned for the flattened/no-tools fallback (which cannot
+                # reuse the agentic prompt cache). Key for diagnosing zero
+                # cached_tokens on the compaction call from event data alone.
+                "fallback_used": compaction_result.fallback_used,
+                "summarization_requests": compaction_result.summarization_requests,
             }
+            if compaction_result.fallback_reason:
+                compaction_stats["fallback_reason"] = compaction_result.fallback_reason
             if compaction_usage:
                 compaction_stats["compaction_cost"] = {
                     "total_cost": compaction_usage.total_cost,
                     "prompt_tokens": compaction_usage.prompt_tokens,
                     "completion_tokens": compaction_usage.completion_tokens,
                     "total_tokens": compaction_usage.total_tokens,
+                    "cached_tokens": compaction_usage.cached_tokens,
+                    "cache_creation_tokens": compaction_usage.cache_creation_tokens,
                 }
 
             events.append(
@@ -178,7 +193,10 @@ def compact_if_necessary(
                 data={"content": failure_msg},
             )
         )
-        raise CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
+        error = CompactionInsufficientError(failure_msg, events=events, compaction_usage=compaction_usage)
+        if compaction_usage is not None:
+            attach_unrecorded_usage(error, compaction_usage)
+        raise error
 
     elapsed_ms = (time.monotonic() - t0) * 1000
     logging.debug(f"compact_if_necessary: {elapsed_ms:.1f}ms total | {tokens.total_tokens} tokens")
@@ -192,4 +210,5 @@ def compact_if_necessary(
         tokens=tokens,
         conversation_history_compacted=conversation_history_compacted,
         compaction_usage=compaction_usage,
+        compaction_overflowing_tool_call_ids=compaction_overflowing_tool_call_ids,
     )

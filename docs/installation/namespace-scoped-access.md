@@ -6,7 +6,19 @@ By default, the Holmes Helm chart creates a cluster-wide, read-only `ClusterRole
 
 When Holmes is scoped to one namespace, it can only see resources in that namespace. Tools that query cluster-scoped resources (nodes, persistent volumes, storage classes, CRDs) or that list across all namespaces (`kubectl get ... --all-namespaces`, `kubectl top pods -A`) will return `forbidden` errors. Holmes keeps running and simply reports those errors, but investigations are limited to the target namespace.
 
-## Configuration
+## Scope Holmes to Its Own Namespace
+
+To limit Holmes to the namespace it is deployed in, set one Helm value:
+
+```yaml
+namespaceScopedRBAC: true
+```
+
+The chart then renders a namespaced `Role` + `RoleBinding` (same read rules) instead of the `ClusterRole` + `ClusterRoleBinding`, and sets the `SCOPED_NAMESPACES` environment variable so Holmes knows its scope up front — investigations start with namespace-scoped commands instead of discovering the restriction from `forbidden` errors. Everything stays Helm-managed, and multiple Holmes installs in different namespaces cannot collide on cluster-scoped RBAC names.
+
+To scope Holmes to a **different** set of namespaces than its own, use the manual configuration below.
+
+## Manual Configuration
 
 Point Holmes at your own service account instead of the chart-managed cluster-wide one.
 
@@ -17,6 +29,11 @@ Set the following in your Helm values:
 createServiceAccount: false
 # Use the namespace-scoped service account you create below
 customServiceAccountName: holmes
+# Tell Holmes its scope so investigations start namespace-scoped
+# instead of discovering the restriction from forbidden errors
+additionalEnvVars:
+  - name: SCOPED_NAMESPACES
+    value: "monitoring"   # comma-separated for multiple namespaces
 ```
 
 Create the service account, `Role`, and `RoleBinding` (`holmes-namespace-scoped.yaml`).

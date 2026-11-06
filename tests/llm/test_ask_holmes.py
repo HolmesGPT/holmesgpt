@@ -14,13 +14,14 @@ import pytest
 from holmes.config import Config
 from holmes.core.conversations import build_chat_messages
 from holmes.core.models import ChatRequest
-from holmes.core.prompt import PromptComponent, build_initial_ask_messages
+from holmes.core.prompt import build_initial_ask_messages, todowrite_overrides
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.frontend_tools import inject_frontend_tools
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.tracing import SpanType, TracingFactory
 from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
+from tests.llm.utils.answer_dump import dump_eval_answer
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import evaluate_correctness
 from tests.llm.utils.openui import (
@@ -41,9 +42,11 @@ from tests.llm.utils.property_manager import (
     update_property,
     update_test_results,
 )
+from tests.llm.utils.reporting.skill_check import SkillCheckFailure, skill_titles
 from tests.llm.utils.skill_suggestions import (
     count_fetch_skill_calls,
     extract_suggested_skills,
+    join_frontend_tool_turn_content,
     write_suggestions_as_skill_files,
 )
 from tests.llm.utils.retry_handler import retry_on_throttle
@@ -152,7 +155,19 @@ def test_ask_holmes(
         )
         raise
 
-    output = result.result
+    # Models may write their final answer as content on the same turn as a
+    # frontend tool call. SuggestSkills replies "continue naturally as if this
+    # tool was never called", so the model then adds only a short trailing
+    # remark - and result.result keeps just that last turn, losing the answer.
+    # The UI renders it correctly (the content ships as an ai_message event,
+    # collected into intermediateMessages), so we rejoin it here instead of
+    # changing product code.
+    frontend_payload = load_frontend_tools(test_case)
+    output = join_frontend_tool_turn_content(
+        result.result,
+        result.messages,
+        {t.name for t in frontend_payload.tools} if frontend_payload else None,
+    )
 
     suggested_memories = extract_suggested_skills(result.tool_calls)
     update_property(request, "suggested_memories", suggested_memories)
@@ -189,12 +204,12 @@ def test_ask_holmes(
         visualizations=openui_report.judge_block if openui_report else None,
     )
 
-    # Hard yes/no skill-suggestion count check. Content quality is scored by
-    # the LLM judge via update_test_results above (the judge sees the emitted
-    # suggestions and the eval's expected_output together). The correctness
-    # score is reset to 0 BEFORE the Braintrust logging below and before the
-    # assertions fire, so both Braintrust and the GitHub markdown report
-    # reflect the failure even though the judge already wrote a 1.
+    # Deterministic skill checks. They fail the run (assertions below) but
+    # leave the judge's correctness as the judge returned it: a correct answer
+    # with an unwanted skill suggestion is not a wrong answer. The failure is
+    # recorded as scores["skill_check"] and the fail_reason property, which
+    # the reports render separately from wrong answers.
+    skill_check_failure: Optional[SkillCheckFailure] = None
     memory_check_failed = False
     if test_case.memories_generated is not None:
         actual_memories = len(suggested_memories)
@@ -202,8 +217,11 @@ def test_ask_holmes(
             test_case.memories_generated and actual_memories < 1
         ) or (not test_case.memories_generated and actual_memories != 0)
         if memory_check_failed:
-            update_property(request, "actual_correctness_score", 0)
-            scores["correctness"] = 0
+            skill_check_failure = (
+                SkillCheckFailure.MISSING_SUGGESTION
+                if test_case.memories_generated
+                else SkillCheckFailure.UNEXPECTED_SUGGESTION
+            )
 
     # Deterministic skill-UPDATE check: every skill named in
     # expected_skill_updates must be referenced by some suggestion's
@@ -220,9 +238,27 @@ def test_ask_holmes(
             for name in test_case.expected_skill_updates
             if name not in actual_updates
         ]
-        if missing_skill_updates:
-            update_property(request, "actual_correctness_score", 0)
-            scores["correctness"] = 0
+        if missing_skill_updates and skill_check_failure is None:
+            skill_check_failure = SkillCheckFailure.MISSING_UPDATE
+
+    if test_case.memories_generated is not None or test_case.expected_skill_updates:
+        scores["skill_check"] = 0 if skill_check_failure else 1
+    if skill_check_failure:
+        update_property(request, "fail_reason", skill_check_failure.value)
+        update_property(
+            request, "suggested_skill_titles", skill_titles(suggested_memories)
+        )
+
+    # Before the raising checks below: an answer they reject is part of the
+    # population too, and dumping after them would bias the sample.
+    dump_eval_answer(
+        test_case.id,
+        output,
+        scores.get("correctness", 0),
+        model=model,
+        env_config=env_config.name,
+        tools=[getattr(tc, "tool_name", "?") for tc in (result.tool_calls or [])],
+    )
 
     # Deterministic OpenUI checks: a failed expectation zeroes the score before
     # logging, like the checks above.
@@ -238,6 +274,7 @@ def test_ask_holmes(
             result=result,
             scores=scores,
             suggested_memories=suggested_memories,
+            fail_reason=skill_check_failure.value if skill_check_failure else None,
         )
 
     if openui_report and openui_report.failures:
@@ -618,15 +655,10 @@ def ask_holmes(
                     if p
                 )
 
-        # Todos (TodoWrite) are disabled by default in evals; turn off the
-        # related prompt instructions/reminder unless the test opts in. The
-        # TodoWrite tool itself is dropped by TestToolsetManager (above).
-        prompt_component_overrides = None
-        if not getattr(test_case, "enable_todo", False):
-            prompt_component_overrides = {
-                PromptComponent.TODOWRITE_INSTRUCTIONS: False,
-                PromptComponent.TODOWRITE_REMINDER: False,
-            }
+        # TodoWrite prompt components are opt-in via enable_todo
+        prompt_component_overrides = todowrite_overrides(
+            getattr(test_case, "enable_todo", False)
+        )
 
         test_type = (
             test_case.test_type

@@ -1,15 +1,150 @@
 from unittest.mock import MagicMock, patch
 
+import json
+import litellm
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
+from holmes.core.tool_calling_llm import RelayRefusal
 from server import app, extract_passthrough_headers
 
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+DISABLED_MESSAGE = (
+    "Robusta-hosted models are disabled for this account. Configure a model on "
+    "the cluster, or enable Robusta-hosted models in Settings > LLM Models."
+)
+
+
+@pytest.mark.parametrize(
+    "status_code, message",
+    [
+        (403, DISABLED_MESSAGE),
+        (401, "Your session has expired. Reconnect the cluster to the platform."),
+    ],
+)
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_answers_a_relay_refusal_with_its_own_status(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+    status_code,
+    message,
+):
+    """Relay refusing the call on a Robusta-hosted model is the platform
+    talking to the user: /api/chat passes its status and sentence through
+    rather than turning them into a 500 (ROB-1389)."""
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.side_effect = RelayRefusal(message, status_code)
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?"})
+
+    assert response.status_code == status_code
+    assert response.json()["detail"] == message
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        # Bedrock throttling arrives as a plain Exception
+        Exception("Model is getting throttled. Try your request again."),
+    ],
+)
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_answers_rate_limits_with_429(
+    mock_get_global_instructions, mock_create_toolcalling_llm, client, error
+):
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.side_effect = error
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?"})
+
+    assert response.status_code == 429
+
+
+@pytest.mark.parametrize("status_code", [401, 403])
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_stream_carries_a_relay_refusal_in_the_error_event(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+    status_code,
+):
+    """A stream has committed HTTP 200 before the LLM call runs, so the
+    refusal rides the SSE error event: relay's sentence as the text and a code
+    per status the client can key on (ROB-1389)."""
+    from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES
+
+    mock_get_global_instructions.return_value = []
+    message = "Robusta-hosted models are disabled for this account."
+
+    def refused_stream(*args, **kwargs):
+        raise RelayRefusal(message, status_code)
+        yield  # a generator, like the real call_stream
+
+    mock_ai = MagicMock()
+    mock_ai.call_stream.return_value = refused_stream()
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?", "stream": True})
+
+    assert response.status_code == 200
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events == [
+        {
+            "description": message,
+            "error_code": RELAY_REFUSAL_ERROR_CODES[status_code],
+            "msg": message,
+            "success": False,
+            "error_class": "RelayRefusal",
+            "provider_status": status_code,
+        }
+    ]
+
+
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_never_names_the_chat_to_relay(
+    mock_get_global_instructions,
+    mock_create_toolcalling_llm,
+    client,
+):
+    """/api/chat's conversation_id is caller-supplied, so it never reaches the
+    LLM; see ROBUSTA_CONVERSATION_ID_HEADER."""
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.return_value = MagicMock(
+        result="ok", tool_calls=[], messages=[], metadata={}, num_llm_calls=1
+    )
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    client.post(
+        "/api/chat",
+        json={
+            "ask": "what is wrong?",
+            "conversation_id": "5b0c3f2e-8a4d-4c1e-9f7a-2d6b8e1c4a90",
+        },
+    )
+
+    mock_create_toolcalling_llm.assert_called_once()
+    assert "conversation_id" not in mock_create_toolcalling_llm.call_args.kwargs
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")
@@ -55,12 +190,11 @@ def test_api_chat_all_fields(
     assert "analysis" in data
     assert "conversation_history" in data
     assert "tool_calls" in data
-    assert "follow_up_actions" in data
+    assert "follow_up_actions" not in data
 
     assert isinstance(data["analysis"], str)
     assert isinstance(data["conversation_history"], list)
     assert isinstance(data["tool_calls"], list)
-    assert isinstance(data["follow_up_actions"], list)
 
     assert any(msg.get("role") == "user" for msg in data["conversation_history"])
 
@@ -70,13 +204,6 @@ def test_api_chat_all_fields(
         assert "tool_name" in tool_call
         assert "description" in tool_call
         assert "result" in tool_call
-
-    if data["follow_up_actions"]:
-        action = data["follow_up_actions"][0]
-        assert "id" in action
-        assert "action_label" in action
-        assert "prompt" in action
-        assert "pre_action_notification_text" in action
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")
@@ -125,7 +252,6 @@ def test_api_chat_with_images(
     assert "analysis" in data
     assert "conversation_history" in data
     assert "tool_calls" in data
-    assert "follow_up_actions" in data
 
     # Verify the messages were captured
     assert len(captured_messages) == 1

@@ -342,7 +342,12 @@ class BraintrustTracer:
         if not BRAINTRUST_AVAILABLE or not os.environ.get("BRAINTRUST_API_KEY"):
             return llm_module
 
-        from braintrust.oai import ChatCompletionWrapper
+        try:
+            from braintrust.integrations.openai.tracing import ChatCompletionWrapper
+        except ImportError:
+            # braintrust < 0.13 exposes it here; holmes users may have an
+            # older braintrust installed, since it isn't a runtime dependency.
+            from braintrust.oai import ChatCompletionWrapper  # type: ignore
 
         class WrappedLiteLLM:
             def __init__(self, original_module):

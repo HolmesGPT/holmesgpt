@@ -1,0 +1,23 @@
+toolsets:
+  kubernetes/core: { enabled: false }
+  kubernetes/logs: { enabled: false }
+  kubernetes/live-metrics: { enabled: false }
+  helm/core: { enabled: false }
+  core_investigation: { enabled: false }
+  internet: { enabled: false }
+  skills: { enabled: false }
+  robusta: { enabled: false }
+  connectivity_check: { enabled: false }
+  bash: { enabled: false }
+
+mcp_servers:
+  # Canned cluster state from the ROB-1233 ground-truth capture. Deterministic
+  # and cluster-free: the tainted 2GiB DO node pool and its cilium/CSI/
+  # node-exporter DaemonSets cannot be staged in a test cluster.
+  noisy_node:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args:
+        - "tests/llm/fixtures/test_ask_holmes/290_impact_beyond_evidence/noisy_node_mock.py"

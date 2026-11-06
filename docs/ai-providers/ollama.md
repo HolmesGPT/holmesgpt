@@ -13,136 +13,71 @@ Configure HolmesGPT to use local models with Ollama.
 
 ## Configuration
 
-=== "Holmes CLI"
+!!! note "Ollama Service"
+    In Kubernetes, you'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
 
-    ```bash
-    export OLLAMA_API_BASE="http://localhost:11434"
-    holmes ask "what pods are failing?" --model="ollama_chat/<your-ollama-model>"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: OLLAMA_API_BASE
+    value: "http://ollama-service:11434"
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "ollama-llama3"  # This refers to the key name in modelList below
 
-    # Or use MODEL environment variable instead of --model flag
-    export MODEL="ollama_chat/<your-ollama-model>"
-    holmes ask "what pods are failing?"
-    ```
+# Configure at least one model using modelList
+modelList:
+  ollama-llama3:
+    api_base: "{{ env.OLLAMA_API_BASE }}"
+    model: ollama_chat/llama3
+    temperature: 1
 
-    **Alternative (OpenAI-compatible gateway)**
+  ollama-codellama:
+    api_base: "{{ env.OLLAMA_API_BASE }}"
+    model: ollama_chat/codellama
+    temperature: 1
+---
+cli: |
+  ```bash
+  export OLLAMA_API_BASE="http://localhost:11434"
+  holmes ask "what pods are failing?" --model="ollama_chat/<your-ollama-model>"
 
-    If you hit compatibility issues with certain Ollama models via LiteLLM, you can use Ollama's OpenAI-compatible API endpoint:
+  # Or use MODEL environment variable instead of --model flag
+  export MODEL="ollama_chat/<your-ollama-model>"
+  holmes ask "what pods are failing?"
+  ```
+```
 
-    ```bash
-    export OPENAI_API_BASE="http://localhost:11434/v1"
-    export OPENAI_API_KEY="dummy-key"  # Required but can be any value
-    holmes ask "what pods are failing?" --model="openai/<your-ollama-model>"
+### Alternative (OpenAI-compatible gateway)
 
-    # Or use MODEL environment variable instead of --model flag
-    export MODEL="openai/<your-ollama-model>"
-    holmes ask "what pods are failing?"
-    ```
+If you hit compatibility issues with certain Ollama models via LiteLLM, you can use Ollama's OpenAI-compatible API endpoint:
 
-=== "Holmes Helm Chart"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: OPENAI_API_BASE
+    value: "http://ollama-service:11434/v1"
+  - name: OPENAI_API_KEY
+    value: "YOUR_BEARER_TOKEN_HERE"
+  # Optional
+  - name: MODEL
+    value: "ollama-alt"
 
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: OLLAMA_API_BASE
-        value: "http://ollama-service:11434"
+modelList:
+  ollama-alt:
+    api_base: "{{ env.OPENAI_API_BASE }}"
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    model: openai/OLLAMA_MODEL_NAME
+---
+cli: |
+  ```bash
+  export OPENAI_API_BASE="http://localhost:11434/v1"
+  export OPENAI_API_KEY="dummy-key"  # Required but can be any value
+  holmes ask "what pods are failing?" --model="openai/<your-ollama-model>"
 
-    # Configure at least one model using modelList
-    modelList:
-      ollama-llama3:
-        api_base: "{{ env.OLLAMA_API_BASE }}"
-        model: ollama_chat/llama3
-        temperature: 1
-
-      ollama-codellama:
-        api_base: "{{ env.OLLAMA_API_BASE }}"
-        model: ollama_chat/codellama
-        temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "ollama-llama3"  # This refers to the key name in modelList above
-    ```
-
-    !!! note "Ollama Service"
-        You'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
-
-    **Alternative (OpenAI-compatible gateway)**
-
-    If you hit compatibility issues with certain Ollama models via LiteLLM, you can configure an OpenAI-compatible gateway in your Helm values:
-
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: OPENAI_API_BASE
-        value: "http://ollama-service:11434/v1"
-      - name: OPENAI_API_KEY
-        value: "YOUR_BEARER_TOKEN_HERE"
-
-    modelList:
-      ollama-alt:
-        api_base: "{{ env.OPENAI_API_BASE }}"
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        model: openai/OLLAMA_MODEL_NAME
-
-    # Optional
-    config:
-      model: "ollama-alt"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OLLAMA_API_BASE
-          value: "http://ollama-service:11434"
-
-      # Configure at least one model using modelList
-      modelList:
-        ollama-llama3:
-          api_base: "{{ env.OLLAMA_API_BASE }}"
-          model: ollama_chat/llama3
-          temperature: 1
-
-        ollama-codellama:
-          api_base: "{{ env.OLLAMA_API_BASE }}"
-          model: ollama_chat/codellama
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "ollama-llama3"  # This refers to the key name in modelList above
-    ```
-
-    !!! note "Ollama Service"
-        You'll need to deploy Ollama as a service in your cluster. The `OLLAMA_API_BASE` should point to your Ollama service endpoint.
-
-    **Alternative (OpenAI-compatible gateway)**
-
-    If you hit compatibility issues with certain Ollama models via LiteLLM, you can configure an OpenAI-compatible gateway in your Robusta chart values:
-
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: OPENAI_API_BASE
-          value: "http://ollama-service:11434/v1"
-        - name: OPENAI_API_KEY
-          value: "YOUR_BEARER_TOKEN_HERE"
-
-      modelList:
-        ollama-alt:
-          api_base: "{{ env.OPENAI_API_BASE }}"
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/OLLAMA_MODEL_NAME
-
-      # Optional
-      config:
-        model: "ollama-alt"
-    ```
+  # Or use MODEL environment variable instead of --model flag
+  export MODEL="openai/<your-ollama-model>"
+  holmes ask "what pods are failing?"
+  ```
+```
 
 ## Additional Resources
 

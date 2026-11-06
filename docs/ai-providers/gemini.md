@@ -8,104 +8,44 @@ Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
+    value: "true"  # Required for Gemini - see Environment Variables Reference
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "gemini-flash"  # This refers to the key name in modelList below
 
-    ```bash
-    export GEMINI_API_KEY="your-gemini-api-key"
-    export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
-    export MODEL="gemini/<your-gemini-model>"
-    holmes ask "what pods are failing?"
+# Configure at least one model using modelList
+modelList:
+  gemini-flash:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-3.8-flash
+    temperature: 1
 
-    # Or specify the model explicitly per command:
-    holmes ask "what pods are failing?" --model="gemini/<your-gemini-model>"
-    ```
+  gemini-flash-lite:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-3.5-flash-lite
+    temperature: 1
 
-=== "Holmes Helm Chart"
+  gemini-pro:
+    api_key: "{{ env.GEMINI_API_KEY }}"
+    model: gemini/gemini-3.1-pro-preview
+    temperature: 1
+---
+secret:
+  - --from-literal=GEMINI_API_KEY="your-gemini-api-key"
+cli: |
+  ```bash
+  export GEMINI_API_KEY="your-gemini-api-key"
+  export TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS=true
+  export MODEL="gemini/<your-gemini-model>"
+  holmes ask "what pods are failing?"
 
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=gemini-api-key="your-gemini-api-key" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: GEMINI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: gemini-api-key
-      - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
-        value: "true"  # Required for Gemini - see Environment Variables Reference
-
-    # Configure at least one model using modelList
-    modelList:
-      gemini-pro:
-        api_key: "{{ env.GEMINI_API_KEY }}"
-        model: gemini/gemini-pro
-        temperature: 1
-
-      gemini-flash:
-        api_key: "{{ env.GEMINI_API_KEY }}"
-        model: gemini/gemini-1.5-flash
-        temperature: 1
-
-      gemini-pro-exp:
-        api_key: "{{ env.GEMINI_API_KEY }}"
-        model: gemini/gemini-exp-1206
-        temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "gemini-pro"  # This refers to the key name in modelList above
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=gemini-api-key="your-gemini-api-key" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: GEMINI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: gemini-api-key
-        - name: TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS
-          value: "true"  # Required for Gemini - see Environment Variables Reference
-
-      # Configure at least one model using modelList
-      modelList:
-        gemini-pro:
-          api_key: "{{ env.GEMINI_API_KEY }}"
-          model: gemini/gemini-pro
-          temperature: 1
-
-        gemini-flash:
-          api_key: "{{ env.GEMINI_API_KEY }}"
-          model: gemini/gemini-1.5-flash
-          temperature: 1
-
-        gemini-pro-exp:
-          api_key: "{{ env.GEMINI_API_KEY }}"
-          model: gemini/gemini-exp-1206
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "gemini-pro"  # This refers to the key name in modelList above
-    ```
+  # Or specify the model explicitly per command:
+  holmes ask "what pods are failing?" --model="gemini/<your-gemini-model>"
+  ```
+```
 
 ## Using CLI Parameters
 

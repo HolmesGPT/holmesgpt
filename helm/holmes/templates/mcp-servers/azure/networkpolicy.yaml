@@ -27,11 +27,15 @@ spec:
   - Egress
   ingress:
   - from:
-    # Allow traffic from Holmes pods
+    # Allow traffic from Holmes pods (app: holmes) in the release namespace.
+    # podSelector + namespaceSelector in the same `from` element are AND-ed, which
+    # keeps this working when the MCP server runs in its own namespace.
     - podSelector:
         matchLabels:
-          app.kubernetes.io/name: holmes
-          app.kubernetes.io/instance: {{ .Release.Name }}
+          app: holmes
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
     # Allow traffic from pods with specific label
     - podSelector:
         matchLabels:

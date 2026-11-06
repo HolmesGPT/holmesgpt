@@ -27,7 +27,8 @@ colorlog = "^6.8.2"
 python-json-logger = "^3.0.0"
 strenum = "^0.4.15"
 markdown = "^3.6"
-certifi = "^2024.7.4"
+# certifi >= 2026.10.19 fixes GHSA-6q48-6c7w-9gw2 (CRITICAL); 2026.10.18 dropped the emSign roots. Use >= (not ^): ^2024 would cap below it.
+certifi = ">=2026.10.19"
 boto3 = "^1.34.145"
 cachetools = "^5.5.0"
 bs4 = "^0.0.2"
@@ -40,25 +41,20 @@ backoff = "^2.2.1"
 # and released (expected in litellm 1.90+).
 # litellm >= 1.84.0 also fixes CRITICAL CVE-2026-49468 (auth bypass via Host header
 # injection) and relaxes the pinned aiohttp to >=3.10,<4.0, letting us take aiohttp 3.14.1.
-litellm = "1.89.0"
+# litellm >= 1.100.4 fixes CVE-2026-114612 and >= 1.95.0 fixes GHSA-g5ff-637f-6q2m (both High).
+litellm = "1.103.5"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
 # mcp >= 1.27.2 fixes CVE-2026-52869 and CVE-2026-52870 (both High); >= 1.28.1
 # additionally fixes CVE-2026-59950 (High).
-mcp = "1.28.1"
+mcp = "1.30.0"
 prompt-toolkit = "^3.0.51"
 pygments = "^2.18.0"
 azure-identity = "^1.23.0"
 azure-core = "^1.34.0"
 requests = "^2.32.4"
 PyJWT = {extras = ["crypto"], version = "^2.8.0"}
-azure-mgmt-sql = "^4.0.0b21"
-pyodbc = "^5.0.1"
-azure-monitor-query = "^1.2.0"
-azure-mgmt-monitor = "^7.0.0b1"
-azure-mgmt-alertsmanagement = "^1.0.0"
-azure-mgmt-resource = "^23.3.0"
 tenacity = "^9.1.2"
 requests-aws4auth = "^1.3.1"
 prometrix = "0.2.12"
@@ -68,7 +64,8 @@ google-cloud-aiplatform = ">=1.133.0"
 slack-sdk = "^3.39.0"
 
 jq = "^1.10.0"
-bashlex = "^0.18"
+tree-sitter = "^0.25.2"
+tree-sitter-bash = "^0.25.1"
 kopf = "^1.37.0"
 apscheduler = "^3.10.4"
 
@@ -77,16 +74,25 @@ apscheduler = "^3.10.4"
 # silently ignored) and CVE-2026-54282; >= 1.0.1 already fixed CVE-2026-48710 /
 # GHSA-86qp-5c8j-p5mr (Host header validation when reconstructing request.url).
 starlette = ">=1.3.1"
-# cryptography >= 48.0.1 ships a patched OpenSSL in its wheels (GHSA-537c-gmf6-5ccf, HIGH).
-# Use >= (not ^): ^48.0.1 caps at <49 and would downgrade newer majors already on master.
-cryptography = ">=48.0.1"
+# cryptography >= 48.0.1 ships a patched OpenSSL in its wheels (GHSA-537c-gmf6-5ccf, HIGH);
+# >= 50.0.0 fixes CVE-2026-69247 (HIGH).
+# Use >= (not ^): ^ caps at the next major and would downgrade newer majors already on master.
+cryptography = ">=50.0.0"
 # pydantic-settings >= 2.14.2 fixes GHSA-4xgf-cpjx-pc3j (symlink escape out of secrets_dir).
 pydantic-settings = ">=2.14.2"
 # python-multipart >= 0.0.31 fixes CVE-2026-53540 (negative Content-Length buffers the whole body).
 # Use >= (not ^) because Poetry reads ^0.0.31 as ==0.0.31, which would exclude future 0.0.x patches.
 python-multipart = ">=0.0.31"
-# aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x hardening fixes.
-aiohttp = ">=3.14.1"
+# aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x
+# hardening fixes; >= 3.14.3 fixes CVE-2026-69244 (HIGH) and CVE-2026-59881/69243 (Medium);
+# >= 3.14.4 fixes CVE-2026-111064/111066 and GHSA-2g87-pp6c-29x5 (all High).
+aiohttp = ">=3.14.4"
+# filelock >= 4.2.1 fixes CVE-2026-112940 (HIGH). Pulled in transitively (huggingface-hub via litellm).
+# 4.x requires Python >= 3.11, so Python 3.10 keeps the latest 3.x (no fixed 3.x release).
+filelock = [
+    {version = ">=4.2.1", python = ">=3.11"},
+    {version = ">=3.29.4", python = "<3.11"},
+]
 # pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High).
 # Pulled in transitively via pyasn1-modules -> google-auth.
 pyasn1 = ">=0.6.4"
@@ -95,7 +101,9 @@ sqlalchemy = "^2.0.46"
 pg8000 = "^1.31.5"
 pymysql = "^1.1.2"
 clickhouse-sqlalchemy = "^0.3.2"
-pymssql = "^2.3.0"
+python-tds = "^1.17"
+sqlalchemy-pytds = "^1.0.2"
+pyopenssl = ">=24.0.0"
 pymongo = "^4.7.0"
 # Required for HTTP CONNECT proxy support in the websockets stdlib client
 # (used by the conversation worker's Supabase Realtime subscription).
@@ -115,13 +123,13 @@ opentelemetry-instrumentation-httpx = ">=0.51b0"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-mkdocs-material = "^9.5.39"
+mkdocs-material = "^9.7.7"
 mkdocs-glightbox = "^0.4.0"
 pytest = "^8.3.3"
 pytest-xdist = "^3.6.1"
 pytest-json-report = "^1.5.0"
 ruff = "^0.7.3"
-braintrust = "^0.1.2"
+braintrust = "^0.45.0"
 autoevals = "^0.0.129"
 pre-commit = "^4.0.1"
 responses = "^0.23.1"
@@ -134,6 +142,7 @@ pytest-dotenv = "^0.5.2"
 pytest-sugar = "^1.1.1"
 pytest-shared-session-scope = "^0.4.0"
 mkdocs-awesome-nav = "^3.2.0"
+kubernetes-validate = "^1.36.0"
 mike = "^2.1.0"
 pytest-asyncio = "^1.3.0"
 respx = "^0.22.0"
@@ -150,6 +159,8 @@ build-backend = "poetry.core.masonry.api"
 [tool.mypy]
 ignore_missing_imports = true
 scripts_are_modules = true
+# Name files from the repo root, so docs/custom_fences.py (docs/ has no __init__.py) is docs.custom_fences, the module mkdocs.yml and the fence tests import.
+explicit_package_bases = true
 exclude = [
     "tests/llm/fixtures/.*",
     "dist/.*",
@@ -209,6 +220,7 @@ markers = [
     # - Fast execution to avoid slowing CI/CD pipelines
     "regression: Critical regression tests that must always pass",
     "benchmark: Challenging tests for evaluating and benchmarking model capabilities",
+    "advanced: Evals that separate stronger from weaker models (failed by haiku or opus)",
     "db-connectors: Tests for the database/SQL connector toolset",
     "mcp: Tests for MCP (Model Context Protocol) server integration",
     "conversation_worker: conversation worker integration tests (requires running Holmes + Supabase)",

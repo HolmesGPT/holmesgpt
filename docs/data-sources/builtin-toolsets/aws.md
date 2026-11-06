@@ -1,43 +1,44 @@
 # AWS (MCP)
 
-The AWS MCP server gives Holmes **read-only access to any AWS API** you permit via IAM. This means Holmes can query EC2, RDS, ELB, CloudWatch, CloudTrail, S3, Lambda, Cost Explorer, and hundreds of other AWS services - limited only by the IAM policy you attach.
+Holmes connects to the hosted [AWS MCP Server](https://docs.aws.amazon.com/agent-toolkit/latest/userguide/mcp-server.html), which gives it **read-only access to any AWS API** you permit via IAM: EC2, RDS, ELB, CloudWatch, CloudTrail, S3, Lambda, Cost Explorer and hundreds more. Holmes signs every request with its own AWS credentials (SigV4), so nothing else is deployed and every call shows up in CloudTrail.
 
 ## Overview
 
-- **Helm users**: The MCP server pod is deployed automatically when you enable the addon
-- **CLI users**: The MCP server runs locally on your machine as a subprocess -- no Kubernetes cluster required
+- **Helm users**: Holmes authenticates with IRSA (IAM Roles for Service Accounts) on its own service account
+- **CLI users**: Holmes uses your local AWS credentials (`~/.aws`, environment variables or a named profile)
+
+!!! warning "Migrating from the AWS API MCP server pod"
+    Without `mcpAddons.aws.hosted.enabled: true` the chart still deploys the previous `aws-api-mcp-server` pod with the `aws-api-mcp-sa` service account, so existing values keep working. That server is [deprecated by AWS](https://github.com/awslabs/mcp/blob/main/src/aws-api-mcp-server/MIGRATION.md) and will be removed from the chart in an upcoming release: to switch, set `hosted.enabled: true`, point the IAM role's trust policy at the **Holmes service account** instead (`system:serviceaccount:NAMESPACE:robusta-holmes-service-account`) and annotate it as shown below. In hosted mode `mcpAddons.aws.serviceAccount`, `image`, `networkPolicy` and `resources` are ignored. Export your current values with `helm get values RELEASE -n NAMESPACE > values.yaml` before upgrading.
 
 ## Single Account Setup
 
 ### Step 1: Set Up IAM Permissions
 
 !!! tip "CLI users can skip this step"
-    If you're using Holmes CLI (local stdio mode), the MCP server uses your local AWS credentials directly. Skip to [Step 2](#step-2-deploy-aws-mcp) and select the "Holmes CLI" tab.
+    Holmes CLI uses your local AWS credentials directly. Skip to [Step 2](#step-2-deploy-aws-mcp).
 
-The AWS MCP server requires read-only permissions across AWS services. We provide a default IAM policy that works for most users. You can customize it to restrict access if needed.
+Holmes needs an IAM role with read-only permissions that its Kubernetes service account can assume. We provide a default IAM policy that works for most users; restrict it if needed. Read-only access is enforced by this policy - the MCP server itself exposes write operations too, so attach only read permissions.
 
 === "Helper Scripts (recommended)"
-
-    We provide scripts that automate the IAM setup:
 
     ```bash
     # Download the scripts
     curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/enable-oidc-provider.sh
     curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/setup-irsa.sh
+    curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/aws-mcp-iam-policy.json
     chmod +x enable-oidc-provider.sh setup-irsa.sh
 
     # 1. Enable OIDC provider for your EKS cluster (if not already enabled)
     ./enable-oidc-provider.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION
 
-    # 2. Create IAM policy and role
-    # IMPORTANT: --namespace must match the namespace where Holmes is deployed
-    # (e.g., "robusta" for Robusta Helm chart, or the release namespace for Holmes Helm chart)
-    ./setup-irsa.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION --namespace YOUR_NAMESPACE
+    # 2. Create the IAM policy and role, trusting the Holmes service account
+    # --namespace must match the namespace where Holmes is deployed
+    ./setup-irsa.sh --cluster-name YOUR_CLUSTER_NAME --region YOUR_REGION --namespace YOUR_NAMESPACE --service-account robusta-holmes-service-account
     ```
 
     The script outputs the role ARN at the end. Save it for Step 2:
     ```
-    Role ARN: arn:aws:iam::123456789012:role/HolmesMCPRole
+    Role ARN: arn:aws:iam::123456789012:role/holmes-aws-mcp-role-YOUR_CLUSTER_NAME
     ```
 
 === "Manual Setup"
@@ -58,12 +59,6 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
     **Create the IAM role:**
 
-    Service account names by installation method:
-
-    - Holmes Helm Chart: `aws-api-mcp-sa`
-    - Robusta Helm Chart: `aws-api-mcp-sa`
-    - CLI deployment: `aws-mcp-sa` (as defined in the manifest)
-
     ```bash
     # Get your OIDC provider URL
     OIDC_PROVIDER=$(aws eks describe-cluster --name YOUR_CLUSTER_NAME --query "cluster.identity.oidc.issuer" --output text | sed -e "s/^https:\/\///")
@@ -81,7 +76,8 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
           "Action": "sts:AssumeRoleWithWebIdentity",
           "Condition": {
             "StringEquals": {
-              "${OIDC_PROVIDER}:sub": "system:serviceaccount:YOUR_NAMESPACE:SERVICE_ACCOUNT_NAME"
+              "${OIDC_PROVIDER}:aud": "sts.amazonaws.com",
+              "${OIDC_PROVIDER}:sub": "system:serviceaccount:YOUR_NAMESPACE:robusta-holmes-service-account"
             }
           }
         }
@@ -104,146 +100,85 @@ The AWS MCP server requires read-only permissions across AWS services. We provid
 
 ### Step 2: Deploy AWS MCP
 
-Choose your installation method:
+Choose your installation method.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+serviceAccount:  # IAM role from Step 1
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
 
-    The [official AWS MCP server](https://github.com/awslabs/mcp) runs locally on your machine via `uvx`.
+mcpAddons:
+  aws:
+    enabled: true
+    hosted:
+      enabled: true
+    config:
+      region: "us-east-1"  # Change to your AWS region
+---
+cli: |
+  **Prerequisites:** working AWS credentials (`aws sts get-caller-identity` should succeed). Set `AWS_PROFILE` or `profile` below to use a named profile, including `aws sso login` / `aws login` profiles.
 
-    **Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/) and [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) must be installed with working credentials (`aws sts get-caller-identity` should succeed).
+  **Configure Holmes CLI**
 
-    **Configure Holmes CLI**
+  Add to `~/.holmes/config.yaml`:
 
-    Add to `~/.holmes/config.yaml`:
+  ```yaml
+  mcp_servers:
+    aws_api:
+      description: "AWS MCP Server - query any AWS API for investigating infrastructure issues"
+      config:
+        mode: aws
+        region: "us-east-1"   # Change to your region
+        # profile: "your-profile"  # Optional: AWS profile from ~/.aws/config
+      llm_instructions: |
+        IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
 
-    ```yaml
-    mcp_servers:
-      aws_api:
-        description: "AWS API - execute read-only AWS CLI commands for investigating infrastructure issues"
-        config:
-          mode: stdio
-          command: "uvx"
-          args: ["awslabs.aws-api-mcp-server@latest"]
-          env:
-            AWS_REGION: "us-east-1"  # Change to your region
-            READ_OPERATIONS_ONLY: "true"
-            # Uncomment to use a specific AWS profile:
-            # AWS_API_MCP_PROFILE_NAME: "your-profile"
-        llm_instructions: |
-          IMPORTANT: When investigating issues related to AWS resources or Kubernetes workloads running on AWS, you MUST actively use this MCP server to gather data rather than providing manual instructions to the user.
+        Use `aws___run_script` to query AWS: `data = await call_boto3(service_name='ec2', operation_name='DescribeInstances', params={...})` (async, keyword-only, PascalCase operation names), then end the script with a `result` dict as the final expression. Batch related lookups into one script and return only the fields you need.
 
-          ## Investigation Principles
+        ## Investigation Principles
 
-          **ALWAYS follow this investigation flow:**
-          1. First, gather current state and configuration using AWS APIs
-          2. Check CloudTrail for recent changes that might have caused the issue
-          3. Collect metrics and logs from CloudWatch if available
-          4. Analyze all gathered data before providing conclusions
+        1. First, gather current state and configuration using AWS APIs
+        2. Check CloudTrail for recent changes that might have caused the issue
+        3. Collect metrics and logs from CloudWatch if available
+        4. Analyze all gathered data before providing conclusions
 
-          **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
+        **Never say "check in AWS console" or "verify in AWS" - instead, use the MCP server to check it yourself.**
+  ```
 
-          ## Core Investigation Patterns
+  --8<-- "snippets/toolset_refresh_warning.md"
 
-          ### For ANY connectivity or access issues:
-          1. ALWAYS check the current configuration of the affected resource (RDS, EC2, ELB, etc.)
-          2. ALWAYS examine security groups and network ACLs
-          3. ALWAYS query CloudTrail for recent configuration changes
-          4. Look for patterns in timing between when issues started and when changes were made
+  ??? info "Alternative: AWS's stdio proxy"
+      If you prefer AWS's own client, run [mcp-proxy-for-aws](https://github.com/aws/mcp-proxy-for-aws) as a stdio subprocess instead. It needs [uv](https://docs.astral.sh/uv/getting-started/installation/) and signs with the same local credentials:
 
-          ### When investigating database issues (RDS):
-          - Get RDS instance status and configuration: `aws rds describe-db-instances --db-instance-identifier INSTANCE_ID`
-          - Check security groups attached to RDS: Extract VpcSecurityGroups from the above
-          - Examine security group rules: `aws ec2 describe-security-groups --group-ids SG_ID`
-          - Look for recent RDS events: `aws rds describe-events --source-identifier INSTANCE_ID --source-type db-instance`
-          - Check CloudTrail for security group modifications: `aws cloudtrail lookup-events --lookup-attributes AttributeKey=ResourceName,AttributeValue=SG_ID`
-
-          Remember: Your goal is to gather evidence from AWS, not to instruct the user to gather it. Use the MCP server proactively to build a complete picture of what happened.
-    ```
-
-    **Test it**
-
-    ```bash
-    holmes ask "List my EC2 instances and their current status"
-    ```
-
-=== "Holmes Helm Chart"
-
-    **Step 2a: Update your values.yaml**
-
-    Add the AWS MCP addon configuration:
-
-    ```yaml
-    mcpAddons:
-      aws:
-        enabled: true
-
-        serviceAccount:
-          create: true
-          annotations:
-            # Use the IAM role ARN from Step 1
-            eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
-
-        config:
-          region: "us-east-1"  # Change to your AWS region
-    ```
-
-    For additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
-
-    **Step 2b: Deploy Holmes**
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-    **Step 2c: Verify the deployment**
-
-    ```bash
-    # Check that the MCP server pod is running
-    kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
-
-    # Check the logs for any errors
-    kubectl logs -l app.kubernetes.io/name=aws-mcp-server
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 2a: Update your Helm values**
-
-    Add the Holmes MCP addon configuration under the `holmes` section:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        aws:
-          enabled: true
-
-          serviceAccount:
-            create: true
-            annotations:
-              # Use the IAM role ARN from Step 1
-              eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/HolmesMCPRole"
-
+      ```yaml
+      mcp_servers:
+        aws_api:
+          description: "AWS MCP Server - query any AWS API for investigating infrastructure issues"
           config:
-            region: "us-east-1"  # Change to your AWS region
-    ```
+            mode: stdio
+            command: "uvx"
+            args: ["mcp-proxy-for-aws-cli@1.7.0", "https://aws-mcp.us-east-1.api.aws/mcp"]
+            env:
+              AWS_REGION: "us-east-1"
+              # AWS_PROFILE: "your-profile"
+      ```
 
-    For additional options (resources, network policy, node selectors), see the [full chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml#L75).
+      Do not add the proxy's `--read-only` flag: it hides `aws___run_script`, the only tool that calls AWS APIs.
 
-    **Step 2b: Deploy Robusta**
+  **Test it**
 
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
+  ```bash
+  holmes ask "List my EC2 instances and their current status"
+  ```
+```
 
-    **Step 2c: Verify the deployment**
+**Step 3: Verify the deployment**
 
-    ```bash
-    # Check that the MCP server pod is running
-    kubectl get pods -l app.kubernetes.io/name=aws-mcp-server
+In Kubernetes, Holmes logs the IAM identity it authenticated with:
 
-    # Check the logs for any errors
-    kubectl logs -l app.kubernetes.io/name=aws-mcp-server
-    ```
+```bash
+kubectl logs -l app=holmes | grep "aws_api"
+```
 
 ## Multi-Account Setup
 
@@ -253,22 +188,22 @@ If you have a single Holmes agent that needs to query AWS resources across multi
     You can also deploy a separate Holmes agent in each AWS account. If you use [Robusta](https://home.robusta.dev/), you can manage a fleet of agents across environments from a single pane of glass. The multi-account setup below is for when you want **one agent** to reach into **multiple accounts**.
 
 ??? info "How It Works"
-    When multi-account mode is enabled, the MCP server:
+    When multi-account mode is enabled:
 
-    1. Uses **EKS token projection** instead of IRSA (IAM Roles for Service Accounts)
-    2. Mounts an `accounts.yaml` configuration file that defines target accounts and their IAM roles
-    3. Uses `assume_role_with_web_identity` to assume roles in target accounts
-    4. Allows the LLM to specify which account to use via the `--profile` flag
+    1. Holmes gets one AWS toolset (`aws_api`) for all accounts; every tool call names an account, and Holmes signs it with that account's AWS profile
+    2. The chart renders an AWS config file where every profile assumes the account's IAM role with the pod's projected service account token (`AssumeRoleWithWebIdentity`); the AWS SDK refreshes the credentials itself
+    3. The IAM roles in the target accounts trust the Holmes service account of your cluster
 
 ### Step 1: Download the Setup Script
 
 ```bash
 # Download the setup script
-curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/setup-multi-account-iam.sh
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/scripts/setup-multi-account-iam.sh
 chmod +x setup-multi-account-iam.sh
 
-# Download example configuration file
-curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/multi-cluster-config-example.yaml
+# Download example configuration file and the read-only policy
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/scripts/multi-cluster-config-example.yaml
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/aws-mcp-iam-policy.json
 ```
 
 ??? info "What the Script Does"
@@ -277,16 +212,11 @@ curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/ma
     1. **Creates OIDC Providers**: Sets up OIDC providers for each cluster in the target account
     2. **Creates IAM Role**: Creates a role with trust policy allowing `assume_role_with_web_identity` from all configured clusters
     3. **Attaches Permissions**: Applies the read-only permissions policy to the role
-
-    This enables pods running in any of your clusters to assume roles in target accounts and access AWS resources there.
+    4. **Generates `holmes_config.yaml`**: The Helm values for Step 4
 
 ### Step 2: Create Configuration File
 
-Edit `multi-cluster-config-example.yaml` with your cluster and account details. The script uses this file to:
-
-- Create OIDC providers in each target account (using the cluster OIDC URLs)
-- Set up IAM roles with trust policies that allow your clusters to assume them
-- Configure which AWS accounts Holmes can access via `--profile`
+Edit `multi-cluster-config-example.yaml` with your cluster and account details. `kubernetes.service_account` must be the Holmes service account, `robusta-holmes-service-account`.
 
 ??? example "Example Configuration"
     ```yaml
@@ -295,17 +225,15 @@ Edit `multi-cluster-config-example.yaml` with your cluster and account details. 
         region: us-east-1
         account_id: "111111111111"
         oidc_issuer_id: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        oidc_issuer_url: https://oidc.eks.us-east-1.amazonaws.com/id/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
       - name: staging-cluster
         region: us-west-2
         account_id: "111111111111"
         oidc_issuer_id: BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
-        oidc_issuer_url: https://oidc.eks.us-west-2.amazonaws.com/id/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 
     kubernetes:
       namespace: YOUR_NAMESPACE  # Must match the namespace where Holmes is deployed
-      service_account: multi-account-mcp-sa
+      service_account: robusta-holmes-service-account
 
     iam:
       role_name: EKSMultiAccountMCPRole
@@ -322,7 +250,7 @@ Edit `multi-cluster-config-example.yaml` with your cluster and account details. 
         description: "Production account"
     ```
 
-To get the `oidc_issuer_url` and `oidc_issuer_id` values for each cluster in the config file:
+To get the `oidc_issuer_id` for each cluster:
 
 ```bash
 # Get the OIDC issuer URL for your cluster
@@ -353,88 +281,35 @@ aws eks describe-cluster --name <cluster-name> --query "cluster.identity.oidc.is
 
 ### Step 4: Configure Helm Chart
 
-Once the IAM roles are set up, configure the Helm chart to enable multi-account mode:
+Once the IAM roles are set up, configure the Helm chart to enable multi-account mode. The setup script writes this block to `holmes_config.yaml` for you. CLI users instead add one `mode: aws` server to `~/.holmes/config.yaml` with an `accounts` map keyed by profile names from `~/.aws/config`.
 
-=== "Holmes CLI"
+```yaml-helm-values
+# No IRSA annotation needed: each role is assumed with the pod's projected token
+mcpAddons:
+  aws:
+    enabled: true
+    hosted:
+      enabled: true
+    config:
+      region: "us-east-1"  # Default region for all accounts
 
-    Multi-account mode is not currently supported for CLI deployments. Use the [Single Account Setup](#single-account-setup) instead, or deploy Holmes via Helm.
-
-=== "Holmes Helm Chart"
-
-    Add the following configuration to your `values.yaml` file:
-
-    ```yaml
-    mcpAddons:
-      aws:
-        enabled: true
-
-        # AWS configuration
-        config:
-          region: "us-east-1"  # Your AWS region
-          readOnlyMode: true
-
-        # Multi-account configuration
-        multiAccount:
-          enabled: true
-          profiles:
-            dev:
-              account_id: "111111111111"
-              role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-              region: "us-east-1"  # optional, defaults to the region specified in config
-            prod:
-              account_id: "222222222222"
-              role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
-              region: "us-east-1"  # optional, defaults to the region specified in config
-          llm_account_descriptions: |
-            You must use the --profile flag to specify the account to use.
-            Example: --profile dev - this is the development account and contains the development resources
-            Example: --profile prod - this is the production account and contains the production resources
-
-        # Note: When multiAccount.enabled is true, IRSA annotations are not used
-        # The service account will use EKS token projection instead
-        serviceAccount:
-          create: true
-          # annotations are ignored when multiAccount is enabled
-    ```
-
-=== "Robusta Helm Chart"
-
-    Add the following configuration to your Helm values:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        aws:
-          enabled: true
-
-          # AWS configuration
-          config:
-            region: "us-east-1"  # Your AWS region
-            readOnlyMode: true
-
-          # Multi-account configuration
-          multiAccount:
-            enabled: true
-            profiles:
-              dev:
-                account_id: "111111111111"
-                role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
-                region: "us-east-1"  # optional, defaults to the region specified in config
-              prod:
-                account_id: "222222222222"
-                role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
-                region: "us-east-1"  # optional, defaults to the region specified in config
-            llm_account_descriptions: |
-              You must use the --profile flag to specify the account to use.
-              Example: --profile dev - this is the development account and contains the development resources
-              Example: --profile prod - this is the production account and contains the production resources
-
-          # Note: When multiAccount.enabled is true, IRSA annotations are not used
-          # The service account will use EKS token projection instead
-          serviceAccount:
-            create: true
-            # annotations are ignored when multiAccount is enabled
-    ```
+    multiAccount:
+      enabled: true
+      profiles:
+        dev:
+          role_arn: "arn:aws:iam::111111111111:role/EKSMultiAccountMCPRole"
+          description: "Development account"   # shown to the LLM when it picks an account
+          region: "us-east-1"                  # optional, defaults to config.region
+        prod:
+          role_arn: "arn:aws:iam::222222222222:role/EKSMultiAccountMCPRole"
+          description: "Production account"
+          # Instead of the pod token, assume this role from another profile's credentials
+          # (or set credential_source, e.g. EcsContainer for EKS Pod Identity):
+          # source_profile: dev
+      llm_account_descriptions: |
+        dev is the development account and contains the development resources.
+        prod is the production account and contains the production resources.
+```
 
 ## Example Usage
 
@@ -460,4 +335,22 @@ Once the IAM roles are set up, configure the Helm chart to enable multi-account 
 
 ```
 "Can you check the EKS node group status and see if there are any capacity issues?"
+```
+
+## Troubleshooting
+
+```bash
+# "AWS credentials check failed" in holmes toolset list / Holmes logs:
+# verify the pod's identity is the IAM role, not the node role
+kubectl exec deploy/holmes-holmes -- python -c "import boto3; print(boto3.client('sts').get_caller_identity()['Arn'])"
+
+# Trust policy mismatch (AccessDenied on AssumeRoleWithWebIdentity):
+# the `sub` condition must name the Holmes service account
+kubectl get deploy -l app=holmes -o jsonpath='{.items[0].spec.template.spec.serviceAccountName}'
+
+# 401 from https://aws-mcp.<region>.api.aws/mcp: credentials expired or the
+# region in config.region does not exist; re-run `aws sso login` for CLI profiles
+
+# Slow or timed-out tool calls: aws___run_script takes 10-20 s per call;
+# raise MCP_TOOL_CALL_TIMEOUT_SEC (default 120) if your scripts need longer
 ```

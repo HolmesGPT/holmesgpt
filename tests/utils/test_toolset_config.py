@@ -3,6 +3,7 @@
 from typing import Any, ClassVar, Dict, Optional
 from unittest.mock import patch
 
+import pytest
 from pydantic import Field
 
 from holmes.plugins.toolsets.datadog.datadog_api import DatadogBaseConfig
@@ -14,9 +15,18 @@ from holmes.plugins.toolsets.rabbitmq.api import RabbitMQClusterConfig
 from holmes.plugins.toolsets.servicenow_tables.servicenow_tables import (
     ServiceNowTablesConfig,
 )
+from holmes.utils import pydantic_utils
 from holmes.utils.pydantic_utils import ToolsetConfig
 
 _LOGGER_PATH = "holmes.utils.pydantic_utils.logger"
+
+
+@pytest.fixture(autouse=True)
+def _reset_deprecation_warnings():
+    """Deprecated-field warnings are logged once per process; reset so each test sees its own."""
+    pydantic_utils._warned_deprecated_fields.clear()
+    yield
+    pydantic_utils._warned_deprecated_fields.clear()
 
 
 def _warning_text(mock_warn):
@@ -88,6 +98,19 @@ class TestToolsetConfig:
         _ = SampleConfig(new_field="test", another_new=5)
 
         mock_log.warning.assert_not_called()
+
+    @patch(_LOGGER_PATH)
+    def test_deprecation_warning_logged_once(self, mock_log):
+        """Re-validating the same deprecated config (e.g. on every toolset refresh) warns only once."""
+        for _ in range(3):
+            config = SampleConfig(old_field="value")
+            assert config.new_field == "value"
+
+        assert mock_log.warning.call_count == 1
+
+        # A different set of deprecated fields is a different message, so it still warns.
+        SampleConfig(old_field="value", another_old=1)
+        assert mock_log.warning.call_count == 2
 
     def test_extra_fields_allowed(self):
         """Test that extra fields are allowed (for forward compatibility)."""

@@ -14,12 +14,33 @@ HolmesGPT is an AI-powered troubleshooting agent that connects to observability 
 poetry install
 ```
 
+**Use Poetry 1.8.5 to regenerate `poetry.lock`.** The committed lockfile is
+`lock-version = "2.0"`, which Poetry 1.8.x produces. Running `poetry lock` under
+Poetry 2.x rewrites the whole file to `lock-version = "2.1"` and produces a huge
+diff of unrelated churn. Always lock with 1.8.5, and prefer `--no-update` so only
+your dependency change appears in the diff:
+
+```bash
+poetry lock --no-update   # with Poetry 1.8.5
+poetry check --lock       # verify the lockfile matches pyproject.toml
+```
+
+If your system Poetry is 2.x, install 1.8.5 into a throwaway venv and use it just
+for locking:
+
+```bash
+python3 -m venv /tmp/poetry185 && /tmp/poetry185/bin/pip install "poetry==1.8.5"
+/tmp/poetry185/bin/poetry lock --no-update
+```
+
 ### Testing
 
 ```bash
 # Install test dependencies with Poetry
 poetry install --with dev
 ```
+
+`tests/docs` also needs Helm on `PATH` (https://helm.sh/docs/intro/install/): it renders every docs example's Helm values with `helm/holmes`, and fails without it.
 
 ```bash
 # Run all non-LLM tests (unit and integration tests)
@@ -262,6 +283,8 @@ When adding a new toolset or integration, update all of the following pages to k
 2. `docs/walkthrough/why-holmesgpt.md` — Categorized integration list under "Every Major Observability Platform"
 3. `docs/data-sources/builtin-toolsets/index.md` — Grid cards listing on the toolsets index page
 4. `docs/data-sources/builtin-toolsets/{name}.md` — Dedicated documentation page for the new toolset
+   - Each of its deployment tab groups is a `yaml-toolset-config` or `yaml-helm-values` fence (the forms are in the docstring of `docs/custom_fences.py`); `tests/docs` fails on a group written by hand and checks each fence's tabs against the standard shape
+   - A code block's language is one of `CODE_LANGUAGES` in `docs/custom_fences.py`; any other fails the build, naming the page and line
 5. Add a logo image to `images/integration_logos/` if one is available
 
 ## Debugging CLI / Rich Live Display Issues
@@ -876,7 +899,7 @@ The fence (defined in `docs/custom_fences.py`, registered in `mkdocs.yml`) takes
     ```
     ````
 
-- **YAML or other code with `{lang=<name>}`** (applies the `language-<name>` class for syntax highlighting):
+- **YAML, Bash or JSON with `{lang=yaml}`, `{lang=bash}` or `{lang=json}`** (applies the `language-<name>` class for syntax highlighting; `docs/custom_fences.py` accepts no other language):
 
     ````markdown
     ```robusta-region {lang=yaml}

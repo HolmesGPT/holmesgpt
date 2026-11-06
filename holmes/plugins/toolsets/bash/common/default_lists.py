@@ -2,12 +2,17 @@
 Default allow/deny lists for bash toolset.
 
 Two tiers of default allow lists:
-- CORE_ALLOW_LIST: Safe everywhere (CLI and containers). Includes kubectl read-only
-  commands, JSON processing, text filtering, and system info. Does NOT include
-  commands that can read arbitrary files from the local filesystem.
-- EXTENDED_ALLOW_LIST: Adds filesystem access commands (cat, find, ls, etc.) that are
-  safe in containerized environments with minimal filesystems, but could expose
-  sensitive files on local machines (~/.ssh, ~/.aws, etc.).
+- CORE_ALLOW_LIST: read-only commands safe on the CLI and in containers —
+  kubectl read-only verbs, JSON/text processing, and system info. Mostly used on
+  piped input, though a few also read a file when given a path; none modify state.
+- EXTENDED_ALLOW_LIST: adds filesystem commands (cat, find, ls, etc.) — safe in
+  containers, but able to expose sensitive files on a local machine (~/.ssh,
+  ~/.aws, etc.).
+
+Argument-level primitives that would turn these commands into arbitrary code
+execution, file writes, or deletion (e.g. `find -exec`, `sort --compress-program`,
+output redirection) are blocked separately by the argv-aware checks in
+validation.py, independent of allow-list membership.
 
 Controlled by `builtin_allowlist` config field:
 - "core" (CLI default): Uses CORE_ALLOW_LIST
@@ -17,8 +22,8 @@ Controlled by `builtin_allowlist` config field:
 
 from typing import List
 
-# Core allow list - safe everywhere (CLI and containerized)
-# These commands are read-only and don't access the local filesystem
+# Core allow list — read-only commands safe on the CLI and in containers.
+# See the module docstring for the file-read caveat.
 CORE_ALLOW_LIST: List[str] = [
     # Kubernetes read-only commands (RBAC-limited regardless of environment)
     "kubectl get",
@@ -70,12 +75,6 @@ EXTENDED_ALLOW_LIST: List[str] = CORE_ALLOW_LIST + [
     "stat",
     "du",
     "df",
-    # Archive inspection
-    "tar -tf",
-    "tar -tvf",
-    "gzip -l",
-    "zcat",
-    "zgrep",
 ]
 
 # Default deny list - commands that should require explicit approval

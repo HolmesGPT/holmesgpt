@@ -1,0 +1,22 @@
+# connectivity_check with its DEFAULT configuration — no allowed_hosts. This is
+# what every deployment gets out of the box, and it is the configuration the
+# ROB-1114 fix changes: private/internal destinations are now refused unless the
+# operator names them.
+#
+# Everything else is disabled so the model has to reach for tcp_check rather
+# than answering from bash/curl or a cluster toolset, and so the eval needs no
+# Kubernetes. The refusal happens before any socket is opened, so this eval also
+# needs no network access.
+toolsets:
+  connectivity_check:
+    enabled: true
+  internet:
+    enabled: false
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false

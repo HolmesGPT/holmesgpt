@@ -29,151 +29,69 @@ GRANT pg_read_all_stats TO holmes_readonly;
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+postgresql://[username]:[password]@[host]:[port]/[database]
+```
 
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb"
-        llm_instructions: "Production PostgreSQL with customer and order data"
+```yaml-toolset-config
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.POSTGRES_URL }}"
+    llm_instructions: "Production PostgreSQL database"
+---
+secret:
+  - --from-literal=POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-      analytics-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://analyst:pass@analytics-pg.internal:5432/analytics"
-        llm_instructions: "Analytics warehouse for reporting queries"
-    ```
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb"
+      llm_instructions: "Production PostgreSQL with customer and order data"
 
-    **Using environment variables:**
+    analytics-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://analyst:pass@analytics-pg.internal:5432/analytics"
+      llm_instructions: "Analytics warehouse for reporting queries"
+  ```
 
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-    ```
+  **Using environment variables:**
 
-    **Connection URL format:**
-    ```
-    postgresql://[username]:[password]@[host]:[port]/[database]
-    ```
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "{{ env.POSTGRES_URL }}"
+  ```
+```
 
-=== "Holmes Helm Chart"
+### Multiple instances
 
-    **Step 1: Create secret with credentials**
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.PROD_POSTGRES_URL }}"
 
-    ```bash
-    kubectl create secret generic postgres-credentials \
-      --from-literal=url='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n holmes
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    additionalEnvVars:
-      - name: POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-credentials
-            key: url
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-        llm_instructions: "Production PostgreSQL database"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    additionalEnvVars:
-      - name: PROD_POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-prod
-            key: url
-      - name: ANALYTICS_POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-analytics
-            key: url
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.PROD_POSTGRES_URL }}"
-
-      analytics-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic postgres-credentials \
-      --from-literal=url='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: PROD_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-prod
-              key: url
-        - name: ANALYTICS_POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-analytics
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.PROD_POSTGRES_URL }}"
-
-        analytics-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
-    ```
+  analytics-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.ANALYTICS_POSTGRES_URL }}"
+---
+secret:
+  - --from-literal=PROD_POSTGRES_URL='postgresql://holmes_readonly:your_secure_password@postgres.example.com:5432/mydb'
+  - --from-literal=ANALYTICS_POSTGRES_URL='postgresql://analyst:pass@analytics-pg.internal:5432/analytics'
+```
 
 ## Configuration Options
 

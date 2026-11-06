@@ -104,6 +104,7 @@ def test_streaming_chat_approval_workflow_requires_approval(
     )
     mock_llm.get_context_window_size.return_value = 128000
     mock_llm.get_maximum_output_token.return_value = 4096
+    mock_llm.get_max_token_count_for_single_tool.return_value = 20000
     mock_llm.model = "gpt-4o"
 
     # Mock the LLM completion to return a tool call
@@ -245,6 +246,7 @@ def test_streaming_chat_approval_workflow_approve_and_execute(
     )
     mock_llm.get_context_window_size.return_value = 128000
     mock_llm.get_maximum_output_token.return_value = 4096
+    mock_llm.get_max_token_count_for_single_tool.return_value = 20000
     mock_llm.model = "gpt-4o"
 
     mock_llm_response = create_mock_llm_response(
@@ -397,6 +399,7 @@ def test_streaming_chat_approval_workflow_reject_command(
     )
     mock_llm.get_context_window_size.return_value = 128000
     mock_llm.get_maximum_output_token.return_value = 4096
+    mock_llm.get_max_token_count_for_single_tool.return_value = 20000
     mock_llm.model = "gpt-4o"
 
     mock_llm_response = create_mock_llm_response(
@@ -551,6 +554,7 @@ def test_chat_with_empty_ask_and_tool_decisions_does_not_append_empty_user_messa
     )
     mock_llm.get_context_window_size.return_value = 128000
     mock_llm.get_maximum_output_token.return_value = 4096
+    mock_llm.get_max_token_count_for_single_tool.return_value = 20000
     mock_llm.model = "gpt-4o"
 
     mock_tool_executor.get_all_tools_openai_format.return_value = []

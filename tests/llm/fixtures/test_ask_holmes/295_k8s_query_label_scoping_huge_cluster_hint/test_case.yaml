@@ -1,0 +1,39 @@
+# ROB-1564: same shape as 294, but toolsets.yaml carries the "huge cluster"
+# llm_instructions documented in docs/data-sources/builtin-toolsets/kubernetes.md.
+# Proves that guidance makes Holmes scope every kubernetes/core query instead of
+# listing the whole cluster. A ConfigMap with the same name but a different app
+# label sits in a second namespace.
+user_prompt: "Our invoice-relay app's resources carry the label app=invoice-relay. Which namespace is its ConfigMap in, and what owner-ticket value is set in its data?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must say the ConfigMap is in namespace app-295"
+  - "Must report the owner ticket OPS-5519-rv"
+  - "Must NOT give OPS-3047-tn as the answer (that ConfigMap has a different app label)"
+  - "The tool calls must include a kubernetes_jq_query, kubernetes_count or kubernetes_tabular_query call whose label_selector parameter selects app=invoice-relay"
+  - "Every kubernetes_jq_query, kubernetes_count and kubernetes_tabular_query call must set a namespace or label_selector parameter; an unscoped call fails this criterion"
+
+tags:
+  - kubernetes
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+  for ns in app-295 app-295-archive; do
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+  done
+  kubectl create configmap invoice-relay-config -n app-295 \
+    --from-literal=owner-ticket=OPS-5519-rv --from-literal=batch-size=200 \
+    --dry-run=client -o yaml | kubectl label --local -f - app=invoice-relay -o yaml | kubectl apply -f -
+  kubectl create configmap invoice-relay-config -n app-295-archive \
+    --from-literal=owner-ticket=OPS-3047-tn --from-literal=batch-size=50 \
+    --dry-run=client -o yaml | kubectl label --local -f - app=invoice-relay-v1 -o yaml | kubectl apply -f -
+  if ! kubectl get configmaps -A -l app=invoice-relay -o yaml | grep -q OPS-5519-rv; then
+    echo "❌ no ConfigMap labelled app=invoice-relay holds the expected ticket"
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-295 app-295-archive --ignore-not-found

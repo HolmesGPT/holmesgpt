@@ -258,10 +258,10 @@ class TestHttpToolsetDelegation:
             api_key="api-token",
         )
 
-        with patch("holmes.plugins.toolsets.http.http_toolset.requests.get") as mock_get:
+        with patch("holmes.plugins.toolsets.http.http_toolset.requests.request") as mock_request:
             mock_resp = MagicMock()
             mock_resp.ok = True
-            mock_get.return_value = mock_resp
+            mock_request.return_value = mock_resp
             ts._setup_http_tools()
 
         assert len(ts.tools) == 1

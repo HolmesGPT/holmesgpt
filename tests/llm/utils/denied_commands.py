@@ -8,7 +8,7 @@ so any command the LLM attempts that is not pre-approved is effectively denied:
   ``ERROR`` status and a "Command blocked..." / "Invalid prefix..." message.
 * Commands that would normally require interactive approval come back as
   ``APPROVAL_REQUIRED`` and are then converted to an ``ERROR`` with a
-  "rejected for security reasons" message because no approver is available.
+  "Tool call rejected" message because no approver is available.
 
 This module pulls those commands out of an ``LLMResult`` so they can be surfaced
 in the eval report (and verified by tests).
@@ -26,7 +26,7 @@ _DENY_ERROR_MARKERS = (
     "Command blocked",  # deny list / hard-coded block
     "Invalid prefix",  # prefix not present in command
     "requires approval",  # approval needed but not granted
-    "rejected for security reasons",  # approval-required tool denied in non-interactive mode
+    "Tool call rejected",  # approval-required tool denied in non-interactive mode
 )
 
 

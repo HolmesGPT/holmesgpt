@@ -18,6 +18,9 @@ from holmes.core.tools_utils.filesystem_result_storage import save_images, save_
 from holmes.utils import sentry_helper
 
 
+ERROR_INLINE_PREVIEW_CHARS = 500
+
+
 def get_pct_token_count(percent_of_total_context_window: float, llm: LLM) -> int:
     context_window_size = llm.get_context_window_size()
 
@@ -47,8 +50,6 @@ def spill_oversized_tool_result(
     max_tokens_allowed = llm.get_max_token_count_for_single_tool()
     logging.debug(f"spill_oversized_tool_result: count_tokens took {(time.monotonic() - t0) * 1000:.1f}ms for {tool_call_result.tool_name} ({messages_token} tokens)")
 
-    if tool_call_result.result.status != StructuredToolResultStatus.SUCCESS:
-        return messages_token
     if messages_token <= max_tokens_allowed:
         return messages_token
 
@@ -66,6 +67,7 @@ def spill_oversized_tool_result(
         return messages_token
 
     size_info = f"The tool call result is too large to return: {messages_token}/{max_tokens_allowed} tokens.\n"
+    is_error = tool_call_result.result.status != StructuredToolResultStatus.SUCCESS
 
     # Try filesystem storage if a directory is provided and storage is enabled
     file_path = None
@@ -73,6 +75,8 @@ def spill_oversized_tool_result(
     image_paths: list[str] = []
     if tool_results_dir and load_bool("HOLMES_TOOL_RESULT_STORAGE_ENABLED", True):
         filesystem_data, is_json = tool_call_result.result.stringify_data(compact=False)
+        if is_error and tool_call_result.result.error:
+            filesystem_data = f"{tool_call_result.result.error}\n{filesystem_data}"
         file_path = save_large_result(
             tool_results_dir=tool_results_dir,
             tool_name=tool_call_result.tool_name,
@@ -112,6 +116,10 @@ def spill_oversized_tool_result(
         safety_margin_chars_per_token = chars_per_token / 2
         max_chars = max_tokens_allowed * safety_margin_chars_per_token
         preview_budget = int(max(0, max_chars - len(boilerplate)))
+        if is_error:
+            # The model only needs the failure gist inline; the file has the rest
+            preview_budget = min(preview_budget, ERROR_INLINE_PREVIEW_CHARS)
+            tool_call_result.result.error = None
         preview = filesystem_data[:preview_budget]
         tool_call_result.result.data = f"{boilerplate}{preview}"
         # Clear images from the result since they're now on disk

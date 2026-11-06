@@ -15,10 +15,13 @@ Other providers keep the single-call path.
 import json
 from unittest.mock import MagicMock
 
+import litellm
+import pytest
 from litellm.types.utils import Choices, Message, ModelResponse, Usage
 
 from holmes.checks.checks import CHECK_RESPONSE_FORMAT, _execute_ai_check
 from holmes.checks.models import Check, CheckMode
+from holmes.core.llm_usage import request_usage
 from holmes.core.tool_calling_llm import LLMResult
 
 
@@ -118,3 +121,24 @@ def test_non_gemini_uses_single_call_with_response_format():
     ai.llm.completion.assert_not_called()
 
     assert result is single
+
+
+def test_failed_coerce_call_carries_the_investigations_usage():
+    """The usage recorder only sees the error, so the billed investigation
+    and the coerce call's retries travel on it."""
+    ai = MagicMock()
+    ai.llm.model = "vertex_ai/gemini-2.5-pro"
+    ai.call.return_value = LLMResult(
+        result="All pods are Running.", total_tokens=100, prompt_tokens=80, total_cost=0.01
+    )
+    failure = litellm.RateLimitError(message="slow down", llm_provider="vertex_ai", model="m")
+    failure.llm_rate_limit_retries = 4
+    ai.llm.completion.side_effect = failure
+
+    with pytest.raises(litellm.RateLimitError):
+        _execute_ai_check(_make_check(), ai)
+
+    total = request_usage(failure)
+    assert total.total_tokens == 100
+    assert total.total_cost == 0.01
+    assert total.llm_rate_limit_retries == 4

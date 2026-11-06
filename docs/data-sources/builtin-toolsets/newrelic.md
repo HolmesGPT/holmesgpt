@@ -24,88 +24,19 @@ In the same UI, click your profile icon (bottom-left) → **Administration** →
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      newrelic:
-        enabled: true
-        config:
-          api_key: "<your New Relic User API Key>"
-          account_id: "<your New Relic account ID>"
-          is_eu_datacenter: false  # Set to true if using New Relic EU region
-          enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    First, create a Kubernetes secret with your User API Key:
-
-    ```bash
-    kubectl create secret generic newrelic-credentials \
-      --from-literal=api-key=your-new-relic-user-api-key \
-      -n holmes
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Holmes Helm values:
-
-    ```yaml
-    additionalEnvVars:
-      - name: NEW_RELIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: newrelic-credentials
-            key: api-key
-
-    toolsets:
-      newrelic:
-        enabled: true
-        config:
-          api_key: "{{ env.NEW_RELIC_API_KEY }}"
-          account_id: "<your New Relic account ID>"
-          is_eu_datacenter: false  # Set to true if using New Relic EU region
-          enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your User API Key:
-
-    ```bash
-    kubectl create secret generic newrelic-credentials \
-      --from-literal=api-key=your-new-relic-user-api-key \
-      -n default
-    ```
-
-    --8<-- "snippets/secret_namespace_note.md"
-
-    Then add to your Robusta Helm values:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: NEW_RELIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: newrelic-credentials
-              key: api-key
-      toolsets:
-        newrelic:
-          enabled: true
-          config:
-            api_key: "{{ env.NEW_RELIC_API_KEY }}"
-            account_id: "<your New Relic account ID>"
-            is_eu_datacenter: false  # Set to true if using New Relic EU region
-            enable_multi_account: false  # Optional: set to true to query across multiple accounts
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+```yaml-toolset-config
+toolsets:
+  newrelic:
+    enabled: true
+    config:
+      api_key: "{{ env.NEW_RELIC_API_KEY }}"
+      account_id: "<your New Relic account ID>"
+      is_eu_datacenter: false  # Set to true if using New Relic EU region
+      enable_multi_account: false  # Optional: set to true to query across multiple accounts
+---
+secret:
+  - --from-literal=NEW_RELIC_API_KEY=your-new-relic-user-api-key
+```
 
 ## Multiple Instances
 
@@ -125,6 +56,7 @@ config: |
 | `account_id` | (required) | New Relic account ID (numeric, e.g. `1234567`). |
 | `is_eu_datacenter` | `false` | Set `true` for the EU region. Controls both the API endpoint (`api.eu.newrelic.com`) and the URL used in clickable links in Holmes's responses. |
 | `enable_multi_account` | `false` | Enable cross-account queries. When true, Holmes exposes an additional `newrelic_list_organization_accounts` tool and lets individual NRQL queries override the account ID. |
+| `timeout_seconds` | `30` | Request timeout in seconds for New Relic API calls. Increase it if large NRQL queries time out. |
 
 ## Capabilities
 

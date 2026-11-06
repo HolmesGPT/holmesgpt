@@ -6,9 +6,11 @@
 #   wheel >= 0.46.2     CVE-2026-24049
 #   pip >= 26.1         CVE-2026-3219/6357, CVE-2025-8869
 #   setuptools >= 80.0  CVE-2026-1703 (final-stage system Python only)
+#   virtualenv >= 21.14.9  CVE-2026-113718/113722/113723 (poetry's dependency, builder venv only)
 ARG PIP_MIN_VERSION=26.1
 ARG WHEEL_MIN_VERSION=0.46.2
 ARG SETUPTOOLS_MIN_VERSION=80.0.0
+ARG VIRTUALENV_MIN_VERSION=21.14.9
 
 # Build stage
 FROM python:3.11-alpine AS builder
@@ -19,12 +21,10 @@ ENV PATH="/root/.local/bin/:$PATH"
 RUN apk add --no-cache \
     curl \
     git \
-    gnupg \
     unzip \
     build-base \
     libffi-dev \
     openssl-dev \
-    unixodbc-dev \
     cyrus-sasl-dev \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
@@ -44,46 +44,14 @@ RUN python -m venv /venv --upgrade-deps && \
 ENV VIRTUAL_ENV=/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# kubectl: official release binary from dl.k8s.io, pulled with upstream SHA-256
-# verification. v1.36.3 is built with Go 1.26.5, so it carries the stdlib CVE
-# fixes (incl. CVE-2026-39822/42505). Known accepted findings: every kubectl
-# release (incl. v1.36.3) still vendors golang.org/x/net v0.49.0, which scanners
-# flag for CVE-2026-33814/25681/27136/39821 (High), CVE-2026-25680/42502/42506
-# (Medium) and CVE-2026-46600 -- all fixed in x/net <= 0.56.0 but with no kubectl
-# release shipping it yet. We previously rebuilt kubectl from source with an
-# x/net replace to clear these (see git history); that was reverted in favor of
-# the official binary. Bump KUBECTL_VERSION when a release ships x/net >= 0.56.0
-# -- check a candidate with:
-#   go version -m <(curl -sL https://dl.k8s.io/release/<ver>/bin/linux/amd64/kubectl)
 ARG TARGETARCH
-ARG KUBECTL_VERSION=v1.36.3
-RUN cd /tmp \
-    && curl -fsSLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
-    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" -o kubectl.sha256 \
-    && echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c - \
-    && mv kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
-    && rm -f kubectl.sha256 \
-    && kubectl version --client
 
-# Download + signature-verify Microsoft ODBC driver (azure/sql toolset) for the
-# final stage. 18.6.2.1 ships genuine amd64 + aarch64 Alpine apks (the 18.5.x
-# arm64-named apk was mislabeled x86_64 and uninstallable on aarch64).
-ARG MSODBCSQL_VERSION=18.6.2.1-1
-ARG MSODBCSQL_DOWNLOAD=https://download.microsoft.com/download/0b3d5518-b4a7-4a2b-afc7-7ee9e967f93c
-RUN curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
-    && curl -fsSLO "${MSODBCSQL_DOWNLOAD}/msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" \
-    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --import - \
-    && gpg --verify "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig" "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" \
-    && mv "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.apk" /msodbcsql18.apk \
-    && rm -f "msodbcsql18_${MSODBCSQL_VERSION}_${TARGETARCH}.sig"
-
-# kube-lineage / ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
-COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz /tmp/kube-lineage.gz
-COPY bin/go-cve-rebuild/${TARGETARCH}/kube-lineage.gz.sha256 /tmp/kube-lineage.gz.sha256
-RUN cd /tmp && sha256sum -c kube-lineage.gz.sha256 \
-    && gunzip /tmp/kube-lineage.gz && mv /tmp/kube-lineage /kube-lineage && chmod +x /kube-lineage \
-    && rm -f /tmp/kube-lineage.gz.sha256
-RUN /kube-lineage --version
+# kubectl / ArgoCD / Helm: CVE-patched static binaries (see scripts/build_go_binaries.sh).
+COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz /tmp/kubectl.gz
+COPY bin/go-cve-rebuild/${TARGETARCH}/kubectl.gz.sha256 /tmp/kubectl.gz.sha256
+RUN cd /tmp && sha256sum -c kubectl.gz.sha256 \
+    && gunzip /tmp/kubectl.gz && mv /tmp/kubectl /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl \
+    && rm -f /tmp/kubectl.gz.sha256
 
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz /tmp/argocd.gz
 COPY bin/go-cve-rebuild/${TARGETARCH}/argocd.gz.sha256 /tmp/argocd.gz.sha256
@@ -98,11 +66,12 @@ RUN cd /tmp && sha256sum -c helm.gz.sha256 \
     && rm -f /tmp/helm.gz.sha256
 
 # Set up poetry
+ARG VIRTUALENV_MIN_VERSION
 ARG PRIVATE_PACKAGE_REGISTRY="none"
 RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
     pip config set global.index-url "${PRIVATE_PACKAGE_REGISTRY}"; \
     fi \
-    && pip install poetry
+    && pip install poetry "virtualenv>=${VIRTUALENV_MIN_VERSION}"
 ARG POETRY_REQUESTS_TIMEOUT
 RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock /
@@ -124,8 +93,9 @@ WORKDIR /app
 COPY --from=builder /venv /venv
 
 # Runtime packages. librdkafka: confluent-kafka binding; libstdc++/libgcc:
-# compiled wheels; krb5-libs/unixodbc: msodbcsql18 (azure/sql). apk upgrade
-# pulls Alpine security fixes for base-image packages.
+# compiled wheels. apk upgrade pulls Alpine security fixes for base-image
+# packages.
+# expat from edge: 2.9.0 CVE fixes; Alpine 3.24 ships 2.8.5.
 #
 # bash + GNU coreutils/findutils/grep/gzip: the bash toolset allowlist
 # (default_lists.py) lets the LLM run grep/find/sort/date/head/stat/zgrep/etc.
@@ -152,25 +122,15 @@ RUN apk upgrade --no-cache && apk add --no-cache \
     tcpdump \
     libstdc++ \
     libgcc \
-    unixodbc \
-    krb5-libs \
     && apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
-    librdkafka
-
-# Microsoft ODBC for Azure SQL. The apk was signature-verified in the builder
-# stage; --allow-untrusted since it's not in an Alpine repo.
-COPY --from=builder /msodbcsql18.apk /tmp/msodbcsql18.apk
-RUN apk add --no-cache --allow-untrusted /tmp/msodbcsql18.apk && rm /tmp/msodbcsql18.apk
+    librdkafka \
+    expat
 
 # Set up kubectl
 COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 RUN kubectl version --client
-
-# Set up kube lineage
-COPY --from=builder /kube-lineage /usr/local/bin
-RUN kube-lineage --version
 
 # Set up ArgoCD
 COPY --from=builder /argocd /usr/local/bin/argocd
@@ -188,13 +148,22 @@ ARG AWS_REGION
 # Patching CVE-2024-32002
 RUN git config --global core.symlinks false
 
-# Upgrade base-image system Python's wheel/setuptools/pip (CVE floors pinned via
-# the ARGs at the top of this file).
+# Upgrade base-image system Python's wheel/setuptools (CVE floors pinned via
+# the ARGs at the top of this file), then remove pip from BOTH the system
+# Python and the venv. The runtime never installs packages (the venv is fully
+# populated at build time, holmes never shells out to pip, and pip is not in
+# the bash toolset allowlist), while pip's own vendored dependencies
+# (pip/_vendor/vendor.txt) ship msgpack 1.1.2 (GHSA-6v7p-g79w-8964, High) and
+# setuptools 70.3.0 (CVE-2025-47273, High) with NO pip release that fixes them
+# -- pip 26.2.1 is the latest and still vendors both. Removing pip removes the
+# vendored copies. Restore with `python -m ensurepip` if ever needed at runtime.
 ARG PIP_MIN_VERSION
 ARG WHEEL_MIN_VERSION
 ARG SETUPTOOLS_MIN_VERSION
 RUN /usr/local/bin/pip install --upgrade --no-cache-dir \
-    "wheel>=${WHEEL_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}"
+    "wheel>=${WHEEL_MIN_VERSION}" "setuptools>=${SETUPTOOLS_MIN_VERSION}" "pip>=${PIP_MIN_VERSION}" \
+    && /venv/bin/python -m pip uninstall -y pip \
+    && /usr/local/bin/python -m pip uninstall -y pip
 
 COPY ./experimental/ag-ui/server-agui.py /app/experimental/ag-ui/server-agui.py
 COPY ./holmes /app/holmes

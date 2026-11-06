@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 from holmes.config import Config
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.core.tools import PrerequisiteCacheMode, ToolsetTag
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 
 admin_app = FastAPI()
@@ -50,13 +49,7 @@ def _reload_and_rebuild_toolsets() -> ToolExecutor:
     """Re-read the config file and rebuild the tool executor."""
     config, _ = _require_init()
     config.reload_toolsets()
-    return config.create_tool_executor(
-        dal=_DAL,
-        toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
-        enable_all_toolsets_possible=False,
-        prerequisite_cache=PrerequisiteCacheMode.DISABLED,
-        reuse_executor=True,
-    )
+    return config.create_server_tool_executor(_DAL)
 
 
 @admin_app.post("/reload/toolsets", response_model=ReloadResponse)

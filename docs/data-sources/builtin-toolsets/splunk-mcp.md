@@ -60,76 +60,31 @@ Before configuring Holmes to connect to Splunk MCP, you need to:
 
 ## Configuration
 
-=== "Holmes CLI"
+Replace:
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+- `your-splunk-instance:8089` with your Splunk instance hostname and management port
+- `<YOUR_TOKEN>` with the token generated in Prerequisites Step 4
 
-    ```yaml
-    mcp_servers:
-      splunk:
-        description: "Splunk MCP server for log analysis and investigation"
-        config:
-          url: "https://your-splunk-instance:8089/services/mcp/"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer <YOUR_TOKEN>"
-          # verify_ssl: false # Uncomment if using self-signed certificates:
-        # You can modify the llm_instructions according to the data stored in Splunk in your organization 
-        llm_instructions: |
-          Use SPL (Search Processing Language) for queries.
-          Always specify a time range to limit results. Always limit large result sets.
-          Use Splunk to fetch logs and traces. Splunk contains historical data as well
-    ```
+```yaml-toolset-config
+mcp_servers:
+  splunk:
+    description: "Splunk MCP server for log analysis and investigation"
+    config:
+      url: "https://your-splunk-instance:8089/services/mcp/"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
+    # You can modify the llm_instructions according to the data stored in Splunk in your organization 
+    llm_instructions: |
+      Use SPL (Search Processing Language) for queries.
+      Always specify a time range to limit results. Always limit large result sets.
+      Use Splunk to fetch logs and traces. Splunk contains historical data as well
+---
+secret:
+  - --from-literal=SPLUNK_MCP_TOKEN=<YOUR_TOKEN>
+```
 
-    Replace:
-
-    - `your-splunk-instance:8089` with your Splunk instance hostname and management port
-    - `<YOUR_TOKEN>` with the token generated in Prerequisites Step 4
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    First, create a Kubernetes secret with your Splunk token:
-
-    ```bash
-    kubectl create secret generic splunk-mcp-token \
-      --from-literal=token=<YOUR_TOKEN> \
-      -n <NAMESPACE>
-    ```
-
-    Then add the following to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: SPLUNK_MCP_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: splunk-mcp-token
-              key: token
-
-      mcp_servers:
-        splunk:
-          description: "Splunk MCP server for log analysis and investigation"
-          config:
-            url: "https://your-splunk-instance:8089/services/mcp/"
-            mode: streamable-http
-            headers:
-              Authorization: "Bearer {{ env.SPLUNK_MCP_TOKEN }}"
-            # verify_ssl: false # Uncomment if using self-signed certificates:
-            # You can modify the llm_instructions according to the data stored in Splunk in your organization 
-            llm_instructions: |
-              Use SPL (Search Processing Language) for queries.
-              Always specify a time range to limit results. Always limit large result sets.
-              Use Splunk to fetch logs and traces. Splunk contains historical data as well
-    ```
-
-    Then deploy or upgrade your Robusta installation:
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
+If the Splunk server's certificate is self-signed or issued by a private CA, trust that certificate or CA with the chart's `certificate` value, or the `CERTIFICATE` environment variable in the CLI (see [`CERTIFICATE`](../../reference/environment-variables.md#certificate)). Either one adds the CA to the certificates Holmes trusts for all its outbound HTTPS, not only for Splunk. Set `verify_ssl: false` under `config` only as a last resort: Holmes then sends the token without checking the server's identity.
 
 ## Available Tools
 

@@ -15,10 +15,11 @@ Destinations are used when a HealthCheck or ScheduledHealthCheck has `mode: aler
 
 ## Supported Destinations
 
-Holmes Operator currently supports two alert destination types:
+Holmes Operator currently supports three alert destination types:
 
 - **Slack** - Send formatted messages to Slack channels
 - **PagerDuty** - Create incidents in PagerDuty
+- **Webhook** - POST a versioned JSON payload to any HTTP endpoint
 
 ## Slack Destination
 
@@ -220,6 +221,43 @@ PagerDuty incidents created by Holmes include:
 **Links:**
 - If the check has an associated URL, it's included as a link in the incident
 
+
+## Webhook Destination
+
+Send a versioned JSON payload to any HTTP endpoint when a health check fails.
+
+### Configuration Fields
+
+**webhook_url** (string, required)
+
+Destination URL. Can also be provided via the `WEBHOOK_URL` environment variable.
+
+**webhook_method** (string, optional)
+
+HTTP method to use. Defaults to `POST`. Can also be provided via `WEBHOOK_METHOD`.
+
+**webhook_headers** (object, optional)
+
+Additional HTTP headers to send with the request. Can also be provided via the `WEBHOOK_HEADERS` environment variable as a JSON object, or via `--webhook-headers` on the CLI.
+
+### Configuration Example
+
+```yaml
+apiVersion: holmesgpt.dev/v1alpha1
+kind: HealthCheck
+metadata:
+  name: production-check
+spec:
+  query: "Is production healthy?"
+  mode: alert
+  destinations:
+    - type: webhook
+      config:
+        webhook_url: "https://hooks.example.com/holmes/checks"
+        webhook_method: "POST"
+        webhook_headers:
+          Authorization: "Bearer token"
+```
 
 ## Notification Status
 

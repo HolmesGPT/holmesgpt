@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 
 display_logger = logging.getLogger("holmes.display.config")
-from typing import TYPE_CHECKING, Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import sentry_sdk
 import yaml  # type: ignore
@@ -20,10 +20,15 @@ from pydantic import (
 
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind
 from holmes.core.llm import DefaultLLM, LLMModelRegistry
-from holmes.core.tools import PrerequisiteCacheMode, Toolset, ToolsetTag
+from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode, Toolset, ToolsetTag
 from holmes.core.tools_utils.tool_executor import ToolExecutor
 from holmes.core.toolset_manager import ToolsetManager
 from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
+from holmes.plugins.skills.git_skill_repos import (
+    GitSkillRepo,
+    GitSkillRepoManager,
+    parse_skill_repos_env,
+)
 from holmes.plugins.skills.skill_loader import (
     SkillCatalog,
     load_skill_catalog,
@@ -33,14 +38,20 @@ from holmes.plugins.skills.skill_loader import (
 if TYPE_CHECKING:
     from holmes.core.tool_calling_llm import ToolCallingLLM
     from holmes.plugins.destinations.slack import SlackDestination
+    from holmes.plugins.destinations.webhook.plugin import WebhookDestination
     from holmes.plugins.sources.github import GitHubSource
     from holmes.plugins.sources.jira import JiraServiceManagementSource, JiraSource
     from holmes.plugins.sources.opsgenie import OpsGenieSource
     from holmes.plugins.sources.pagerduty import PagerDutySource
     from holmes.plugins.sources.prometheus.plugin import AlertManagerSource
 
+from holmes.common.env_vars import TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS
 from holmes.core.config import config_path_dir
-from holmes.core.oauth_utils import eager_load_oauth_tools, preload_oauth_tokens, set_oauth_dal
+from holmes.core.oauth_utils import (
+    eager_load_oauth_tools,
+    preload_oauth_tokens,
+    set_oauth_dal,
+)
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.utils.definitions import RobustaConfig
 from holmes.utils.pydantic_utils import (
@@ -48,7 +59,6 @@ from holmes.utils.pydantic_utils import (
     load_model_from_file,
     parse_model_from_file,
 )
-
 
 
 DEFAULT_CONFIG_LOCATION = os.path.join(config_path_dir, "config.yaml")
@@ -72,16 +82,16 @@ def _toolset_tool_signature(toolset: Toolset) -> frozenset[tuple[str, str]]:
     )
 
 
-def _toolset_tools_changed(
-    current: List[Toolset], new: List[Toolset]
-) -> bool:
+def _toolset_tools_changed(current: List[Toolset], new: List[Toolset]) -> bool:
     """Return True if the set of toolsets, or any shared toolset's tool list, changed."""
     current_by_name = {ts.name: ts for ts in current}
     new_by_name = {ts.name: ts for ts in new}
     if current_by_name.keys() != new_by_name.keys():
         return True
     for name, new_ts in new_by_name.items():
-        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(new_ts):
+        if _toolset_tool_signature(current_by_name[name]) != _toolset_tool_signature(
+            new_ts
+        ):
             return True
     return False
 
@@ -124,6 +134,10 @@ class Config(RobustaBaseConfig):
     slack_token: Optional[SecretStr] = None
     slack_channel: Optional[str] = None
 
+    webhook_url: Optional[str] = None
+    webhook_method: Optional[str] = None
+    webhook_headers: Optional[Dict[str, Any]] = None
+
     pagerduty_api_key: Optional[SecretStr] = None
     pagerduty_user_email: Optional[str] = None
     pagerduty_incident_key: Optional[str] = None
@@ -133,6 +147,10 @@ class Config(RobustaBaseConfig):
     opsgenie_query: Optional[str] = None
 
     custom_skill_paths: List[Union[str, FilePath]] = []
+    # Git repositories to sync skills from (re-pulled periodically by the server's
+    # refresh loop; synced once per run in the CLI). Their checkouts are appended
+    # to the effective skill paths -- see all_skill_paths.
+    skill_repos: List[GitSkillRepo] = []
 
     # custom_toolsets is passed from config file, and be used to override built-in toolsets, provides 'stable' customized toolset.
     # The status of custom toolsets can be cached.
@@ -160,6 +178,7 @@ class Config(RobustaBaseConfig):
 
     # TODO: Separate those fields to facade class, this shouldn't be part of the config.
     _toolset_manager: Optional[ToolsetManager] = PrivateAttr(None)
+    _skill_repo_manager: Optional[GitSkillRepoManager] = PrivateAttr(None)
     _llm_model_registry: Optional[LLMModelRegistry] = PrivateAttr(None)
     _dal: Optional[SupabaseDal] = PrivateAttr(None)
     _config_file_path: Optional[Path] = PrivateAttr(None)
@@ -183,11 +202,57 @@ class Config(RobustaBaseConfig):
                 mcp_servers=self.mcp_servers,
                 custom_toolsets=self.custom_toolsets,
                 custom_toolsets_from_cli=self.custom_toolsets_from_cli,
-                custom_skill_paths=self.custom_skill_paths,
+                custom_skill_paths=self.all_skill_paths,
                 config_file_path=self._config_file_path,
                 additional_toolsets=self.additional_toolsets,
             )
         return self._toolset_manager
+
+    @property
+    def skill_repo_manager(self) -> GitSkillRepoManager:
+        if not self._skill_repo_manager:
+            # The manager rate-limits itself to the refresh cadence, so callers
+            # (the server refresh loop included) can invoke sync() freely.
+            try:
+                self._skill_repo_manager = GitSkillRepoManager(
+                    self.skill_repos,
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+            except ValueError as e:
+                # ValueError specifically, not Exception: the only thing the
+                # constructor rejects is the repo list itself, and a broad catch
+                # would swallow a genuine bug or filesystem fault here and make
+                # git-synced skills quietly vanish instead of surfacing it.
+                #
+                # A rejected repo list (two repos whose names collide -- easy to
+                # hit, since an omitted name is derived from the URL's last
+                # segment, so .../team-a/skills.git and .../team-b/skills.git
+                # both become "skills") must not take out the request path. This
+                # property is reached per request through all_skill_paths, and a
+                # raise here left the failed construction to be retried on every
+                # chat, turning a skills misconfiguration into a total outage.
+                # Serve no git-synced skills instead, and say so.
+                logging.error(
+                    f"Skill repos are misconfigured, so none will be loaded until "
+                    f"this is fixed: {e}"
+                )
+                self._skill_repo_manager = GitSkillRepoManager(
+                    [],
+                    min_sync_interval_seconds=TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS,
+                )
+        return self._skill_repo_manager
+
+    @property
+    def all_skill_paths(self) -> List[Union[str, FilePath]]:
+        """Every path skills load from: configured paths plus git-repo checkouts.
+
+        The repo paths are `current` symlinks that keep pointing at the newest
+        checkout across syncs, so this list is stable even though the content
+        behind it moves. Accessing it clones the repos on first use.
+        """
+        paths: List[Union[str, FilePath]] = list(self.custom_skill_paths)
+        paths.extend(self.skill_repo_manager.skill_paths())
+        return paths
 
     @property
     def dal(self) -> SupabaseDal:
@@ -201,8 +266,6 @@ class Config(RobustaBaseConfig):
             if not self._llm_model_registry:
                 self._llm_model_registry = LLMModelRegistry(self, dal=self.dal)
             return self._llm_model_registry
-
-
 
     def log_useful_info(self):
         if self.llm_model_registry.models:
@@ -256,7 +319,7 @@ class Config(RobustaBaseConfig):
         return result
 
     def _apply_env_fallbacks(self) -> None:
-        """Apply MODEL and CUSTOM_SKILL_PATHS when absent after YAML load/reload."""
+        """Apply MODEL, CUSTOM_SKILL_PATHS and SKILL_REPOS when absent after YAML load/reload."""
         if self.model is None:
             model_from_env = os.environ.get("MODEL")
             if model_from_env and model_from_env.strip():
@@ -267,6 +330,33 @@ class Config(RobustaBaseConfig):
             skill_paths = _parse_custom_skill_paths_env()
             if skill_paths:
                 self.custom_skill_paths = skill_paths
+
+        if not self.skill_repos:
+            skill_repos = parse_skill_repos_env()
+            if skill_repos:
+                self.skill_repos = skill_repos
+
+        # Webhook destination settings (global fallbacks)
+        if self.webhook_url is None:
+            webhook_url_env = os.environ.get("WEBHOOK_URL")
+            if webhook_url_env:
+                self.webhook_url = webhook_url_env
+        if self.webhook_method is None:
+            webhook_method_env = os.environ.get("WEBHOOK_METHOD")
+            if webhook_method_env:
+                self.webhook_method = webhook_method_env
+        if self.webhook_headers is None:
+            webhook_headers_env = os.environ.get("WEBHOOK_HEADERS")
+            if webhook_headers_env:
+                from holmes.plugins.destinations.webhook.utils import InvalidWebhookHeadersError, resolve_webhook_headers
+                try:
+                    self.webhook_headers = resolve_webhook_headers(
+                        None,
+                        webhook_headers_env,
+                    )
+                except InvalidWebhookHeadersError as e:
+                    logging.warning("Invalid WEBHOOK_HEADERS: %s", e)
+                    self.webhook_headers = None
 
     @classmethod
     def load_from_env(cls):
@@ -296,14 +386,14 @@ class Config(RobustaBaseConfig):
             val = os.getenv(field_name.upper(), None)
             if val is not None:
                 kwargs[field_name] = val
-        skill_paths = _parse_custom_skill_paths_env()
-        if skill_paths:
-            kwargs["custom_skill_paths"] = skill_paths
         kwargs["cluster_name"] = Config.__get_cluster_name()
         if kwargs["cluster_name"] and not os.environ.get("CLUSTER_NAME"):
             os.environ["CLUSTER_NAME"] = kwargs["cluster_name"]
         kwargs["should_try_robusta_ai"] = True
         result = cls(**kwargs)
+        # CUSTOM_SKILL_PATHS / SKILL_REPOS share one env-fallback path with
+        # load_from_file, so the two loaders cannot drift.
+        result._apply_env_fallbacks()
         if "model" in kwargs:
             result._model_source = "via $MODEL"
         result.log_useful_info()
@@ -322,7 +412,9 @@ class Config(RobustaBaseConfig):
                 config = RobustaConfig(**yaml_content)
                 return config.global_config.get(key)
         except Exception:
-            logging.warning("Failed to load '%s' from Robusta config", key, exc_info=True)
+            logging.warning(
+                "Failed to load '%s' from Robusta config", key, exc_info=True
+            )
             return None
 
     @staticmethod
@@ -332,17 +424,35 @@ class Config(RobustaBaseConfig):
             return env_cluster_name
         return Config.get_robusta_global_config_value("cluster_name")
 
-    def get_skill_catalog(self) -> Optional[SkillCatalog]:
+    def get_skill_catalog(
+        self, user_id: Optional[str] = None, alert_name: Optional[str] = None
+    ) -> Optional[SkillCatalog]:
+        """Build the per-request skill catalog that feeds the system prompt.
+
+        Rebuilt every request, so this is where the personal tier and the collision hierarchy
+        are applied. `user_id` must be the END USER's id; absent (alert triage, triggered
+        workflows, scheduled prompts) no personal skills load.
+
+        The fetch_skill tool's own id list is NOT built here -- that toolset is cached across
+        requests and users, so per-user skills must never be baked into it. SkillsFetcher
+        resolves them at invoke time instead.
+        """
+        # `self.dal` is a lazily-constructing property, so no truthiness guard: the
+        # not-configured case is handled inside get_skill_hierarchy_config, which is
+        # TTL-cached and so adds no round trip per turn.
+        hierarchy = self.dal.get_skill_hierarchy_config()
         return load_skill_catalog(
-            dal=self.dal, custom_skill_paths=self.custom_skill_paths,
+            dal=self.dal,
+            custom_skill_paths=self.all_skill_paths,
+            user_id=user_id,
+            hierarchy=hierarchy,
+            alert_name=alert_name,
         )
 
     # ── Unified factory methods ──
 
     @staticmethod
-    def _executor_cache_key(
-        tags: List[ToolsetTag], enable_all: bool
-    ) -> tuple:
+    def _executor_cache_key(tags: List[ToolsetTag], enable_all: bool) -> tuple:
         return (tuple(sorted(tags, key=lambda t: t.value)), enable_all)
 
     def create_tool_executor(
@@ -449,6 +559,33 @@ class Config(RobustaBaseConfig):
         eager_load_oauth_tools(executor)
         return executor
 
+    def create_server_tool_executor(
+        self,
+        dal: Optional["SupabaseDal"] = None,
+        prerequisite_cache: PrerequisiteCacheMode = PrerequisiteCacheMode.DISABLED,
+    ) -> ToolExecutor:
+        """Return the Holmes server's cached executor, building it if there is none.
+
+        The server caches one executor, under the key (SERVER_TOOLSET_TAGS,
+        enable_all_toolsets_possible=False). Every server caller must request
+        that key: through this method, or by passing
+        ``toolset_tag_filter=SERVER_TOOLSET_TAGS, enable_all_toolsets_possible=False,
+        reuse_executor=True`` to create_toolcalling_llm, whose defaults are the
+        CLI's. With reuse_executor=True, any other key rebuilds the executor
+        from scratch, re-checking every toolset, and replaces the cached one.
+
+        ``prerequisite_cache`` only applies when the executor is built. The
+        default, DISABLED, runs live checks and writes nothing to disk, and the
+        toolsets it checks start their status refresh interval.
+        """
+        return self.create_tool_executor(
+            dal,
+            toolset_tag_filter=SERVER_TOOLSET_TAGS,
+            enable_all_toolsets_possible=False,
+            prerequisite_cache=prerequisite_cache,
+            reuse_executor=True,
+        )
+
     def refresh_tool_executor(
         self,
         dal: Optional["SupabaseDal"] = None,
@@ -468,7 +605,11 @@ class Config(RobustaBaseConfig):
 
         If neither condition holds, the cached executor is left in place.
         """
-        logging.info("Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s", toolset_tag_filter, enable_all_toolsets_possible)
+        logging.debug(
+            "Refreshing toolsets with tags %s and enable_all_toolsets_possible=%s",
+            toolset_tag_filter,
+            enable_all_toolsets_possible,
+        )
         # Normalize early so the same tags are used for both loading and caching.
         tags = toolset_tag_filter or [ToolsetTag.CORE]
 
@@ -490,17 +631,22 @@ class Config(RobustaBaseConfig):
 
         current_toolsets = cached_executor.toolsets
 
-        new_toolsets, changes = (
-            self.toolset_manager.refresh_toolsets_and_get_changes(
-                current_toolsets,
-                dal,
-                toolset_tag_filter=tags,
-                enable_all_toolsets_possible=enable_all_toolsets_possible,
-            )
+        new_toolsets, changes = self.toolset_manager.refresh_toolsets_and_get_changes(
+            current_toolsets,
+            dal,
+            toolset_tag_filter=tags,
+            enable_all_toolsets_possible=enable_all_toolsets_possible,
         )
 
         if changes or _toolset_tools_changed(current_toolsets, new_toolsets):
             with self._executor_lock:
+                # The checks ran without the lock. If another caller replaced
+                # or cleared the executor meanwhile (e.g. an admin reload), keep
+                # theirs instead of overwriting it with one built from the
+                # toolsets this refresh started with. Still return the changes,
+                # so the caller syncs the statuses of the executor now cached.
+                if self._cached_tool_executor is not cached_executor:
+                    return [(name, old.value, new.value) for name, old, new in changes]
                 executor = ToolExecutor(new_toolsets)
                 preload_oauth_tokens()
                 eager_load_oauth_tools(executor)
@@ -527,8 +673,15 @@ class Config(RobustaBaseConfig):
                 self.mcp_servers = fresh.mcp_servers
                 self.custom_toolsets = fresh.custom_toolsets
                 self.custom_skill_paths = fresh.custom_skill_paths
+                previous_skill_repos = self.skill_repos
+                self.skill_repos = fresh.skill_repos
                 self.additional_toolsets = fresh.additional_toolsets
                 self._apply_env_fallbacks()
+                # Keep the manager when the repo config is unchanged: it holds
+                # the synced state and cached GitHub App tokens, and dropping it
+                # would force a full network re-sync on the next request.
+                if self.skill_repos != previous_skill_repos:
+                    self._skill_repo_manager = None
             self._toolset_manager = None
             self._cached_tool_executor = None
             self._cached_executor_key = None
@@ -583,6 +736,7 @@ class Config(RobustaBaseConfig):
         tracer=None,
         tool_results_dir: Optional[Path] = None,
         on_event: EventCallback = None,
+        conversation_id: Optional[str] = None,
     ) -> "ToolCallingLLM":
         """
         Create a ToolCallingLLM with explicit behavioral controls.
@@ -590,6 +744,13 @@ class Config(RobustaBaseConfig):
         Executor parameters (toolset_tag_filter, enable_all_toolsets_possible,
         prerequisite_cache, reuse_executor) are forwarded to
         :meth:`create_tool_executor`.
+
+        ``conversation_id``: sent to relay on Robusta-hosted models; see
+        ``ROBUSTA_CONVERSATION_ID_HEADER``.
+
+        The defaults are the CLI's. Known issue: a server caller must pass the
+        server's executor key explicitly (see :meth:`create_server_tool_executor`),
+        or it rebuilds and replaces the server's cached executor.
 
         Migration from removed helpers
         ------------------------------
@@ -622,7 +783,12 @@ class Config(RobustaBaseConfig):
         from holmes.core.tool_calling_llm import ToolCallingLLM
 
         # Create LLM first so model info appears during toolset loading
-        llm = self._get_llm(model_key=model, tracer=tracer, on_event=on_event)
+        llm = self._get_llm(
+            model_key=model,
+            tracer=tracer,
+            on_event=on_event,
+            conversation_id=conversation_id,
+        )
         tool_executor = self.create_tool_executor(
             dal=dal,
             toolset_tag_filter=toolset_tag_filter,
@@ -746,6 +912,18 @@ class Config(RobustaBaseConfig):
             raise ValueError("--slack-channel must be specified")
         return SlackDestination(self.slack_token.get_secret_value(), self.slack_channel)
 
+    def create_webhook_destination(self) -> "WebhookDestination":
+        from holmes.plugins.destinations.webhook.plugin import WebhookDestination
+
+        webhook_url = self.webhook_url or os.environ.get("WEBHOOK_URL")
+        if webhook_url is None:
+            raise ValueError("--webhook-url or WEBHOOK_URL must be specified")
+        method = self.webhook_method or os.environ.get("WEBHOOK_METHOD") or "POST"
+        headers = self.webhook_headers or {}
+        return WebhookDestination(
+            method=method, webhook_url=webhook_url, headers=headers
+        )
+
     @staticmethod
     def _format_token_count(n: int) -> str:
         """Format a token count for display: 1048576 → '1M', 32768 → '32K'."""
@@ -763,7 +941,13 @@ class Config(RobustaBaseConfig):
         model_key: Optional[str] = None,
         tracer=None,
         on_event: EventCallback = None,
+        conversation_id: Optional[str] = None,
     ) -> "DefaultLLM":
+        """Build a fresh DefaultLLM for ``model_key``.
+
+        ``conversation_id``: sent to relay on Robusta-hosted models; see
+        ``ROBUSTA_CONVERSATION_ID_HEADER``.
+        """
         sentry_sdk.set_tag("requested_model", model_key)
         model_entry = self.llm_model_registry.get_model_params(model_key)
         model_params = model_entry.model_dump(exclude_none=True)
@@ -798,6 +982,7 @@ class Config(RobustaBaseConfig):
             tracer=tracer,
             name=model_name,
             is_robusta_model=is_robusta_model,
+            conversation_id=conversation_id,
         )  # type: ignore
         context_size = self._format_token_count(llm.get_context_window_size())
         max_response = self._format_token_count(llm.get_maximum_output_token())
@@ -808,7 +993,11 @@ class Config(RobustaBaseConfig):
         msg = f"Model: {model_name}, {context_size} context, {max_response} max response ({source_hint})"
         display_logger.info(msg)
         if on_event is not None:
-            on_event(StatusEvent(kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg))
+            on_event(
+                StatusEvent(
+                    kind=StatusEventKind.MODEL_LOADED, name=model_name, message=msg
+                )
+            )
         return llm
 
     def get_models_list(self) -> List[str]:
