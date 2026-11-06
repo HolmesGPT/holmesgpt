@@ -44,6 +44,7 @@ nav:
   - Prometheus: prometheus.md
   - Prefect (MCP): prefect-mcp.md
   - RabbitMQ: rabbitmq.md
+  - Redis (MCP): redis-mcp.md
   - Robusta: robusta.md
   - Sentry (MCP): sentry-mcp.md
   - ServiceNow: servicenow.md
