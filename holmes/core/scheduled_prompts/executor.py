@@ -79,7 +79,7 @@ class ScheduledPromptsExecutor:
             try:
                 had_payload = self._process_next_prompt()
                 if not had_payload:
-                    # Update polling interval based on current state (may change if prompt deffinition added/removed)
+                    # Update polling interval based on current state (may change if prompt definition added/removed)
                     self._update_poll_interval()
                     time.sleep(self.poll_interval_seconds)
             except Exception as exc:

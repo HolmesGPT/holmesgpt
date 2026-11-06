@@ -55,4 +55,4 @@ class Issue(BaseModel):
     # priority: Optional[str] = None                # Priority level of the issue (e.g., 'high', 'medium', 'low')
     # created_at: Optional[datetime] = None         # Timestamp of when the issue was created
     # updated_at: Optional[datetime] = None         # Timestamp of when the issue was last updated
-    # metadata: Optional[dict] = None               # All additional metadata from the source (can be hierchical - e.g. dicts in dicts
+    # metadata: Optional[dict] = None               # All additional metadata from the source (can be hierarchical - e.g. dicts in dicts
