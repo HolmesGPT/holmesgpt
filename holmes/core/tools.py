@@ -748,7 +748,7 @@ class YAMLTool(Tool, BaseModel):
                 return_code = process.returncode
             except subprocess.TimeoutExpired:
                 logger.warning(
-                    f"Command `{cmd}` did not complete within "
+                    f"Tool `{self.name}` did not complete within "
                     f"{TOOL_SUBPROCESS_TIMEOUT_SECONDS}s, killing it"
                 )
                 stdout = self.__kill_process_group_and_collect_output(process)
@@ -786,9 +786,13 @@ class YAMLTool(Tool, BaseModel):
 
         try:
             stdout, _ = process.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            # Extremely unlikely after SIGKILL, but never block forever here.
-            stdout = ""
+        except subprocess.TimeoutExpired as e:
+            # A descendant that left the process group can still hold the pipe
+            # open; never block forever, but keep the output read so far.
+            # e.output is raw bytes even in text mode.
+            stdout = e.output
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode(errors="replace")
         return (stdout or "").strip()
 
 

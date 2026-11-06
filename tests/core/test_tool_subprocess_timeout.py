@@ -12,8 +12,9 @@ also reaped.
 """
 
 import os
+import subprocess
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -134,3 +135,17 @@ class TestExecuteSubprocessTimeout:
         # Should never raise — the caller always gets back a StructuredToolResult.
         result = tool._invoke(params={}, context=context)
         assert result.return_code == 124
+
+    def test_output_kept_if_pipe_still_held_after_kill(self):
+        """A descendant that escaped the process group can keep the stdout pipe
+        open, so the post-kill communicate() times out too. Output read before
+        that must not be dropped."""
+        process = MagicMock(pid=12345)
+        process.communicate.side_effect = subprocess.TimeoutExpired(
+            cmd="x", timeout=5, output=b"partial-output\n"
+        )
+
+        with patch("os.getpgid", return_value=12345), patch("os.killpg"):
+            output = YAMLTool._YAMLTool__kill_process_group_and_collect_output(process)
+
+        assert output == "partial-output"
