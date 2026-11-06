@@ -1,0 +1,21 @@
+# OpenUI: a table of pods with a namespace filter. The program must declare a
+# $variable, bind a Select to it and read it in a Query or @Filter, so the
+# user filters without a new chat turn. The frontend tools come from the
+# deploy (--frontend-tools-url); the checker from --openui-check-url.
+user_prompt: "Show me the pods in the cluster as a table. Let me filter them by namespace."
+
+include_tool_calls: true
+
+openui:
+  expect_visualization: true
+  expect_controls: true
+  min_components: { Table: 1 }
+
+expected_output:
+  - "The visualization is a table of pods with a namespace column and a namespace filter control (a filter on namespace, not on phase or name)"
+  - "The answer states the total number of pods, 228"
+
+tags:
+  - openui
+  - frontend
+  - fast

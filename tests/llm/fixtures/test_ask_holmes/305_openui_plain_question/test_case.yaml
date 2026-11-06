@@ -1,0 +1,19 @@
+# OpenUI: a plain question gets a plain answer. The VisualizeOpenUI tool is
+# available, as in production, and must not be used.
+user_prompt: "How many pods are failing, and which ones?"
+
+include_tool_calls: true
+
+openui:
+  expect_visualization: false
+
+forbidden_tools:
+  - VisualizeOpenUI
+
+expected_output:
+  - "Says that 4 pods are failing: crashed-0, crashed-1, crashed-2 and crashed-3, in the payments namespace"
+
+tags:
+  - openui
+  - frontend
+  - fast

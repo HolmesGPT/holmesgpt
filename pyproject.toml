@@ -195,6 +195,7 @@ markers = [
     "coralogix: Runs coralogix evals",
     "fast: Fast cloud-only tests that don't require Kubernetes infrastructure",
     "frontend: Run frontend tests",
+    "openui: OpenUI visualization evals (the frontend's VisualizeOpenUI tool)",
     "grafana: Tests involving Grafana dashboard interactions",
     "images: Tests involving multimodal image content (vision, rendering, MCP ImageContent)",
     "elasticsearch: Tests for Elasticsearch/OpenSearch toolset functionality",

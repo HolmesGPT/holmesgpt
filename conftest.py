@@ -83,6 +83,18 @@ def pytest_addoption(parser):
         default=None,
         help="URL returning the additional system prompt text or JSON (expects 'additional_system_prompt' field)",
     )
+    parser.addoption(
+        "--frontend-tools-url",
+        action="store",
+        default=None,
+        help="URL of the frontend's published tool definitions (/api/frontend-tools.json) for OpenUI evals; defaults to production, use a deploy preview to test a frontend PR",
+    )
+    parser.addoption(
+        "--openui-check-url",
+        action="store",
+        default=None,
+        help="URL of the frontend's OpenUI checker (/api/openui-check.mjs); defaults to production",
+    )
 
 
 def pytest_configure(config):
