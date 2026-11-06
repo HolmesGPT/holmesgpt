@@ -70,11 +70,16 @@ holmesgpt.investigation (root span)
 - `holmesgpt.investigation.stream` — whether streaming was used
 
 **LLM spans** (`gen_ai.chat`):
+
+Token usage on each span is for that LLM call only, so summing the spans of a trace gives the request total.
+
 - `gen_ai.system` — LLM provider (`litellm`)
 - `gen_ai.request.model` — model name
-- `gen_ai.usage.input_tokens` — prompt tokens
+- `gen_ai.usage.input_tokens` — prompt tokens, including cache reads and writes
 - `gen_ai.usage.output_tokens` — completion tokens
 - `gen_ai.usage.total_tokens` — total tokens
+- `gen_ai.usage.cache_read.input_tokens` — prompt tokens read from the provider's prompt cache (only when the provider reports it)
+- `gen_ai.usage.cache_creation.input_tokens` — prompt tokens written to the provider's prompt cache (only when the provider reports it)
 - `holmesgpt.iteration` — iteration number (0-based)
 
 **Tool spans** (`holmesgpt.tool.<name>`):
