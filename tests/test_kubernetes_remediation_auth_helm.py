@@ -695,3 +695,30 @@ def test_script_fails_loudly_on_api_errors(
     assert message in proc.stderr
     if error_key != "create_error":
         assert result["created"] == []
+
+
+def _remediation_server(docs: List[dict]) -> dict:
+    configmap = find(docs, "ConfigMap", "custom-toolsets-configmap")
+    toolsets = yaml.safe_load(configmap["data"]["custom_toolset.yaml"])
+    return toolsets["mcp_servers"]["kubernetes_remediation"]
+
+
+def test_remediation_is_not_exposed_remotely_by_default():
+    assert _remediation_server(render())["expose_remotely"] is False
+
+
+def test_expose_remotely_value_publishes_the_remediation_server():
+    server = _remediation_server(
+        render("mcpAddons.kubernetesRemediation.exposeRemotely=true")
+    )
+
+    assert server["expose_remotely"] is True
+    assert server["approval_required_tools"] == ["run_kubectl_command"]
+
+
+def test_mcp_servers_expose_remotely_still_works_without_the_value():
+    server = _remediation_server(
+        render("mcp_servers.kubernetes_remediation.expose_remotely=true")
+    )
+
+    assert server["expose_remotely"] is True

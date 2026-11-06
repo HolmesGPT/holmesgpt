@@ -335,3 +335,73 @@ def test_end_to_end_headers_carry_the_llm_model():
     assert headers["X-Robusta-Model"] == "Robusta/Opus 4.6"
     assert headers["X-Robusta-Conversation-Id"] == "conv-1"
     assert headers["X-Robusta-Tool-Call-Id"] == "call-1"
+
+
+def _platform_tools(*names):
+    from mcp.types import ListToolsResult
+    from mcp.types import Tool as MCP_Tool
+
+    toolset = _toolset()
+    listed = ListToolsResult(
+        tools=[
+            MCP_Tool(name=n, description=n, inputSchema={"type": "object"})
+            for n in names
+        ]
+    )
+
+    async def server_tools():
+        return listed
+
+    with patch.object(toolset, "_get_server_tools", new=server_tools):
+        return {t.name: t for t in toolset._load_remote_tools()}
+
+
+def test_platform_mcp_remote_tools_are_marked_remote():
+    """Without is_remote the approved re-run of a remote tool never carries
+    the user's approval, and "don't ask again" prefixes land on the caller's
+    own cluster."""
+    tools = _platform_tools("remote_run_kubectl_command", "remote_bash", "list_available_clusters")
+
+    assert isinstance(tools["remote_bash"], RobustaPlatformMCPTool)
+    assert tools["remote_run_kubectl_command"].is_remote is True
+    assert tools["remote_bash"].is_remote is True
+    assert tools["list_available_clusters"].is_remote is False
+
+
+def test_an_approved_remote_call_puts_the_approval_request_on_the_wire():
+    from contextlib import asynccontextmanager
+
+    from mcp.types import CallToolResult, TextContent
+
+    from holmes.core.tools import ToolInvokeContext
+    from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_APPROVED_PARAM
+
+    tool = _platform_tools("remote_run_kubectl_command")["remote_run_kubectl_command"]
+    sent = {}
+
+    class Session:
+        async def call_tool(self, name, arguments):
+            sent.update(name=name, arguments=arguments)
+            return CallToolResult(content=[TextContent(type="text", text="{}")])
+
+    @asynccontextmanager
+    async def session(toolset, request_context):
+        yield Session()
+
+    tool.toolset._mcp_config = MagicMock()
+    with patch(
+        "holmes.plugins.toolsets.mcp.toolset_mcp.get_initialized_mcp_session", new=session
+    ):
+        tool.invoke(
+            {"args": ["cordon", "n1"], "agent_name": "c2"},
+            ToolInvokeContext(
+                llm=_llm("m", "m"),
+                max_token_count=4096,
+                tool_call_id="call-1",
+                tool_name=tool.name,
+                user_approved=True,
+            ),
+        )
+
+    assert sent["name"] == "remote_run_kubectl_command"
+    assert sent["arguments"][REMOTE_TOOL_APPROVED_PARAM] is True

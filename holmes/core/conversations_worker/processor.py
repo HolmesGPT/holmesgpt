@@ -52,6 +52,42 @@ if TYPE_CHECKING:
 GENERIC_FAILURE_DESCRIPTION = "An internal error occurred while processing your request"
 
 
+UNATTRIBUTED_APPROVAL_FEEDBACK = (
+    "The approval was not recorded as made by a person, so the tool was not run. "
+    "Ask the user to approve it again."
+)
+
+
+def _attributed_tool_decisions(decisions: Any) -> Any:
+    """Approvals count only with decided_by, which the database sets for the
+    person who made the decision (or the Slack user relay maps). The account API
+    role, which every Holmes signs in as, can write conversation events too, and
+    its decisions arrive without one."""
+    if not isinstance(decisions, list):
+        return decisions
+    attributed = []
+    for decision in decisions:
+        decider = decision.get("decided_by") if isinstance(decision, dict) else None
+        if (
+            isinstance(decision, dict)
+            and decision.get("approved") is True
+            and not (isinstance(decider, str) and decider)
+        ):
+            logging.warning(
+                "Treating tool decision %s as denied: no decided_by",
+                decision.get("tool_call_id"),
+            )
+            decision = {
+                **decision,
+                "approved": False,
+                "verified": False,
+                "save_prefixes": None,
+                "feedback": UNATTRIBUTED_APPROVAL_FEEDBACK,
+            }
+        attributed.append(decision)
+    return attributed
+
+
 def _failure_description(error_info: ErrorInfo) -> str:
     return (
         error_info.summary()
@@ -228,7 +264,7 @@ class ConversationProcessor:
             stream=True,
             additional_system_prompt=data.get("additional_system_prompt"),
             enable_tool_approval=enable_tool_approval,
-            tool_decisions=data.get("tool_decisions"),  # type: ignore[arg-type]
+            tool_decisions=_attributed_tool_decisions(data.get("tool_decisions")),  # type: ignore[arg-type]
             frontend_tools=data.get("frontend_tools"),  # type: ignore[arg-type]
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),
