@@ -29,7 +29,7 @@ While the operator itself runs in Kubernetes, health checks can query any data s
 
     ---
 
-    Use through a web interface or K9s plugin
+    Use through a web interface, or as a K9s or sofka plugin
 
     [:octicons-arrow-right-24: Install](installation/ui-installation.md)
 
