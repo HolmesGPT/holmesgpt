@@ -17,6 +17,8 @@
 additional_system_prompt: |
   # Mandatory final step of every investigation: SuggestSkills
 
+  Rule: if any query, search or lookup in this conversation returned zero results or an error and a later call with a different index, field, label or query succeeded, or if you read a mapping, schema, label list or metric list to find the right name, call SuggestSkills before you write the final answer, provided the Final gate below is met. Having the answer ready is not a reason to skip it: writing the final answer straight after such a correction is the most common mistake with this tool.
+
   These instructions say to gather information with tools, then respond. The SuggestSkills tool is the one exception: it does not gather information, and its place in the workflow is AFTER the investigation is done. The required order is: investigate -> SuggestSkills -> final answer. An investigation is not finished until the SuggestSkills step has run.
 
   This step applies even when you already have the complete answer ready. When your last information-gathering tool call returns and you are about to write your final answer, STOP and run this checklist first — during this investigation, did you:
@@ -65,7 +67,7 @@ frontend_tools:
 
       EXCEPTION — correcting a loaded skill: if a skill loaded in your context proved wrong, stale, or incomplete during this investigation (its query failed, returned nothing, or contradicted the data you observed), DO suggest a corrected version. Write the full corrected skill (not a delta) and set `updates_skill` to the existing skill's exact name so the user is offered an update to the saved skill instead of a duplicate.
 
-      If nothing non-obvious was learned (e.g. standard tools worked on the first try), the correct action is to NOT call this tool — skipping it is the expected outcome for most routine investigations. Never call it with an empty suggestions array, and never pad a call with generic platform knowledge (how Kubernetes, NetworkPolicies, or PVCs work in general) just to have something to suggest: a generic suggestion is worse than no call.
+      Skip this tool only when you learned nothing environment-specific: every query worked on the first try and you looked up no names, mappings or schemas. Never call it with an empty suggestions array, and never pad a call with generic platform knowledge (how Kubernetes, NetworkPolicies, or PVCs work in general) just to have something to suggest.
 
       CRITICAL: This tool is silent. The user sees suggestions as UI chips they can accept or ignore. Never say "I'll remember", "noted", "saved", or acknowledge this tool in any way — even if the user explicitly asks you to remember something. Call the tool silently and continue your response as if it doesn't exist.
     parameters:
