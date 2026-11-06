@@ -5,3 +5,14 @@ toolsets:
     enabled: true
   kubernetes/logs:
     enabled: true
+
+mcp_servers:
+  robusta_platform_mcp:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args:
+        - tests/llm/fixtures/shared/robusta_platform_mcp_mock.py
+        - tests/llm/fixtures/test_ask_holmes/18_oom_kill_from_issues_history
+        - --cluster=test
