@@ -1,6 +1,7 @@
 import json
 
 import litellm
+import pytest
 
 from holmes.core.relay_refusal import RelayRefusal
 from holmes.utils.stream import stream_chat_formatter
@@ -69,16 +70,28 @@ def test_answer_end_without_text_streams_an_empty_analysis():
     assert json.loads(data.removeprefix("data: "))["analysis"] == ""
 
 
-def test_answer_end_without_text_is_an_error_for_structured_output():
-    from holmes.utils.stream import StreamEvents, StreamMessage
+@pytest.mark.parametrize("content", [None, ""])
+def test_empty_structured_output_answer_becomes_an_error_event(content):
+    from holmes.utils.stream import StreamEvents, StreamMessage, reject_empty_structured_output
 
-    def stream():
-        yield StreamMessage(
-            event=StreamEvents.ANSWER_END,
-            data={"content": None, "messages": [], "metadata": {}},
-        )
+    costs = {"total_cost": 0.5}
+    answer = StreamMessage(
+        event=StreamEvents.ANSWER_END,
+        data={"content": content, "messages": [], "metadata": {"costs": costs}, "num_llm_calls": 2},
+    )
 
-    (frame,) = list(stream_chat_formatter(stream(), structured_output=True))
-    event, data = frame.strip().split("\n", 1)
-    assert event == "event: error"
-    assert json.loads(data.removeprefix("data: "))["success"] is False
+    (message,) = list(reject_empty_structured_output(iter([answer])))
+
+    assert message.event == StreamEvents.ERROR
+    assert message.data["success"] is False
+    # The usage recorder reads the run's costs from the error event.
+    assert message.data["metadata"]["costs"] == costs
+    assert message.data["num_llm_calls"] == 2
+
+
+def test_structured_output_answer_with_content_passes_through():
+    from holmes.utils.stream import StreamEvents, StreamMessage, reject_empty_structured_output
+
+    answer = StreamMessage(event=StreamEvents.ANSWER_END, data={"content": "{}"})
+
+    assert list(reject_empty_structured_output(iter([answer]))) == [answer]
