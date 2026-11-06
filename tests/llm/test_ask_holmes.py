@@ -24,6 +24,11 @@ from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
 from tests.llm.utils.answer_dump import dump_eval_answer
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import evaluate_correctness
+from tests.llm.utils.openui import (
+    evaluate_openui,
+    fetch_checker,
+    resolve_check_url,
+)
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
 from tests.llm.utils.denied_commands import extract_denied_commands
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
@@ -171,6 +176,17 @@ def test_ask_holmes(
         request, "skills_read_count", count_fetch_skill_calls(result.tool_calls)
     )
 
+    # OpenUI: run the frontend's checker on every VisualizeOpenUI program
+    # against this run's tool results, before the judge sees the output.
+    openui_report = None
+    if test_case.openui is not None:
+        checker = fetch_checker(
+            resolve_check_url(request.config.getoption("--openui-check-url"))
+        )
+        openui_report = evaluate_openui(test_case, result.tool_calls, checker)
+        update_property(request, "openui_checks", openui_report.checks)
+        update_property(request, "openui_failures", openui_report.failures)
+
     scores = update_test_results(
         request=request,
         output=output,
@@ -185,6 +201,7 @@ def test_ask_holmes(
         suggested_memories=suggested_memories
         if test_case.memories_generated is not None
         else None,
+        visualizations=openui_report.judge_block if openui_report else None,
     )
 
     # Deterministic skill checks. They fail the run (assertions below) but
@@ -243,6 +260,12 @@ def test_ask_holmes(
         tools=[getattr(tc, "tool_name", "?") for tc in (result.tool_calls or [])],
     )
 
+    # Deterministic OpenUI checks: a failed expectation zeroes the score before
+    # logging, like the checks above.
+    if openui_report and openui_report.failures:
+        update_property(request, "actual_correctness_score", 0)
+        scores["correctness"] = 0
+
     if eval_span:
         log_to_braintrust(
             eval_span=eval_span,
@@ -252,6 +275,12 @@ def test_ask_holmes(
             scores=scores,
             suggested_memories=suggested_memories,
             fail_reason=skill_check_failure.value if skill_check_failure else None,
+        )
+
+    if openui_report and openui_report.failures:
+        raise AssertionError(
+            f"Test {test_case.id} OpenUI checks failed:\n- "
+            + "\n- ".join(openui_report.failures)
         )
 
     if memory_check_failed:
@@ -597,7 +626,14 @@ def ask_holmes(
         # system prompt reflects the injected tools. The client may also ship
         # a system prompt snippet alongside its tools (mirroring the
         # `additional_system_prompt` request field).
-        frontend_payload = load_frontend_tools(test_case) if inject_frontend else None
+        frontend_tools_url = (
+            request.config.getoption("--frontend-tools-url") if request else None
+        )
+        frontend_payload = (
+            load_frontend_tools(test_case, frontend_tools_url=frontend_tools_url)
+            if inject_frontend
+            else None
+        )
         if frontend_payload:
             print(
                 f"\n🖥️  FRONTEND TOOLS ({len(frontend_payload.tools)}): "
