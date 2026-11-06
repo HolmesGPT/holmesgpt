@@ -68,6 +68,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.sentry.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.sentry.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: sentry-mcp
         image: "{{ .Values.mcpAddons.sentry.registry }}/{{ .Values.mcpAddons.sentry.image }}"
@@ -88,6 +92,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.sentry.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.sentry.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           tcpSocket:
             port: 8000
