@@ -101,7 +101,7 @@ from holmes.core.usage_recorder import (
     record_from_llm_result,
     stream_with_usage_recording,
 )
-from holmes.utils.stream import stream_chat_formatter
+from holmes.utils.stream import NO_STRUCTURED_OUTPUT_MSG, stream_chat_formatter
 
 
 def init_logging():
@@ -725,6 +725,7 @@ def chat(chat_request: ChatRequest, http_request: Request):
             stream = stream_chat_formatter(
                 recorded_stream,
                 model=chat_request.model or config.model,
+                structured_output=has_structured_output,
             )
             return StreamingResponse(
                 _stream_with_trace_cleanup(storage, stream, req_info, trace_span),
@@ -806,6 +807,10 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 # path does the same via _inject_request_id in the stream wrapper.
                 response_metadata = dict(llm_call.metadata or {})
                 response_metadata["request_id"] = recorder_state.request_id
+                if llm_call.result is None and has_structured_output:
+                    # An empty analysis isn't valid JSON, so fail instead.
+                    logging.warning(f"{req_info}: {NO_STRUCTURED_OUTPUT_MSG}")
+                    raise HTTPException(status_code=502, detail=NO_STRUCTURED_OUTPUT_MSG)
                 if llm_call.result is None:
                     logging.warning(
                         f"{req_info} finished without any analysis text "

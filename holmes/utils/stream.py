@@ -62,9 +62,13 @@ create_rate_limit_error_message = partial(
 )
 
 
+NO_STRUCTURED_OUTPUT_MSG = "The model returned no content for a structured output request"
+
+
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
     model: Optional[str] = None,
+    structured_output: bool = False,
 ):
     try:
         for message in call_stream:
@@ -78,6 +82,15 @@ def stream_chat_formatter(
                         f"cost=${costs.get('total_cost', 0):.4f}"
                     )
                 content = message.data.get("content")
+                if content is None and structured_output:
+                    # An empty analysis isn't valid JSON, so report it instead.
+                    logging.warning(f"{NO_STRUCTURED_OUTPUT_MSG} (stream)")
+                    yield create_sse_error_message(
+                        description=NO_STRUCTURED_OUTPUT_MSG,
+                        error_code=1,
+                        msg=NO_STRUCTURED_OUTPUT_MSG,
+                    )
+                    continue
                 response_data = {
                     "analysis": content if content is not None else "",
                     "conversation_history": message.data.get("messages"),

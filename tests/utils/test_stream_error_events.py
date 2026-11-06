@@ -67,3 +67,18 @@ def test_answer_end_without_text_streams_an_empty_analysis():
     event, data = frame.strip().split("\n", 1)
     assert event == "event: ai_answer_end"
     assert json.loads(data.removeprefix("data: "))["analysis"] == ""
+
+
+def test_answer_end_without_text_is_an_error_for_structured_output():
+    from holmes.utils.stream import StreamEvents, StreamMessage
+
+    def stream():
+        yield StreamMessage(
+            event=StreamEvents.ANSWER_END,
+            data={"content": None, "messages": [], "metadata": {}},
+        )
+
+    (frame,) = list(stream_chat_formatter(stream(), structured_output=True))
+    event, data = frame.strip().split("\n", 1)
+    assert event == "event: error"
+    assert json.loads(data.removeprefix("data: "))["success"] is False
