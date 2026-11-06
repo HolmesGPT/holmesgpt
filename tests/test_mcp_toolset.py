@@ -3683,6 +3683,102 @@ class TestMCPStructuredContent:
         assert "summary" in result.data
         assert "run-1" in result.data
 
+    def test_null_fields_dropped_from_structured_content_are_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A text block with extra null fields is still the same payload.
+
+        The hosted AWS MCP Server's aws___run_script keeps "stderr": null and
+        "warning": null in the text block but leaves those keys out of
+        structuredContent, so a plain parsed compare doubled every result.
+        The output keeps the text block's value, nulls included.
+        """
+        payload = {
+            "status": "success",
+            "stdout": "",
+            "stderr": None,
+            "return_value": {"azs": ["us-east-1a", "us-east-1b"]},
+            "warning": None,
+            "api_calls": [{"service": "ec2", "operation": "DescribeAvailabilityZones"}],
+        }
+        text = json.dumps(payload)
+        structured = {k: v for k, v in payload.items() if v is not None}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=text)],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == json.dumps(payload)
+        assert result.data.count('"api_calls"') == 1
+        assert '"stderr": null' in result.data
+
+    def test_fastmcp_result_wrapper_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A non-object return value wrapped by FastMCP is still the same payload.
+
+        structuredContent must be an object, so FastMCP wraps a list return
+        value (e.g. aws-api-mcp-server's call_aws) as {"result": [...]} while
+        the text block holds the bare list.  The output is the bare list,
+        without the wrapper.
+        """
+        items = [
+            {
+                "cli_command": "aws sts get-caller-identity",
+                "response": {"error": None, "status_code": 200, "as_json": "{}"},
+            }
+        ]
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=json.dumps(items, separators=(",", ":")))],
+            structured_content={"result": items},
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == json.dumps(items)
+        assert result.data.count('"cli_command"') == 1
+        assert '"result"' not in result.data
+
+    def test_non_null_field_missing_from_structured_content_is_still_kept(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Only null fields are ignored when comparing; real data still differs.
+
+        A text block that carries a non-null field structuredContent lacks is a
+        different payload, so both must reach the LLM.
+        """
+        text = json.dumps({"status": "success", "stderr": "DeprecationWarning"})
+        structured = {"status": "success"}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=text)],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == f"{text}\n{json.dumps(structured)}"
+
+    def test_fastmcp_result_wrapper_that_differs_is_still_kept(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Unwrapping {"result": ...} must not swallow a text block that differs.
+
+        The wrapper is only dropped when the wrapped value matches the text
+        block; otherwise both must reach the LLM.
+        """
+        text = json.dumps([{"cli_command": "aws sts get-caller-identity"}])
+        structured = {"result": [{"cli_command": "aws ec2 describe-regions"}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=text)],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == f"{text}\n{json.dumps(structured)}"
+
     def test_null_optional_param_is_dropped(
         self, monkeypatch, suppress_migration_warnings
     ):

@@ -609,11 +609,42 @@ class RemoteMCPTool(Tool):
         # and doubles the whole payload in the model's context.  Compare the
         # parsed values instead and keep the compact serialization.
         try:
-            if json.loads(merged_text) == structured_content:
-                return structured_text
+            parsed_text = json.loads(merged_text)
         except (json.JSONDecodeError, ValueError):
-            pass
+            return f"{merged_text}\n{structured_text}"
+        # Two well-behaved shapes still differ from structuredContent by value:
+        # - A server may drop null fields from structuredContent but keep them
+        #   in the text (e.g. "stderr": null from the hosted AWS MCP Server's
+        #   aws___run_script).
+        # - FastMCP must return an object, so it wraps a non-object return value
+        #   (e.g. the list from aws-api-mcp-server's call_aws) as
+        #   {"result": <value>} while the text block holds the bare value.
+        # The None-free copies are only for comparing.  On a match the output is
+        # the text block's value, so its null fields are kept and FastMCP's
+        # wrapper is left out.
+        text_without_none = RemoteMCPTool._drop_none_values(parsed_text)
+        structured_without_none = RemoteMCPTool._drop_none_values(structured_content)
+        # .get: a None "result" was dropped from the copy, and None is what
+        # _drop_none_values(None) would have returned.
+        if text_without_none == structured_without_none or (
+            structured_content.keys() == {"result"}
+            and text_without_none == structured_without_none.get("result")
+        ):
+            return json.dumps(parsed_text, default=str)
         return f"{merged_text}\n{structured_text}"
+
+    @staticmethod
+    def _drop_none_values(value: Any) -> Any:
+        """Recursively drop None-valued dict keys, also in dicts inside lists."""
+        if isinstance(value, dict):
+            return {
+                key: RemoteMCPTool._drop_none_values(item)
+                for key, item in value.items()
+                if item is not None
+            }
+        if isinstance(value, list):
+            return [RemoteMCPTool._drop_none_values(item) for item in value]
+        return value
 
     async def _invoke_async(
         self,
