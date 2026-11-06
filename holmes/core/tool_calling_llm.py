@@ -1668,7 +1668,30 @@ class ToolCallingLLM:
                 # If either type of pause is needed, emit a single APPROVAL_REQUIRED
                 # event that carries both pending_approvals and pending_frontend_tool_calls.
                 # The client checks which lists are populated and handles accordingly.
+                #
+                # Special case: the model produced content AND only frontend tool calls
+                # (nothing needing approval). Frontend calls such as SuggestSkills are
+                # side-effects, not a request for another turn -- pausing here hands the
+                # client a content-less APPROVAL_REQUIRED, which resumes the loop and makes
+                # the model re-answer. The regenerated answer is a shorter version of the
+                # one it already gave, so the original detail is lost before grading. See
+                # #2428. Emit the answer that already exists instead of pausing.
                 if pending_approvals or pending_frontend_calls:
+                    if message and pending_frontend_calls and not pending_approvals:
+                        yield StreamMessage(
+                            event=StreamEvents.ANSWER_END,
+                            data={
+                                "content": message,
+                                "messages": messages,
+                                "metadata": metadata,
+                                "tool_calls": all_tool_calls,
+                                "num_llm_calls": i,
+                                "prompt": json.dumps(messages, indent=2),
+                                "costs": stats.model_dump(),
+                            },
+                        )
+                        return
+
                     yield StreamMessage(
                         event=StreamEvents.APPROVAL_REQUIRED,
                         data={
