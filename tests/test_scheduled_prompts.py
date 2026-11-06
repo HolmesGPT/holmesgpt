@@ -194,6 +194,30 @@ class TestScheduledPromptsExecutor:
         assert call_args.kwargs["status"] == RunStatus.FAILED
         assert "Test error" in call_args.kwargs["result"]["error"]
 
+    def test_an_empty_model_runs_on_the_account_default(
+        self,
+        executor,
+        mock_dal,
+        mock_config,
+        mock_chat_function,
+        sample_scheduled_prompt_payload,
+    ):
+        """A run saved with an empty model_name runs on the account default
+        (ROB-1514), not on a "Model '' not found" failure."""
+        mock_config.llm_model_registry.account_default_model = "Robusta/Opus (latest)"
+        sample_scheduled_prompt_payload["model_name"] = ""
+        mock_dal.claim_scheduled_prompt_run.return_value = sample_scheduled_prompt_payload
+
+        executor._process_next_prompt()
+
+        mock_chat_function.assert_called_once()
+        request = mock_chat_function.call_args.args[0]
+        assert request.model == "Robusta/Opus (latest)"
+        assert (
+            mock_dal.finish_scheduled_prompt_run.call_args.kwargs["status"]
+            != RunStatus.FAILED
+        )
+
     def test_execute_scheduled_prompt_invalid_model(
         self, mock_dal, mock_chat_function, sample_scheduled_prompt_payload
     ):
