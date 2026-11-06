@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-certs-authenticator
+  namespace: app-19
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db-certs-authenticator
+  template:
+    metadata:
+      labels:
+        app: db-certs-authenticator
+    spec:
+      containers:
+      - name: authenticator
+        image: python:3.9-slim
+        command: ["python", "/app/authenticator.py"]
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+      volumes:
+      - name: app
+        secret:
+          secretName: db-certs-authenticator-app
