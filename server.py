@@ -58,6 +58,7 @@ from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
 )
+from holmes.core.llm_usage import RequestStats, attach_request_usage
 from holmes.core.models import (
     ChatRequest,
     ChatResponse,
@@ -101,7 +102,11 @@ from holmes.core.usage_recorder import (
     record_from_llm_result,
     stream_with_usage_recording,
 )
-from holmes.utils.stream import stream_chat_formatter
+from holmes.utils.stream import (
+    NO_STRUCTURED_OUTPUT_MSG,
+    reject_empty_structured_output,
+    stream_chat_formatter,
+)
 
 
 def init_logging():
@@ -710,18 +715,18 @@ def chat(chat_request: ChatRequest, http_request: Request):
             recorder_state = build_chat_recorder_state(
                 chat_request, request_ai, dal=dal, is_streaming=True
             )
-            recorded_stream = stream_with_usage_recording(
-                request_ai.call_stream(
-                    msgs=messages,
-                    enable_tool_approval=chat_request.enable_tool_approval or False,
-                    tool_decisions=chat_request.tool_decisions,
-                    frontend_tool_results=chat_request.frontend_tool_results,
-                    response_format=chat_request.response_format,
-                    request_context=request_context,
-                    trace_span=trace_span,
-                ),
-                recorder_state,
+            call_stream = request_ai.call_stream(
+                msgs=messages,
+                enable_tool_approval=chat_request.enable_tool_approval or False,
+                tool_decisions=chat_request.tool_decisions,
+                frontend_tool_results=chat_request.frontend_tool_results,
+                response_format=chat_request.response_format,
+                request_context=request_context,
+                trace_span=trace_span,
             )
+            if has_structured_output:
+                call_stream = reject_empty_structured_output(call_stream)
+            recorded_stream = stream_with_usage_recording(call_stream, recorder_state)
             stream = stream_chat_formatter(
                 recorded_stream,
                 model=chat_request.model or config.model,
@@ -762,6 +767,16 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     response_format=chat_request.response_format,
                     request_context=request_context,
                 )
+
+                if has_structured_output and not llm_call.result:
+                    # An empty analysis isn't valid JSON, so fail instead. The error carries the
+                    # run's usage, so the except block below records the request once, as an error.
+                    logging.warning(f"{req_info}: {NO_STRUCTURED_OUTPUT_MSG}")
+                    error = HTTPException(status_code=502, detail=NO_STRUCTURED_OUTPUT_MSG)
+                    attach_request_usage(
+                        error, RequestStats(**llm_call.model_dump(include=set(RequestStats.model_fields)))
+                    )
+                    raise error
 
                 # Record usage event for non-streaming path (fire-and-forget).
                 record_from_llm_result(recorder_state, llm_call)
@@ -806,6 +821,11 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 # path does the same via _inject_request_id in the stream wrapper.
                 response_metadata = dict(llm_call.metadata or {})
                 response_metadata["request_id"] = recorder_state.request_id
+                if llm_call.result is None:
+                    logging.warning(
+                        f"{req_info} finished without any analysis text "
+                        f"(finish_reason={llm_call.finish_reason}); returning an empty analysis"
+                    )
                 response = ChatResponse(
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
