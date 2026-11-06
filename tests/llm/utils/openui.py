@@ -41,8 +41,12 @@ CONTROL_COMPONENTS = ("Select", "Input", "Switch", "Button")
 # the first cloud runs read them from the robusta-frontend PR #3892 deploy preview.
 # Hard-coded rather than set through repository variables so that every trigger
 # (label, /eval comment, workflow_dispatch) uses them without any repository setup.
-DEFAULT_FRONTEND_TOOLS_URL = "https://deploy-preview-3892--robusta.netlify.app/api/frontend-tools.json"
-DEFAULT_OPENUI_CHECK_URL = "https://deploy-preview-3892--robusta.netlify.app/api/openui-check.mjs"
+DEFAULT_FRONTEND_TOOLS_URL = (
+    "https://deploy-preview-3892--robusta.netlify.app/api/frontend-tools.json"
+)
+DEFAULT_OPENUI_CHECK_URL = (
+    "https://deploy-preview-3892--robusta.netlify.app/api/openui-check.mjs"
+)
 
 
 def resolve_frontend_tools_url(option: Optional[str] = None) -> str:
