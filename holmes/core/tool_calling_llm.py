@@ -240,6 +240,22 @@ _LITELLM_RETRY_SUFFIX_RE = re.compile(
 REFUSAL_STATUS_CODES = tuple(RELAY_REFUSAL_ERROR_CODES)
 
 
+_REFUSAL_FINISH_REASONS = ("content_filter", "refusal")
+
+
+def _empty_answer_message(finish_reason: Optional[str]) -> str:
+    if finish_reason in _REFUSAL_FINISH_REASONS:
+        return (
+            "The model declined to answer this request: its provider stopped the "
+            f"response (finish_reason: {finish_reason}). Rephrase the request or "
+            "use a different model."
+        )
+    return (
+        "The model ended its turn without an answer "
+        f"(finish_reason: {finish_reason or 'unknown'}). Try the request again."
+    )
+
+
 def _message_from_body(body: Any) -> Optional[str]:
     """The human sentence inside an error body, whichever shape it arrived in:
     FastAPI's `{"detail": ...}`, relay's `{"msg": ..., "error_code": ...}`, or
@@ -1483,13 +1499,21 @@ class ToolCallingLLM:
                         metadata["finish_reason"] = fr
                 except (AttributeError, IndexError, TypeError):
                     pass
+                content = response_message.content
+                if not content or (isinstance(content, str) and not content.strip()):
+                    content = _empty_answer_message(metadata.get("finish_reason"))
+                    logging.warning(
+                        f"model={self.llm.model} ended the turn with no answer "
+                        f"(finish_reason={metadata.get('finish_reason')})"
+                    )
+                    # Follow-up turns see the answer the user was shown.
+                    messages[-1]["content"] = content
                 # Final answer as the trace root output (prompt set as root input by caller).
-                if response_message.content:
-                    trace_span.log(output=response_message.content)
+                trace_span.log(output=content)
                 yield StreamMessage(
                     event=StreamEvents.ANSWER_END,
                     data={
-                        "content": response_message.content,
+                        "content": content,
                         "messages": messages,
                         "metadata": metadata,
                         "tool_calls": all_tool_calls,
