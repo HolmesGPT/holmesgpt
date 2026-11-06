@@ -99,6 +99,12 @@ def format_tool_result_data(
 
     tool_response += tool_result.get_stringified_data()
 
+    # Include result URLs in the LLM tool message so the model can cite the
+    # real link instead of inventing one (see #2289). Clients still get the
+    # structured url via ToolCallResult.to_client_dict().
+    if tool_result.url:
+        tool_response += f"\nResult URL: {tool_result.url}"
+
     if tool_result.params:
         tool_response = (
             f"Params used for the tool call: {json.dumps(tool_result.params)}. The tool call output follows on the next line.\n"
