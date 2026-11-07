@@ -368,18 +368,21 @@ def ask(
             on_event = init_renderer.on_event
             init_renderer.start()
 
-        ai = config.create_toolcalling_llm(
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
-            enable_all_toolsets_possible=True,
-            prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_toolsets else PrerequisiteCacheMode.ENABLED,
-            tracer=tracer,
-            model=model,
-            tool_results_dir=tool_results_dir,
-            on_event=on_event,
-        )
-
-        if init_renderer is not None:
-            init_renderer.stop()
+        try:
+            ai = config.create_toolcalling_llm(
+                toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
+                enable_all_toolsets_possible=True,
+                prerequisite_cache=PrerequisiteCacheMode.FORCE_REFRESH if refresh_toolsets else PrerequisiteCacheMode.ENABLED,
+                tracer=tracer,
+                model=model,
+                tool_results_dir=tool_results_dir,
+                on_event=on_event,
+            )
+        finally:
+            # The live display hides the terminal cursor until it is stopped, so
+            # it must also stop when loading the model or toolsets fails.
+            if init_renderer is not None:
+                init_renderer.stop()
 
         if interactive:
             run_interactive_loop(

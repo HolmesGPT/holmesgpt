@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from rich.console import Console
+from typer.testing import CliRunner
 
 from holmes.core.feedback import FeedbackMetadata
 from holmes.core.tool_calling_llm import ToolCallingLLM
@@ -26,6 +27,7 @@ from holmes.interactive import (
     handle_feedback_command,
     run_interactive_loop,
 )
+from holmes.main import app
 from holmes.utils.stream import StreamEvents, StreamMessage
 from tests.mocks.toolset_mocks import SampleToolset
 
@@ -1876,3 +1878,83 @@ class TestSampleQuestionsMenu(unittest.TestCase):
             console = Console(file=StringIO(), force_terminal=True, width=120)
             result = _show_sample_questions_menu(console)
             self.assertIsNone(result)
+
+
+class TestTerminalRestoredOnExit(unittest.TestCase):
+    """Rich Live hides the cursor until stopped, so no exit path may skip the stop."""
+
+    @staticmethod
+    def _assert_cursor_restored(console: Console) -> None:
+        output = console.file.getvalue()
+        hidden_at = output.rfind("\x1b[?25l")
+        assert hidden_at != -1, "the live display never hid the cursor"
+        assert output.rfind("\x1b[?25h") > hidden_at, "the cursor was left hidden"
+
+    def test_ask_restores_cursor_when_llm_setup_fails(self):
+        """A model or toolset failure during init must not leave the cursor hidden."""
+        console = Console(file=StringIO(), force_terminal=True, width=120)
+        config = Mock()
+        config.model = "test-model"
+        config.create_toolcalling_llm.side_effect = ValueError("no such provider")
+
+        with (
+            patch("holmes.main.init_logging", return_value=console),
+            patch("holmes.main.Config.load_from_file", return_value=config),
+            patch("holmes.main.enable_disk_token_store"),
+        ):
+            # CliRunner's stdin is not a TTY, which `ask` would treat as piped input
+            # and turn interactive mode off; this is the opt-out it has for that.
+            result = CliRunner().invoke(
+                app, ["ask", "what is wrong?"], env={"PYCHARM_HOSTED": "1"}
+            )
+
+        assert isinstance(result.exception, ValueError)
+        self._assert_cursor_restored(console)
+
+    @patch("holmes.interactive.check_version_async")
+    @patch("holmes.interactive.PromptSession")
+    @patch(
+        "holmes.interactive.build_initial_ask_messages",
+        return_value=[{"role": "user", "content": "what is wrong?"}],
+    )
+    @patch(
+        "holmes.interactive.config_path_dir", new_callable=lambda: tempfile.gettempdir()
+    )
+    def test_ctrl_c_during_investigation_restores_terminal(self, *_):
+        """Ctrl-C exits holmes from the render loop, past its `except Exception`.
+
+        The escape listener restores the terminal from cbreak mode when it stops,
+        and as a daemon thread it would die with the process before doing so.
+        """
+        console = Console(file=StringIO(), force_terminal=True, width=120)
+        ai = Mock(spec=ToolCallingLLM)
+        ai.llm = Mock(model="test-model")
+        ai.llm.get_context_window_size.return_value = 4096
+        ai.tool_executor = Mock(toolsets=[SampleToolset()])
+        ai.call_stream.side_effect = lambda **kwargs: iter(
+            [StreamMessage(event=StreamEvents.AI_MESSAGE, data={"content": "checking"})]
+        )
+        listener_stopped = threading.Event()
+
+        def fake_listener(thread, cancel_event, stop_event):
+            if stop_event.wait(timeout=10):
+                listener_stopped.set()
+
+        with (
+            patch.object(
+                AgenticProgressRenderer, "handle_event", side_effect=KeyboardInterrupt
+            ),
+            patch("holmes.interactive._wait_for_completion_or_escape", fake_listener),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            run_interactive_loop(
+                ai=ai,
+                console=console,
+                initial_user_input="what is wrong?",
+                include_files=None,
+                show_tool_output=False,
+                check_version=False,
+            )
+
+        self._assert_cursor_restored(console)
+        assert listener_stopped.is_set()
