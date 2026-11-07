@@ -3683,6 +3683,165 @@ class TestMCPStructuredContent:
         assert "summary" in result.data
         assert "run-1" in result.data
 
+    def test_null_fields_missing_from_structured_content_are_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """Null fields kept only in the text block do not make it a new payload.
+
+        The managed AWS MCP Server's aws___run_script keeps "stderr": null and
+        "warning": null in the text block but leaves them out of
+        structuredContent.
+        """
+        structured = {"status": "success", "calls": [{"service": "ec2"}]}
+        text_payload = {
+            "status": "success",
+            "stderr": None,
+            "calls": [{"service": "ec2", "warning": None}],
+        }
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=json.dumps(text_payload))],
+            structured_content=structured,
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == json.dumps(structured)
+
+    def test_null_fields_missing_from_the_text_are_not_doubled(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """The same payload is recognized when structuredContent has the nulls."""
+        structured = {"status": "success", "stderr": None}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text='{"status": "success"}')],
+            structured_content=structured,
+        )
+
+        assert result.data == json.dumps(structured)
+
+    @pytest.mark.parametrize(
+        "text, wrapped, expected",
+        [
+            pytest.param(
+                '[{"id":"a","error":null}]',
+                [{"id": "a", "error": None}],
+                '[{"id": "a", "error": null}]',
+                id="list",
+            ),
+            pytest.param(
+                "plain text\nanswer",
+                "plain text\nanswer",
+                "plain text\nanswer",
+                id="string",
+            ),
+            pytest.param(
+                '{"not": "json"',
+                '{"not": "json"',
+                '{"not": "json"',
+                id="string-like-json",
+            ),
+            pytest.param("42", 42, "42", id="number"),
+            pytest.param("true", True, "true", id="boolean"),
+            pytest.param("null", None, "null", id="null"),
+        ],
+    )
+    def test_result_wrapper_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings, text, wrapped, expected
+    ):
+        """FastMCP wraps a non-object return value as {"result": <value>}.
+
+        structuredContent must be an object, while the text block holds the bare
+        value, so the payload is returned once and without the wrapper.
+        """
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=text)],
+            structured_content={"result": wrapped},
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == expected
+
+    @pytest.mark.parametrize(
+        "items",
+        [
+            pytest.param([{"id": "a"}, {"id": "b"}], id="objects"),
+            pytest.param(["first", "second"], id="strings"),
+        ],
+    )
+    def test_result_wrapper_with_one_text_block_per_item_is_not_doubled(
+        self, monkeypatch, suppress_migration_warnings, items
+    ):
+        """The reference Python SDK's FastMCP emits a text block per list item."""
+        blocks = [
+            TextContent(
+                type="text",
+                text=item if isinstance(item, str) else json.dumps(item, indent=2),
+            )
+            for item in items
+        ]
+        result, _ = self._run_invoke(
+            monkeypatch, blocks, structured_content={"result": items}
+        )
+
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == json.dumps(items)
+
+    @pytest.mark.parametrize(
+        "text, structured",
+        [
+            pytest.param(
+                '{"status": "success", "stderr": "DeprecationWarning"}',
+                {"status": "success"},
+                id="non-null-field-only-in-text",
+            ),
+            pytest.param(
+                '[{"id": "a"}]', {"result": [{"id": "b"}]}, id="wrapped-value-differs"
+            ),
+            pytest.param(
+                '[{"id": "a"}]',
+                {"result": [{"id": "a"}], "count": 1},
+                id="result-key-with-sibling",
+            ),
+            pytest.param(
+                "Found 1 run(s)",
+                {"result": "run-1"},
+                id="summary-next-to-wrapped-string",
+            ),
+            pytest.param("null", {"result": 0}, id="falsy-wrapped-value-differs"),
+        ],
+    )
+    def test_text_with_a_different_payload_is_still_kept(
+        self, monkeypatch, suppress_migration_warnings, text, structured
+    ):
+        """Only an equivalent payload is deduplicated; real data reaches the LLM."""
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [TextContent(type="text", text=text)],
+            structured_content=structured,
+        )
+
+        assert result.data == f"{text}\n{json.dumps(structured)}"
+
+    def test_text_blocks_that_differ_from_a_wrapped_list_are_still_kept(
+        self, monkeypatch, suppress_migration_warnings
+    ):
+        """A wrapped list is only matched when every text block matches its item."""
+        structured = {"result": [{"id": "a"}, {"id": "b"}]}
+        result, _ = self._run_invoke(
+            monkeypatch,
+            [
+                TextContent(type="text", text='{"id": "a"}'),
+                TextContent(type="text", text='{"id": "other"}'),
+            ],
+            structured_content=structured,
+        )
+
+        assert (
+            result.data == f'{{"id": "a"}} {{"id": "other"}}\n{json.dumps(structured)}'
+        )
+
     def test_null_optional_param_is_dropped(
         self, monkeypatch, suppress_migration_warnings
     ):
