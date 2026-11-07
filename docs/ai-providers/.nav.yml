@@ -9,6 +9,7 @@ nav:
 - GitHub Models: github.md
 - Google Vertex AI: google-vertex-ai.md
 - Ollama: ollama.md
+- OpenLLM: openllm.md
 - OpenRouter: openrouter.md
 - OpenAI: openai.md
 - OpenAI-Compatible: openai-compatible.md
