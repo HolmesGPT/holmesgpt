@@ -366,9 +366,10 @@ def ask(
                 console, model_name=model or config.model or ""
             )
             on_event = init_renderer.on_event
-            init_renderer.start()
 
         try:
+            if init_renderer is not None:
+                init_renderer.start()
             ai = config.create_toolcalling_llm(
                 toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLI],
                 enable_all_toolsets_possible=True,

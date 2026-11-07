@@ -2697,7 +2697,6 @@ def run_interactive_loop(
 
                 # --- Main thread: render stream events while monitoring for escape ---
                 progress = AgenticProgressRenderer(console, tool_number_offset, escape_hint)
-                progress.start()
                 all_tool_calls_this_turn: list[dict] = []
                 terminal_data = None
                 interrupted = False
@@ -2705,6 +2704,7 @@ def run_interactive_loop(
                 total_num_llm_calls = 0
 
                 try:
+                    progress.start()
                     while True:
                         try:
                             item = event_queue.get(timeout=0.1)

@@ -18,6 +18,7 @@ from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.interactive import (
     AgenticProgressRenderer,
     Feedback,
+    InitProgressRenderer,
     SlashCommandCompleter,
     SlashCommands,
     UserFeedback,
@@ -1911,6 +1912,23 @@ class TestTerminalRestoredOnExit(unittest.TestCase):
         assert isinstance(result.exception, ValueError)
         self._assert_cursor_restored(console)
 
+    def test_ask_stops_init_renderer_when_ctrl_c_interrupts_its_start(self):
+        """Rich hides the cursor partway through start(), before it returns."""
+        config = Mock()
+        config.model = "test-model"
+
+        with (
+            patch("holmes.main.Config.load_from_file", return_value=config),
+            patch("holmes.main.enable_disk_token_store"),
+            patch.object(InitProgressRenderer, "start", side_effect=KeyboardInterrupt),
+            patch.object(InitProgressRenderer, "stop") as stop,
+        ):
+            CliRunner().invoke(
+                app, ["ask", "what is wrong?"], env={"PYCHARM_HOSTED": "1"}
+            )
+
+        stop.assert_called_once()
+
     @patch("holmes.interactive.check_version_async")
     @patch("holmes.interactive.PromptSession")
     @patch(
@@ -1957,4 +1975,44 @@ class TestTerminalRestoredOnExit(unittest.TestCase):
             )
 
         self._assert_cursor_restored(console)
+        assert listener_stopped.is_set()
+
+    @patch("holmes.interactive.check_version_async")
+    @patch("holmes.interactive.PromptSession")
+    @patch(
+        "holmes.interactive.build_initial_ask_messages",
+        return_value=[{"role": "user", "content": "what is wrong?"}],
+    )
+    @patch(
+        "holmes.interactive.config_path_dir", new_callable=lambda: tempfile.gettempdir()
+    )
+    def test_ctrl_c_during_progress_start_stops_the_escape_listener(self, *_):
+        """The listener is already running when the live display starts."""
+        ai = Mock(spec=ToolCallingLLM)
+        ai.llm = Mock(model="test-model")
+        ai.llm.get_context_window_size.return_value = 4096
+        ai.tool_executor = Mock(toolsets=[SampleToolset()])
+        ai.call_stream.side_effect = lambda **kwargs: iter([])
+        listener_stopped = threading.Event()
+
+        def fake_listener(thread, cancel_event, stop_event):
+            if stop_event.wait(timeout=10):
+                listener_stopped.set()
+
+        with (
+            patch.object(
+                AgenticProgressRenderer, "start", side_effect=KeyboardInterrupt
+            ),
+            patch("holmes.interactive._wait_for_completion_or_escape", fake_listener),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            run_interactive_loop(
+                ai=ai,
+                console=Console(file=StringIO(), force_terminal=True, width=120),
+                initial_user_input="what is wrong?",
+                include_files=None,
+                show_tool_output=False,
+                check_version=False,
+            )
+
         assert listener_stopped.is_set()
