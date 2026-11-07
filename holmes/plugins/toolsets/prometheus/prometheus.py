@@ -619,6 +619,24 @@ class AzurePrometheusConfig(PrometheusConfig):
 class BasePrometheusTool(Tool):
     toolset: "PrometheusToolset"
 
+    def _query_timeout(self, params: dict) -> int:
+        """The requested query timeout, capped at the hard max; the default if unset or below 1s.
+
+        Strict tool calls make optional parameters required and nullable, so a
+        model that doesn't want a timeout sends ``"timeout": null``.
+        """
+        default_timeout = self.toolset.config.query_timeout_seconds_default
+        max_timeout = self.toolset.config.query_timeout_seconds_hard_max
+        timeout = params.get("timeout")
+        if timeout is None or timeout < 1:
+            return default_timeout
+        if timeout > max_timeout:
+            logging.warning(
+                f"Timeout requested ({timeout}) exceeds maximum ({max_timeout}s), using {max_timeout}s"
+            )
+            return max_timeout
+        return timeout
+
 
 def do_request(
     config,  # PrometheusConfig | AMPConfig | AzurePrometheusConfig
@@ -1608,17 +1626,7 @@ class ExecuteInstantQuery(BasePrometheusTool):
 
             payload = {"query": query}
 
-            # Get timeout parameter and enforce limits
-            default_timeout = self.toolset.config.query_timeout_seconds_default
-            max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
-            if timeout > max_timeout:
-                timeout = max_timeout
-                logging.warning(
-                    f"Timeout requested ({params.get('timeout')}) exceeds maximum ({max_timeout}s), using {max_timeout}s"
-                )
-            elif timeout < 1:
-                timeout = default_timeout  # Min 1 second, but use default if invalid
+            timeout = self._query_timeout(params)
 
             response = do_request(
                 config=self.toolset.config,
@@ -1862,17 +1870,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 "step": step,
             }
 
-            # Get timeout parameter and enforce limits
-            default_timeout = self.toolset.config.query_timeout_seconds_default
-            max_timeout = self.toolset.config.query_timeout_seconds_hard_max
-            timeout = params.get("timeout", default_timeout)
-            if timeout > max_timeout:
-                timeout = max_timeout
-                logging.warning(
-                    f"Timeout requested ({params.get('timeout')}) exceeds maximum ({max_timeout}s), using {max_timeout}s"
-                )
-            elif timeout < 1:
-                timeout = default_timeout  # Min 1 second, but use default if invalid
+            timeout = self._query_timeout(params)
 
             response = do_request(
                 config=self.toolset.config,

@@ -5,6 +5,7 @@ import pytest
 from pydantic import SecretStr
 
 from holmes.clients.robusta_client import RobustaModel, RobustaModelsResponse
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.config import Config
 from holmes.core.llm import LLMModelRegistry, ModelEntry
 
@@ -34,6 +35,7 @@ class TestLLMModelRegistryGetModelParams:
         dal = MagicMock()
         dal.enabled = False
         dal.account_id = None
+        dal.api_endpoint = ROBUSTA_API_ENDPOINT
         return dal
 
     @pytest.fixture

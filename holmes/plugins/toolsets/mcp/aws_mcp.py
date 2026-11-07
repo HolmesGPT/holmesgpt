@@ -1,20 +1,34 @@
 import json
 import logging
 from functools import lru_cache, partial
-from typing import Any, Callable, ClassVar, Dict, Optional, Tuple, Type
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 import boto3
 import httpx
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.exceptions import BotoCoreError, ClientError
-from pydantic import AnyUrl, Field, model_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, model_validator
 
 from holmes.common.env_vars import SSE_READ_TIMEOUT
-from holmes.plugins.toolsets.mcp.toolset_mcp import MCPConfig, MCPMode, RemoteMCPToolset
+from holmes.core.tools import ToolParameter
+from holmes.plugins.toolsets.mcp.toolset_mcp import (
+    MCPConfig,
+    MCPMode,
+    RemoteMCPTool,
+    RemoteMCPToolset,
+)
 
 AWS_MCP_SERVICE = "aws-mcp"
 AWS_MCP_URL_TEMPLATE = "https://aws-mcp.{region}.api.aws/mcp"
+
+
+class AwsAccountConfig(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    account_id: Optional[str] = None
+    region: Optional[str] = None
+    description: Optional[str] = None
 
 
 class AwsMCPConfig(MCPConfig):
@@ -41,6 +55,11 @@ class AwsMCPConfig(MCPConfig):
         description="AWS MCP Server endpoint. Defaults to the regional endpoint for `region`.",
         examples=["https://aws-mcp.us-east-1.api.aws/mcp"],
     )
+    accounts: Dict[str, AwsAccountConfig] = Field(
+        default_factory=dict,
+        title="Accounts",
+        description="AWS profiles this server can use; every tool call picks one by name.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -58,12 +77,20 @@ def aws_session(profile: Optional[str]) -> boto3.Session:
     return boto3.Session(profile_name=profile)
 
 
-async def _inject_region_hook(region: str, request: httpx.Request) -> None:
-    if not request.content:
-        return
-    body = json.loads(request.content)
-    if not isinstance(body, dict) or "jsonrpc" not in body:
-        return
+def _pick_account(config: AwsMCPConfig, body: dict) -> Tuple[Optional[str], str]:
+    if not config.accounts:
+        return config.profile, config.region
+    name = next(iter(config.accounts))
+    if body.get("method") == "tools/call":
+        name = body.get("params", {}).get("arguments", {}).pop("account", None)
+    if name not in config.accounts:
+        raise ValueError(
+            f"Unknown AWS account '{name}', use one of: {', '.join(config.accounts)}"
+        )
+    return name, config.accounts[name].region or config.region
+
+
+def _set_region_meta(body: dict, region: str, request: httpx.Request) -> None:
     params = body.setdefault("params", {})
     params["_meta"] = {"AWS_REGION": region, **params.get("_meta", {})}
     content = json.dumps(body).encode()
@@ -72,9 +99,13 @@ async def _inject_region_hook(region: str, request: httpx.Request) -> None:
     request.headers["content-length"] = str(len(content))
 
 
-async def _sign_request_hook(
-    region: str, profile: Optional[str], request: httpx.Request
-) -> None:
+async def _sign_request_hook(config: AwsMCPConfig, request: httpx.Request) -> None:
+    body = json.loads(request.content) if request.content else {}
+    is_jsonrpc = isinstance(body, dict) and "jsonrpc" in body
+    profile, region = _pick_account(config, body if is_jsonrpc else {})
+    if is_jsonrpc:
+        _set_region_meta(body, region, request)
+    logging.debug("Signing AWS MCP request with profile %s for %s", profile, region)
     credentials = aws_session(profile).get_credentials()
     if credentials is None:
         raise ValueError(
@@ -88,7 +119,7 @@ async def _sign_request_hook(
         data=request.content,
         headers=headers,
     )
-    SigV4Auth(credentials, AWS_MCP_SERVICE, region).add_auth(aws_request)
+    SigV4Auth(credentials, AWS_MCP_SERVICE, config.region).add_auth(aws_request)
     request.headers.update(dict(aws_request.headers))
 
 
@@ -98,16 +129,12 @@ def create_sigv4_http_client(
     timeout: Optional[httpx.Timeout] = None,
     auth: Optional[httpx.Auth] = None,
 ) -> httpx.AsyncClient:
-    hooks: list[Callable[..., Any]] = [
-        partial(_inject_region_hook, config.region),
-        partial(_sign_request_hook, config.region, config.profile),
-    ]
     return httpx.AsyncClient(
         follow_redirects=False,
         verify=config.verify_ssl,
         headers=headers,
         timeout=timeout or httpx.Timeout(SSE_READ_TIMEOUT),
-        event_hooks={"request": hooks},
+        event_hooks={"request": [partial(_sign_request_hook, config)]},
     )
 
 
@@ -121,20 +148,44 @@ class AwsMCPToolset(RemoteMCPToolset):
     def _http_client_factory(self):
         return partial(create_sigv4_http_client, self._mcp_config)
 
+    def _load_remote_tools(
+        self, request_context: Optional[Dict[str, Any]] = None
+    ) -> List[RemoteMCPTool]:
+        tools = super()._load_remote_tools(request_context)
+        accounts = self._mcp_config.accounts  # type: ignore[union-attr]
+        if not accounts:
+            return tools
+        account_param = ToolParameter(
+            description="AWS account to run against: "
+            + "; ".join(
+                f"{name} ({account.account_id or 'unknown id'}): {account.description or ''}"
+                for name, account in accounts.items()
+            ),
+            enum=list(accounts),
+        )
+        for tool in tools:
+            tool.parameters["account"] = account_param
+        return tools
+
     def _check_aws_credentials(self) -> Tuple[bool, str]:
         config: AwsMCPConfig = self._mcp_config  # type: ignore[assignment]
-        try:
-            identity = (
-                aws_session(config.profile)
-                .client("sts", region_name=config.region)
-                .get_caller_identity()
-            )
-        except (BotoCoreError, ClientError, OSError) as e:
-            return (
-                False,
-                f"AWS credentials check failed for {self.name} (profile '{config.profile or 'default'}'): {e}",
-            )
-        logging.info("MCP server %s authenticated as %s", self.name, identity["Arn"])
+        errors = []
+        for profile in list(config.accounts) or [config.profile]:
+            try:
+                identity = (
+                    aws_session(profile)
+                    .client("sts", region_name=config.region)
+                    .get_caller_identity()
+                )
+            except (BotoCoreError, ClientError, OSError) as e:
+                errors.append(f"profile '{profile or 'default'}': {e}")
+                config.accounts.pop(profile, None)  # type: ignore[arg-type]
+                continue
+            logging.info("MCP server %s authenticated as %s", self.name, identity["Arn"])
+        if errors and not config.accounts:
+            return (False, f"AWS credentials check failed for {self.name}: {'; '.join(errors)}")
+        if errors:
+            logging.warning("MCP server %s skipped AWS accounts: %s", self.name, "; ".join(errors))
         return (True, "")
 
     def prerequisites_callable(self, config) -> Tuple[bool, str]:
@@ -147,4 +198,5 @@ class AwsMCPToolset(RemoteMCPToolset):
         ok, message = self._check_aws_credentials()
         if not ok:
             return (ok, message)
-        return super().prerequisites_callable(config)
+        working_accounts = self._mcp_config.model_dump()["accounts"]  # type: ignore[union-attr]
+        return super().prerequisites_callable({**config, "accounts": working_accounts})

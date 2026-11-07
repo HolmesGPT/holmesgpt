@@ -199,16 +199,20 @@ def test_same_repo_benchmark_branch_still_skips_tests(tmp_path, pr_checkout):
 
 
 @pytest.mark.parametrize(
-    "changed_file,expected",
+    "changed_file,expected,expected_docs",
     [
-        ("docs/index.md", "false"),
-        ("CONTRIBUTING.md", "false"),
-        ("mkdocs.yml", "false"),
-        ("docs/reference/http-api.md", "true"),
-        ("holmes/main.py", "true"),
+        ("docs/index.md", "false", "true"),
+        ("CONTRIBUTING.md", "false", "false"),
+        ("mkdocs.yml", "false", "true"),
+        ("docs/reference/http-api.md", "true", "true"),
+        ("holmes/main.py", "true", "false"),
+        ("helm/holmes/values.yaml", "true", "true"),
+        ("tests/docs/test_chart_paths.py", "true", "true"),
     ],
 )
-def test_docs_only_changes_skip_tests(tmp_path, pr_checkout, changed_file, expected):
+def test_docs_only_changes_skip_tests(
+    tmp_path, pr_checkout, changed_file, expected, expected_docs
+):
     repo, make_pr = pr_checkout
     shas = make_pr(changed_file)
 
@@ -218,10 +222,17 @@ def test_docs_only_changes_skip_tests(tmp_path, pr_checkout, changed_file, expec
 
     assert result.returncode == 0, result.stderr
     assert outputs.get("should_test") == expected
+    assert outputs.get("should_test_docs") == expected_docs
 
 
 def _run_gate(
-    tmp_path: Path, check_changes: str, should_test: str, test: str, build: str
+    tmp_path: Path,
+    check_changes: str,
+    should_test: str,
+    test: str,
+    build: str,
+    should_test_docs: str = "false",
+    test_docs: str = "skipped",
 ) -> int:
     steps = _load_workflow()["jobs"]["build-and-test-gate"]["steps"]
     context = {
@@ -229,6 +240,8 @@ def _run_gate(
         "needs.check-changes.outputs.should_test": should_test,
         "needs.test.result": test,
         "needs.build-binary.result": build,
+        "needs.check-changes.outputs.should_test_docs": should_test_docs,
+        "needs.test-docs.result": test_docs,
     }
     result, _ = _run_step(steps[0], context, tmp_path, tmp_path)
     return result.returncode
@@ -253,6 +266,33 @@ def _run_gate(
 )
 def test_gate(tmp_path, check_changes, should_test, test, build, passes):
     assert (_run_gate(tmp_path, check_changes, should_test, test, build) == 0) is passes
+
+
+@pytest.mark.parametrize(
+    "should_test,test,build,should_test_docs,test_docs,passes",
+    [
+        # a docs-only PR: the matrix skips, the docs tests run
+        ("false", "skipped", "skipped", "true", "success", True),
+        ("false", "skipped", "skipped", "true", "failure", False),
+        ("false", "skipped", "skipped", "true", "cancelled", False),
+        # the docs tests were due but did not run
+        ("false", "skipped", "skipped", "true", "skipped", False),
+        ("true", "success", "success", "true", "skipped", False),
+        # the docs tests ran though none of their inputs changed
+        ("true", "success", "success", "false", "success", False),
+        # should_test_docs missing or garbled fails the gate
+        ("true", "success", "success", "", "skipped", False),
+        ("true", "success", "success", "maybe", "skipped", False),
+        ("true", "success", "success", "true", "success", True),
+    ],
+)
+def test_gate_docs_tests(
+    tmp_path, should_test, test, build, should_test_docs, test_docs, passes
+):
+    returncode = _run_gate(
+        tmp_path, "success", should_test, test, build, should_test_docs, test_docs
+    )
+    assert (returncode == 0) is passes
 
 
 def _run_scripts(node):
