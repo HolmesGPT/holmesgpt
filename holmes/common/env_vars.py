@@ -238,6 +238,9 @@ CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS = float(
     os.environ.get("CONVERSATION_WORKER_SLOT_STUCK_WARN_SECONDS", 1800)
 )
 
+# Largest file bundled next to a SKILL.md that the read_skill_file tool will return.
+SKILL_FILE_MAX_BYTES = int(os.environ.get("SKILL_FILE_MAX_BYTES", 256 * 1024))
+
 # Remote tool execution (cross-cluster tool calls via relay's platform-mcp).
 # Tool calls run in their own pool so they never compete with user chats.
 TOOL_CALLER_MAX_CONCURRENT = int(os.environ.get("TOOL_CALLER_MAX_CONCURRENT", 10))

@@ -2,12 +2,13 @@ import logging
 import os
 import re
 from enum import Enum
-from pathlib import Path
-from typing import List, Optional, Sequence, TYPE_CHECKING, Union
+from pathlib import Path, PurePosixPath
+from typing import Dict, List, Optional, Sequence, TYPE_CHECKING, Union
 
 import yaml
 from pydantic import BaseModel
 
+from holmes.common.env_vars import SKILL_FILE_MAX_BYTES
 from holmes.plugins.skills import RobustaSkillInstruction
 
 if TYPE_CHECKING:
@@ -17,6 +18,9 @@ THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 BUILTIN_SKILLS_DIR = os.path.join(THIS_DIR, "builtin")
 
 SKILL_FILENAME = "SKILL.md"
+# Bound the walk behind list_skill_files, which fetch_skill runs on every call.
+MAX_SKILL_FILES = 100
+MAX_SKILL_FILE_DEPTH = 5
 
 
 class SkillSource(str, Enum):
@@ -278,6 +282,174 @@ def scan_skill_directory(
                     )
 
     return skills
+
+
+class SkillFile(BaseModel):
+    """A text file bundled in a skill's directory, e.g. references/labels.md."""
+
+    path: str  # POSIX-style and relative to the skill's directory
+    size_bytes: int
+
+
+class SkillFileError(Exception):
+    """A bundled file cannot be read. The message is written for the model."""
+
+
+def _skill_directory(skill: Skill) -> Optional[Path]:
+    """The directory holding a skill's files; None for a skill that has none.
+
+    Remote and personal skills are stored in the Robusta platform, and a skill from an
+    SDK-provided catalog may carry no path at all.
+    """
+    if skill.source not in (SkillSource.BUILTIN, SkillSource.USER):
+        return None
+    return Path(skill.source_path).parent if skill.source_path else None
+
+
+def _resolve_within(path: Path, root: Path) -> Optional[Path]:
+    """Follow symlinks in path; None if it leads outside root or cannot be resolved."""
+    try:
+        resolved = path.resolve()
+    # RuntimeError is what a symlink loop raises before Python 3.13.
+    except (OSError, RuntimeError) as e:
+        logging.warning(f"Failed to resolve skill file {path}: {e}")
+        return None
+    return resolved if resolved.is_relative_to(root) else None
+
+
+def _read_text_if_bundleable(path: Path) -> Optional[str]:
+    """Return a regular file's text; None if it is binary or over the size limit."""
+    if not path.is_file():
+        return None
+    with path.open("rb") as file:
+        content = file.read(SKILL_FILE_MAX_BYTES + 1)
+    if len(content) > SKILL_FILE_MAX_BYTES:
+        return None
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return None if "\x00" in text else text
+
+
+def _is_hidden_within(path: Path, root: Path) -> bool:
+    """Whether a resolved path inside root is hidden, so a symlink can't expose .env.
+
+    ConfigMap mounts keep every real file under a ..<timestamp> directory, so those don't count.
+    """
+    return any(
+        part.startswith(".") and not part.startswith("..")
+        for part in path.relative_to(root).parts
+    )
+
+
+def _load_bundled_files(skill: Skill) -> Dict[str, str]:
+    """Map the relative POSIX path of each file bundled with a skill to its text.
+
+    Leaves out anything that is not UTF-8 text within SKILL_FILE_MAX_BYTES, symlinks leading
+    outside the skill's directory or to a hidden file, the SKILL.md itself, and hidden entries:
+    .git in a skill at the root of a synced repo, and ..data and ..<timestamp> in a ConfigMap
+    mount. Also leaves out subdirectories with a SKILL.md of their own, as those belong to
+    another skill.
+    """
+    directory = _skill_directory(skill)
+    if directory is None:
+        return {}
+    try:
+        root = directory.resolve()
+    except (OSError, RuntimeError) as e:
+        logging.warning(f"Failed to resolve skill directory {directory}: {e}")
+        return {}
+
+    def on_walk_error(error: OSError) -> None:
+        logging.warning(f"Failed to read skill directory {error.filename}: {error}")
+
+    def should_descend(parent: Path, resolved_parent: Path, name: str) -> bool:
+        child = _resolve_within(parent / name, root)
+        return (
+            child is not None
+            and not name.startswith(".")
+            and not (parent / name / SKILL_FILENAME).exists()
+            # A symlink back up to an ancestor is a cycle. Other aliases of a directory stay
+            # walkable, as the skill may refer to the files by any of those paths.
+            and not resolved_parent.is_relative_to(child)
+        )
+
+    files: Dict[str, str] = {}
+    examined = 0
+    # followlinks=True for the same reason as scan_skill_directory: everything in a ConfigMap
+    # mount is reached through a symlink.
+    for current, dirs, names in os.walk(
+        directory, followlinks=True, onerror=on_walk_error
+    ):
+        current_path = Path(current)
+        resolved_dir = _resolve_within(current_path, root)
+        if resolved_dir is None:
+            dirs.clear()
+            continue
+        depth = len(current_path.relative_to(directory).parts)
+        dirs[:] = sorted(
+            name
+            for name in dirs
+            if depth + 1 < MAX_SKILL_FILE_DEPTH
+            and should_descend(current_path, resolved_dir, name)
+        )
+
+        for name in sorted(names):
+            if name.startswith(".") or (depth == 0 and name == SKILL_FILENAME):
+                continue
+            # Counts every file looked at, not just the text ones: fetch_skill runs this on
+            # each call, and a SKILL.md can sit at the root of a large repository.
+            if examined == MAX_SKILL_FILES:
+                logging.warning(
+                    f"Skill '{skill.name}' has over {MAX_SKILL_FILES} files in its directory; "
+                    "the rest cannot be listed or read"
+                )
+                return files
+            examined += 1
+            file_path = current_path / name
+            resolved_file = _resolve_within(file_path, root)
+            if resolved_file is None or _is_hidden_within(resolved_file, root):
+                continue
+            try:
+                text = _read_text_if_bundleable(resolved_file)
+            except OSError as e:
+                logging.warning(f"Failed to read skill file {file_path}: {e}")
+                continue
+            if text is not None:
+                files[file_path.relative_to(directory).as_posix()] = text
+    return files
+
+
+def list_skill_files(skill: Skill) -> List[SkillFile]:
+    """List the files bundled with a skill, the only ones read_skill_file will return."""
+    return [
+        SkillFile(path=path, size_bytes=len(text.encode("utf-8")))
+        for path, text in _load_bundled_files(skill).items()
+    ]
+
+
+def read_skill_file(skill: Skill, relative_path: str) -> str:
+    """Return the text of one of the files list_skill_files lists for a skill.
+
+    The text comes from the walk that vetted the file rather than from opening the requested
+    path, so ../ and absolute paths simply miss.
+    """
+    if _skill_directory(skill) is None:
+        raise SkillFileError(
+            f"Skill '{skill.name}' is not stored on the filesystem, so it has no bundled files."
+        )
+
+    files = _load_bundled_files(skill)
+    # Normalizes "./references/a.md" and "references//a.md"; it does not collapse "..".
+    normalized_path = PurePosixPath(relative_path).as_posix()
+    if normalized_path not in files:
+        raise SkillFileError(
+            f"'{relative_path}' is not a file bundled with skill '{skill.name}'. Bundled files "
+            f"are UTF-8 text files of at most {SKILL_FILE_MAX_BYTES} bytes inside the skill's "
+            f"directory. Available: {', '.join(files) or 'none'}"
+        )
+    return files[normalized_path]
 
 
 def map_robusta_instruction_to_skill(
