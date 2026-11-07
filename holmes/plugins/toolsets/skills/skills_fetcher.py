@@ -16,9 +16,12 @@ from holmes.core.tools import (
 from holmes.plugins.skills.skill_loader import (
     Skill,
     SkillCatalog,
+    SkillFileError,
     SkillSource,
+    list_skill_files,
     load_filesystem_skills,
     load_skill_catalog,
+    read_skill_file,
 )
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
@@ -93,30 +96,9 @@ class SkillsFetcher(Tool):
         # Resolved per invocation, not baked into the cached toolset -- see __init__.
         user_id = (context.request_context or {}).get("user_id")
 
-        # Remote skills are keyed by UUID and can never be on disk, so resolve
-        # them from the cached catalog first and skip the filesystem scan (their
-        # catalog entry is metadata-only; content comes from Supabase anyway).
-        cached = self._find_skill(skill_id)
-        if cached and cached.source == SkillSource.REMOTE:
+        skill = self.find_skill_without_dal(skill_id)
+        if skill and skill.source == SkillSource.REMOTE:
             return self._get_robusta_skill(skill_id, params)
-
-        # Filesystem skills (builtin + custom, including git-synced repos) are
-        # re-read from disk per invocation, never served from the cached catalog:
-        # the catalog is a snapshot from toolset construction, and skill files
-        # change under a running server (a git repo re-pull, a ConfigMap
-        # remount). The per-request prompt catalog already re-scans disk, so
-        # without this a freshly-advertised skill would 404 here and an edited
-        # one would serve its old content until restart.
-        #
-        # When the scan is authoritative, a miss is a real miss and must NOT
-        # fall back to the snapshot: a skill DELETED upstream would otherwise
-        # stay fetchable for the life of the process, which matters most for the
-        # skill someone deleted precisely because it was wrong. The snapshot is
-        # only a fallback when disk is not the source of truth (an SDK caller
-        # handed us a catalog with no search paths) or the scan itself failed.
-        skill, disk_was_authoritative = self._find_filesystem_skill(skill_id)
-        if skill is None and not disk_was_authoritative:
-            skill = cached
         if skill:
             return self._format_skill_result(skill, params)
 
@@ -154,6 +136,34 @@ class SkillsFetcher(Tool):
             error=err_msg,
             params=params,
         )
+
+    def find_skill_without_dal(self, skill_id: str) -> Optional[Skill]:
+        """Find a skill in the cached catalog or on disk, without asking Supabase."""
+        # Remote skills are keyed by UUID and can never be on disk, so resolve
+        # them from the cached catalog first and skip the filesystem scan (their
+        # catalog entry is metadata-only; content comes from Supabase anyway).
+        cached = self._find_skill(skill_id)
+        if cached and cached.source == SkillSource.REMOTE:
+            return cached
+
+        # Filesystem skills (builtin + custom, including git-synced repos) are
+        # re-read from disk per invocation, never served from the cached catalog:
+        # the catalog is a snapshot from toolset construction, and skill files
+        # change under a running server (a git repo re-pull, a ConfigMap
+        # remount). The per-request prompt catalog already re-scans disk, so
+        # without this a freshly-advertised skill would 404 here and an edited
+        # one would serve its old content until restart.
+        #
+        # When the scan is authoritative, a miss is a real miss and must NOT
+        # fall back to the snapshot: a skill DELETED upstream would otherwise
+        # stay fetchable for the life of the process, which matters most for the
+        # skill someone deleted precisely because it was wrong. The snapshot is
+        # only a fallback when disk is not the source of truth (an SDK caller
+        # handed us a catalog with no search paths) or the scan itself failed.
+        skill, disk_was_authoritative = self._find_filesystem_skill(skill_id)
+        if skill is None and not disk_was_authoritative:
+            return cached
+        return skill
 
     def _find_filesystem_skill(self, name: str) -> Tuple[Optional[Skill], bool]:
         """Fresh disk lookup by normalized name, and whether disk was decisive.
@@ -229,6 +239,15 @@ class SkillsFetcher(Tool):
                 **Fix:** Roll back to v2.1.2 or increase memory limit to 6GB as a temporary workaround.
             </example>
         """)
+        bundled_files = list_skill_files(skill)
+        if bundled_files:
+            listing = "\n".join(
+                f"- {file.path} ({file.size_bytes} bytes)" for file in bundled_files
+            )
+            wrapped_content += (
+                "\nThis skill bundles the files below. When its directions point to one, read it"
+                f" with the read_skill_file tool, using skill_id '{skill.name}':\n{listing}\n"
+            )
         return StructuredToolResult(
             status=StructuredToolResultStatus.SUCCESS,
             data=wrapped_content,
@@ -316,6 +335,66 @@ class SkillsFetcher(Tool):
         return f"{toolset_name_for_one_liner(self.toolset.name)}: Fetch Skill {label}"
 
 
+class SkillFileReader(Tool):
+    toolset: "SkillsToolset"
+    _fetcher: SkillsFetcher
+
+    def __init__(self, toolset: "SkillsToolset", fetcher: SkillsFetcher):
+        super().__init__(
+            name="read_skill_file",
+            description=(
+                "Read a text file bundled with a skill, such as a reference document its"
+                " directions point to. fetch_skill lists the files a skill bundles."
+            ),
+            parameters={
+                "skill_id": ToolParameter(
+                    description="The skill_id of the skill, as passed to fetch_skill.",
+                    type="string",
+                    required=True,
+                ),
+                "path": ToolParameter(
+                    description=(
+                        "The file's relative path as listed by fetch_skill, e.g."
+                        " references/labels.md"
+                    ),
+                    type="string",
+                    required=True,
+                ),
+            },
+            toolset=toolset,  # type: ignore[call-arg]
+        )
+        self._fetcher = fetcher
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        skill_id: str = params.get("skill_id", "")
+        try:
+            skill = self._fetcher.find_skill_without_dal(skill_id)
+            if skill is None:
+                raise SkillFileError(
+                    f"Skill '{skill_id}' was not found on the filesystem. Skills stored in the"
+                    " Robusta platform, including personal skills, have no bundled files."
+                )
+            data = read_skill_file(skill, params.get("path") or "")
+        except SkillFileError as e:
+            logging.warning(f"read_skill_file failed: {e}")
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(e),
+                params=params,
+            )
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data=data,
+            params=params,
+        )
+
+    def get_parameterized_one_liner(self, params) -> str:
+        return (
+            f"{toolset_name_for_one_liner(self.toolset.name)}: Read"
+            f" {params.get('path', '')} from Skill {params.get('skill_id', '')}"
+        )
+
+
 class SkillsToolset(Toolset):
     def __init__(
         self,
@@ -327,18 +406,17 @@ class SkillsToolset(Toolset):
             custom_skill_paths=additional_search_paths,
         )
 
+        fetcher = SkillsFetcher(
+            self,
+            skill_catalog=skill_catalog,
+            dal=dal,
+            search_paths=additional_search_paths,
+        )
         super().__init__(
             name="skills",
             description="Fetch skills",
             icon_url="https://platform.robusta.dev/demos/runbook.svg",
-            tools=[
-                SkillsFetcher(
-                    self,
-                    skill_catalog=skill_catalog,
-                    dal=dal,
-                    search_paths=additional_search_paths,
-                ),
-            ],
+            tools=[fetcher, SkillFileReader(self, fetcher)],
             docs_url="https://holmesgpt.dev/data-sources/",
             tags=[
                 ToolsetTag.CORE,

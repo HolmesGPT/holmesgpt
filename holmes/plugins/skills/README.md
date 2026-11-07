@@ -37,6 +37,8 @@ description: Troubleshooting DNS resolution failures in Kubernetes clusters
 
 `description` is required and is used for matching. `name` is optional; if omitted, Holmes uses the parent directory name and normalizes it to lowercase hyphenated form.
 
+Text files next to `SKILL.md`, such as `references/labels.md`, are listed in the `fetch_skill` result and read on demand with the `read_skill_file` tool. See [Bundling Files with a Skill](../../../docs/reference/skills.md#bundling-files-with-a-skill).
+
 ## Loading
 
 Holmes scans built-in and custom skill directories up to two levels deep for `SKILL.md` files. If multiple skills use the same name, the higher-priority source wins:

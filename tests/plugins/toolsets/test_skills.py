@@ -2,6 +2,8 @@ import os
 import shutil
 from unittest.mock import Mock
 
+import pytest
+
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.skills import RobustaSkillInstruction
 from holmes.plugins.skills.skill_loader import (
@@ -11,6 +13,7 @@ from holmes.plugins.skills.skill_loader import (
     load_skill_catalog,
 )
 from holmes.plugins.toolsets.skills.skills_fetcher import (
+    SkillFileReader,
     SkillsFetcher,
     SkillsToolset,
 )
@@ -462,3 +465,284 @@ def test_SkillsFetcher_deletion_is_still_authoritative_on_a_clean_scan(tmp_path)
         {"skill_id": "pod-oom"}, context=create_mock_tool_invoke_context()
     )
     assert result.status == StructuredToolResultStatus.ERROR
+
+
+def _mkdir(path):
+    path.mkdir()
+    return path
+
+
+def _bundled_skill(skills_root, name="obs"):
+    """A skill laid out as references/ next to its SKILL.md, plus its reader tool."""
+    _write_fs_skill(skills_root, name, "See references/labels.md for UIDs.")
+    skill_dir = skills_root / name
+    (skill_dir / "references").mkdir()
+    (skill_dir / "references" / "labels.md").write_text("uid=abc123")
+    (skill_dir / "notes.txt").write_text("note")
+    toolset = SkillsToolset(additional_search_paths=[str(skills_root)])
+    return skill_dir, toolset.tools[0], toolset.tools[1]
+
+
+def _read(reader, path, skill_id="obs"):
+    return reader._invoke(
+        {"skill_id": skill_id, "path": path}, context=create_mock_tool_invoke_context()
+    )
+
+
+def _fetch(fetcher, skill_id="obs"):
+    return fetcher._invoke(
+        {"skill_id": skill_id}, context=create_mock_tool_invoke_context()
+    )
+
+
+def test_toolset_exposes_the_reader_alongside_fetch_skill():
+    assert [tool.name for tool in SkillsToolset().tools] == [
+        "fetch_skill",
+        "read_skill_file",
+    ]
+
+
+def test_fetch_skill_lists_bundled_files_with_sizes(tmp_path):
+    _, fetcher, _ = _bundled_skill(tmp_path)
+    data = _fetch(fetcher).data
+
+    assert "- notes.txt (4 bytes)" in data
+    assert "- references/labels.md (10 bytes)" in data
+    assert "read_skill_file" in data
+    assert "- SKILL.md" not in data
+
+
+def test_fetch_skill_mentions_no_files_for_a_skill_without_any(tmp_path):
+    _write_fs_skill(tmp_path, "plain", "Just steps.")
+    fetcher = SkillsToolset(additional_search_paths=[str(tmp_path)]).tools[0]
+    assert "read_skill_file" not in _fetch(fetcher, "plain").data
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["references/labels.md", "./references/labels.md", "references//labels.md"],
+)
+def test_read_skill_file_returns_a_bundled_file(tmp_path, path):
+    _, _, reader = _bundled_skill(tmp_path)
+    result = _read(reader, path)
+
+    assert result.status == StructuredToolResultStatus.SUCCESS
+    assert result.data == "uid=abc123"
+
+
+def test_read_skill_file_serves_a_file_added_after_toolset_construction(tmp_path):
+    skill_dir, _, reader = _bundled_skill(tmp_path)
+    (skill_dir / "references" / "recipes.md").write_text("fresh")
+    assert _read(reader, "references/recipes.md").data == "fresh"
+
+
+def test_read_skill_file_refuses_paths_outside_the_skill(tmp_path):
+    root = tmp_path / "skills"
+    root.mkdir()
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET")
+    skill_dir, fetcher, reader = _bundled_skill(root)
+    _write_fs_skill(root, "other", "Another skill.")
+    (root / "other" / "private.md").write_text("TOP-SECRET")
+    (skill_dir / "file_link.md").symlink_to(secret)
+    (skill_dir / "dir_link").symlink_to(tmp_path, target_is_directory=True)
+
+    for path in (
+        "../../secret.txt",
+        "../other/private.md",
+        "references/../../other/private.md",
+        str(secret),
+        "file_link.md",
+        "dir_link/secret.txt",
+        "",
+        ".",
+        "references",
+    ):
+        result = _read(reader, path)
+        assert result.status == StructuredToolResultStatus.ERROR, path
+        assert "TOP-SECRET" not in str(result.data) + str(result.error), path
+
+    listing = _fetch(fetcher).data
+    assert "file_link" not in listing and "dir_link" not in listing
+
+
+def test_symlink_inside_the_skill_and_symlink_cycle_are_handled(tmp_path):
+    skill_dir, _, reader = _bundled_skill(tmp_path)
+    (skill_dir / "alias.md").symlink_to(skill_dir / "references" / "labels.md")
+    (skill_dir / "references" / "cycle").symlink_to(skill_dir, target_is_directory=True)
+    (skill_dir / "loop.md").symlink_to(skill_dir / "loop.md")
+
+    assert _read(reader, "alias.md").data == "uid=abc123"
+    assert _read(reader, "references/labels.md").data == "uid=abc123"
+    assert _read(reader, "loop.md").status == StructuredToolResultStatus.ERROR
+
+
+def test_hidden_entries_are_neither_listed_nor_readable(tmp_path):
+    skill_dir, fetcher, reader = _bundled_skill(tmp_path)
+    (skill_dir / ".git").mkdir()
+    (skill_dir / ".git" / "config").write_text("token=TOP-SECRET")
+    (skill_dir / ".env").write_text("TOP-SECRET")
+
+    assert ".git" not in _fetch(fetcher).data
+    for path in (".git/config", ".env"):
+        assert _read(reader, path).status == StructuredToolResultStatus.ERROR
+
+
+def test_nested_skill_files_belong_to_the_nested_skill(tmp_path):
+    """A skill at the root of a skills directory must not expose its sibling skills."""
+    (tmp_path / "SKILL.md").write_text("---\nname: outer\ndescription: d\n---\nBody")
+    (tmp_path / "guide.md").write_text("outer guide")
+    _write_fs_skill(tmp_path, "inner", "Inner body.")
+    (tmp_path / "inner" / "inner-guide.md").write_text("inner guide")
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher, reader = toolset.tools
+
+    assert "inner" not in _fetch(fetcher, "outer").data.split("bundles the files")[1]
+    assert (
+        _read(reader, "inner/inner-guide.md", skill_id="outer").status
+        == StructuredToolResultStatus.ERROR
+    )
+    assert _read(reader, "guide.md", skill_id="outer").data == "outer guide"
+    assert _read(reader, "inner-guide.md", skill_id="inner").data == "inner guide"
+
+
+def test_configmap_mount_layout_is_followed(tmp_path):
+    """A ConfigMap mount reaches every key through ..data and a timestamped directory."""
+    real = tmp_path / "..2026_11_07_00_00_00.1"
+    (real / "references").mkdir(parents=True)
+    (real / "SKILL.md").write_text("---\nname: mounted\ndescription: d\n---\nBody")
+    (real / "references" / "labels.md").write_text("mounted labels")
+    (tmp_path / "..data").symlink_to(real.name, target_is_directory=True)
+    (tmp_path / "SKILL.md").symlink_to("..data/SKILL.md")
+    (tmp_path / "references").symlink_to("..data/references", target_is_directory=True)
+    toolset = SkillsToolset(additional_search_paths=[str(tmp_path)])
+    fetcher, reader = toolset.tools
+
+    data = _fetch(fetcher, "mounted").data
+    assert data.count("references/labels.md") == 1
+    assert "..data" not in data
+    assert (
+        _read(reader, "references/labels.md", skill_id="mounted").data
+        == "mounted labels"
+    )
+
+
+def test_skill_directory_that_is_itself_a_symlink_keeps_its_files(tmp_path):
+    """E.g. a skill symlinked into the skills directory from elsewhere on disk."""
+    elsewhere_root = _mkdir(tmp_path / "elsewhere")
+    _bundled_skill(elsewhere_root)
+    skills_root = _mkdir(tmp_path / "skills")
+    (skills_root / "obs").symlink_to(elsewhere_root / "obs", target_is_directory=True)
+    fetcher, reader = SkillsToolset(additional_search_paths=[str(skills_root)]).tools
+
+    assert "references/labels.md" in _fetch(fetcher).data
+    assert _read(reader, "references/labels.md").data == "uid=abc123"
+
+
+def test_binary_and_oversized_files_are_neither_listed_nor_readable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr("holmes.plugins.skills.skill_loader.SKILL_FILE_MAX_BYTES", 20)
+    skill_dir, fetcher, reader = _bundled_skill(tmp_path)
+    (skill_dir / "image.png").write_bytes(b"\x89PNG\xff\xfe")
+    (skill_dir / "nul.dat").write_bytes(b"text\x00text")
+    (skill_dir / "huge.md").write_text("x" * 21)
+
+    data = _fetch(fetcher).data
+    assert "references/labels.md" in data
+    for name in ("image.png", "nul.dat", "huge.md"):
+        assert name not in data
+        result = _read(reader, name)
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "at most 20 bytes" in result.error
+
+
+def test_read_skill_file_error_names_the_available_files(tmp_path):
+    _, _, reader = _bundled_skill(tmp_path)
+    result = _read(reader, "references/missing.md")
+
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "references/labels.md" in result.error
+
+
+def test_listing_is_capped(tmp_path, monkeypatch):
+    monkeypatch.setattr("holmes.plugins.skills.skill_loader.MAX_SKILL_FILES", 2)
+    skill_dir, fetcher, _ = _bundled_skill(tmp_path)
+    (skill_dir / "another.md").write_text("within the cap")
+
+    data = _fetch(fetcher).data
+    assert "- another.md" in data
+    assert "- notes.txt" in data
+    assert "- references/labels.md" not in data
+
+
+def test_cap_counts_files_that_are_not_listed(tmp_path, monkeypatch):
+    """The walk must stay bounded next to a large tree of binary files."""
+    monkeypatch.setattr("holmes.plugins.skills.skill_loader.MAX_SKILL_FILES", 2)
+    skill_dir, fetcher, _ = _bundled_skill(tmp_path)
+    (skill_dir / "a.bin").write_bytes(b"\x00")
+    (skill_dir / "b.bin").write_bytes(b"\x00")
+
+    data = _fetch(fetcher).data
+    assert "- notes.txt" not in data
+    assert "bundles the files" not in data
+
+
+def test_read_skill_file_treats_a_null_path_as_missing(tmp_path):
+    """Models signal an omitted value with an explicit null."""
+    _, _, reader = _bundled_skill(tmp_path)
+    assert _read(reader, None).status == StructuredToolResultStatus.ERROR
+
+
+def test_read_skill_file_says_a_missing_skill_was_not_found(tmp_path):
+    _, _, reader = _bundled_skill(tmp_path)
+    result = _read(reader, "notes.txt", skill_id="does-not-exist")
+
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "does-not-exist" in result.error
+
+
+def test_read_skill_file_refuses_remote_skills():
+    catalog = SkillCatalog(
+        skills=[
+            Skill(
+                name="3b1fbbd7-9d8d-4f1e-92f8-2f33b5ab0e4f",
+                description="d",
+                content="c",
+                source=SkillSource.REMOTE,
+                source_path="/etc",
+            )
+        ]
+    )
+    toolset = SkillsToolset()
+    fetcher = SkillsFetcher(toolset, skill_catalog=catalog)
+    result = _read(
+        SkillFileReader(toolset, fetcher),
+        "passwd",
+        skill_id="3b1fbbd7-9d8d-4f1e-92f8-2f33b5ab0e4f",
+    )
+
+    assert result.status == StructuredToolResultStatus.ERROR
+    assert "no bundled files" in result.error
+
+
+def test_read_skill_file_uses_the_snapshot_when_disk_is_not_the_source(tmp_path):
+    (tmp_path / "SKILL.md").write_text("---\nname: sdk\ndescription: d\n---\nBody")
+    (tmp_path / "guide.md").write_text("sdk guide")
+    catalog = SkillCatalog(
+        skills=[
+            Skill(
+                name="sdk",
+                description="d",
+                content="Body",
+                source=SkillSource.USER,
+                source_path=str(tmp_path / "SKILL.md"),
+            )
+        ]
+    )
+    toolset = SkillsToolset()
+    fetcher = SkillsFetcher(toolset, skill_catalog=catalog)
+
+    assert (
+        _read(SkillFileReader(toolset, fetcher), "guide.md", "sdk").data == "sdk guide"
+    )
