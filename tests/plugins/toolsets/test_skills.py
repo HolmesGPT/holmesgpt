@@ -577,6 +577,31 @@ def test_symlink_inside_the_skill_and_symlink_cycle_are_handled(tmp_path):
     assert _read(reader, "loop.md").status == StructuredToolResultStatus.ERROR
 
 
+def test_directory_alias_does_not_hide_the_real_directory(tmp_path):
+    """An alias sorting first must not make the path the skill refers to unreadable."""
+    skill_dir, _, reader = _bundled_skill(tmp_path)
+    (skill_dir / "a-ref").symlink_to(skill_dir / "references", target_is_directory=True)
+
+    assert _read(reader, "references/labels.md").data == "uid=abc123"
+    assert _read(reader, "a-ref/labels.md").data == "uid=abc123"
+
+
+def test_symlink_cycle_is_not_followed(tmp_path):
+    skill_dir, fetcher, _ = _bundled_skill(tmp_path)
+    (skill_dir / "references" / "cycle").symlink_to(skill_dir, target_is_directory=True)
+
+    assert "cycle/" not in _fetch(fetcher).data
+
+
+def test_symlink_to_a_hidden_file_is_neither_listed_nor_readable(tmp_path):
+    skill_dir, fetcher, reader = _bundled_skill(tmp_path)
+    (skill_dir / ".env").write_text("TOP-SECRET")
+    (skill_dir / "public.md").symlink_to(skill_dir / ".env")
+
+    assert "public.md" not in _fetch(fetcher).data
+    assert _read(reader, "public.md").status == StructuredToolResultStatus.ERROR
+
+
 def test_hidden_entries_are_neither_listed_nor_readable(tmp_path):
     skill_dir, fetcher, reader = _bundled_skill(tmp_path)
     (skill_dir / ".git").mkdir()

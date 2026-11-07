@@ -3,7 +3,7 @@ import os
 import re
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import List, Optional, Sequence, TYPE_CHECKING, Union
+from typing import Dict, List, Optional, Sequence, TYPE_CHECKING, Union
 
 import yaml
 from pydantic import BaseModel
@@ -319,56 +319,80 @@ def _resolve_within(path: Path, root: Path) -> Optional[Path]:
 
 def _read_text_if_bundleable(path: Path) -> Optional[str]:
     """Return a regular file's text; None if it is binary or over the size limit."""
-    if not path.is_file() or path.stat().st_size > SKILL_FILE_MAX_BYTES:
+    if not path.is_file():
+        return None
+    with path.open("rb") as file:
+        content = file.read(SKILL_FILE_MAX_BYTES + 1)
+    if len(content) > SKILL_FILE_MAX_BYTES:
         return None
     try:
-        text = path.read_bytes().decode("utf-8")
+        text = content.decode("utf-8")
     except UnicodeDecodeError:
         return None
     return None if "\x00" in text else text
 
 
-def list_skill_files(skill: Skill) -> List[SkillFile]:
-    """List the files bundled with a skill, the only ones read_skill_file will return.
+def _is_hidden_within(path: Path, root: Path) -> bool:
+    """Whether a resolved path inside root is hidden, so a symlink can't expose .env.
+
+    ConfigMap mounts keep every real file under a ..<timestamp> directory, so those don't count.
+    """
+    return any(
+        part.startswith(".") and not part.startswith("..")
+        for part in path.relative_to(root).parts
+    )
+
+
+def _load_bundled_files(skill: Skill) -> Dict[str, str]:
+    """Map the relative POSIX path of each file bundled with a skill to its text.
 
     Leaves out anything that is not UTF-8 text within SKILL_FILE_MAX_BYTES, symlinks leading
-    outside the skill's directory, the SKILL.md itself, and hidden entries: .git in a skill
-    at the root of a synced repo, and ..data and ..<timestamp> in a ConfigMap mount. Also
-    leaves out subdirectories with a SKILL.md of their own, as those belong to another skill.
+    outside the skill's directory or to a hidden file, the SKILL.md itself, and hidden entries:
+    .git in a skill at the root of a synced repo, and ..data and ..<timestamp> in a ConfigMap
+    mount. Also leaves out subdirectories with a SKILL.md of their own, as those belong to
+    another skill.
     """
     directory = _skill_directory(skill)
     if directory is None:
-        return []
+        return {}
     try:
         root = directory.resolve()
     except (OSError, RuntimeError) as e:
         logging.warning(f"Failed to resolve skill directory {directory}: {e}")
-        return []
+        return {}
 
     def on_walk_error(error: OSError) -> None:
         logging.warning(f"Failed to read skill directory {error.filename}: {error}")
 
-    files: List[SkillFile] = []
-    visited: set[Path] = set()
+    def should_descend(parent: Path, resolved_parent: Path, name: str) -> bool:
+        child = _resolve_within(parent / name, root)
+        return (
+            child is not None
+            and not name.startswith(".")
+            and not (parent / name / SKILL_FILENAME).exists()
+            # A symlink back up to an ancestor is a cycle. Other aliases of a directory stay
+            # walkable, as the skill may refer to the files by any of those paths.
+            and not resolved_parent.is_relative_to(child)
+        )
+
+    files: Dict[str, str] = {}
     examined = 0
     # followlinks=True for the same reason as scan_skill_directory: everything in a ConfigMap
-    # mount is reached through a symlink. `visited` stops a symlink cycle.
+    # mount is reached through a symlink.
     for current, dirs, names in os.walk(
         directory, followlinks=True, onerror=on_walk_error
     ):
         current_path = Path(current)
         resolved_dir = _resolve_within(current_path, root)
-        depth = len(current_path.relative_to(directory).parts)
-        if resolved_dir is None or resolved_dir in visited:
+        if resolved_dir is None:
             dirs.clear()
             continue
-        visited.add(resolved_dir)
+        depth = len(current_path.relative_to(directory).parts)
         dirs[:] = sorted(
             name
             for name in dirs
             if depth + 1 < MAX_SKILL_FILE_DEPTH
-            and not name.startswith(".")
-            and not (current_path / name / SKILL_FILENAME).exists()
+            and should_descend(current_path, resolved_dir, name)
         )
 
         for name in sorted(names):
@@ -385,49 +409,47 @@ def list_skill_files(skill: Skill) -> List[SkillFile]:
             examined += 1
             file_path = current_path / name
             resolved_file = _resolve_within(file_path, root)
+            if resolved_file is None or _is_hidden_within(resolved_file, root):
+                continue
             try:
-                if (
-                    resolved_file is not None
-                    and _read_text_if_bundleable(resolved_file) is not None
-                ):
-                    files.append(
-                        SkillFile(
-                            path=file_path.relative_to(directory).as_posix(),
-                            size_bytes=resolved_file.stat().st_size,
-                        )
-                    )
+                text = _read_text_if_bundleable(resolved_file)
             except OSError as e:
                 logging.warning(f"Failed to read skill file {file_path}: {e}")
+                continue
+            if text is not None:
+                files[file_path.relative_to(directory).as_posix()] = text
     return files
+
+
+def list_skill_files(skill: Skill) -> List[SkillFile]:
+    """List the files bundled with a skill, the only ones read_skill_file will return."""
+    return [
+        SkillFile(path=path, size_bytes=len(text.encode("utf-8")))
+        for path, text in _load_bundled_files(skill).items()
+    ]
 
 
 def read_skill_file(skill: Skill, relative_path: str) -> str:
     """Return the text of one of the files list_skill_files lists for a skill.
 
-    Matching against that list rather than opening the requested path means a path can
-    only ever reach a file already vetted there, so ../ and absolute paths simply miss.
+    The text comes from the walk that vetted the file rather than from opening the requested
+    path, so ../ and absolute paths simply miss.
     """
-    directory = _skill_directory(skill)
-    if directory is None:
+    if _skill_directory(skill) is None:
         raise SkillFileError(
             f"Skill '{skill.name}' is not stored on the filesystem, so it has no bundled files."
         )
 
-    available = [file.path for file in list_skill_files(skill)]
+    files = _load_bundled_files(skill)
     # Normalizes "./references/a.md" and "references//a.md"; it does not collapse "..".
     normalized_path = PurePosixPath(relative_path).as_posix()
-    if normalized_path not in available:
+    if normalized_path not in files:
         raise SkillFileError(
             f"'{relative_path}' is not a file bundled with skill '{skill.name}'. Bundled files "
             f"are UTF-8 text files of at most {SKILL_FILE_MAX_BYTES} bytes inside the skill's "
-            f"directory. Available: {', '.join(available) or 'none'}"
+            f"directory. Available: {', '.join(files) or 'none'}"
         )
-    try:
-        return (directory / normalized_path).read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as e:
-        raise SkillFileError(
-            f"Failed to read '{relative_path}' from skill '{skill.name}': {e}"
-        ) from e
+    return files[normalized_path]
 
 
 def map_robusta_instruction_to_skill(
