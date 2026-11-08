@@ -1,0 +1,62 @@
+A FireHydrant AI investigation was requested for incident #{{ incident.number }}{% if incident.name %}: {{ incident.name }}{% endif %}.
+
+Investigate this incident and find its most likely root cause.
+
+Incident details:
+{%- if incident.severity %}
+- Severity: {{ incident.severity }}
+{%- endif %}
+{%- if incident.priority %}
+- Priority: {{ incident.priority }}
+{%- endif %}
+{%- if incident.current_milestone %}
+- Current milestone: {{ incident.current_milestone }}
+{%- endif %}
+{%- if incident.started_at %}
+- Started at: {{ incident.started_at }}
+{%- endif %}
+{%- if incident.incident_url %}
+- Incident URL: {{ incident.incident_url }}
+{%- endif %}
+{%- if incident.services %}
+- Impacted services: {{ incident.services | join(", ") }}
+{%- endif %}
+{%- if incident.environments %}
+- Environments: {{ incident.environments | join(", ") }}
+{%- endif %}
+{%- if incident.functionalities %}
+- Functionalities: {{ incident.functionalities | join(", ") }}
+{%- endif %}
+{%- if incident.summary %}
+- Summary: {{ incident.summary }}
+{%- endif %}
+{%- if incident.description %}
+- Description: {{ incident.description }}
+{%- endif %}
+{%- if incident.customer_impact_summary %}
+- Customer impact: {{ incident.customer_impact_summary }}
+{%- endif %}
+{%- if incident.last_update %}
+- Latest update: {{ incident.last_update }}
+{%- endif %}
+{%- if incident.last_note %}
+- Latest note: {{ incident.last_note }}
+{%- endif %}
+
+Full incident record (JSON):
+```json
+{{ incident_json }}
+```
+
+Investigation request (JSON):
+```json
+{{ investigation_json }}
+```
+
+Use the available tools to gather evidence from the affected systems (Kubernetes resources, logs, metrics, recent changes). Do not guess: every claim about the cause needs evidence from a tool result.
+
+Write the answer as a markdown report for the incident responders:
+1. First line: one sentence stating the most likely root cause (or that no cause was found).
+2. Findings, each with the evidence it rests on.
+3. Ranked hypotheses with your confidence in each.
+4. Recommended next steps.

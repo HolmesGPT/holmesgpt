@@ -54,6 +54,7 @@ HolmesGPT integrates with popular observability and cloud platforms. The followi
 | [<img src="images/integration_logos/datadog_logo.png" alt="Datadog" width="20" style="vertical-align: middle;"> **Datadog**](https://holmesgpt.dev/data-sources/builtin-toolsets/datadog/) | Query logs, metrics, and traces |
 | [<img src="images/integration_logos/docker_logo.png" alt="Docker" width="20" style="vertical-align: middle;"> **Docker**](https://holmesgpt.dev/data-sources/builtin-toolsets/docker/) | Get images, logs, events, history and more |
 | [<img src="images/integration_logos/opensearchserverless-icon.png" alt="Elasticsearch" width="20" style="vertical-align: middle;"> **Elasticsearch / OpenSearch**](https://holmesgpt.dev/data-sources/builtin-toolsets/elasticsearch/) | Query logs, cluster health, shard and index diagnostics |
+| [<img src="images/integration_logos/firehydrant-icon.png" alt="FireHydrant" width="20" style="vertical-align: middle;"> **FireHydrant**](https://holmesgpt.dev/data-sources/builtin-toolsets/firehydrant/) | Run FireHydrant AI investigations and post the results back; read investigations and incidents |
 | [<img src="images/integration_logos/gcpmonitoring-icon.png" alt="GCP" width="20" style="vertical-align: middle;"> **GCP**](https://holmesgpt.dev/data-sources/builtin-toolsets/gcp/) | Google Cloud Platform resources (MCP) |
 | [<img src="images/integration_logos/github_logo.png" alt="GitHub" width="20" style="vertical-align: middle;"> **GitHub**](https://holmesgpt.dev/data-sources/builtin-toolsets/github-mcp/) | Repositories, issues, and pull requests (MCP) |
 | [<img src="images/integration_logos/gitlab-icon.png" alt="GitLab" width="20" style="vertical-align: middle;"> **GitLab**](https://holmesgpt.dev/data-sources/builtin-toolsets/gitlab-mcp/) | Projects, merge requests, issues, and CI/CD pipelines (MCP) |
@@ -95,6 +96,7 @@ HolmesGPT can fetch alerts/tickets to investigate from external systems, then wr
 | Slack                   | ✅        | [Demo.](https://www.loom.com/share/afcd81444b1a4adfaa0bbe01c37a4847) Available via [Robusta](https://home.robusta.dev/) |
 | Microsoft Teams         | ✅        | Available via [Robusta](https://home.robusta.dev/) |
 | Prometheus/AlertManager | ✅        | Robusta or HolmesGPT CLI |
+| FireHydrant             | ✅        | HolmesGPT server polls for AI investigations and posts results back |
 | PagerDuty               | ✅        | HolmesGPT CLI only |
 | OpsGenie                | ✅        | HolmesGPT CLI only |
 | Jira                    | ✅        | HolmesGPT CLI only |
