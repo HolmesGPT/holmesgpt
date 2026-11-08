@@ -6,6 +6,8 @@ one and must not run anything."""
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import ConversationProcessor
 
@@ -97,3 +99,20 @@ def test_each_decision_is_judged_on_its_own():
         ("t1", True),
         ("t2", False),
     ]
+
+
+@pytest.mark.parametrize("approved", [1, "true", "yes"])
+def test_a_truthy_non_boolean_approval_without_a_decider_does_not_run(approved):
+    request = _chat_request([{"tool_call_id": "t1", "approved": approved}])
+
+    [decision] = request.tool_decisions
+    assert decision.approved is False
+    assert decision.verified is False
+
+
+@pytest.mark.parametrize("approved", [0, "false"])
+def test_a_falsy_non_boolean_denial_stays_a_denial(approved):
+    request = _chat_request([{"tool_call_id": "t1", "approved": approved}])
+
+    [decision] = request.tool_decisions
+    assert decision.approved is False

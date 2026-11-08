@@ -6,9 +6,15 @@ must be absent when DAL is disabled, and must inject a fresh
 stale one inherited from the base ``RemoteMCPToolset``).
 """
 
+from contextlib import asynccontextmanager
 from unittest.mock import MagicMock, patch
 
+from mcp.types import CallToolResult, ListToolsResult, TextContent
+from mcp.types import Tool as MCP_Tool
+
 from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
+from holmes.core.tools import ToolInvokeContext
+from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_APPROVED_PARAM
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     TOOLSET_NAME,
     RobustaPlatformMCPTool,
@@ -338,9 +344,6 @@ def test_end_to_end_headers_carry_the_llm_model():
 
 
 def _platform_tools(*names):
-    from mcp.types import ListToolsResult
-    from mcp.types import Tool as MCP_Tool
-
     toolset = _toolset()
     listed = ListToolsResult(
         tools=[
@@ -369,13 +372,6 @@ def test_platform_mcp_remote_tools_are_marked_remote():
 
 
 def test_an_approved_remote_call_puts_the_approval_request_on_the_wire():
-    from contextlib import asynccontextmanager
-
-    from mcp.types import CallToolResult, TextContent
-
-    from holmes.core.tools import ToolInvokeContext
-    from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_APPROVED_PARAM
-
     tool = _platform_tools("remote_run_kubectl_command")["remote_run_kubectl_command"]
     sent = {}
 

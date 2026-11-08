@@ -68,9 +68,11 @@ def _attributed_tool_decisions(decisions: Any) -> Any:
     attributed = []
     for decision in decisions:
         decider = decision.get("decided_by") if isinstance(decision, dict) else None
+        # ChatRequest validation turns 1 or "true" into True, so anything
+        # short of an explicit denial counts as an approval here.
         if (
             isinstance(decision, dict)
-            and decision.get("approved") is True
+            and decision.get("approved") not in (False, None)
             and not (isinstance(decider, str) and decider)
         ):
             logging.warning(
