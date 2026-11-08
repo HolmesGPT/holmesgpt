@@ -1,0 +1,74 @@
+description: |
+  Prometheus port of 92_cpu_graph_conversation. conversation_history.json holds
+  an earlier turn in which Holmes looked up the memory usage of pod
+  ledger-sync-78599b764d-f847h with an instant Prometheus query. The follow-up
+  asks for "this" as a graph, so Holmes has to work out the pod and metric from
+  the history and run a range query over the pod's cAdvisor series.
+
+before_test: |
+  set -e
+  kubectl create namespace app-309 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl apply -f prometheus.yaml
+
+  POD_READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod/ledger-sync-78599b764d-f847h -n app-309 --timeout=5s 2>/dev/null; then
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$POD_READY" = false ]; then
+    echo "ledger-sync pod never became ready"
+    kubectl describe pod ledger-sync-78599b764d-f847h -n app-309 || true
+    exit 1
+  fi
+  kubectl rollout status deployment/prometheus -n app-309 --timeout=180s
+
+  # The needle: enough scraped samples of the pod's memory for a graph.
+  VERIFIED=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n app-309 deployment/prometheus -- promtool query instant http://localhost:9090 \
+        'count_over_time(container_memory_working_set_bytes{namespace="app-309",pod="ledger-sync-78599b764d-f847h",container="ledger-sync"}[5m]) >= 3' 2>/dev/null | grep -q '=>'; then
+      VERIFIED=true
+      echo "ledger-sync memory series is queryable (attempt $i)"
+      break
+    fi
+    sleep 1
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "ledger-sync memory series never reached Prometheus"
+    kubectl logs -n app-309 deployment/prometheus --tail=30 || true
+    exit 1
+  fi
+
+user_prompt:
+  - "Can you show this as a graph?"
+  - "Please generate a graph for these metrics"
+  - "Could you show this data visually?"
+
+expected_output:
+  - 'Output must contain 1 or more embeds in the following format: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "<random_value>"} >>. tool_call_id may be any random-looking key, but type and tool_name must be exactly as shown.'
+  - "Output must NOT tell the user it doesn't have access to metrics or that they should use another tool"
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+  - kubernetes
+
+test_type: server
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-309
+    service: prometheus
+    local_port: 10309
+    remote_port: 9090
+
+after_test: |
+  kubectl delete namespace app-309 --ignore-not-found
+  kubectl delete clusterrolebinding app-309-prometheus --ignore-not-found
+  kubectl delete clusterrole app-309-prometheus --ignore-not-found

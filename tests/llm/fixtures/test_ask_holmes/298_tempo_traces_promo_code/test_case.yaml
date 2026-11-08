@@ -1,0 +1,97 @@
+description: |
+  Tempo port of 164_datadog_traces_coupon_code. A checkout service in app-298 is
+  traced with OpenTelemetry into an in-namespace Tempo. Half the /checkout requests
+  carry ?coupon=Promotions and take ~500ms longer; the rest take ~30ms. The only
+  place the coupon is visible is the request URL recorded on the server span.
+
+user_prompt:
+- "The /checkout endpoint in namespace app-298 is experiencing high latency in the last 2 hours. Investigate why."
+
+expected_output:
+  - The answer must explicitly state that queries that include a promo code are slow or all slow requests include promo code.
+  - Including a query that mentions promo code is not sufficient.
+
+tags:
+  - kubernetes
+  - hard
+  - chain-of-causation
+  - traces
+
+setup_timeout: 600
+
+port_forwards:
+  - namespace: app-298
+    service: tempo
+    local_port: 3298
+    remote_port: 3200
+
+before_test: |
+  set -e
+  kubectl create namespace app-298 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ../../shared/tempo.yaml -n app-298
+
+  TEMPO_READY=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n app-298 deployment/tempo -- wget -q -O - http://localhost:3200/ready 2>/dev/null | grep -q ready; then
+      TEMPO_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$TEMPO_READY" = false ]; then
+    echo "Tempo did not become ready"
+    kubectl get pods -n app-298
+    exit 1
+  fi
+
+  kubectl apply -f checkout-service.yaml -n app-298
+  CHECKOUT_READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=checkout -n app-298 --timeout=5s 2>/dev/null; then
+      CHECKOUT_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$CHECKOUT_READY" = false ]; then
+    echo "checkout pod did not become ready"
+    kubectl describe pod -l app=checkout -n app-298 | tail -20
+    exit 1
+  fi
+
+  kubectl apply -f traffic-generator.yaml -n app-298
+  LOAD_DONE=false
+  for i in $(seq 1 60); do
+    if kubectl wait --for=condition=complete job/loadgen -n app-298 --timeout=5s 2>/dev/null; then
+      LOAD_DONE=true
+      break
+    fi
+    if kubectl wait --for=condition=failed job/loadgen -n app-298 --timeout=1s 2>/dev/null; then
+      break
+    fi
+  done
+  kubectl logs -n app-298 job/loadgen --tail=5 || true
+  if [ "$LOAD_DONE" = false ]; then
+    echo "load generator did not complete"
+    exit 1
+  fi
+
+  # The needle: promo-code traces are slow and no plain trace is, queried from Tempo itself.
+  VERIFIED=false
+  for i in $(seq 1 30); do
+    if kubectl exec -i -n app-298 deployment/checkout -- python - < verify_traces.py; then
+      VERIFIED=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "Tempo does not show the promo-code latency pattern"
+    exit 1
+  fi
+
+  # Remove the load generator so its script cannot reveal the traffic mix.
+  kubectl delete -f traffic-generator.yaml -n app-298 --ignore-not-found
+
+after_test: |
+  kubectl delete namespace app-298 --ignore-not-found

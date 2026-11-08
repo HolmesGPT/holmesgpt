@@ -1,0 +1,8 @@
+# The original (164) enabled only the tracing toolset, so the slow-request
+# pattern has to be found in traces rather than in app code or pod specs.
+toolsets:
+  grafana/tempo:
+    enabled: true
+    config:
+      api_url: http://localhost:3298
+      healthcheck: "ready"

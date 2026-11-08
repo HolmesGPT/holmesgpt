@@ -1,0 +1,69 @@
+description: |
+  Self-hosted port of 118_new_relic_logs. A payment service ships its logs
+  straight to Loki (no Promtail) and Holmes is asked for its error logs. The
+  Kubernetes toolsets are disabled, so Loki is the only source of the answer.
+  The decline reason (issuer response 61) only exists in the shipped log
+  lines, so a guess of "payment declined" for a payment service is not enough.
+
+user_prompt:
+  - fetch error logs for app payment-gateway-v7bqm-582kd from loki
+
+expected_output:
+  - Mentions the "payment declined" error
+  - Reports the decline reason found in those errors, issuer response 61 (exceeds withdrawal amount limit)
+
+tags:
+  - loki
+  - logs
+  - kubernetes
+
+port_forwards:
+  - namespace: app-301
+    service: loki
+    local_port: 3301
+    remote_port: 3100
+
+before_test: |
+  set -e
+  kubectl create namespace app-301 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ../../shared/loki.yaml -n app-301
+
+  LOKI_READY=false
+  for i in {1..90}; do
+    if kubectl exec -n app-301 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
+      LOKI_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$LOKI_READY" = false ]; then
+    echo "ERROR: Loki not ready after 180s"
+    kubectl get pods -n app-301 -l app=loki
+    exit 1
+  fi
+
+  kubectl create secret generic payment-gateway-301-code \
+    --from-file=payment_processor.py=./payment_processor.py \
+    -n app-301 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  # {app="payment-gateway-v7bqm-582kd"} |= "Payment declined"
+  QUERY='%7Bapp%3D%22payment-gateway-v7bqm-582kd%22%7D%20%7C%3D%20%22Payment%20declined%22'
+  LOGS_READY=false
+  for i in {1..90}; do
+    if kubectl exec -n app-301 deployment/loki -- wget -q -O- "http://localhost:3100/loki/api/v1/query_range?query=${QUERY}&limit=5" 2>/dev/null | grep -q "issuer response 61"; then
+      LOGS_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$LOGS_READY" = false ]; then
+    echo "ERROR: declined-payment errors not queryable in Loki after 180s"
+    kubectl get pods -n app-301
+    kubectl logs -n app-301 payment-gateway-v7bqm-582kd --tail=20 || true
+    exit 1
+  fi
+  echo "Error logs are queryable in Loki"
+
+after_test: |
+  kubectl delete namespace app-301 --ignore-not-found --wait=false || true

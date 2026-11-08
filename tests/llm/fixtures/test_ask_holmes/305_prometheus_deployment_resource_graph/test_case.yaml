@@ -1,0 +1,81 @@
+description: |
+  Port of 91c_datadog_metrics_deployment to self-hosted Prometheus. A
+  two-replica Deployment (not a standalone pod) runs in app-305 and Prometheus
+  scrapes its CPU/memory from the kubelet's cAdvisor endpoint. Holmes is asked
+  for graphs of the deployment and must resolve it to its pods and embed a
+  Prometheus range-query graph.
+
+user_prompt:
+  - "Can you show me a cpu graph of the invoice-renderer deployment in namespace app-305?"
+  - "I need to see the memory usage for invoice-renderer in app-305"
+  - "Can you visualize the resource usage for invoice-renderer pods in the app-305 namespace?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+
+port_forwards:
+  - namespace: app-305
+    service: prometheus
+    local_port: 10305
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-305 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f prometheus.yaml
+  kubectl apply -f workload.yaml
+
+  READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-305 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=available deployment/invoice-renderer -n app-305 --timeout=5s 2>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "Pods failed to become ready"
+    kubectl get pods -n app-305
+    kubectl describe pods -n app-305 | tail -40
+    exit 1
+  fi
+
+  # Needle: CPU rate and memory must be queryable for both replicas.
+  prom_query() {
+    kubectl exec -n app-305 deployment/prometheus -- \
+      wget -q -O- --post-data "query=$1" http://localhost:9090/api/v1/query 2>/dev/null || true
+  }
+  CPU_QUERY='count(rate(container_cpu_usage_seconds_total{namespace="app-305",pod=~"invoice-renderer-.*",container="renderer"}[2m]))'
+  MEM_QUERY='count(container_memory_working_set_bytes{namespace="app-305",pod=~"invoice-renderer-.*",container="renderer"})'
+  FOUND=false
+  for i in $(seq 1 120); do
+    if prom_query "$CPU_QUERY" | grep -q '"value":\[[0-9.]*,"2"\]' \
+      && prom_query "$MEM_QUERY" | grep -q '"value":\[[0-9.]*,"2"\]'; then
+      echo "CPU and memory series for both invoice-renderer pods are queryable (attempt $i)"
+      FOUND=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$FOUND" = false ]; then
+    echo "invoice-renderer series never appeared in Prometheus"
+    prom_query "$CPU_QUERY"
+    prom_query "$MEM_QUERY"
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-305 --ignore-not-found
+  kubectl delete clusterrolebinding app-305-prometheus --ignore-not-found
+  kubectl delete clusterrole app-305-prometheus --ignore-not-found

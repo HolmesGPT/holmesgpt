@@ -1,0 +1,115 @@
+description: |
+  Port of 91d_datadog_metrics_historical_pod to self-hosted Prometheus. Two
+  pods of a previous rollout (telemetry-processor-5f9d8b7c4d-*) run long
+  enough for Prometheus to scrape their CPU/memory from cAdvisor, then are
+  deleted. The telemetry-processor Deployment keeps running with differently
+  named pods. Holmes is asked for graphs of a deleted pod and must find its
+  history in Prometheus rather than give up because the pod is gone.
+
+user_prompt:
+  - "Can you show me a cpu graph of the telemetry-processor-5f9d8b7c4d-x2km9 pod in namespace app-306?"
+  - "I need to see the memory usage for telemetry-processor-5f9d8b7c4d-x2km9 in app-306"
+  - "Can you visualize the resource usage for telemetry-processor-5f9d8b7c4d-x2km9 pod in the app-306 namespace?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+
+setup_timeout: 400
+
+port_forwards:
+  - namespace: app-306
+    service: prometheus
+    local_port: 10306
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-306 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f prometheus.yaml
+  kubectl apply -f workload.yaml
+
+  READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-306 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=available deployment/telemetry-processor -n app-306 --timeout=5s 2>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "Pods failed to become ready"
+    kubectl get pods -n app-306
+    kubectl describe pods -n app-306 | tail -40
+    exit 1
+  fi
+
+  prom_query() {
+    kubectl exec -n app-306 deployment/prometheus -- \
+      wget -q -O- --post-data "query=$1" http://localhost:9090/api/v1/query 2>/dev/null || true
+  }
+  # Total samples across all series of the pod (a re-created pod gets new
+  # container-id series).
+  samples() {
+    N=$(prom_query "$1" | sed -n 's/.*"value":\[[0-9.]*,"\([0-9]*\)"\].*/\1/p')
+    echo "${N:-0}"
+  }
+  POD=telemetry-processor-5f9d8b7c4d-x2km9
+  CPU_SAMPLES="sum(count_over_time(container_cpu_usage_seconds_total{namespace=\"app-306\",pod=\"$POD\",container=\"processor\"}[30m]))"
+  MEM_SAMPLES="sum(count_over_time(container_memory_working_set_bytes{namespace=\"app-306\",pod=\"$POD\",container=\"processor\"}[30m]))"
+
+  # A rerun against a namespace kept by --skip-cleanup already has the
+  # history; re-creating the pods would only add new series.
+  if [ "$(samples "$CPU_SAMPLES")" -lt 6 ]; then
+    kubectl apply -f previous-pods.yaml
+  fi
+
+  # Let the previous-rollout pods accumulate about a minute of history.
+  ENOUGH=false
+  for i in $(seq 1 180); do
+    N=$(samples "$CPU_SAMPLES")
+    if [ "$N" -ge 6 ]; then
+      echo "$POD has $N CPU samples (attempt $i)"
+      ENOUGH=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$ENOUGH" = false ]; then
+    echo "$POD never accumulated CPU samples in Prometheus"
+    kubectl get pods -n app-306
+    prom_query "$CPU_SAMPLES"
+    exit 1
+  fi
+
+  kubectl delete -f previous-pods.yaml --ignore-not-found --wait=true
+
+  # Needle: the deleted pod is gone from the cluster but its history is
+  # still queryable in Prometheus.
+  if kubectl get pod "$POD" -n app-306 >/dev/null 2>&1; then
+    echo "$POD still exists"
+    exit 1
+  fi
+  CPU_N=$(samples "$CPU_SAMPLES")
+  MEM_N=$(samples "$MEM_SAMPLES")
+  if [ "$CPU_N" -lt 6 ] || [ "$MEM_N" -lt 6 ]; then
+    echo "History for $POD missing after deletion (cpu=$CPU_N mem=$MEM_N)"
+    exit 1
+  fi
+  echo "History for deleted $POD is queryable (cpu=$CPU_N mem=$MEM_N samples)"
+  kubectl get pods -n app-306
+
+after_test: |
+  kubectl delete namespace app-306 --ignore-not-found
+  kubectl delete clusterrolebinding app-306-prometheus --ignore-not-found
+  kubectl delete clusterrole app-306-prometheus --ignore-not-found
