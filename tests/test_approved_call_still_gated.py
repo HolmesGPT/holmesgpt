@@ -87,3 +87,10 @@ def test_an_approved_call_that_ran_is_passed_through():
 
     assert result["result"]["status"] == StructuredToolResultStatus.SUCCESS.value
     assert span_status == StructuredToolResultStatus.SUCCESS.value
+
+
+def test_the_not_run_error_has_no_empty_reason():
+    result, _, _ = _run(StructuredToolResultStatus.APPROVAL_REQUIRED)
+
+    assert "(None)" not in result["result"]["error"]
+    assert result["result"]["error"].endswith("Tell the user it did not run.")

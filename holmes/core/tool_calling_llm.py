@@ -1100,7 +1100,8 @@ class ToolCallingLLM:
                     error=(
                         "The user approved this call but it still asked "
                         "for approval, so it did not run. Tell the user "
-                        f"it did not run. ({tool_response.error})"
+                        "it did not run."
+                        + (f" ({tool_response.error})" if tool_response.error else "")
                     ),
                     params=tool_response.params,
                     invocation=tool_response.invocation,
@@ -1167,9 +1168,15 @@ class ToolCallingLLM:
 
         Checks both static allow lists (config + CLI-saved prefixes) and
         optionally session-approved prefixes from the conversation history.
+        Only a prefix-based call can become approved by a prefix saved
+        earlier; for any other call (approval_required_tools, a server that
+        asked, a remote call relay decides on) a local "no approval needed"
+        does not mean the person approved it.
         """
         tool = self.tool_executor.get_tool_by_name(tool_name)
-        if not tool:
+        if not tool or getattr(tool, "is_remote", False):
+            return False
+        if not params.get("suggested_prefixes"):
             return False
         context = ToolInvokeContext(
             llm=self.llm,
@@ -1178,7 +1185,7 @@ class ToolCallingLLM:
             tool_call_id="",
             session_approved_prefixes=session_approved_prefixes or [],
         )
-        approval = tool.requires_approval(params, context)
+        approval = tool._get_approval_requirement(params, context)
         return not approval or not approval.needs_approval
 
     def _emit_token_count(

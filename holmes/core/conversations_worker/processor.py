@@ -33,7 +33,11 @@ from holmes.core.error_info import ErrorInfo
 from holmes.core.models import ChatRequest
 from holmes.core.prompt import PromptComponent
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
-from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode
+from holmes.core.tools import (
+    REQUEST_CAN_APPROVE_TOOL_CALLS,
+    SERVER_TOOLSET_TAGS,
+    PrerequisiteCacheMode,
+)
 from holmes.core.tools_utils.filesystem_result_storage import tool_result_storage
 from holmes.core.tools_utils.frontend_tools import (
     FrontendToolCollisionError,
@@ -81,11 +85,12 @@ def _attributed_tool_decisions(decisions: Any) -> Any:
         return decisions
     attributed = []
     for decision in decisions:
-        decider = decision.get("decided_by") if isinstance(decision, dict) else None
-        if (
-            isinstance(decision, dict)
-            and _approves(decision.get("approved"))
-            and not (isinstance(decider, str) and decider)
+        if not isinstance(decision, dict):
+            attributed.append(decision)
+            continue
+        decider = decision.get("decided_by")
+        if _approves(decision.get("approved")) and not (
+            isinstance(decider, str) and decider
         ):
             logging.warning(
                 "Treating tool decision %s as denied: no decided_by",
@@ -534,6 +539,9 @@ class ConversationProcessor:
             if self.config.cluster_name:
                 request_context = request_context or {}
                 request_context["cluster_name"] = self.config.cluster_name
+            if chat_request.enable_tool_approval:
+                request_context = request_context or {}
+                request_context[REQUEST_CAN_APPROVE_TOOL_CALLS] = True
 
             try:
                 # Wrap the raw stream with the usage recorder BEFORE the

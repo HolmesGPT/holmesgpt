@@ -722,3 +722,11 @@ def test_mcp_servers_expose_remotely_still_works_without_the_value():
     )
 
     assert server["expose_remotely"] is True
+
+
+def test_an_unset_expose_remotely_value_renders_false_not_null():
+    """`--reuse-values` from an older release, or a values file that replaces
+    the block, leaves the value unset; Toolset.expose_remotely rejects null."""
+    server = _remediation_server(render("mcpAddons.kubernetesRemediation.exposeRemotely=null"))
+
+    assert server["expose_remotely"] is False
