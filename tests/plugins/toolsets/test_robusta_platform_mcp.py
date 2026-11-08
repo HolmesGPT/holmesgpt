@@ -77,7 +77,11 @@ def _patch_base_render_headers(returned_headers):
     return patch(base, return_value=returned_headers)
 
 
-ALWAYS_SENT = {"X-Robusta-Holmes-Version", "X-Robusta-User-Id"}
+ALWAYS_SENT = {
+    "X-Robusta-Holmes-Version",
+    "X-Robusta-User-Id",
+    "X-Robusta-Supports-Remote-Tool-Approval",
+}
 
 
 def _assert_no_authorization(headers):
@@ -401,3 +405,11 @@ def test_an_approved_remote_call_puts_the_approval_request_on_the_wire():
 
     assert sent["name"] == "remote_run_kubectl_command"
     assert sent["arguments"][REMOTE_TOOL_APPROVED_PARAM] is True
+
+
+def test_every_request_says_it_can_carry_a_remote_approval():
+    """Relay offers a person's approval for a remote call only to callers that
+    send this; without it the call is rejected and nothing is asked."""
+    toolset = _toolset()
+    headers = toolset._render_headers({"cluster_name": "c1"}) or {}
+    assert headers["X-Robusta-Supports-Remote-Tool-Approval"] == "true"

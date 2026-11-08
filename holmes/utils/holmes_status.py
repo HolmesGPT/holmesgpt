@@ -75,11 +75,11 @@ class HolmesMetadata:
     # supports_realtime_conversations: the worker runs only on that path.
     supports_oauth_via_realtime: bool = False
     supports_holmes_logs: bool = False
-    # Relay offers approval for an approval-gated remote tool call only when
-    # both the calling agent and the target advertise this; with an older
-    # agent on either side, the call is rejected and no approval is asked for.
-    # It follows supports_realtime_conversations: approvals arrive as
-    # conversation events, and remote calls run in the realtime worker.
+    # Relay offers a person's approval for a remote tool call only on targets
+    # that advertise this (the caller says so per request, in
+    # X-Robusta-Supports-Remote-Tool-Approval); on any other target the call
+    # is rejected and nobody is asked. It follows
+    # supports_realtime_conversations: remote calls run in the realtime worker.
     supports_remote_tool_approval: bool = False
     # X25519 public key (base64) the platform encrypts data for this Holmes with.
     holmes_public_key: Optional[str] = None

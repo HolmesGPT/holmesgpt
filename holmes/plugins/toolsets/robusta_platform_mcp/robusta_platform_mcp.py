@@ -151,6 +151,9 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         # Always sent, independent of any feature flag: the executor version
         # gate and per-user RBAC on the relay depend on these.
         headers["X-Robusta-Holmes-Version"] = get_version()
+        # Relay asks a person to approve a remote call only for callers that
+        # say they can carry the approval; an older Holmes has it rejected.
+        headers["X-Robusta-Supports-Remote-Tool-Approval"] = "true"
         ctx = request_context or {}
         user_id = ctx.get("conversation_owner_id") or ctx.get("user_id")
         headers["X-Robusta-User-Id"] = str(user_id) if user_id else "None"
