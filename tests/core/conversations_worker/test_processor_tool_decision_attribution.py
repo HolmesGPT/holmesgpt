@@ -4,12 +4,20 @@ user relay maps) who made them (ROB-1671). The account API role every Holmes
 signs in as can write conversation events too; its decisions arrive without
 one and must not run anything."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import holmes.utils.approval_tokens as approval_tokens
 from holmes.core.conversations_worker.models import ConversationTask
-from holmes.core.conversations_worker.processor import ConversationProcessor
+from holmes.core.conversations_worker.processor import (
+    UNATTRIBUTED_APPROVAL_FEEDBACK,
+    ConversationProcessor,
+)
+from holmes.core.tool_calling_llm import ToolCallingLLM
+from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
+from holmes.utils.stream import StreamEvents
 
 
 def _chat_request(decisions):
@@ -120,3 +128,47 @@ def test_a_falsy_non_boolean_denial_stays_a_denial(approved):
     assert decision.approved is False
     assert decision.verified is True
     assert decision.feedback == "use cordon instead"
+
+
+@pytest.mark.parametrize(
+    ("decided_by", "runs"), [(None, False), ("user-1", True)], ids=["no decider", "decider"]
+)
+def test_a_validly_signed_pending_call_runs_only_with_a_decider(decided_by, runs, monkeypatch):
+    """The approval token proves Holmes proposed this exact call; it says
+    nothing about who approved it. A forged decision for a genuine pending
+    call carries a valid token, so attribution has to stop it on its own."""
+    monkeypatch.setattr(approval_tokens, "SIGNING_KEY", b"\x42" * 32)
+    args = json.dumps({"args": ["taint", "node", "n1", "k=v:NoSchedule"]})
+    decision = {"tool_call_id": "tc1", "approved": True}
+    if decided_by:
+        decision["decided_by"] = decided_by
+    [validated] = _chat_request([decision]).tool_decisions
+
+    ai = ToolCallingLLM(tool_executor=MagicMock(), max_steps=5, llm=MagicMock(), tool_results_dir=None)
+    ai._directly_invoke_tool_call = MagicMock(
+        return_value=StructuredToolResult(status=StructuredToolResultStatus.SUCCESS, data="tainted")
+    )
+    messages = [
+        {"role": "user", "content": "taint n1"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "tc1",
+                    "type": "function",
+                    "function": {"name": "run_kubectl_command", "arguments": args},
+                    "pending_approval": True,
+                    "approval_token": approval_tokens.mint_token("tc1", "run_kubectl_command", args),
+                }
+            ],
+        },
+    ]
+    with patch("holmes.core.tool_calling_llm.spill_oversized_tool_result", return_value=0):
+        _, events = ai._execute_tool_decisions(messages=messages, tool_decisions=[validated])
+
+    [result] = [e.data for e in events if e.event == StreamEvents.TOOL_RESULT]
+    assert ai._directly_invoke_tool_call.called is runs
+    if not runs:
+        assert result["result"]["status"] == StructuredToolResultStatus.ERROR.value
+        assert UNATTRIBUTED_APPROVAL_FEEDBACK in result["result"]["error"]
