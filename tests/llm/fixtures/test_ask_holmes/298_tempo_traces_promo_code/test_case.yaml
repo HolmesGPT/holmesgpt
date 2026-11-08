@@ -13,7 +13,6 @@ expected_output:
 
 tags:
   - kubernetes
-  - hard
   - chain-of-causation
   - traces
 

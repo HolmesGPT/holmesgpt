@@ -16,7 +16,6 @@ tags:
   - logs
   - loki
   - kubernetes
-  - hard
 
 toolsets_matrix:
   - toolsets.yaml

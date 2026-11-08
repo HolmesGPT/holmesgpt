@@ -15,6 +15,7 @@ expected_output:
     also mentions its over 100
 
 tags:
+  - regression
   - prometheus
   - metrics
   - embeds

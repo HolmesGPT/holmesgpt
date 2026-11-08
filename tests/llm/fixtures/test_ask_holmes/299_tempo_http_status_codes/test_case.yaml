@@ -13,6 +13,7 @@ expected_output:
   - Must not report any other status code (for example 500 or 404) as returned by /orders
 
 tags:
+  - regression
   - kubernetes
   - chain-of-causation
   - traces

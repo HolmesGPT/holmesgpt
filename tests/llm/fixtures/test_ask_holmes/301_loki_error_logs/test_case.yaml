@@ -13,6 +13,7 @@ expected_output:
   - Reports the decline reason found in those errors, issuer response 61 (exceeds withdrawal amount limit)
 
 tags:
+  - regression
   - loki
   - logs
   - kubernetes

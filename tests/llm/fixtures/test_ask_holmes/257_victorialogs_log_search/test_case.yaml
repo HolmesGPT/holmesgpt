@@ -12,6 +12,7 @@ expected_output:
   - "Should mention the error messages associated with these codes"
 
 tags:
+  - regression
   - victorialogs
   - logs
   - medium
