@@ -97,6 +97,9 @@ def _coerce_single_value(
     (string → int, string → bool, etc.) are skipped because they can be lossy
     or ambiguous.
     """
+    if value is None:
+        return value
+
     # --- Already the right type? Nothing to do. ---
     expected_types = _EXPECTED_PYTHON_TYPES.get(expected, ())
     if expected_types and isinstance(value, expected_types):
@@ -173,6 +176,80 @@ def _coerce_single_value(
     return value
 
 
+def _schema_attr(schema: Any, name: str, default: Any = None) -> Any:
+    if isinstance(schema, dict):
+        return schema.get(name, default)
+    return getattr(schema, name, default)
+
+
+def _declares_null(schema: Any) -> bool:
+    raw = _schema_attr(schema, "type")
+    if raw == "null" or (isinstance(raw, list) and "null" in raw):
+        return True
+    branches = _schema_attr(schema, "any_of") or _schema_attr(schema, "anyOf") or []
+    return any(_declares_null(branch) for branch in branches)
+
+
+def _object_properties(schema: Any, value: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The properties describing *value*: the schema's own, else those of the
+    first ``anyOf`` object branch that declares every key *value* has."""
+    properties = _schema_attr(schema, "properties")
+    if properties:
+        return properties
+    branches = _schema_attr(schema, "any_of") or _schema_attr(schema, "anyOf") or []
+    for branch in branches:
+        branch_properties = _schema_attr(branch, "properties")
+        if branch_properties and set(value) <= set(branch_properties):
+            return branch_properties
+    return None
+
+
+def _drop_in_item(item: Any, items_schema: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    properties = _object_properties(items_schema, item)
+    return drop_unset_optionals(item, properties) if properties else item
+
+
+def drop_unset_optionals(params: Dict[str, Any], schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Strict tool calling makes every optional param required-but-nullable, so
+    models send ``null`` for "not set"; tools must see it as omitted, or
+    ``params.get("timeout", 60)`` returns ``None``."""
+    if not schema or not isinstance(params, dict):
+        return params
+
+    result: Optional[Dict[str, Any]] = None
+    for name, param_schema in schema.items():
+        if name not in params:
+            continue
+        value = params[name]
+        if value is None:
+            if _schema_attr(param_schema, "required", True) is False and not _declares_null(param_schema):
+                if result is None:
+                    result = dict(params)
+                del result[name]
+            continue
+
+        new_value = value
+        if isinstance(value, dict):
+            properties = _object_properties(param_schema, value)
+            if properties:
+                new_value = drop_unset_optionals(value, properties)
+        elif isinstance(value, list):
+            items = _schema_attr(param_schema, "items")
+            if items is not None:
+                new_items = [_drop_in_item(item, items) for item in value]
+                if any(new is not old for new, old in zip(new_items, value, strict=True)):
+                    new_value = new_items
+
+        if new_value is not value:
+            if result is None:
+                result = dict(params)
+            result[name] = new_value
+
+    return result if result is not None else params
+
+
 def coerce_params(
     params: Dict[str, Any],
     schema: Dict[str, Any],
@@ -229,4 +306,5 @@ def coerce_params(
                 coerced = dict(params)
             coerced[name] = new_value
 
-    return coerced if coerced is not None else dict(params)
+    # After coercion, so optionals inside a stringified object are dropped too.
+    return drop_unset_optionals(coerced if coerced is not None else dict(params), schema)

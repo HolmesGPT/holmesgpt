@@ -721,16 +721,30 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _resolve_schema(
-        cls, schema: dict[str, Any], root_schema: dict[str, Any]
+        cls,
+        schema: dict[str, Any],
+        root_schema: dict[str, Any],
+        followed_refs: Optional[set[str]] = None,
     ) -> dict[str, Any]:
-        """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf."""
+        """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf.
+
+        Every $ref followed is added to ``followed_refs``; a $ref already in it
+        resolves to a plain object instead of being expanded again."""
         if not isinstance(schema, dict):
             return schema
+        if followed_refs is None:
+            followed_refs = set()
 
         # 1. Resolve $ref
         if "$ref" in schema:
             ref_path = str(schema["$ref"])
+            if ref_path in followed_refs:
+                resolved_schema = dict(schema)
+                resolved_schema.pop("$ref")
+                resolved_schema.setdefault("type", "object")
+                return resolved_schema
             if ref_path.startswith("#/"):
+                followed_refs.add(ref_path)
                 parts = ref_path[2:].split("/")
                 resolved = root_schema
                 for part in parts:
@@ -743,7 +757,9 @@ class RemoteMCPTool(Tool):
                 # Recursively resolve the matched definition in case it contains more refs/anyOf
                 resolved_schema = dict(schema)
                 resolved_schema.pop("$ref")
-                resolved_schema.update(cls._resolve_schema(resolved, root_schema))
+                resolved_schema.update(
+                    cls._resolve_schema(resolved, root_schema, followed_refs)
+                )
                 return resolved_schema
 
         # 2. Handle anyOf / oneOf / allOf for nullable or union types
@@ -754,7 +770,9 @@ class RemoteMCPTool(Tool):
                     merged.pop(compound_key)
                     for sub_schema in schema[compound_key]:
                         if isinstance(sub_schema, dict):
-                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            resolved_sub = cls._resolve_schema(
+                                sub_schema, root_schema, followed_refs
+                            )
                             if resolved_sub.get("type") != "null":
                                 for k, v in resolved_sub.items():
                                     if k == "properties" and isinstance(v, dict):
@@ -781,7 +799,9 @@ class RemoteMCPTool(Tool):
                     has_null = False
                     for sub_schema in schema[compound_key]:
                         if isinstance(sub_schema, dict):
-                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            resolved_sub = cls._resolve_schema(
+                                sub_schema, root_schema, followed_refs
+                            )
                             if resolved_sub.get("type") == "null":
                                 has_null = True
                             else:
@@ -810,15 +830,25 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _parse_tool_parameter(
-        cls, schema: dict[str, Any], root_schema: dict[str, Any], required: bool = True
+        cls,
+        schema: dict[str, Any],
+        root_schema: dict[str, Any],
+        required: bool = True,
+        expanding_refs: frozenset[str] = frozenset(),
     ) -> ToolParameter:
         """Recursively parse a JSON Schema property into a ToolParameter.
 
         This preserves nested items, properties, and enum from MCP tool schemas
         so that the OpenAI-formatted schema sent to the LLM accurately describes
         complex parameter types (arrays, objects).
+
+        ``expanding_refs`` holds the $refs being expanded above this property;
+        a recursive schema (a definition that contains itself) stops at its
+        first repeat as a free-form object.
         """
-        schema = cls._resolve_schema(schema, root_schema)
+        followed_refs: set[str] = set(expanding_refs)
+        schema = cls._resolve_schema(schema, root_schema, followed_refs)
+        expanding_refs = frozenset(followed_refs)
 
         # If _resolve_schema preserved a multi-branch anyOf, parse each branch
         # into a ToolParameter and store on the any_of field.
@@ -834,7 +864,9 @@ class RemoteMCPTool(Tool):
                     isinstance(b, dict) and b.get("type") == "null" for b in branches
                 )
                 any_of_params = [
-                    cls._parse_tool_parameter(branch, root_schema, required=True)
+                    cls._parse_tool_parameter(
+                        branch, root_schema, required=True, expanding_refs=expanding_refs
+                    )
                     for branch in non_null
                 ]
                 # Use a placeholder type; type_to_open_ai_schema will use any_of instead
@@ -854,7 +886,7 @@ class RemoteMCPTool(Tool):
         items = None
         if "items" in schema and isinstance(schema["items"], dict):
             items = cls._parse_tool_parameter(
-                schema["items"], root_schema, required=True
+                schema["items"], root_schema, required=True, expanding_refs=expanding_refs
             )
 
         properties = None
@@ -862,7 +894,10 @@ class RemoteMCPTool(Tool):
             nested_required = schema.get("required", [])
             properties = {
                 name: cls._parse_tool_parameter(
-                    prop, root_schema, required=name in nested_required
+                    prop,
+                    root_schema,
+                    required=name in nested_required,
+                    expanding_refs=expanding_refs,
                 )
                 for name, prop in schema["properties"].items()
             }
