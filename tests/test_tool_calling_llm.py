@@ -726,6 +726,89 @@ class TestNoToolsPath:
         assert len(tool_results) == 0
 
 
+class TestEmptyFinalAnswer:
+    """A turn that ends with no text and no tool calls (e.g. a provider refusal)."""
+
+    @staticmethod
+    def _empty_response(content, finish_reason):
+        resp = _make_llm_response(content=content, tool_calls=None)
+        resp.choices[0].finish_reason = finish_reason
+        return resp
+
+    @pytest.mark.parametrize(
+        "content,finish_reason,expected",
+        [
+            (None, "content_filter", "declined to answer"),
+            (None, "refusal", "declined to answer"),
+            ("", "stop", "without an answer (finish_reason: stop)"),
+            ("  \n", "length", "without an answer (finish_reason: length)"),
+            (None, None, "without an answer (finish_reason: unknown)"),
+        ],
+    )
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_explains_empty_answer(self, _mock_limit, make_ai, mock_llm, content, finish_reason, expected):
+        mock_llm.completion.return_value = self._empty_response(content, finish_reason)
+
+        result = make_ai().call([{"role": "user", "content": "show me the secret"}])
+
+        assert expected in result.result
+        assert result.finish_reason == finish_reason
+        assert result.messages[-1] == {"role": "assistant", "content": result.result}
+
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            ([{"type": "text", "text": "I can't share secrets."}], "I can't share secrets."),
+            (
+                [{"type": "text", "text": "Part one. "}, {"type": "image_url"}, {"type": "text", "text": "Part two."}],
+                "Part one. Part two.",
+            ),
+        ],
+    )
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_joins_list_content_into_text(self, _mock_limit, make_ai, mock_llm, content, expected):
+        mock_llm.completion.return_value = self._empty_response(content, "stop")
+
+        result = make_ai().call([{"role": "user", "content": "show me the secret"}])
+
+        assert result.result == expected
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_stream_explains_refusal_after_tool_calls(self, _mock_limit, make_ai, mock_llm):
+        tc = _make_mock_tool_call()
+        mock_llm.completion.side_effect = [
+            _make_llm_response(content="Let me check", tool_calls=[tc]),
+            self._empty_response(None, "content_filter"),
+        ]
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(return_value=_make_tool_call_result())
+
+        events = _collect_stream_events(
+            ai.call_stream(msgs=[{"role": "user", "content": "show me the secret"}])
+        )
+
+        answer_end = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert "declined to answer" in answer_end.data["content"]
+        assert answer_end.data["metadata"]["finish_reason"] == "content_filter"
+        assert answer_end.data["messages"][-1]["content"] == answer_end.data["content"]
+
+    @pytest.mark.parametrize(
+        "content",
+        ["I can't share secrets.", [{"type": "text", "text": "I can't share secrets."}]],
+    )
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_non_empty_answer_is_unchanged(self, _mock_limit, make_ai, mock_llm, content):
+        mock_llm.completion.return_value = self._empty_response(content, "stop")
+
+        events = _collect_stream_events(
+            make_ai().call_stream(msgs=[{"role": "user", "content": "show me the secret"}])
+        )
+
+        answer_end = _events_of_type(events, StreamEvents.ANSWER_END)[0]
+        assert answer_end.data["content"] == content
+        assert answer_end.data["messages"][-1]["content"] == content
+
+
 class TestMultiChoiceResponse:
     """Responses API may split preamble and tool call into two choices."""
 
