@@ -826,8 +826,15 @@ class ToolCallingLLM:
             deduped: dict[str, dict] = {}
             for tc in all_tool_calls:
                 deduped[tc.get("tool_call_id", id(tc))] = tc
+            content = terminal_data["content"]
+            if isinstance(content, list):
+                content = "".join(
+                    block.get("text", "")
+                    for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
             return LLMResult(
-                result=terminal_data["content"],
+                result=content,
                 tool_calls=list(deduped.values()),
                 num_llm_calls=total_num_llm_calls,
                 messages=terminal_data["messages"],

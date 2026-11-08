@@ -755,6 +755,24 @@ class TestEmptyFinalAnswer:
         assert result.finish_reason == finish_reason
         assert result.messages[-1] == {"role": "assistant", "content": result.result}
 
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            ([{"type": "text", "text": "I can't share secrets."}], "I can't share secrets."),
+            (
+                [{"type": "text", "text": "Part one. "}, {"type": "image_url"}, {"type": "text", "text": "Part two."}],
+                "Part one. Part two.",
+            ),
+        ],
+    )
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_call_joins_list_content_into_text(self, _mock_limit, make_ai, mock_llm, content, expected):
+        mock_llm.completion.return_value = self._empty_response(content, "stop")
+
+        result = make_ai().call([{"role": "user", "content": "show me the secret"}])
+
+        assert result.result == expected
+
     @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
     def test_call_stream_explains_refusal_after_tool_calls(self, _mock_limit, make_ai, mock_llm):
         tc = _make_mock_tool_call()
