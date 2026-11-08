@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import responses as responses_
 
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.tracing import get_active_branch_name, readable_timestamp
 from tests.llm.conftest import show_llm_summary_report
 from tests.llm.utils.braintrust import get_braintrust_url
@@ -274,6 +275,7 @@ def storage_dal_mock():
         mock_supabase_dal_instance = MagicMock()
         MockSupabaseDal.return_value = mock_supabase_dal_instance
         mock_supabase_dal_instance.sign_in.return_value = "mock_supabase_user_id"
+        mock_supabase_dal_instance.api_endpoint = ROBUSTA_API_ENDPOINT
         mock_supabase_dal_instance.get_ai_credentials.return_value = (
             "mock_account_id",
             "mock_session_token",

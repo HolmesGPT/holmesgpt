@@ -25,7 +25,6 @@ from typing import Any, Dict, Optional
 
 from pydantic import AnyUrl, PrivateAttr
 
-from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
     StructuredToolResult,
@@ -259,8 +258,7 @@ def make_robusta_platform_mcp_toolset(
     # Allow operators to override the MCP endpoint independently of the LLM
     # endpoint in case a region is rolling out the new service incrementally.
     mcp_base = (
-        os.environ.get("ROBUSTA_MCP_ENDPOINT")
-        or f"{ROBUSTA_API_ENDPOINT}/api/platform-mcp"
+        os.environ.get("ROBUSTA_MCP_ENDPOINT") or f"{dal.api_endpoint}/api/platform-mcp"
     )
 
     config = MCPConfig(
