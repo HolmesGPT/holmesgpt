@@ -52,27 +52,40 @@ before_test: |
     exit 1
   fi
 
-  # Needle: CPU rate and memory must be queryable for both replicas.
+  # Needle: CPU rate and memory must be queryable for each current replica.
+  # Checked per pod, since one pod can hold several series (a restarted
+  # container gets a new container-id series).
   prom_query() {
     kubectl exec -n app-305 deployment/prometheus -- \
       wget -q -O- --post-data "query=$1" http://localhost:9090/api/v1/query 2>/dev/null || true
   }
-  CPU_QUERY='count(rate(container_cpu_usage_seconds_total{namespace="app-305",pod=~"invoice-renderer-.*",container="renderer"}[2m]))'
-  MEM_QUERY='count(container_memory_working_set_bytes{namespace="app-305",pod=~"invoice-renderer-.*",container="renderer"})'
+  has_data() {
+    prom_query "$1" | grep -q '"value":\['
+  }
   FOUND=false
-  for i in $(seq 1 120); do
-    if prom_query "$CPU_QUERY" | grep -q '"value":\[[0-9.]*,"2"\]' \
-      && prom_query "$MEM_QUERY" | grep -q '"value":\[[0-9.]*,"2"\]'; then
-      echo "CPU and memory series for both invoice-renderer pods are queryable (attempt $i)"
+  DEADLINE=$((SECONDS + 180))
+  while [ $SECONDS -lt $DEADLINE ]; do
+    PODS=$(kubectl get pods -n app-305 -l app=invoice-renderer -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    MISSING=""
+    if [ "$(echo $PODS | wc -w)" -ne 2 ]; then
+      MISSING="expected 2 pods, found: ${PODS:-none}"
+    fi
+    for POD in $PODS; do
+      has_data "rate(container_cpu_usage_seconds_total{namespace=\"app-305\",pod=\"$POD\",container=\"renderer\"}[2m])" \
+        || MISSING="$MISSING $POD:cpu"
+      has_data "container_memory_working_set_bytes{namespace=\"app-305\",pod=\"$POD\",container=\"renderer\"}" \
+        || MISSING="$MISSING $POD:memory"
+    done
+    if [ -z "$MISSING" ]; then
+      echo "CPU and memory series for both invoice-renderer pods ($PODS) are queryable"
       FOUND=true
       break
     fi
     sleep 1
   done
   if [ "$FOUND" = false ]; then
-    echo "invoice-renderer series never appeared in Prometheus"
-    prom_query "$CPU_QUERY"
-    prom_query "$MEM_QUERY"
+    echo "invoice-renderer series never appeared in Prometheus; missing:$MISSING"
+    kubectl get pods -n app-305
     exit 1
   fi
 

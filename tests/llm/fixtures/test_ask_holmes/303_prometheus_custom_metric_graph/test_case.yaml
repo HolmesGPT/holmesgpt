@@ -1,9 +1,11 @@
 description: |
   Port of 119_new_relic_metrics to self-hosted Prometheus. A pod exposes a
   custom business gauge, sales_amount{currency="SEK",...}, with values between
-  100 and 200, and Prometheus scrapes it. Holmes must graph the metric with a
+  101 and 200, and Prometheus scrapes it. Holmes must graph the metric with a
   Prometheus range query and report the currency from the label. The currency
-  is SEK rather than the original's USD so the answer cannot be guessed.
+  is SEK rather than the original's USD so the answer cannot be guessed. The
+  lower bound is 101, not 100, so no sample rounds to 100.00 and "over 100"
+  holds for every value Holmes can report.
 
 user_prompt:
   - give me a graph of the custom prometheus metric sales_amount and the currency

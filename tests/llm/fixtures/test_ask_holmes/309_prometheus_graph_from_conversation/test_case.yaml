@@ -11,8 +11,11 @@ before_test: |
   kubectl apply -f manifest.yaml
   kubectl apply -f prometheus.yaml
 
+  # The three waits are bounded (180s + 180s + ~240s) to fit setup_timeout, so
+  # a slow image pull still reaches the pod diagnostics below.
   POD_READY=false
-  for i in $(seq 1 120); do
+  DEADLINE=$((SECONDS + 180))
+  while [ $SECONDS -lt $DEADLINE ]; do
     if kubectl wait --for=condition=ready pod/ledger-sync-78599b764d-f847h -n app-309 --timeout=5s 2>/dev/null; then
       POD_READY=true
       break
@@ -60,7 +63,7 @@ tags:
 
 test_type: server
 
-setup_timeout: 300
+setup_timeout: 660
 
 port_forwards:
   - namespace: app-309

@@ -6,7 +6,7 @@ description: |
   in-namespace Tempo; request status codes are not written to any pod log.
 
 user_prompt:
-- What http status code we have for /orders today
+- What http status code we have for /orders in the last 24 hours
 
 expected_output:
   - code are 200, 403, 409
@@ -48,7 +48,8 @@ before_test: |
   kubectl apply -f services.yaml -n app-299
   SERVICES_READY=false
   for i in $(seq 1 120); do
-    if kubectl wait --for=condition=ready pod -l 'app in (checkout,inventory,risk)' -n app-299 --timeout=5s 2>/dev/null; then
+    # Per Deployment: a label-selector wait can pass before every Deployment has a pod.
+    if kubectl wait --for=condition=available deployment/checkout deployment/inventory deployment/risk -n app-299 --timeout=5s 2>/dev/null; then
       SERVICES_READY=true
       break
     fi
@@ -62,7 +63,8 @@ before_test: |
 
   kubectl apply -f traffic-generator.yaml -n app-299
   CLIENT_DONE=false
-  for i in $(seq 1 60); do
+  DEADLINE=$((SECONDS + 300))
+  while [ $SECONDS -lt $DEADLINE ]; do
     if kubectl wait --for=condition=complete job/orders-client -n app-299 --timeout=5s 2>/dev/null; then
       CLIENT_DONE=true
       break
@@ -70,6 +72,7 @@ before_test: |
     if kubectl wait --for=condition=failed job/orders-client -n app-299 --timeout=1s 2>/dev/null; then
       break
     fi
+    sleep 1
   done
   if [ "$CLIENT_DONE" = false ]; then
     echo "orders client did not complete"

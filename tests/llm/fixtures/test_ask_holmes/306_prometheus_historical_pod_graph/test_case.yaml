@@ -59,10 +59,20 @@ before_test: |
       wget -q -O- --post-data "query=$1" http://localhost:9090/api/v1/query 2>/dev/null || true
   }
   # Total samples across all series of the pod (a re-created pod gets new
-  # container-id series).
+  # container-id series). A failed query is retried rather than read as 0;
+  # only a successful empty result counts as no samples.
   samples() {
-    N=$(prom_query "$1" | sed -n 's/.*"value":\[[0-9.]*,"\([0-9]*\)"\].*/\1/p')
-    echo "${N:-0}"
+    for _ in 1 2 3 4 5; do
+      OUT=$(prom_query "$1")
+      if echo "$OUT" | grep -q '"status":"success"'; then
+        N=$(echo "$OUT" | sed -n 's/.*"value":\[[0-9.]*,"\([0-9]*\)"\].*/\1/p')
+        echo "${N:-0}"
+        return
+      fi
+      sleep 1
+    done
+    echo "query failed 5 times: $1" >&2
+    echo 0
   }
   POD=telemetry-processor-5f9d8b7c4d-x2km9
   CPU_SAMPLES="sum(count_over_time(container_cpu_usage_seconds_total{namespace=\"app-306\",pod=\"$POD\",container=\"processor\"}[30m]))"
@@ -70,25 +80,28 @@ before_test: |
 
   # A rerun against a namespace kept by --skip-cleanup already has the
   # history; re-creating the pods would only add new series.
-  if [ "$(samples "$CPU_SAMPLES")" -lt 6 ]; then
+  if [ "$(samples "$CPU_SAMPLES")" -lt 6 ] || [ "$(samples "$MEM_SAMPLES")" -lt 6 ]; then
     kubectl apply -f previous-pods.yaml
   fi
 
   # Let the previous-rollout pods accumulate about a minute of history.
   ENOUGH=false
-  for i in $(seq 1 180); do
+  DEADLINE=$((SECONDS + 200))
+  while [ $SECONDS -lt $DEADLINE ]; do
     N=$(samples "$CPU_SAMPLES")
-    if [ "$N" -ge 6 ]; then
-      echo "$POD has $N CPU samples (attempt $i)"
+    M=$(samples "$MEM_SAMPLES")
+    if [ "$N" -ge 6 ] && [ "$M" -ge 6 ]; then
+      echo "$POD has $N CPU and $M memory samples"
       ENOUGH=true
       break
     fi
     sleep 1
   done
   if [ "$ENOUGH" = false ]; then
-    echo "$POD never accumulated CPU samples in Prometheus"
+    echo "$POD never accumulated enough CPU and memory samples in Prometheus"
     kubectl get pods -n app-306
     prom_query "$CPU_SAMPLES"
+    prom_query "$MEM_SAMPLES"
     exit 1
   fi
 

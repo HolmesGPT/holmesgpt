@@ -21,7 +21,7 @@ fi
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Each service becomes its own stream.
-curl -sf -X POST \
+curl -sS --fail-with-body -X POST \
   "${VL}/insert/jsonline?_stream_fields=service,namespace&_msg_field=message&_time_field=time" \
   -H "Content-Type: application/stream+json" \
   --data-binary @- <<EOF

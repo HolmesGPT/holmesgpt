@@ -18,11 +18,11 @@ stringData:
     SERVICE_NAME = os.getenv("SERVICE_NAME", "sales-emitter")
     INTERVAL_SEC = float(os.getenv("SEND_INTERVAL_SEC", "10"))
 
-    state = {"amount": random.uniform(100, 200)}
+    state = {"amount": random.uniform(101, 200)}
 
     def update_forever():
         while True:
-            state["amount"] = random.uniform(100, 200)
+            state["amount"] = random.uniform(101, 200)
             time.sleep(INTERVAL_SEC)
 
     class Handler(BaseHTTPRequestHandler):

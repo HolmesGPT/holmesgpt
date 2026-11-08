@@ -3,7 +3,7 @@
 # Tests that Holmes can use the streams or field_values tools to enumerate
 # distinct services in a given namespace.
 
-user_prompt: "Which services have logs in the 'app-258' namespace in VictoriaLogs in the last hour? List them by name."
+user_prompt: "Which services have logs in the 'app-258' namespace in VictoriaLogs in the last 24 hours? List them by name."
 
 expected_output:
   - "Must call victorialogs_streams or victorialogs_field_values to discover the services"
@@ -23,7 +23,7 @@ port_forwards:
     local_port: 3258
     remote_port: 9428
 
-setup_timeout: 300
+setup_timeout: 480
 
 before_test: |
   set -e
@@ -34,8 +34,11 @@ before_test: |
   echo "Deploying VictoriaLogs..."
   kubectl apply -f victorialogs.yaml -n $NAMESPACE
 
+  # Both waits are time-boxed (240s + 200s) so they, and the diagnostics after
+  # them, finish inside setup_timeout.
   POD_READY=false
-  for i in $(seq 1 90); do
+  DEADLINE=$((SECONDS + 240))
+  while [ $SECONDS -lt $DEADLINE ]; do
     if kubectl wait --for=condition=ready pod -l app=victorialogs -n $NAMESPACE --timeout=5s 2>/dev/null; then
       echo "VictoriaLogs pod is ready"
       POD_READY=true
@@ -58,8 +61,10 @@ before_test: |
   kubectl apply -f log-shipper-job.yaml -n $NAMESPACE
 
   # The job ingests the logs and exits non-zero unless all 3 service streams are queryable.
+  # The Job's activeDeadlineSeconds (180) ends it inside this window.
   JOB_DONE=false
-  for i in $(seq 1 120); do
+  DEADLINE=$((SECONDS + 200))
+  while [ $SECONDS -lt $DEADLINE ]; do
     if kubectl wait --for=condition=complete job/log-shipper -n $NAMESPACE --timeout=2s 2>/dev/null; then
       JOB_DONE=true
       break

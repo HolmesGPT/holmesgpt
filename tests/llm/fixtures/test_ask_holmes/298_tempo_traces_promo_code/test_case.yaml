@@ -59,8 +59,10 @@ before_test: |
   fi
 
   kubectl apply -f traffic-generator.yaml -n app-298
+  # The load runs for 60s; a deadline keeps API errors from using up the wait early.
   LOAD_DONE=false
-  for i in $(seq 1 60); do
+  DEADLINE=$((SECONDS + 300))
+  while [ $SECONDS -lt $DEADLINE ]; do
     if kubectl wait --for=condition=complete job/loadgen -n app-298 --timeout=5s 2>/dev/null; then
       LOAD_DONE=true
       break
@@ -68,6 +70,7 @@ before_test: |
     if kubectl wait --for=condition=failed job/loadgen -n app-298 --timeout=1s 2>/dev/null; then
       break
     fi
+    sleep 1
   done
   kubectl logs -n app-298 job/loadgen --tail=5 || true
   if [ "$LOAD_DONE" = false ]; then
