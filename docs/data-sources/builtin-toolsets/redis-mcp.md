@@ -3,7 +3,7 @@
 The Redis MCP server lets Holmes inspect a Redis database: keys, lists, hashes, sets, sorted sets, streams, and server statistics. It uses the official [`redis/mcp-redis`](https://github.com/redis/mcp-redis) server.
 
 !!! warning "The server can change data"
-    `redis-mcp-server` exposes 53 tools, including `set`, `delete`, `lpop`, `xdel` and `publish`. The configuration below uses [`allowed_tools`](../remote-mcp-servers.md) to load only the read-only tools. Also connect with a Redis ACL user that has read-only permissions.
+    `redis-mcp-server` exposes 53 tools, including `set`, `delete`, `lpop`, `xdel` and `publish`. The configuration below uses [`allowed_tools`](../remote-mcp-servers.md) to load only the read-only tools. Also connect with a Redis ACL user that has read-only permissions. The `+@read` category does not include `INFO` or `CLIENT LIST`, so with only `+@read` the `info` and `client_list` tools return a permission error. Also grant `+info` and `+client|list`.
 
 ## Prerequisites
 
@@ -54,7 +54,7 @@ mcp_servers:
 
 ### Kubernetes
 
-The server has no HTTP transport, so in a cluster run it in its own pod behind [Supergateway](https://github.com/supercorp-ai/supergateway) and point Holmes at the pod's URL. The [Stdio](../remote-mcp-servers.md#stdio) section of the MCP servers page shows the pod and the Helm values; use `redis-mcp-server` as the command and the same `allowed_tools` list.
+The server has no HTTP transport, so in a cluster run it in its own pod behind [Supergateway](https://github.com/supercorp-ai/supergateway) and point Holmes at the pod's URL. The [Stdio](../remote-mcp-servers.md#stdio) section of the MCP servers page shows the pod and the Helm values. Install `redis-mcp-server` in the image and pass the whole command, with the Redis URL, as the one `--stdio` string: `"redis-mcp-server --url redis://<REDIS_HOST>:6379/0"`. Without `--url` the server connects to `127.0.0.1:6379` inside its own pod. Use the same `allowed_tools` list.
 
 ## Available Tools
 
@@ -76,6 +76,8 @@ With the configuration above Holmes loads these tools:
 
 The server offers more tools (JSON, pub/sub, vector search, consumer groups, writes). Add them to `allowed_tools` only if you want Holmes to use them.
 
+Name the keys or key patterns in your question when you know them. Without them, Holmes may guess key names that do not exist.
+
 ## Testing the Connection
 
 ```bash
@@ -95,8 +97,6 @@ holmes ask "Show the fields of the Redis hash session:s-1002 and tell me why it 
 ```bash
 holmes ask "Check the Redis keys queue:calls and config:max_workers. Is the queue backed up, and what could explain it?"
 ```
-
-Name the keys or key patterns in your question when you know them. Without them, Holmes may guess key names that do not exist.
 
 ## Limitations
 
