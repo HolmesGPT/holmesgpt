@@ -110,9 +110,13 @@ def test_a_truthy_non_boolean_approval_without_a_decider_does_not_run(approved):
     assert decision.verified is False
 
 
-@pytest.mark.parametrize("approved", [0, "false"])
+@pytest.mark.parametrize("approved", [0, "false", "no", "off"])
 def test_a_falsy_non_boolean_denial_stays_a_denial(approved):
-    request = _chat_request([{"tool_call_id": "t1", "approved": approved}])
+    request = _chat_request(
+        [{"tool_call_id": "t1", "approved": approved, "feedback": "use cordon instead"}]
+    )
 
     [decision] = request.tool_decisions
     assert decision.approved is False
+    assert decision.verified is True
+    assert decision.feedback == "use cordon instead"

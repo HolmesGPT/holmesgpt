@@ -11,6 +11,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from pydantic import TypeAdapter, ValidationError
+
 from holmes.common.env_vars import CONVERSATION_WORKER_EVENT_BATCH_INTERVAL_SECONDS
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import build_chat_messages
@@ -58,6 +60,18 @@ UNATTRIBUTED_APPROVAL_FEEDBACK = (
 )
 
 
+_BOOL = TypeAdapter(bool)
+
+
+def _approves(value: Any) -> bool:
+    """Reads `approved` the way ChatRequest validation will, so 1 or "true" is
+    an approval and "false" stays a denial with its feedback."""
+    try:
+        return _BOOL.validate_python(value)
+    except ValidationError:
+        return False
+
+
 def _attributed_tool_decisions(decisions: Any) -> Any:
     """Approvals count only with decided_by, which the database sets for the
     person who made the decision (or the Slack user relay maps). The account API
@@ -68,11 +82,9 @@ def _attributed_tool_decisions(decisions: Any) -> Any:
     attributed = []
     for decision in decisions:
         decider = decision.get("decided_by") if isinstance(decision, dict) else None
-        # ChatRequest validation turns 1 or "true" into True, so anything
-        # short of an explicit denial counts as an approval here.
         if (
             isinstance(decision, dict)
-            and decision.get("approved") not in (False, None)
+            and _approves(decision.get("approved"))
             and not (isinstance(decider, str) and decider)
         ):
             logging.warning(

@@ -450,21 +450,6 @@ class ToolCallingLLM:
                         request_context=request_context,
                         enable_tool_approval=True,  # always True when processing decisions
                     )
-                    if (
-                        tool_result.result.status
-                        == StructuredToolResultStatus.APPROVAL_REQUIRED
-                    ):
-                        # Passed on as-is, the model reads this as done.
-                        tool_result.result = StructuredToolResult(
-                            status=StructuredToolResultStatus.ERROR,
-                            error=(
-                                "The user approved this call but it still asked "
-                                "for approval, so it did not run. Tell the user "
-                                f"it did not run. ({tool_result.result.error})"
-                            ),
-                            params=tool_result.result.params,
-                            invocation=tool_result.result.invocation,
-                        )
             else:
                 # Tool was rejected or no decision found
                 if tool_decision and not tool_decision.verified:
@@ -1080,6 +1065,22 @@ class ToolCallingLLM:
                     tool_call_id=tool_id,
                     session_approved_prefixes=session_approved_prefixes,
                     request_context=request_context,
+                )
+
+            if (
+                user_approved
+                and tool_response.status == StructuredToolResultStatus.APPROVAL_REQUIRED
+            ):
+                # Passed on as-is, the model reads this as done.
+                tool_response = StructuredToolResult(
+                    status=StructuredToolResultStatus.ERROR,
+                    error=(
+                        "The user approved this call but it still asked "
+                        "for approval, so it did not run. Tell the user "
+                        f"it did not run. ({tool_response.error})"
+                    ),
+                    params=tool_response.params,
+                    invocation=tool_response.invocation,
                 )
 
             toolset_name = self.tool_executor.get_toolset_name(tool_name, user_id=user_id)
