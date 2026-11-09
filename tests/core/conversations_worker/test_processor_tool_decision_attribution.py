@@ -1,8 +1,6 @@
 """Tool decisions read from ConversationEvents count as approvals only when
-they carry decided_by, which the database sets for the person (or the Slack
-user relay maps) who made them (ROB-1671). The account API role every Holmes
-signs in as can write conversation events too; its decisions arrive without
-one and must not run anything."""
+they carry decided_by, which the UI (the signed-in user) and relay (the Slack
+user) write (ROB-1671). A decision without one must not run anything."""
 
 import json
 from unittest.mock import MagicMock, patch

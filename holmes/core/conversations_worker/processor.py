@@ -77,10 +77,9 @@ def _approves(value: Any) -> bool:
 
 
 def _attributed_tool_decisions(decisions: Any) -> Any:
-    """Approvals count only with decided_by, which the database sets for the
-    person who made the decision (or the Slack user relay maps). The account API
-    role, which every Holmes signs in as, can write conversation events too, and
-    its decisions arrive without one."""
+    """Approvals count only with decided_by: the UI writes the signed-in user,
+    relay the Slack user. Holmes cannot write user messages (robusta-storage
+    ROB-1671), so a decision without one came from an older writer."""
     if not isinstance(decisions, list):
         return decisions
     attributed = []
