@@ -66,6 +66,14 @@ _CHECKER_CACHE: Dict[str, Path] = {}
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class OpenUIArtifacts:
+    """Both downloads, fetched once per session by the `openui_artifacts` fixture."""
+
+    tools: List[FrontendToolDefinition]
+    checker: Path
+
+
 def fetch_frontend_tools(url: str) -> List[FrontendToolDefinition]:
     """The tool definitions as the UI sends them (``/api/frontend-tools.json``)."""
     response = requests.get(url, timeout=15)

@@ -285,7 +285,7 @@ DEFAULT_FRONTEND_TOOLS_PATH = (
 
 def load_frontend_tools(
     test_case: "AskHolmesTestCase",
-    frontend_tools_url: Optional[str] = None,
+    openui_tools: Optional[List[FrontendToolDefinition]] = None,
 ) -> Optional[FrontendPayload]:
     """Resolve the test case's `frontend_tools` field into a FrontendPayload.
 
@@ -297,16 +297,14 @@ def load_frontend_tools(
     """
     raw = test_case.frontend_tools
     if raw is None and getattr(test_case, "openui", None) is not None:
-        # OpenUI evals send what the frontend deploy publishes, so they test
-        # the deployed tool definitions (production or a deploy preview).
-        from tests.llm.utils.openui import (
-            fetch_frontend_tools,
-            resolve_frontend_tools_url,
-        )
-
-        return FrontendPayload(
-            tools=fetch_frontend_tools(resolve_frontend_tools_url(frontend_tools_url))
-        )
+        # OpenUI evals send what the frontend deploy publishes (production or a
+        # deploy preview); the `openui_artifacts` session fixture fetched it.
+        if openui_tools is None:
+            raise ValueError(
+                f"test {test_case.id} has an `openui` block but no frontend tool "
+                "definitions were fetched; pass the openui_artifacts fixture"
+            )
+        return FrontendPayload(tools=openui_tools)
     if raw is None:
         # Unset -> production default: the Robusta UI sends the SuggestSkills
         # tool with every chat request, so evals inject it unless the test
