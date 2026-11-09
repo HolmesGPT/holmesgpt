@@ -117,6 +117,19 @@ def pre_select_patched(*args, **kwargs):
 supabase_request_builder.pre_select = pre_select_patched
 
 
+class ConfirmationMode(str, Enum):
+    """AccountSettings.settings.allowConfirmationMode: who may approve tool
+    calls that need confirmation. Unset or unknown reads as DISABLED, as in
+    relay and the UI."""
+
+    DISABLED = "disable-all"
+    ENABLE_ALL = "enable-all"
+    ENABLE_ADMINS = "enable-admins"
+
+
+CONFIRMATION_MODE_CACHE_TTL_SEC = 30
+
+
 class RunStatus(str, Enum):
     PENDING = "pending"
     PULLED = "pulled"
@@ -338,6 +351,9 @@ class SupabaseDal:
         self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
         self.executor_sizes_cache: TTLCache = TTLCache(
             maxsize=1, ttl=EXECUTOR_SIZES_CACHE_TTL_SEC
+        )
+        self.confirmation_mode_cache: TTLCache = TTLCache(
+            maxsize=1, ttl=CONFIRMATION_MODE_CACHE_TTL_SEC
         )
         self.lock = threading.Lock()
 
@@ -944,6 +960,64 @@ class SupabaseDal:
         with self.lock:
             self.executor_sizes_cache["sizes"] = sizes
         return sizes
+
+    def get_confirmation_mode(self) -> ConfirmationMode:
+        """The account's allowConfirmationMode. A failed read is DISABLED and is
+        not cached, so approvals are refused only until the read succeeds."""
+        if not self.enabled:
+            return ConfirmationMode.DISABLED
+        with self.lock:
+            cached = self.confirmation_mode_cache.get("mode")
+        if cached is not None:
+            return cached
+        try:
+            res = (
+                self.client.table(ACCOUNT_SETTINGS_TABLE)
+                .select("settings")
+                .eq("account_id", self.account_id)
+                .execute()
+            )
+        except Exception:
+            logging.warning(
+                "Failed to read allowConfirmationMode from AccountSettings; "
+                "refusing tool approvals",
+                exc_info=True,
+            )
+            return ConfirmationMode.DISABLED
+        settings = (res.data[0].get("settings") or {}) if res.data else {}
+        try:
+            mode = ConfirmationMode(settings.get("allowConfirmationMode"))
+        except ValueError:
+            mode = ConfirmationMode.DISABLED
+        with self.lock:
+            self.confirmation_mode_cache["mode"] = mode
+        return mode
+
+    def is_account_admin(self, user_id: str) -> bool:
+        """Whether the user is an admin of this account (an ADMIN AccountUsers
+        row or an IdP group mapped to ADMIN). False when the lookup fails."""
+        if not self.enabled or not user_id:
+            return False
+        try:
+            res = self.client.rpc(
+                "is_account_admin",
+                {"_account_id": self.account_id, "_user_id": user_id},
+            ).execute()
+        except Exception:
+            logging.warning(
+                "is_account_admin failed for user %s; treating as not an admin",
+                user_id,
+                exc_info=True,
+            )
+            return False
+        if not isinstance(res.data, bool):
+            logging.warning(
+                "is_account_admin returned %r for user %s; treating as not an admin",
+                res.data,
+                user_id,
+            )
+            return False
+        return res.data
 
     def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
         """Read the per-account skill name-collision policy from AccountSettings.

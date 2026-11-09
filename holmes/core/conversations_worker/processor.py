@@ -33,6 +33,7 @@ from holmes.core.error_info import ErrorInfo
 from holmes.core.models import ChatRequest
 from holmes.core.prompt import PromptComponent
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
+from holmes.core.supabase_dal import ConfirmationMode
 from holmes.core.tools import (
     REQUEST_CAN_APPROVE_TOOL_CALLS,
     SERVER_TOOLSET_TAGS,
@@ -62,6 +63,17 @@ UNATTRIBUTED_APPROVAL_FEEDBACK = (
     "The approval was not recorded as made by a person, so the tool was not run. "
     "Ask the user to approve it again."
 )
+APPROVALS_DISABLED_FEEDBACK = (
+    "Approving tool calls is disabled for this account, so the tool was not run."
+)
+NOT_OWNER_APPROVAL_FEEDBACK = (
+    "Only the person who owns this conversation can approve its tool calls, "
+    "so the tool was not run."
+)
+NOT_ADMIN_APPROVAL_FEEDBACK = (
+    "Only account admins can approve tool calls on this account, so the tool "
+    "was not run."
+)
 
 
 _BOOL = TypeAdapter(bool)
@@ -76,31 +88,54 @@ def _approves(value: Any) -> bool:
         return False
 
 
-def _attributed_tool_decisions(decisions: Any) -> Any:
-    """Approvals count only with decided_by: the UI writes the signed-in user,
-    relay the Slack user. Holmes cannot write user messages (robusta-storage
-    ROB-1671), so a decision without one came from an older writer."""
+def _approval_refusal(
+    decider: Any, owner_id: Optional[str], dal: "SupabaseDal"
+) -> Optional[str]:
+    """Why an approval may not run, or None when it may.
+
+    The UI writes the signed-in user as decided_by, relay the Slack user, and
+    Holmes cannot write user messages (robusta-storage ROB-1671). The owner
+    comes from the Conversations row, so only its owner approves an owned
+    chat; under enable-admins an ownerless chat has nobody to check."""
+    if not (isinstance(decider, str) and decider):
+        return UNATTRIBUTED_APPROVAL_FEEDBACK
+    mode = dal.get_confirmation_mode()
+    if mode == ConfirmationMode.DISABLED:
+        return APPROVALS_DISABLED_FEEDBACK
+    if owner_id and decider != str(owner_id):
+        return NOT_OWNER_APPROVAL_FEEDBACK
+    if mode == ConfirmationMode.ENABLE_ADMINS and not (
+        owner_id and dal.is_account_admin(str(owner_id))
+    ):
+        return NOT_ADMIN_APPROVAL_FEEDBACK
+    return None
+
+
+def _attributed_tool_decisions(
+    decisions: Any, owner_id: Optional[str], dal: "SupabaseDal"
+) -> Any:
+    """Turns each approval the approver rules refuse into a denial that tells
+    the model why, so the tool does not run."""
     if not isinstance(decisions, list):
         return decisions
     attributed = []
     for decision in decisions:
-        if not isinstance(decision, dict):
+        if not isinstance(decision, dict) or not _approves(decision.get("approved")):
             attributed.append(decision)
             continue
-        decider = decision.get("decided_by")
-        if _approves(decision.get("approved")) and not (
-            isinstance(decider, str) and decider
-        ):
+        refusal = _approval_refusal(decision.get("decided_by"), owner_id, dal)
+        if refusal:
             logging.warning(
-                "Treating tool decision %s as denied: no decided_by",
+                "Treating tool decision %s as denied: %s",
                 decision.get("tool_call_id"),
+                refusal,
             )
             decision = {
                 **decision,
                 "approved": False,
                 "verified": False,
                 "save_prefixes": None,
-                "feedback": UNATTRIBUTED_APPROVAL_FEEDBACK,
+                "feedback": refusal,
             }
         attributed.append(decision)
     return attributed
@@ -282,7 +317,9 @@ class ConversationProcessor:
             stream=True,
             additional_system_prompt=data.get("additional_system_prompt"),
             enable_tool_approval=enable_tool_approval,
-            tool_decisions=_attributed_tool_decisions(data.get("tool_decisions")),  # type: ignore[arg-type]
+            tool_decisions=_attributed_tool_decisions(  # type: ignore[arg-type]
+                data.get("tool_decisions"), task.user_id, self.dal
+            ),
             frontend_tools=data.get("frontend_tools"),  # type: ignore[arg-type]
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
             response_format=data.get("response_format"),

@@ -1,6 +1,7 @@
 """Tool decisions read from ConversationEvents count as approvals only when
 they carry decided_by, which the UI (the signed-in user) and relay (the Slack
-user) write (ROB-1671). A decision without one must not run anything."""
+user) write, and the account's confirmation mode lets that person approve
+(ROB-1671). Any other approval must not run anything."""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -10,21 +11,32 @@ import pytest
 import holmes.utils.approval_tokens as approval_tokens
 from holmes.core.conversations_worker.models import ConversationTask
 from holmes.core.conversations_worker.processor import (
+    APPROVALS_DISABLED_FEEDBACK,
+    NOT_ADMIN_APPROVAL_FEEDBACK,
+    NOT_OWNER_APPROVAL_FEEDBACK,
     UNATTRIBUTED_APPROVAL_FEEDBACK,
     ConversationProcessor,
 )
+from holmes.core.supabase_dal import ConfirmationMode
 from holmes.core.tool_calling_llm import ToolCallingLLM
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 from holmes.utils.stream import StreamEvents
 
 
-def _chat_request(decisions):
-    dal = MagicMock()
+def _chat_request(decisions, mode=ConfirmationMode.ENABLE_ALL, owner=None, admins=(), dal=None):
+    dal = dal or MagicMock()
     dal.enabled = True
     dal.update_conversation_status = MagicMock(return_value=True)
+    dal.get_confirmation_mode = MagicMock(return_value=mode)
+    dal.is_account_admin = MagicMock(side_effect=lambda user_id: user_id in admins)
     worker = ConversationProcessor(dal=dal, config=MagicMock(), holmes_id="h-test")
     task = ConversationTask(
-        conversation_id="c1", account_id="a1", cluster_id="cl1", origin="chat", request_sequence=1
+        conversation_id="c1",
+        account_id="a1",
+        cluster_id="cl1",
+        origin="chat",
+        request_sequence=1,
+        user_id=owner,
     )
     dal.get_conversation_events = MagicMock(
         return_value=[
@@ -170,3 +182,62 @@ def test_a_validly_signed_pending_call_runs_only_with_a_decider(decided_by, runs
     if not runs:
         assert result["result"]["status"] == StructuredToolResultStatus.ERROR.value
         assert UNATTRIBUTED_APPROVAL_FEEDBACK in result["result"]["error"]
+
+
+def _approval(decided_by="user-1"):
+    return [{"tool_call_id": "t1", "approved": True, "decided_by": decided_by, "save_prefixes": ["kubectl"]}]
+
+
+@pytest.mark.parametrize(
+    ("mode", "owner", "decided_by", "admins", "refusal"),
+    [
+        (ConfirmationMode.DISABLED, "user-1", "user-1", ("user-1",), APPROVALS_DISABLED_FEEDBACK),
+        (ConfirmationMode.DISABLED, None, "slack:T1:U1", (), APPROVALS_DISABLED_FEEDBACK),
+        (ConfirmationMode.ENABLE_ALL, "user-1", "user-1", (), None),
+        (ConfirmationMode.ENABLE_ALL, "user-1", "user-2", ("user-2",), NOT_OWNER_APPROVAL_FEEDBACK),
+        (ConfirmationMode.ENABLE_ALL, "user-1", "slack:T1:U1", (), NOT_OWNER_APPROVAL_FEEDBACK),
+        (ConfirmationMode.ENABLE_ALL, None, "slack:T1:U1", (), None),
+        (ConfirmationMode.ENABLE_ADMINS, "user-1", "user-1", ("user-1",), None),
+        (ConfirmationMode.ENABLE_ADMINS, "user-1", "user-1", (), NOT_ADMIN_APPROVAL_FEEDBACK),
+        (ConfirmationMode.ENABLE_ADMINS, "user-1", "user-2", ("user-2",), NOT_OWNER_APPROVAL_FEEDBACK),
+        (ConfirmationMode.ENABLE_ADMINS, None, "user-1", ("user-1",), NOT_ADMIN_APPROVAL_FEEDBACK),
+    ],
+    ids=[
+        "disabled: owner approving",
+        "disabled: ownerless Slack approval",
+        "enable-all: owner approving",
+        "enable-all: another user approving an owned chat",
+        "enable-all: Slack user approving an owned chat",
+        "enable-all: ownerless chat",
+        "enable-admins: admin owner",
+        "enable-admins: non-admin owner",
+        "enable-admins: admin approving someone else's chat",
+        "enable-admins: ownerless chat",
+    ],
+)
+def test_the_confirmation_mode_and_owner_decide_who_may_approve(mode, owner, decided_by, admins, refusal):
+    [decision] = _chat_request(_approval(decided_by), mode=mode, owner=owner, admins=admins).tool_decisions
+
+    if refusal is None:
+        assert decision.approved is True
+        assert decision.save_prefixes == ["kubectl"]
+    else:
+        assert decision.approved is False
+        assert decision.verified is False
+        assert not decision.save_prefixes
+        assert decision.feedback == refusal
+
+
+def test_a_denial_does_not_look_up_the_mode_or_the_approver():
+    dal = MagicMock()
+    _chat_request([{"tool_call_id": "t1", "approved": False}], owner="user-1", dal=dal)
+
+    dal.get_confirmation_mode.assert_not_called()
+    dal.is_account_admin.assert_not_called()
+
+
+def test_the_admin_lookup_is_the_owner_not_the_decision_text():
+    dal = MagicMock()
+    _chat_request(_approval("user-1"), mode=ConfirmationMode.ENABLE_ADMINS, owner="user-1", admins=("user-1",), dal=dal)
+
+    dal.is_account_admin.assert_called_once_with("user-1")
