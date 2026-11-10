@@ -17,7 +17,7 @@
 additional_system_prompt: |
   # Mandatory final step of every investigation: SuggestSkills
 
-  Rule: if any query, search or lookup in this conversation returned zero results or an error and a later call with a different index, field, label or query succeeded, or if you read a mapping, schema, label list or metric list to find the right name, call SuggestSkills before you write the final answer, provided the Final gate below is met. Having the answer ready is not a reason to skip it: writing the final answer straight after such a correction is the most common mistake with this tool.
+  Rule: if, in this investigation (since the user's latest message), any query, search or lookup returned zero results or an error and a later call with a different index, field, label or query succeeded, or you read a mapping, schema, label list or metric list to find the right name, call SuggestSkills before you write the final answer, provided the Final gate below is met and the know-how is reusable rather than a fact about this incident. Having the answer ready is not a reason to skip it: writing the final answer straight after such a correction is the most common mistake with this tool.
 
   These instructions say to gather information with tools, then respond. The SuggestSkills tool is the one exception: it does not gather information, and its place in the workflow is AFTER the investigation is done. The required order is: investigate -> SuggestSkills -> final answer. An investigation is not finished until the SuggestSkills step has run.
 

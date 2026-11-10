@@ -1,0 +1,75 @@
+description: |
+  Port of 91a_datadog_metrics_no_k8s to self-hosted Prometheus. The
+  Kubernetes, Helm and bash toolsets are disabled, so Holmes has no cluster
+  access and only prometheus/metrics for data. A real pod
+  runs in app-304 and Prometheus scrapes its CPU/memory from the kubelet's
+  cAdvisor endpoint. Holmes must produce a CPU graph embed from Prometheus
+  alone and must not claim it lacks access because Kubernetes tools are missing.
+
+user_prompt: "Can you show me a cpu graph of the spaceship-launch-counter pod in namespace app-304?"
+
+expected_output: |
+  Output must contain 1 or more embeds in the following format
+    <<{"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "iD8G"}>>
+
+  tool_call_id may be different than the above example so long as its a random looking key, but all other parameters (type and tool_name) must be as described
+
+  Output must NOT tell the user it doesn't have access to metrics or that they should use another tool
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+
+port_forwards:
+  - namespace: app-304
+    service: prometheus
+    local_port: 10304
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-304 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f prometheus.yaml
+  kubectl apply -f workload.yaml
+
+  POD_READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-304 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=ready pod/spaceship-launch-counter -n app-304 --timeout=5s 2>/dev/null; then
+      POD_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$POD_READY" = false ]; then
+    echo "Pods failed to become ready"
+    kubectl get pods -n app-304
+    kubectl describe pods -n app-304 | tail -40
+    exit 1
+  fi
+
+  # Needle: a CPU rate for the pod must be computable in Prometheus.
+  QUERY='rate(container_cpu_usage_seconds_total{namespace="app-304",pod="spaceship-launch-counter",container="launch-counter"}[2m])'
+  FOUND=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n app-304 deployment/prometheus -- \
+      wget -q -O- --post-data "query=$QUERY" http://localhost:9090/api/v1/query 2>/dev/null \
+      | grep -q '"pod":"spaceship-launch-counter"'; then
+      echo "CPU series for spaceship-launch-counter is queryable (attempt $i)"
+      FOUND=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$FOUND" = false ]; then
+    echo "CPU series for spaceship-launch-counter never appeared in Prometheus"
+    kubectl exec -n app-304 deployment/prometheus -- \
+      wget -q -O- http://localhost:9090/api/v1/targets 2>/dev/null | head -c 3000
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-304 --ignore-not-found
+  kubectl delete clusterrolebinding app-304-prometheus --ignore-not-found
+  kubectl delete clusterrole app-304-prometheus --ignore-not-found

@@ -72,9 +72,10 @@ KNOWN_CAPABILITY_FLAGS = {
     "supports_assistant_prefill",
     "supports_audio_input",
     "supports_audio_output",
-    # litellm registry flag for Bedrock-native structured output; nothing in
-    # the harness consumes it, models route through our own response_format path
+    # litellm registry flags for Bedrock-native structured output; nothing in
+    # the harness consumes them, models route through our own response_format path
     "supports_bedrock_native_structured_output",
+    "supports_bedrock_native_structured_output_by_default",
     "supports_computer_use",
     "supports_forced_tool_use",
     "supports_function_calling",
