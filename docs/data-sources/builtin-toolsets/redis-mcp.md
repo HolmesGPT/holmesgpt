@@ -7,18 +7,20 @@ The Redis MCP server lets Holmes inspect a Redis database: keys, lists, hashes, 
 
 ## Prerequisites
 
-- A Redis instance that Holmes can reach, and its connection URL, for example `redis://localhost:6379/0` or `rediss://user:password@host:6379/0` for TLS.
+- A Redis instance that Holmes can reach, and its connection URL without the password, for example `redis://localhost:6379/0`, or `rediss://user@host:6379/0` for TLS.
 - [`uv`](https://docs.astral.sh/uv/), which provides `uvx`, to run the server. The server needs Python 3.10 or newer.
 
 ## Configuration
 
 The server only supports the `stdio` transport, which the CLI runs as a subprocess.
 
-Set the connection URL as an environment variable if it contains a password:
+The server reads the password from the `REDIS_PWD` environment variable. Keep the password out of `--url`: a password in the URL is visible in the process list of the machine that runs Holmes.
 
 ```bash
-export REDIS_URL="redis://localhost:6379/0"
+export REDIS_PWD="<REDIS_PASSWORD>"
 ```
+
+Holmes does not load the toolset if an `{{ env.NAME }}` it references is not set. For a Redis without a password, delete the `env` block below.
 
 Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
@@ -29,7 +31,9 @@ mcp_servers:
     config:
       mode: stdio
       command: "uvx"
-      args: ["redis-mcp-server@0.5.1", "--url", "{{ env.REDIS_URL }}"]
+      args: ["redis-mcp-server@0.5.1", "--url", "redis://localhost:6379/0"]
+      env:
+        REDIS_PWD: "{{ env.REDIS_PWD }}"
     # Load only read-only tools. The server also exposes tools that write or delete data.
     allowed_tools:
       - get
@@ -54,7 +58,31 @@ mcp_servers:
 
 ### Kubernetes
 
-The server has no HTTP transport, so in a cluster run it in its own pod behind [Supergateway](https://github.com/supercorp-ai/supergateway) and point Holmes at the pod's URL. The [Stdio](../remote-mcp-servers.md#stdio) section of the MCP servers page shows the pod and the Helm values. Install `redis-mcp-server` in the image and pass the whole command, with the Redis URL, as the one `--stdio` string: `"redis-mcp-server --url redis://<REDIS_HOST>:6379/0"`. Without `--url` the server connects to `127.0.0.1:6379` inside its own pod. Use the same `allowed_tools` list.
+The server has no HTTP transport, so in a cluster run it in its own pod behind [Supergateway](https://github.com/supercorp-ai/supergateway) and point Holmes at the pod's URL. The [Stdio](../remote-mcp-servers.md#stdio) section of the MCP servers page shows the pod and the Helm values. Install `redis-mcp-server` in the image and pass the whole command, with the Redis URL, as the one `--stdio` string: `"redis-mcp-server --url redis://<REDIS_HOST>:6379/0"`. Without `--url` the server connects to `127.0.0.1:6379` inside its own pod. Keep the password out of that command as well: set `REDIS_PWD` on the pod from a Secret, the way the manifest's `env` block sets `API_KEY`. Use the same `allowed_tools` list.
+
+Supergateway does not authenticate its clients, and `allowed_tools` only filters the tools Holmes loads. Any pod that can reach the Service can call every tool of the server with the permissions of the Redis user. Keep the Service `ClusterIP` and allow ingress to the pod only from the Holmes pods with a NetworkPolicy (it needs a network plugin that enforces NetworkPolicies):
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-mcp-allow-holmes
+spec:
+  podSelector:
+    matchLabels:
+      app: redis-mcp   # the label of your Supergateway pod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: holmes
+      ports:
+        - port: 8000
+```
+
+Apply it in the namespace of the Supergateway pod. Run that pod in the namespace of the Holmes pods (`app: holmes` is the label the Helm chart gives them), as the NetworkPolicies of the chart's bundled MCP servers assume.
 
 ## Available Tools
 
