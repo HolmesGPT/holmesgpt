@@ -37,16 +37,8 @@ from holmes.core.models import FrontendToolDefinition
 OPENUI_TOOL_NAME = "VisualizeOpenUI"
 CONTROL_COMPONENTS = ("Select", "Input", "Switch", "Button")
 
-# TEMPORARY, revert before merge: production does not publish these files yet, so
-# the first cloud runs read them from the robusta-frontend PR #3892 deploy preview.
-# Hard-coded rather than set through repository variables so that every trigger
-# (label, /eval comment, workflow_dispatch) uses them without any repository setup.
-DEFAULT_FRONTEND_TOOLS_URL = (
-    "https://deploy-preview-3892--robusta.netlify.app/api/frontend-tools.json"
-)
-DEFAULT_OPENUI_CHECK_URL = (
-    "https://deploy-preview-3892--robusta.netlify.app/api/openui-check.mjs"
-)
+DEFAULT_FRONTEND_TOOLS_URL = "https://platform.robusta.dev/api/frontend-tools.json"
+DEFAULT_OPENUI_CHECK_URL = "https://platform.robusta.dev/api/openui-check.mjs"
 
 
 def resolve_frontend_tools_url(option: Optional[str] = None) -> str:
