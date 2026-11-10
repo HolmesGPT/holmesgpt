@@ -1,0 +1,75 @@
+description: |
+  Prometheus port of 91g_datadog_metrics_mismatched_pod. Prometheus holds two
+  hours of cAdvisor CPU and memory history for pod
+  orbiter-monitor-77aac74f7c-hl4cd, an earlier replica of the orbiter-monitor
+  deployment that stopped reporting two minutes before the test. The replica
+  running in the cluster now has a different suffix, so the pod the user names
+  doesn't exist in Kubernetes. Holmes should still find the series in
+  Prometheus and graph them.
+
+before_test: |
+  set -e
+  kubectl create namespace app-308 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl apply -f prometheus.yaml
+
+  kubectl rollout status deployment/orbiter-monitor -n app-308 --timeout=180s
+  kubectl rollout status deployment/prometheus -n app-308 --timeout=180s
+
+  history_loaded() {
+    kubectl exec -n app-308 deployment/prometheus -- promtool query instant http://localhost:9090 \
+      'count_over_time(container_cpu_usage_seconds_total{namespace="app-308",pod="orbiter-monitor-77aac74f7c-hl4cd"}[3h]) > 200' 2>/dev/null | grep -q '=>'
+  }
+
+  # Re-running setup must not write a second, overlapping copy of the history.
+  if ! kubectl exec -n app-308 deployment/prometheus -- test -f /scratch/backfilled; then
+    NODE=$(kubectl get pod -n app-308 -l app=orbiter-monitor -o jsonpath='{.items[0].spec.nodeName}')
+    python3 generate_history.py app-308 orbiter-monitor-77aac74f7c-hl4cd app \
+        docker.io/library/busybox:1.36.1 "$NODE" $(( $(date +%s) - 120 )) \
+      | kubectl exec -i -n app-308 deployment/prometheus -- sh -c \
+        'cat > /scratch/history.om && TMPDIR=/scratch promtool tsdb create-blocks-from openmetrics /scratch/history.om /prom && rm /scratch/history.om && touch /scratch/backfilled'
+  fi
+
+  # Prometheus picks up blocks written to its data dir on its periodic block
+  # reload, about once a minute.
+  VERIFIED=false
+  for i in $(seq 1 150); do
+    if history_loaded; then
+      VERIFIED=true
+      echo "Backfilled history for orbiter-monitor-77aac74f7c-hl4cd is queryable (attempt $i)"
+      break
+    fi
+    sleep 1
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "Backfilled history never became queryable"
+    kubectl logs -n app-308 deployment/prometheus --tail=30 || true
+    exit 1
+  fi
+
+user_prompt:
+  - "Show me a cpu graph of the orbiter-monitor-77aac74f7c-hl4cd pod in namespace app-308?"
+  - "Show me memory graph for orbiter-monitor-77aac74f7c-hl4cd in app-308"
+
+expected_output:
+  - 'Output must contain 1 or more embeds in the following format: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "<random_value>"} >>. tool_call_id may be any random-looking key, but type and tool_name must be exactly as shown.'
+  - "Output must NOT tell the user it doesn't have access to metrics or that they should use another tool"
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+  - kubernetes
+
+setup_timeout: 360
+
+port_forwards:
+  - namespace: app-308
+    service: prometheus
+    local_port: 10308
+    remote_port: 9090
+
+after_test: |
+  kubectl delete namespace app-308 --ignore-not-found
+  kubectl delete clusterrolebinding app-308-prometheus --ignore-not-found
+  kubectl delete clusterrole app-308-prometheus --ignore-not-found
