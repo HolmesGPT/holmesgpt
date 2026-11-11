@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orders-client-script
+type: Opaque
+stringData:
+  run.py: |
+    import requests
+
+    URL = "http://checkout.app-299.svc.cluster.local:3000/orders"
+    ORDERS = [
+        {"userId": "u1", "itemId": "sku-11", "qty": 9, "amount": 120},
+        {"userId": "u1", "itemId": "sku-11", "qty": 2, "amount": 900},
+        {"userId": "u1", "itemId": "sku-11", "qty": 2, "amount": 120},
+    ]
+
+    for _ in range(5):
+        for order in ORDERS:
+            resp = requests.post(URL, json=order, timeout=10)
+            print(resp.status_code, flush=True)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orders-client
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: client
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/scripts/run.py"]
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+      volumes:
+      - name: script
+        secret:
+          secretName: orders-client-script

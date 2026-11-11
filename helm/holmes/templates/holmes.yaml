@@ -94,9 +94,24 @@ spec:
       {{ else }}
       dnsPolicy: ClusterFirst
       {{- end }}
-      {{- if .Values.initContainers }}
+      {{- $initContainers := .Values.initContainers | default list }}
+      {{- if include "holmes.kubernetesMcp.inHolmesPod" . }}
+      {{- /* Holmes runs the Kubernetes MCP server as a subprocess; copy its binary
+             out of the add-on's image so the version stays the add-on's. */}}
+      {{- $k8sMcp := .Values.mcpAddons.kubernetes }}
+      {{- $initContainers = append $initContainers (dict
+            "name" "k8s-mcp-binary"
+            "image" (printf "%s/%s" $k8sMcp.registry $k8sMcp.image)
+            "imagePullPolicy" ($k8sMcp.imagePullPolicy | default "IfNotPresent")
+            "command" (list "cp" "/app/kubernetes-mcp-server" "/opt/k8s-mcp/kubernetes-mcp-server")
+            "securityContext" (merge (dict "readOnlyRootFilesystem" true) (.Values.containerSecurityContext | default dict))
+            "resources" $k8sMcp.resources
+            "volumeMounts" (list (dict "name" "k8s-mcp-bin" "mountPath" "/opt/k8s-mcp"))
+          ) }}
+      {{- end }}
+      {{- with $initContainers }}
       initContainers:
-      {{- toYaml .Values.initContainers | nindent 6 }}
+      {{- toYaml . | nindent 6 }}
       {{- end }}
       containers:
       - name: holmes
@@ -258,6 +273,12 @@ spec:
           - name: SKILL_REPOS_DIR
             value: /var/holmes/skill-repos
           {{- end }}
+          {{- if include "holmes.kubernetesMcp.inHolmesPod" . }}
+          # Holmes writes each stdio MCP server's stderr under this directory, and
+          # the root filesystem is read-only.
+          - name: HOLMES_CONFIGPATH_DIR
+            value: /tmp/.holmes
+          {{- end }}
           {{- if include "holmes.awsMcp.multiAccount" . }}
           - name: AWS_CONFIG_FILE
             value: /etc/holmes/aws/config
@@ -326,6 +347,9 @@ spec:
             mountPath: /etc/holmes/skills
             readOnly: true
           {{- end }}
+          {{- if include "holmes.kubernetesMcp.inHolmesPod" . }}
+          {{- include "holmes.kubernetesMcp.volumeMounts" . | nindent 10 }}
+          {{- end }}
           {{- if include "holmes.awsMcp.multiAccount" . }}
           - name: aws-mcp-config
             mountPath: /etc/holmes/aws
@@ -393,6 +417,9 @@ spec:
               - key: {{ $name }}.SKILL.md
                 path: {{ $name }}/SKILL.md
               {{- end }}
+        {{- end }}
+        {{- if include "holmes.kubernetesMcp.inHolmesPod" . }}
+        {{- include "holmes.kubernetesMcp.volumes" . | nindent 8 }}
         {{- end }}
         {{- if include "holmes.awsMcp.multiAccount" . }}
         - name: aws-mcp-config

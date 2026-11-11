@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -20,22 +21,21 @@ def generate_log_entry(service, level, message, timestamp_offset=0, trace_id=Non
 
 
 def main():
-    # Generate normal logs for first 10,000 entries
     services = ["auth-service", "user-service", "order-service", "payment-processor"]
 
-    for i in range(10000):
+    for i in range(4000):
         service = random.choice(services)
         print(
             generate_log_entry(
                 service,
                 "INFO",
                 "Processing request successfully",
-                timestamp_offset=3600 - i * 0.3,
+                timestamp_offset=3600 - i * 0.75,
             )
         )
 
     # The cascading failure starts here (around 10% into logs)
-    base_time = 3600 - 10000 * 0.3
+    base_time = 3600 - 4000 * 0.75
 
     # Root cause: Redis connection lost in auth-service
     print(
@@ -99,17 +99,18 @@ def main():
         )
 
     # Generate more normal logs to bury the errors
-    for i in range(89900):
+    for i in range(35900):
         service = random.choice(services)
         print(
             generate_log_entry(
                 service,
                 "INFO",
                 "Processing request successfully",
-                timestamp_offset=base_time - 100 - i * 0.3,
+                timestamp_offset=base_time - 100 - i * 0.75,
             )
         )
 
+    sys.stdout.flush()
     # Keep pod running
     while True:
         time.sleep(3600)
