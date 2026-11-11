@@ -340,14 +340,18 @@ class TestGeneralBehavior:
 
 class TestStringNull:
     """Some providers turn a JSON null into the string "null" (glm-5.3 on OpenRouter
-    since Nov 2026). Holmes must treat it as null, or e.g. kubectl gets `-l null`."""
+    since Nov 2026). Holmes must treat it as null, or e.g. kubectl gets `-l null`.
+    An optional param's null is then dropped, the same as a real null."""
 
-    def test_optional_string_becomes_none(self):
+    def test_optional_string_is_dropped(self):
         result = coerce_params(
-            {"label_selector": "null"},
-            _schema(label_selector=ToolParameter(type="string", required=False)),
+            {"label_selector": "null", "namespace": "default"},
+            _schema(
+                label_selector=ToolParameter(type="string", required=False),
+                namespace=ToolParameter(type="string"),
+            ),
         )
-        assert result["label_selector"] is None
+        assert result == {"namespace": "default"}
 
     def test_nullable_type_becomes_none(self):
         result = coerce_params(
@@ -356,19 +360,19 @@ class TestStringNull:
         )
         assert result["label_selector"] is None
 
-    def test_optional_array_becomes_none_not_wrapped(self):
+    def test_optional_array_is_dropped_not_wrapped(self):
         result = coerce_params(
             {"tags": "null"},
             _schema(tags=ToolParameter(type="array", required=False)),
         )
-        assert result["tags"] is None
+        assert result == {}
 
-    def test_optional_integer_becomes_none(self):
+    def test_optional_integer_is_dropped(self):
         result = coerce_params(
             {"limit": "null"},
             _schema(limit=ToolParameter(type="integer", required=False)),
         )
-        assert result["limit"] is None
+        assert result == {}
 
     def test_applies_in_strict_mode(self):
         result = coerce_params(
@@ -376,14 +380,28 @@ class TestStringNull:
             _schema(limit=ToolParameter(type="integer", required=False)),
             strict=True,
         )
-        assert result["limit"] is None
+        assert result == {}
 
     def test_raw_dict_nullable_type_becomes_none(self):
         result = coerce_params(
             {"tags": "null"},
             {"tags": {"type": ["string", "null"]}},
         )
-        assert result["tags"] is None
+        assert result == {"tags": None}
+
+    def test_raw_dict_optional_is_dropped(self):
+        result = coerce_params(
+            {"tags": "null"},
+            {"tags": {"type": "string", "required": False}},
+        )
+        assert result == {}
+
+    def test_any_of_null_branch_becomes_none(self):
+        result = coerce_params(
+            {"filter": "null"},
+            {"filter": {"anyOf": [{"type": "object"}, {"type": "null"}]}},
+        )
+        assert result == {"filter": None}
 
     def test_required_non_nullable_string_kept(self):
         """A required string can't be null, so "null" is the value the model meant."""
@@ -403,8 +421,8 @@ class TestStringNull:
 
 
 def test_yaml_tool_renders_string_null_like_omitted():
-    """End to end through Tool.invoke: "null" reaches the template as None, the same
-    as a real JSON null, which the kubernetes query scripts already treat as unset."""
+    """End to end through Tool.invoke: "null" renders the same as a real JSON null,
+    which is dropped as unset, instead of reaching the command as the word null."""
     tool = YAMLTool(
         name="echo_selector",
         description="Echo the label selector",
@@ -416,7 +434,7 @@ def test_yaml_tool_renders_string_null_like_omitted():
     from_string = tool.invoke({"label_selector": "null"}, context)
     from_null = tool.invoke({"label_selector": None}, context)
 
-    assert from_string.data.strip() == "sel=None"
+    assert from_string.data.strip() == "sel="
     assert from_string.data == from_null.data
 
 

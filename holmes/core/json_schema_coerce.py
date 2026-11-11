@@ -82,12 +82,8 @@ def _primary_type(schema: Any) -> str:
 
 def _accepts_null(schema: Any) -> bool:
     """Whether the param may be null: optional (strict mode sends optional params
-    as nullable) or explicitly typed with ``"null"``."""
-    if isinstance(schema, dict):
-        raw = schema.get("type")
-        return isinstance(raw, list) and "null" in raw
-    types = schema.type if isinstance(schema.type, list) else [schema.type]
-    return not schema.required or "null" in types
+    as nullable) or declaring ``"null"``, the same rule ``drop_unset_optionals`` uses."""
+    return _schema_attr(schema, "required", True) is False or _declares_null(schema)
 
 
 def _coerce_single_value(
