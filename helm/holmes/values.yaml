@@ -305,8 +305,8 @@ mcpAddons:
 
     # Multi-account configuration
     # When multiAccount.profiles is defined, the chart will use EKS token projection.
-    # With hosted.enabled each profile becomes its own MCP server (aws_<profile>); a profile
-    # may set description, and source_profile or credential_source to assume its role_arn
+    # With hosted.enabled all profiles share one MCP server (aws_api) and each tool call
+    # picks one; a profile may set description, and source_profile or credential_source to assume its role_arn
     # from other credentials instead of the projected token.
     multiAccount:
       enabled: false  # Set to true to enable multi-account access
@@ -743,7 +743,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.4.0"
+    image: "kubernetes-remediation-mcp:1.5.0"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -788,6 +788,13 @@ mcpAddons:
       preapprovedCommands: "exec * -- ps*,exec * -- top*,exec * -- df*,exec * -- ls*,exec * -- netstat*,exec * -- ss*"
       # Pre-approved troubleshooting images for run_preapproved_diagnostic_image (auto-approved)
       diagnosticImages: "nicolaka/netshoot:v0.13,busybox:1.37.0,curlimages/curl:8.11.1"
+      # Pre-approved exec binaries to stop auto-approving, e.g. "nvidia-smi,dmesg" (server >= 1.5.0)
+      preapprovedExecDisabledBinaries: ""
+      # Auto-approved exec binaries: binary -> regex the space-prefixed argv
+      # (" arg1 arg2") must fully match (server >= 1.5.0). Add e.g. ethtool: ' -S [a-z0-9]+'
+      preapprovedExecArgvAllowlists:
+        nvidia-smi: '( -L)?| -q( -d [A-Z_,]+| -i \d+)*| --query-[a-z-]+=[a-z0-9_.,]+ --format=csv(,noheader|,nounits)*( -i \d+)?| nvlink -[se]( -i \d+)?| topo -m'
+        dmesg: '( -T| -k| -r| -s \d+| --level=[a-z,]+)*'
 
       # ---- Diagnostic-pod target policy (server >= 1.2.0) ----
       # run_preapproved_diagnostic_image is auto-approved and its images are
@@ -900,6 +907,14 @@ mcpAddons:
       extraArgs: []
       # Kubeconfig secret for connecting to external clusters
       # Create a secret: kubectl create secret generic k8s-mcp-kubeconfig --from-file=kubeconfig=/path/to/kubeconfig -n <NAMESPACE>
+      # When set, the server runs inside the Holmes pod as a subprocess Holmes starts
+      # for each call, with no port another pod could reach the kubeconfig's
+      # credentials through. The kubeconfig is then mounted in the Holmes container,
+      # so the chart requires toolsets.bash.enabled: false, and config.oauth.enabled
+      # can't be used. serviceAccount, networkPolicy, nodeSelector, tolerations and
+      # affinity don't apply, resources size only the container that copies the
+      # binary in, and the server's stderr goes to
+      # /tmp/.holmes/logs/mcp/kubernetes.log in the Holmes container, not to its logs.
       kubeconfig:
         secretName: ""    # Name of K8s secret containing the kubeconfig file
         secretKey: "kubeconfig"  # Key in secret (default: "kubeconfig")

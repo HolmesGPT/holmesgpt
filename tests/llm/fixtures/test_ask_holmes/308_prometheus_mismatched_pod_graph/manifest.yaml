@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orbiter-script
+  namespace: app-308
+type: Opaque
+stringData:
+  script.sh: |
+    #!/bin/sh
+    echo "Starting orbiter-monitor pod..."
+    while true; do
+      # Periodic orbit propagation pass
+      i=0
+      while [ $i -lt 20000 ]; do i=$((i + 1)); done
+      sleep 5
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orbiter-monitor
+  namespace: app-308
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orbiter-monitor
+  template:
+    metadata:
+      labels:
+        app: orbiter-monitor
+    spec:
+      volumes:
+      - name: script-volume
+        secret:
+          secretName: orbiter-script
+          defaultMode: 0755
+      containers:
+      - name: app
+        image: busybox:1.36.1
+        command: ["/bin/sh", "-c"]
+        args: ["/etc/scripts/script.sh"]
+        volumeMounts:
+        - name: script-volume
+          mountPath: /etc/scripts
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"

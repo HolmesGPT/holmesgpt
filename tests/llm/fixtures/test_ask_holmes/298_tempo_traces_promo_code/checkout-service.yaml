@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: checkout-app
+type: Opaque
+stringData:
+  app.py: |
+    import logging
+    import os
+    import random
+    import time
+
+    from flask import Flask, jsonify, request
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    resource = Resource.create(
+        {
+            "service.name": "checkout",
+            "k8s.namespace.name": os.environ.get("K8S_NAMESPACE", "unknown"),
+            "k8s.deployment.name": "checkout",
+            "k8s.pod.name": os.environ.get("K8S_POD_NAME", "unknown"),
+            "k8s.node.name": os.environ.get("K8S_NODE_NAME", "unknown"),
+            "k8s.container.name": "app",
+        }
+    )
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(
+        BatchSpanProcessor(
+            OTLPSpanExporter(endpoint=os.environ["OTLP_ENDPOINT"], insecure=True)
+        )
+    )
+    trace.set_tracer_provider(provider)
+
+    app = Flask(__name__)
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    FlaskInstrumentor().instrument_app(app, excluded_urls="healthz")
+
+    BASE_MEAN = 0.03
+    BASE_JITTER = 0.02
+    PROMO_EXTRA = 0.5
+
+
+    @app.get("/healthz")
+    def healthz():
+        return "ok", 200
+
+
+    @app.post("/checkout")
+    def checkout():
+        body = request.get_json(silent=True) or {}
+        coupon = request.args.get("coupon") or body.get("coupon") or ""
+        delay = max(0.0, random.uniform(BASE_MEAN - BASE_JITTER, BASE_MEAN + BASE_JITTER))
+        if str(coupon).lower() == "promotions":
+            delay += PROMO_EXTRA
+        time.sleep(delay)
+        return jsonify({"ok": True, "coupon": coupon}), 200
+
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8080, threaded=True)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: app
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/app.py"]
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OTLP_ENDPOINT
+          value: tempo.app-298.svc.cluster.local:4317
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          periodSeconds: 5
+        volumeMounts:
+        - name: app
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: app
+        secret:
+          secretName: checkout-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+spec:
+  selector:
+    app: checkout
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
