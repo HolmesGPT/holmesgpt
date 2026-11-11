@@ -192,7 +192,7 @@ def reject_shell_metacharacters(value: str, source: str) -> str:
 
 
 class _ShellSafeOnReadDict(Mapping):
-    """Checks values only when read, so unused headers (`Accept: */*`) pass. ROB-1683"""
+    """Checks values only when read, so unused headers (`Accept: */*`) pass."""
 
     def __init__(self, data):
         self._data = {k.lower(): (k, v) for k, v in data.items()}
@@ -202,6 +202,9 @@ class _ShellSafeOnReadDict(Mapping):
         if isinstance(value, str):
             reject_shell_metacharacters(value, f"request_context[{key!r}]")
         return value
+
+    def __contains__(self, key):
+        return key.lower() in self._data
 
     def __iter__(self):
         return (k for k, _ in self._data.values())
