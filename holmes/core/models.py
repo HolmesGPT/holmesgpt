@@ -3,7 +3,7 @@ import logging
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
 
@@ -358,3 +358,12 @@ class ChatResponse(BaseModel):
     tool_calls: Optional[List[ToolCallResult]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None
+
+    @field_validator("analysis", mode="before")
+    @classmethod
+    def _none_analysis_to_empty(cls, value: Any) -> Any:
+        # The model can end a run without any final text (for example an empty
+        # completion), so the investigation result is None. Return an empty
+        # analysis rather than failing validation and turning a finished run
+        # into an HTTP 500.
+        return "" if value is None else value
