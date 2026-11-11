@@ -322,6 +322,17 @@
       "backendToolsetNames": ["dynatrace", "dynatrace-mcp"]
     },
     {
+      "id": "firehydrant/investigations",
+      "name": "FireHydrant",
+      "description": "Run FireHydrant AI investigations in Holmes and post the results back; read investigations and incidents",
+      "categories": ["itsm-knowledgebase"],
+      "iconUrl": "https://www.google.com/s2/favicons?sz=64&domain=firehydrant.com",
+      "docsUrl": "https://holmesgpt.dev/latest/data-sources/builtin-toolsets/firehydrant/?tab=robusta-helm-chart",
+      "configType": "native",
+      "backendToolsetNames": ["firehydrant/investigations"],
+      "supportsMultipleInstances": false
+    },
+    {
       "id": "servicenow/tables",
       "name": "ServiceNow",
       "description": "Query ServiceNow incidents, change requests, and CMDB records",

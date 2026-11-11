@@ -72,6 +72,7 @@ from holmes.utils.connection_utils import patch_socket_create_connection
 from holmes.plugins.toolsets.robusta_platform_mcp.robusta_platform_mcp import (
     refresh_platform_mcp_tools,
 )
+from holmes.plugins.toolsets.firehydrant.poller import FireHydrantInvestigationsPoller
 from holmes.utils.holmes_status import (
     refresh_holmes_status,
     update_holmes_status_in_db,
@@ -232,6 +233,12 @@ def sync_before_server_start():
         daemon=True,
         name="skill-repo-warmup",
     ).start()
+    # Independent of the Robusta platform: the poller idles until the
+    # firehydrant/investigations toolset is enabled, from any config source.
+    try:
+        firehydrant_poller.start()
+    except Exception:
+        logging.error("Failed to start FireHydrant investigations poller", exc_info=True)
     if not dal.enabled:
         logging.info(
             "Skipping holmes status and toolsets synchronization - not connected to Robusta platform"
@@ -445,6 +452,7 @@ async def lifespan(app: FastAPI):
     yield
     # stop() blocks on Supabase writes and thread joins; keep it off the event loop.
     await run_in_threadpool(stop_conversation_runtime)
+    await run_in_threadpool(firehydrant_poller.stop)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -842,6 +850,10 @@ def chat(chat_request: ChatRequest, http_request: Request):
 
 scheduled_prompts_executor = ScheduledPromptsExecutor(
     dal=dal, config=config, chat_function=chat
+)
+
+firehydrant_poller = FireHydrantInvestigationsPoller(
+    config=config, dal=dal, chat_function=chat
 )
 
 conversation_runtime = None
