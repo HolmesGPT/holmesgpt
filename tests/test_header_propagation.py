@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from holmes.core.tools import (
+    ShellInjectionError,
     StructuredToolResultStatus,
     ToolInvokeContext,
     YAMLTool,
@@ -458,10 +459,8 @@ class TestRequestContextShellInjection:
         assert "uid=" not in (result.error or "")
         assert "uid=" not in (result.data or "")
 
-    def test_build_context_raises_on_metacharacter_header(self):
+    def test_reading_a_metacharacter_header_from_context_raises(self):
         """Reading a metacharacter header from the context refuses it."""
-        from holmes.core.tools import ShellInjectionError
-
         tool = YAMLTool(
             name="t", description="t",
             command="echo {{ request_context.headers['X-Val'] }}",
@@ -497,7 +496,20 @@ class TestRequestContextShellInjection:
     def test_every_way_of_reading_a_header_is_checked(self, command):
         tool = YAMLTool(name="t", description="t", command=command)
         result = tool._invoke({}, self._ctx({"headers": {"X-Auth": "$(id)"}}))
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "metacharacter" in (result.error or "")
+        assert "uid=" not in (result.data or "")
+
+    @pytest.mark.parametrize("use_script", [False, True])
+    def test_template_cannot_read_the_unchecked_storage(self, use_script):
+        """The sandbox blocks `_data`, the only path around the read check."""
+        template = "echo {{ request_context.headers._data['x-auth'][1] }}"
+        tool = YAMLTool(
+            name="t", description="t",
+            **({"script": "#!/bin/bash\n" + template} if use_script else {"command": template}),
+        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Auth": "$(id)"}}))
+        assert result.status == StructuredToolResultStatus.ERROR
         assert "uid=" not in (result.data or "")
 
     def test_membership_check_does_not_read_the_value(self):
