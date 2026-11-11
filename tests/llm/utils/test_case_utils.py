@@ -204,6 +204,22 @@ class HolmesTestCase(BaseModel):
     replay_forbidden_tools: Optional[List[str]] = None
 
 
+class OpenUIExpectations(BaseModel):
+    """What the VisualizeOpenUI program(s) of a run must satisfy. Checked in
+    tests/llm/utils/openui.py with the frontend's own checker."""
+
+    # At least one VisualizeOpenUI call (False: forbid any).
+    expect_visualization: bool = True
+    # Every program parses, its queries run on this run's tool results, and no
+    # chart, table or select renders empty.
+    require_valid: bool = True
+    # True: at least one Select/Input/Switch bound to a $variable that a Query
+    # or a built-in reads. False: no control at all. None: not checked.
+    expect_controls: Optional[bool] = None
+    # Minimum count per component type, e.g. {"Chart": 1}.
+    min_components: Dict[str, int] = {}
+
+
 class AskHolmesTestCase(HolmesTestCase, BaseModel):
     user_prompt: Union[
         str, List[str]
@@ -237,6 +253,10 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     # negative eval proving that when the answer is already in the request,
     # Holmes does not make an unnecessary lookup. None/empty disables the check.
     forbidden_tools: Optional[List[str]] = None
+    # OpenUI visualization checks. Also makes `frontend_tools` default to the
+    # definitions the frontend deploy publishes (--frontend-tools-url) instead
+    # of the SuggestSkills-only default.
+    openui: Optional[OpenUIExpectations] = None
 
     # Internal fields for variant handling
     variant_index: Optional[int] = None  # Which variant this instance represents
@@ -265,6 +285,7 @@ DEFAULT_FRONTEND_TOOLS_PATH = (
 
 def load_frontend_tools(
     test_case: "AskHolmesTestCase",
+    openui_tools: Optional[List[FrontendToolDefinition]] = None,
 ) -> Optional[FrontendPayload]:
     """Resolve the test case's `frontend_tools` field into a FrontendPayload.
 
@@ -275,6 +296,15 @@ def load_frontend_tools(
     client sends alongside its tools.
     """
     raw = test_case.frontend_tools
+    if raw is None and getattr(test_case, "openui", None) is not None:
+        # OpenUI evals send what the frontend deploy publishes (production or a
+        # deploy preview); the `openui_artifacts` session fixture fetched it.
+        if openui_tools is None:
+            raise ValueError(
+                f"test {test_case.id} has an `openui` block but no frontend tool "
+                "definitions were fetched; pass the openui_artifacts fixture"
+            )
+        return FrontendPayload(tools=openui_tools)
     if raw is None:
         # Unset -> production default: the Robusta UI sends the SuggestSkills
         # tool with every chat request, so evals inject it unless the test

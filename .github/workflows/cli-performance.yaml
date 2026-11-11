@@ -234,21 +234,28 @@ jobs:
               c.user.login === 'github-actions[bot]' &&
               (c.body.includes('CLI Performance Benchmark') || c.body.includes('CLI Startup Benchmark'))
             );
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: report,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: report,
-              });
+            try {
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: report,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: report,
+                });
+              }
+            } catch (error) {
+              // A fork PR runs with a read-only GITHUB_TOKEN, which cannot comment.
+              if (error.status !== 403) throw error;
+              core.warning('Cannot comment on a fork PR; the report is in the job summary.');
             }
+            await core.summary.addRaw(report).write();
 
       - name: Check for regression
         run: |

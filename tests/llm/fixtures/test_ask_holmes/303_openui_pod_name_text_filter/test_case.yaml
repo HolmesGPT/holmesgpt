@@ -1,0 +1,18 @@
+# OpenUI: a text filter. @Filter with "contains" and an Input bound to a
+# $variable; an empty default matches every row.
+user_prompt: "List the pods with a text box I can type in to filter them by name."
+
+include_tool_calls: true
+
+openui:
+  expect_visualization: true
+  expect_controls: true
+  min_components: { Table: 1, Input: 1 }
+
+expected_output:
+  - "The visualization is a table of pods with a text input that filters the rows by pod name"
+
+tags:
+  - openui
+  - frontend
+  - fast

@@ -1262,6 +1262,11 @@ jobs:
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # OpenUI evals download the frontend's tool definitions and checker;
+          # unset = production, set the repo variables to a deploy preview to
+          # test a frontend PR.
+          FRONTEND_TOOLS_URL: ${{ vars.FRONTEND_TOOLS_URL }}
+          OPENUI_CHECK_URL: ${{ vars.OPENUI_CHECK_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}

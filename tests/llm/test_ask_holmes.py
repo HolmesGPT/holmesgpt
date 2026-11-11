@@ -24,6 +24,7 @@ from holmes.plugins.skills.skill_loader import SkillCatalog, load_skill_catalog
 from tests.llm.utils.answer_dump import dump_eval_answer
 from tests.llm.utils.braintrust import log_to_braintrust
 from tests.llm.utils.classifiers import evaluate_correctness
+from tests.llm.utils.openui import evaluate_openui
 from tests.llm.utils.commands import apply_env_config, set_test_env_vars
 from tests.llm.utils.denied_commands import extract_denied_commands
 from tests.llm.utils.env_config import EnvConfig, get_env_configs
@@ -79,6 +80,7 @@ def test_ask_holmes(
     caplog,
     request,
     additional_system_prompt,
+    openui_artifacts,
     shared_test_infrastructure,  # type: ignore
 ):
     # Set initial properties early so they're available even if test fails
@@ -133,6 +135,7 @@ def test_ask_holmes(
                     eval_span,  # positional arg
                     additional_system_prompt=additional_system_prompt,
                     additional_skill_paths=preloaded_paths,
+                    openui_artifacts=openui_artifacts,
                     request=request,
                     retry_enabled=retry_enabled,
                     test_id=test_case.id,
@@ -157,7 +160,9 @@ def test_ask_holmes(
     # The UI renders it correctly (the content ships as an ai_message event,
     # collected into intermediateMessages), so we rejoin it here instead of
     # changing product code.
-    frontend_payload = load_frontend_tools(test_case)
+    frontend_payload = load_frontend_tools(
+        test_case, openui_tools=openui_artifacts.tools if openui_artifacts else None
+    )
     output = join_frontend_tool_turn_content(
         result.result,
         result.messages,
@@ -170,6 +175,17 @@ def test_ask_holmes(
     update_property(
         request, "skills_read_count", count_fetch_skill_calls(result.tool_calls)
     )
+
+    # OpenUI: run the frontend's checker on every VisualizeOpenUI program
+    # against this run's tool results, before the judge sees the output.
+    openui_report = None
+    if test_case.openui is not None:
+        assert openui_artifacts is not None, "openui_artifacts fixture did not run"
+        openui_report = evaluate_openui(
+            test_case, result.tool_calls, openui_artifacts.checker
+        )
+        update_property(request, "openui_checks", openui_report.checks)
+        update_property(request, "openui_failures", openui_report.failures)
 
     scores = update_test_results(
         request=request,
@@ -185,6 +201,7 @@ def test_ask_holmes(
         suggested_memories=suggested_memories
         if test_case.memories_generated is not None
         else None,
+        visualizations=openui_report.judge_block if openui_report else None,
     )
 
     # Deterministic skill checks. They fail the run (assertions below) but
@@ -213,8 +230,7 @@ def test_ask_holmes(
     missing_skill_updates: List[str] = []
     if test_case.expected_skill_updates:
         actual_updates = {
-            str(s.get("updates_skill") or "").strip()
-            for s in suggested_memories
+            str(s.get("updates_skill") or "").strip() for s in suggested_memories
         }
         missing_skill_updates = [
             name
@@ -243,6 +259,12 @@ def test_ask_holmes(
         tools=[getattr(tc, "tool_name", "?") for tc in (result.tool_calls or [])],
     )
 
+    # Deterministic OpenUI checks: a failed expectation zeroes the score before
+    # logging, like the checks above.
+    if openui_report and openui_report.failures:
+        update_property(request, "actual_correctness_score", 0)
+        scores["correctness"] = 0
+
     if eval_span:
         log_to_braintrust(
             eval_span=eval_span,
@@ -252,6 +274,12 @@ def test_ask_holmes(
             scores=scores,
             suggested_memories=suggested_memories,
             fail_reason=skill_check_failure.value if skill_check_failure else None,
+        )
+
+    if openui_report and openui_report.failures:
+        raise AssertionError(
+            f"Test {test_case.id} OpenUI checks failed:\n- "
+            + "\n- ".join(openui_report.failures)
         )
 
     if memory_check_failed:
@@ -293,9 +321,7 @@ def test_ask_holmes(
     # request). This checks actual tool calls, not prompt content or LLM grading.
     forbidden_tools = getattr(test_case, "forbidden_tools", None) or []
     if forbidden_tools:
-        called = [
-            getattr(tc, "tool_name", None) for tc in (result.tool_calls or [])
-        ]
+        called = [getattr(tc, "tool_name", None) for tc in (result.tool_calls or [])]
         offending = sorted({t for t in called if t in forbidden_tools})
         assert not offending, (
             f"Test {test_case.id}: Holmes called forbidden tool(s) {offending} "
@@ -350,9 +376,7 @@ def test_ask_holmes(
                         else:
                             shutil.copy2(src, dst)
 
-            written = write_suggestions_as_skill_files(
-                suggested_memories, skills_dir
-            )
+            written = write_suggestions_as_skill_files(suggested_memories, skills_dir)
 
             # Optional assertion on the number of skill files written from
             # the captured suggestions (e.g. multi-quirk evals can pin how
@@ -528,9 +552,7 @@ def test_ask_holmes(
                     # exploration calls unnecessary on replay. If the agent
                     # still made them, the skill content didn't actually
                     # obviate the rediscovery it was saved for.
-                    forbidden = (
-                        getattr(test_case, "replay_forbidden_tools", None) or []
-                    )
+                    forbidden = getattr(test_case, "replay_forbidden_tools", None) or []
                     if forbidden:
                         replay_tool_names = [
                             getattr(tc, "tool_name", "?") for tc in replay_tool_calls
@@ -557,6 +579,7 @@ def ask_holmes(
     request=None,
     additional_skill_paths: Optional[List[str]] = None,
     inject_frontend: bool = True,
+    openui_artifacts=None,
 ) -> LLMResult:
     # The closed-loop replay pass asks the same user_prompt but skips
     # frontend tool injection (no SuggestSkills on replay), while injecting
@@ -597,7 +620,14 @@ def ask_holmes(
         # system prompt reflects the injected tools. The client may also ship
         # a system prompt snippet alongside its tools (mirroring the
         # `additional_system_prompt` request field).
-        frontend_payload = load_frontend_tools(test_case) if inject_frontend else None
+        frontend_payload = (
+            load_frontend_tools(
+                test_case,
+                openui_tools=openui_artifacts.tools if openui_artifacts else None,
+            )
+            if inject_frontend
+            else None
+        )
         if frontend_payload:
             print(
                 f"\n🖥️  FRONTEND TOOLS ({len(frontend_payload.tools)}): "
@@ -625,8 +655,7 @@ def ask_holmes(
         )
 
         test_type = (
-            test_case.test_type
-            or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
+            test_case.test_type or os.environ.get("ASK_HOLMES_TEST_TYPE", "cli").lower()
         )
         if test_type == "cli":
             if test_case.conversation_history:
@@ -669,9 +698,7 @@ def ask_holmes(
             if test_case.cluster_name:
                 config.cluster_name = test_case.cluster_name
 
-            dal = load_test_dal(
-                Path(test_case.folder), initialize_base=False
-            )
+            dal = load_test_dal(Path(test_case.folder), initialize_base=False)
             skills = load_skill_catalog(dal=dal)
             global_instructions = dal.get_global_instructions_for_account()
 
