@@ -1,5 +1,5 @@
 name: 'Setup HolmesGPT Environment'
-description: 'Install Python, Poetry, kubectl and HolmesGPT dependencies'
+description: 'Install Python, Poetry, kubectl, the Flux CLI and HolmesGPT dependencies'
 
 inputs:
   python-version:
@@ -70,3 +70,17 @@ runs:
         chmod +x kubectl
         sudo mv kubectl /usr/local/bin/
         kubectl version --client
+
+    - name: Install Flux CLI
+      if: inputs.install-kubectl == 'true'
+      shell: bash
+      run: |
+        # Used by the flux/core toolset evals, so it is installed wherever kubectl is
+        FLUX_VERSION="2.9.6"
+        FLUX_TARBALL="flux_${FLUX_VERSION}_linux_amd64.tar.gz"
+        cd /tmp
+        curl -sLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/${FLUX_TARBALL}"
+        curl -sL "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
+          | grep " ${FLUX_TARBALL}\$" | sha256sum -c -
+        sudo tar -xzf "${FLUX_TARBALL}" -C /usr/local/bin flux
+        flux version --client

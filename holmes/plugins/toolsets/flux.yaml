@@ -1,0 +1,194 @@
+toolsets:
+  flux/core:
+    description: "Read-only Flux CD tools: status, events and specs of GitOps sources, Kustomizations and HelmReleases, and which Flux object manages a Kubernetes object"
+    docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/flux/"
+    icon_url: "https://raw.githubusercontent.com/cncf/artwork/fedb3dbbf74327337fb750eae0a4ec7c8b7398c0/projects/flux/icon/color/flux-icon-color.svg"
+    llm_instructions: |
+      Flux CD keeps this cluster in sync with Git, OCI and Helm sources. A source object
+      (GitRepository, OCIRepository, HelmRepository, Bucket) fetches an artifact, then a
+      Kustomization or HelmRelease applies it to the cluster. Flux labels every object it applies.
+
+      When a change was not deployed, an app managed by GitOps is out of date, or a Flux object
+      is failing:
+        1. Call flux_get with kind=all to find the objects that are not ready and read their
+           messages. Pass namespace when you know it, and ready=false on large clusters.
+        2. A Kustomization or HelmRelease that is not ready is often only a symptom. Read its
+           sourceRef and dependsOn with flux_export, check those objects with flux_get, and keep
+           going until you reach the first failing object in the chain. Report that object and
+           its exact error message.
+        3. Call flux_events for the failing object to see recent warnings, including the ones
+           from its source.
+        4. If the question is about a Deployment or another Kubernetes object, call flux_trace to
+           find the Kustomization or HelmRelease that applied it and the source revision it
+           came from.
+        5. Call flux_tree to list the objects a Kustomization deploys.
+      A suspended object does not reconcile until it is resumed. Say so when that explains why a
+      change was not applied.
+      These tools are read-only. To fix a problem, tell the user what to change in Git or which
+      command to run (for example `flux reconcile`).
+    tags:
+      - core
+    prerequisites:
+      - command: "flux version --client"
+    tools:
+      - name: "flux_get"
+        description: >-
+          Show the reconciliation status of Flux objects: the applied revision, whether the object
+          is suspended, its Ready condition and the last status message, which holds the error
+          when the object is failing. kind=all covers sources, Kustomizations, HelmReleases and
+          image and notification objects in one call.
+        parameters:
+          kind:
+            type: string
+            description: "Flux kind to list, or all for every kind"
+            enum: ["all", "GitRepository", "OCIRepository", "HelmRepository", "HelmChart", "Bucket", "Kustomization", "HelmRelease", "ImageRepository", "ImagePolicy", "ImageUpdateAutomation", "Alert", "Provider", "Receiver"]
+          name:
+            type: string
+            required: false
+            description: "Only show the object with this name. Ignored when kind is all."
+          namespace:
+            type: string
+            required: false
+            description: "Only show objects in this namespace. Omit to search all namespaces."
+          ready:
+            type: string
+            required: false
+            enum: ["true", "false"]
+            description: "Only show objects whose Ready condition has this value. Use false to list objects that are failing or still reconciling."
+        command: >-
+          flux get
+          {%- if kind == "all" %} all
+          {%- elif kind == "GitRepository" %} source git
+          {%- elif kind == "OCIRepository" %} source oci
+          {%- elif kind == "HelmRepository" %} source helm
+          {%- elif kind == "HelmChart" %} source chart
+          {%- elif kind == "Bucket" %} source bucket
+          {%- elif kind == "Kustomization" %} kustomization
+          {%- elif kind == "HelmRelease" %} helmrelease
+          {%- elif kind == "ImageRepository" %} image repository
+          {%- elif kind == "ImagePolicy" %} image policy
+          {%- elif kind == "ImageUpdateAutomation" %} image update
+          {%- elif kind == "Alert" %} alert
+          {%- elif kind == "Provider" %} alert-provider
+          {%- elif kind == "Receiver" %} receiver
+          {%- else %} {{ kind }}
+          {%- endif %}
+          {%- if namespace is string and namespace not in ["", "None"] %} --namespace={{ namespace }}
+          {%- else %} --all-namespaces
+          {%- endif %}
+          {%- if ready and ready != "None" %} --status-selector=ready={{ ready }}
+          {%- endif %}
+          {%- if name and name != "None" and kind != "all" %} -- {{ name }}
+          {%- endif %}
+
+      - name: "flux_export"
+        description: >-
+          Print the spec of one Flux object as YAML, without its status. Use it to read where a
+          Kustomization or HelmRelease gets its artifact from (sourceRef, path, chart), what it
+          waits for (dependsOn), and which Git ref, URL and secretRef a source uses. Secret
+          contents are never printed.
+        parameters:
+          kind:
+            type: string
+            description: "Flux kind of the object"
+            enum: ["GitRepository", "OCIRepository", "HelmRepository", "HelmChart", "Bucket", "Kustomization", "HelmRelease", "ImageRepository", "ImagePolicy", "ImageUpdateAutomation", "Alert", "Provider", "Receiver"]
+          name:
+            type: string
+            description: "Name of the object"
+          namespace:
+            type: string
+            required: false
+            description: "Namespace of the object. Defaults to flux-system."
+        command: >-
+          flux export
+          {%- if kind == "GitRepository" %} source git
+          {%- elif kind == "OCIRepository" %} source oci
+          {%- elif kind == "HelmRepository" %} source helm
+          {%- elif kind == "HelmChart" %} source chart
+          {%- elif kind == "Bucket" %} source bucket
+          {%- elif kind == "Kustomization" %} kustomization
+          {%- elif kind == "HelmRelease" %} helmrelease
+          {%- elif kind == "ImageRepository" %} image repository
+          {%- elif kind == "ImagePolicy" %} image policy
+          {%- elif kind == "ImageUpdateAutomation" %} image update
+          {%- elif kind == "Alert" %} alert
+          {%- elif kind == "Provider" %} alert-provider
+          {%- elif kind == "Receiver" %} receiver
+          {%- else %} {{ kind }}
+          {%- endif %}
+          {%- if namespace is string and namespace not in ["", "None"] %} --namespace={{ namespace }}
+          {%- endif %} -- {{ name }}
+
+      - name: "flux_events"
+        description: >-
+          Show recent Kubernetes events of Flux objects, newest last. Pass kind and name to get
+          the events of one object together with the events of its source.
+        parameters:
+          kind:
+            type: string
+            required: false
+            description: "Only show events of this Flux kind"
+            enum: ["GitRepository", "OCIRepository", "HelmRepository", "HelmChart", "Bucket", "Kustomization", "HelmRelease", "ImageRepository", "ImagePolicy", "ImageUpdateAutomation", "Alert", "Provider", "Receiver"]
+          name:
+            type: string
+            required: false
+            description: "Only show events of the object with this name. Needs kind."
+          namespace:
+            type: string
+            required: false
+            description: "Namespace of the objects. Omit to search all namespaces, except when kind and name are both set, which defaults to flux-system."
+        command: >-
+          {%- set has_kind = kind and kind != "None" %}
+          {%- set has_name = name and name != "None" -%}
+          flux events
+          {%- if namespace is string and namespace not in ["", "None"] %} --namespace={{ namespace }}
+          {%- elif not (has_kind and has_name) %} --all-namespaces
+          {%- endif %}
+          {%- if has_kind %} --for={{ kind }}
+          {%- if has_name %}/{{ name }}
+          {%- endif %}
+          {%- endif %}
+
+      - name: "flux_tree"
+        description: >-
+          List the objects a Kustomization applied, from its inventory, including those of the
+          Kustomizations and HelmReleases it manages. Empty if the Kustomization never applied
+          successfully.
+        parameters:
+          name:
+            type: string
+            description: "Name of the Kustomization"
+          namespace:
+            type: string
+            required: false
+            description: "Namespace of the Kustomization. Defaults to flux-system."
+          compact:
+            type: boolean
+            required: false
+            description: "List only Flux objects. Use it for the cluster's root Kustomization, whose full tree can be very large."
+        command: >-
+          flux tree kustomization
+          {%- if namespace is string and namespace not in ["", "None"] %} --namespace={{ namespace }}
+          {%- endif %}
+          {%- if compact in ["True", "true"] %} --compact
+          {%- endif %} -- {{ name }}
+
+      - name: "flux_trace"
+        description: >-
+          Find which Flux object applied a Kubernetes object: the Kustomization or HelmRelease that
+          manages it, its source, the revision that was applied, and their Ready status.
+        parameters:
+          kind:
+            type: string
+            description: "Kind of the object to trace, for example Deployment, StatefulSet, Service, ConfigMap or HelmRelease"
+          name:
+            type: string
+            description: "Name of the object"
+          namespace:
+            type: string
+            required: false
+            description: "Namespace of the object. Defaults to flux-system. Omit for cluster-scoped objects such as Namespace."
+        command: >-
+          flux trace
+          {%- if namespace is string and namespace not in ["", "None"] %} --namespace={{ namespace }}
+          {%- endif %} -- {{ kind }} {{ name }}

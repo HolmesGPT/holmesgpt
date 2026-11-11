@@ -1,0 +1,45 @@
+# The storefront Kustomization takes its manifests from the shared web-platform
+# GitRepository. That source references a deploy key Secret that does not exist,
+# so it never produces an artifact and the Kustomization has nothing to apply.
+# A leftover GitRepository that is also named storefront fails the same way but
+# is not used by the Kustomization, so Holmes has to follow the sourceRef rather
+# than match on names. Nothing is fetched over the network: source-controller
+# fails on the missing Secret before it tries to clone.
+user_prompt: "The storefront Kustomization in the app-296 namespace hasn't applied anything. What is blocking it?"
+
+expected_output:
+  - "Must say the storefront Kustomization gets its source from the web-platform GitRepository, which is not ready"
+  - "Must identify the root cause: the Secret web-platform-ro-k8m2x referenced by the web-platform GitRepository does not exist"
+  - "Must NOT say that the missing storefront-deploy-key Secret is what blocks the storefront Kustomization"
+
+tags:
+  - kubernetes
+  - chain-of-causation
+  - medium
+
+before_test: |
+  set -e
+  flux install --version=v2.9.6 --components=source-controller,kustomize-controller
+  kubectl create namespace app-296 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+
+  SOURCE_FAILING=false
+  for i in {1..60}; do
+    if kubectl get gitrepository web-platform -n app-296 \
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].message}' 2>/dev/null \
+        | grep -q web-platform-ro-k8m2x; then
+      echo "✅ web-platform GitRepository reports the missing Secret"
+      SOURCE_FAILING=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$SOURCE_FAILING" = false ]; then
+    echo "❌ web-platform GitRepository did not report the missing Secret after 60 seconds"
+    kubectl get gitrepositories,kustomizations -n app-296 -o wide
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-296 --ignore-not-found
+  flux uninstall --silent || true
