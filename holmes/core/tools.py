@@ -192,9 +192,7 @@ def reject_shell_metacharacters(value: str, source: str) -> str:
 
 
 class _ShellSafeOnReadDict(Mapping):
-    """Case-insensitive, read-only dict that checks a value only when a template
-    reads it, so unused headers such as `Accept: */*` don't fail the tool
-    (ROB-1683). Every read goes through __getitem__."""
+    """Checks values only when read, so unused headers (`Accept: */*`) pass. ROB-1683"""
 
     def __init__(self, data):
         self._data = {k.lower(): (k, v) for k, v in data.items()}
