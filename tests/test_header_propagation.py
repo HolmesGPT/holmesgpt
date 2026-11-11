@@ -484,6 +484,22 @@ class TestRequestContextShellInjection:
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "Bearer abc.def-ghi_jkl"
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo {{ request_context.headers['x-auth'] }}",
+            "echo {{ request_context.headers.get('X-Auth') }}",
+            "echo {{ request_context.headers }}",
+            "{% for k, v in request_context.headers.items() %}echo {{ v }}{% endfor %}",
+            "{% for v in request_context.headers.values() %}echo {{ v }}{% endfor %}",
+        ],
+    )
+    def test_every_way_of_reading_a_header_is_checked(self, command):
+        tool = YAMLTool(name="t", description="t", command=command)
+        result = tool._invoke({}, self._ctx({"headers": {"X-Auth": "$(id)"}}))
+        assert "metacharacter" in (result.error or "")
+        assert "uid=" not in (result.data or "")
+
     def test_unused_header_with_metacharacters_is_ignored(self):
         """ROB-1683: the server forwards every request header, so a normal
         `Accept: */*` must not fail a tool that never renders it."""

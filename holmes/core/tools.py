@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
 from typing import (
@@ -190,15 +191,28 @@ def reject_shell_metacharacters(value: str, source: str) -> str:
     return value
 
 
-class _CheckedOnRead(CaseInsensitiveDict):
-    """Checks a value only when a template reads it, so unused headers such as
-    `Accept: */*` don't fail the tool (ROB-1683)."""
+class _ShellSafeOnReadDict(Mapping):
+    """Case-insensitive, read-only dict that checks a value only when a template
+    reads it, so unused headers such as `Accept: */*` don't fail the tool
+    (ROB-1683). Every read goes through __getitem__."""
+
+    def __init__(self, data):
+        self._data = {k.lower(): v for k, v in data.items()}
 
     def __getitem__(self, key):
-        value = super().__getitem__(key)
+        value = self._data[key.lower()]
         if isinstance(value, str):
             reject_shell_metacharacters(value, f"request_context[{key!r}]")
         return value
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def __repr__(self):
+        return repr(dict(self.items()))
 
 
 class PrerequisiteCacheMode(str, Enum):
@@ -629,9 +643,10 @@ class YAMLTool(Tool, BaseModel):
             # Reject shell metacharacters outright; permitted values are passed
             # through unchanged so legitimate tokens render exactly as before
             # this fix, in whatever quoting the template uses (ROB-1104).
-            ctx_copy = _CheckedOnRead(request_context)
-            ctx_copy["headers"] = _CheckedOnRead(request_context.get("headers") or {})
-            context["request_context"] = ctx_copy
+            headers = _ShellSafeOnReadDict(request_context.get("headers") or {})
+            context["request_context"] = _ShellSafeOnReadDict(
+                {**request_context, "headers": headers}
+            )
         else:
             context["request_context"] = {"headers": CaseInsensitiveDict()}
         return context
