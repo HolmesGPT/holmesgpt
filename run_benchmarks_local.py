@@ -7,6 +7,7 @@ mirroring the behavior of the CI/CD workflow.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -190,6 +191,8 @@ class BenchmarkRunner:
         print("=" * 50)
         print()
 
+        # A report left by an earlier run must not pass for this run's results
+        Path("eval_results.json").unlink(missing_ok=True)
         # Run tests (don't fail on test failures, like the bash script)
         result = subprocess.run(cmd)
         return result.returncode
@@ -319,6 +322,11 @@ If you are not redirected automatically, [click here]({history_relative}).
         self.check_environment()
         self.setup_environment()
         exit_code = self.run_tests()
+        if not any_test_ran(Path("eval_results.json")):
+            # No report, so CI opens no empty results PR; ::error shows on the run page
+            print("::error title=No tests ran::No test passed or failed. See the pytest output above.")
+            # Keep pytest's own failure code; 0 and 1 become 5, "no tests collected"
+            return 5 if exit_code in (0, 1) else exit_code
         report_file = self.generate_report()
         self.show_summary(report_file)
         return exit_code
@@ -412,6 +420,19 @@ Environment variables:
     )
 
     return parser.parse_args()
+
+
+def any_test_ran(report: Path) -> bool:
+    """Whether the pytest JSON report has a passed or failed test, not only errors.
+
+    Errors in every xdist worker's collection exit pytest with 1, like a normal
+    run with failures (Oct 4 2026: a model missing from the model list).
+    """
+    try:
+        summary = json.loads(report.read_text())["summary"]
+    except (OSError, ValueError, KeyError):
+        return False
+    return summary.get("passed", 0) + summary.get("failed", 0) > 0
 
 
 def main():
