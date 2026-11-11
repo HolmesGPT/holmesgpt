@@ -223,16 +223,17 @@ def group_problems(lines, rendered, secret=""):
 def expected_secret(opening, body, rel):
     """The secret the body's own text needs: the `holmes-<page>[-<qualifier>]` secret when the
     values reference `{{ env.X }}` outside a comment and outside `additionalEnvVars`, which
-    set their own variables; "" for none. Read from the text, not from the renderer the
-    secret step is checked against."""
-    values_text = body.split("\n---\n")[0]
+    set their own variables, or when the fields' `secret` lists a key of its own; "" for none.
+    Read from the text, not from the renderer the secret step is checked against."""
+    values_text, _, fields_text = body.partition("\n---\n")
+    explicit = (yaml.safe_load(fields_text) or {}).get("secret") if fields_text else None
     code = "\n".join(line for line in values_text.split("\n") if not line.lstrip().startswith("#"))
     plain = {
         entry["name"]
         for entry in (yaml.safe_load(values_text) or {}).get("additionalEnvVars") or []
         if isinstance(entry, dict) and "name" in entry
     }
-    if not set(cf.ENV_REFERENCE_RE.findall(code)) - plain:
+    if not set(cf.ENV_REFERENCE_RE.findall(code)) - plain and not explicit:
         return ""
     return f"holmes-{PurePosixPath(rel).stem}" + (f"-{opening['qualifier']}" if opening["qualifier"] else "")
 
@@ -307,6 +308,16 @@ def test_a_group_whose_renderer_drops_the_secret_step_fails():
 
 
 PAGE = f"```{cf.TOOLSET_CONFIG_FENCE}\n{DATADOG}```\n"
+
+
+def test_a_renderer_that_drops_the_secret_step_of_a_fence_with_only_an_explicit_secret_key_fails(monkeypatch):
+    """A `secret` key no value references still makes the group's secret, so its step is required."""
+    page = "x/p.md"
+    text = f"```{cf.HELM_VALUES_FENCE}\npodLabels:\n  a: b\n---\nsecret:\n  - --from-literal=EXTRA=x\n```\n"
+    assert text_problems(page, text) == []
+    monkeypatch.setattr(cf, "_environment_keys", lambda *args: {})
+    problems = text_problems(page, text)
+    assert problems and "no secret step" in problems[0]
 
 
 def test_a_renderer_that_drops_the_secret_keys_of_a_fence_that_references_env_fails(monkeypatch):
