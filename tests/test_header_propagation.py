@@ -512,6 +512,16 @@ class TestRequestContextShellInjection:
         assert result.status == StructuredToolResultStatus.ERROR
         assert "uid=" not in (result.data or "")
 
+    def test_mixed_case_headers_key_cannot_replace_checked_headers(self):
+        tool = YAMLTool(
+            name="t", description="t",
+            command="echo {{ request_context.headers['X-Auth'] }}",
+        )
+        result = tool._invoke(
+            {}, self._ctx({"headers": {}, "Headers": {"X-Auth": "$(id)"}})
+        )
+        assert "uid=" not in (result.data or "")
+
     def test_membership_check_does_not_read_the_value(self):
         tool = YAMLTool(
             name="t", description="t",

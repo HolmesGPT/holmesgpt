@@ -654,8 +654,10 @@ class YAMLTool(Tool, BaseModel):
         headers = _ShellSafeOnReadDict(
             request_context.get("headers") or {}, "request header"
         )
+        # Lookups are case-insensitive, so a "Headers" key would replace `headers`.
+        rest = {k: v for k, v in request_context.items() if k.lower() != "headers"}
         context["request_context"] = _ShellSafeOnReadDict(
-            {**request_context, "headers": headers}, "request_context"
+            {**rest, "headers": headers}, "request_context"
         )
         return context
 
