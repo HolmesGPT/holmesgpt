@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
 from typing import (
@@ -17,6 +18,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterator,
     List,
     Optional,
     OrderedDict,
@@ -26,9 +28,10 @@ from typing import (
 )
 
 from jinja2 import Template
+from jinja2.exceptions import SecurityError
+from jinja2.sandbox import SandboxedEnvironment
 
 from holmes.core.json_schema_coerce import coerce_params
-from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -188,6 +191,36 @@ def reject_shell_metacharacters(value: str, source: str) -> str:
             f"Disallowed: {''.join(sorted(_SHELL_METACHARACTERS))!r}"
         )
     return value
+
+
+class _ShellSafeOnReadDict(Mapping[str, Any]):
+    """Checks values only when read, so unused headers (`Accept: */*`) pass."""
+
+    def __init__(self, data: Mapping[str, Any], label: str):
+        self._data = {k.lower(): (k, v) for k, v in data.items()}
+        self._label = label
+
+    def __getitem__(self, key: str) -> Any:
+        value = self._data[key.lower()][1]
+        if isinstance(value, str):
+            reject_shell_metacharacters(value, f"{self._label} {key!r}")
+        return value
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and key.lower() in self._data
+
+    def __iter__(self) -> Iterator[str]:
+        return (k for k, _ in self._data.values())
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return repr(dict(self.items()))
+
+
+# Blocks `_`-prefixed attributes, so a template can't read `_data` unchecked.
+_TEMPLATE_SANDBOX = SandboxedEnvironment()
 
 
 class PrerequisiteCacheMode(str, Enum):
@@ -611,30 +644,21 @@ class YAMLTool(Tool, BaseModel):
         params = sanitize_params(params)
         context: Dict[str, Any] = {**params}
         context["env"] = os.environ
-        if request_context:
-            # request_context (propagated HTTP headers, user_id, ...) is attacker
-            # controlled and reaches the same /bin/bash sink as tool params, but
-            # unlike params it is never something the tool author designed for.
-            # Reject shell metacharacters outright; permitted values are passed
-            # through unchanged so legitimate tokens render exactly as before
-            # this fix, in whatever quoting the template uses (ROB-1104).
-            def _clean(value: Any, source: str) -> Any:
-                if not isinstance(value, str):
-                    return value
-                return reject_shell_metacharacters(value, source)
-
-            ctx_copy = {
-                k: _clean(v, f"request_context.{k}") for k, v in request_context.items()
-            }
-            ctx_copy["headers"] = CaseInsensitiveDict(
-                {
-                    k: _clean(v, f"request header {k!r}")
-                    for k, v in (request_context.get("headers") or {}).items()
-                }
-            )
-            context["request_context"] = ctx_copy
-        else:
-            context["request_context"] = {"headers": CaseInsensitiveDict()}
+        # request_context (propagated HTTP headers, user_id, ...) is attacker
+        # controlled and reaches the same /bin/bash sink as tool params, but
+        # unlike params it is never something the tool author designed for.
+        # A value with shell metacharacters is rejected when the template reads
+        # it; permitted values are passed through unchanged so legitimate tokens
+        # render exactly as before, in whatever quoting the template uses (ROB-1104).
+        request_context = request_context or {}
+        headers = _ShellSafeOnReadDict(
+            request_context.get("headers") or {}, "request header"
+        )
+        # Lookups are case-insensitive, so a "Headers" key would replace `headers`.
+        rest = {k: v for k, v in request_context.items() if k.lower() != "headers"}
+        context["request_context"] = _ShellSafeOnReadDict(
+            {**rest, "headers": headers}, "request_context"
+        )
         return context
 
     def _get_status(
@@ -660,7 +684,7 @@ class YAMLTool(Tool, BaseModel):
                 raw_output, return_code, invocation = self.__invoke_script(
                     params, context.request_context
                 )
-        except ShellInjectionError as e:
+        except (ShellInjectionError, SecurityError) as e:
             return StructuredToolResult(
                 status=StructuredToolResultStatus.ERROR,
                 error=str(e),
@@ -690,7 +714,7 @@ class YAMLTool(Tool, BaseModel):
     ) -> Tuple[str, int, str]:
         context = self._build_context(params, request_context)
         command = os.path.expandvars(self.command)  # type: ignore
-        template = Template(command)  # type: ignore
+        template = _TEMPLATE_SANDBOX.from_string(command)
         rendered_command = template.render(context)
         output, return_code = self.__execute_subprocess(rendered_command)
         return output, return_code, rendered_command
@@ -702,7 +726,7 @@ class YAMLTool(Tool, BaseModel):
     ) -> Tuple[str, int, str]:
         context = self._build_context(params, request_context)
         script = os.path.expandvars(self.script)  # type: ignore
-        template = Template(script)  # type: ignore
+        template = _TEMPLATE_SANDBOX.from_string(script)
         rendered_script = template.render(context)
 
         with tempfile.NamedTemporaryFile(
