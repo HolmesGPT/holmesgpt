@@ -1050,7 +1050,7 @@ def list_toolsets(
     config_file: Optional[Path] = opt_config_file,  # type: ignore
 ):
     """
-    List build-in and custom toolsets status of CLI
+    List built-in and custom toolsets status of CLI
     """
     console = init_logging(verbose)
     config = Config.load_from_file(config_file)
@@ -1065,7 +1065,7 @@ def refresh_toolsets(
     config_file: Optional[Path] = opt_config_file,  # type: ignore
 ):
     """
-    Refresh build-in and custom toolsets status of CLI
+    Refresh built-in and custom toolsets status of CLI
     """
     console = init_logging(verbose)
     config = Config.load_from_file(config_file)
