@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: robusta-runner-code
+  namespace: app-310-ops
+type: Opaque
+stringData:
+  runner.py: |
+    import hashlib
+    import logging
+    import random
+    import time
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+    logger = logging.getLogger("runner")
+
+    logger.info("Runner started, waiting for events")
+    while True:
+        # Handle a batch of incoming events.
+        events = random.randint(5, 40)
+        for _ in range(events * 6000):
+            hashlib.sha256(random.randbytes(512)).digest()
+        logger.info("Processed %d events", events)
+        time.sleep(random.uniform(2.0, 5.0))
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: robusta-runner
+  namespace: app-310-ops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: robusta-runner
+  template:
+    metadata:
+      labels:
+        app: robusta-runner
+    spec:
+      containers:
+      - name: runner
+        image: python:3.12.8-alpine
+        command: ["python", "-u", "/app/runner.py"]
+        volumeMounts:
+        - name: code
+          mountPath: /app
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: code
+        secret:
+          secretName: robusta-runner-code

@@ -1,0 +1,95 @@
+description: |
+  Tempo port of 120_new_relic_traces2. In app-300 a payment-processor loop opens a
+  payments_cycle span, calls order-management, which waits 1-5s on a third-party rate
+  limit before calling transaction-monitoring. Traces go to an in-namespace Tempo and
+  pod logs are not available to Holmes, so the latency source must be found in traces.
+
+user_prompt:
+- query and summarize traces for entity payments_cycle and the issues and root cause
+
+expected_output:
+  - mentions latency from order-management
+
+tags:
+  - kubernetes
+  - traces
+
+setup_timeout: 600
+
+port_forwards:
+  - namespace: app-300
+    service: tempo
+    local_port: 3300
+    remote_port: 3200
+
+before_test: |
+  set -e
+  kubectl create namespace app-300 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ../../shared/tempo.yaml -n app-300
+
+  TEMPO_READY=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n app-300 deployment/tempo -- wget -q -O - http://localhost:3200/ready 2>/dev/null | grep -q ready; then
+      TEMPO_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$TEMPO_READY" = false ]; then
+    echo "Tempo did not become ready"
+    kubectl get pods -n app-300
+    exit 1
+  fi
+
+  # Downstream services first, so the first payments_cycle does not fail on connection refused.
+  kubectl apply -f backend.yaml -n app-300
+  BACKEND_READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l 'app in (order-management,transaction-monitoring)' -n app-300 --timeout=5s 2>/dev/null; then
+      BACKEND_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$BACKEND_READY" = false ]; then
+    echo "backend services did not become ready"
+    kubectl get pods -n app-300
+    exit 1
+  fi
+
+  kubectl apply -f payment-processor.yaml -n app-300
+  PROCESSOR_READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=payment-processor -n app-300 --timeout=5s 2>/dev/null; then
+      PROCESSOR_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PROCESSOR_READY" = false ]; then
+    echo "payment-processor did not become ready"
+    kubectl get pods -n app-300
+    exit 1
+  fi
+
+  # The needle: complete payments_cycle traces whose order-management span is slow.
+  VERIFIED=false
+  for i in $(seq 1 60); do
+    RC=0
+    kubectl exec -i -n app-300 deployment/payment-processor -- python - < verify_traces.py || RC=$?
+    if [ "$RC" = 0 ]; then
+      VERIFIED=true
+      break
+    fi
+    if [ "$RC" = 2 ]; then
+      exit 1
+    fi
+    sleep 3
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "Tempo does not show complete payments_cycle traces"
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-300 --ignore-not-found

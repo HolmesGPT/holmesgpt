@@ -1,0 +1,74 @@
+description: |
+  Prometheus port of 242_cpu_graph_robusta_runner. robusta-runner runs in
+  app-310-ops, a namespace the prompt doesn't mention, so Holmes has to locate
+  the workload before graphing it. Prometheus holds 24 hours of cAdvisor history
+  for the previous replica (robusta-runner-5f7c9d8b46-wq2rx, backfilled with
+  promtool, ending a minute before the test) plus live scrapes of the current
+  replica, so a 24-hour range query returns a full day of data.
+
+user_prompt: "Show me robusta-runner CPU usage over the last 24 hours"
+
+expected_output:
+  - 'Output must contain 1 or more embeds in the following format: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "<random_value>"} >>. tool_call_id may be any random-looking key, but type and tool_name must be exactly as shown.'
+  - "Output must NOT tell the user it doesn't have access to metrics or that they should use another tool"
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+  - kubernetes
+
+setup_timeout: 360
+
+port_forwards:
+  - namespace: app-310
+    service: prometheus
+    local_port: 10310
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-310 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace app-310-ops --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl apply -f prometheus.yaml
+
+  kubectl rollout status deployment/robusta-runner -n app-310-ops --timeout=180s
+  kubectl rollout status deployment/prometheus -n app-310 --timeout=180s
+
+  history_loaded() {
+    kubectl exec -n app-310 deployment/prometheus -- promtool query instant http://localhost:9090 \
+      'count_over_time(container_cpu_usage_seconds_total{namespace="app-310-ops",pod="robusta-runner-5f7c9d8b46-wq2rx"}[25h]) > 1400' 2>/dev/null | grep -q '=>'
+  }
+
+  # A day of history for the replica the current pod replaced.
+  # Re-running setup must not write a second, overlapping copy of the history.
+  if ! kubectl exec -n app-310 deployment/prometheus -- test -f /scratch/backfilled; then
+    NODE=$(kubectl get pod -n app-310-ops -l app=robusta-runner -o jsonpath='{.items[0].spec.nodeName}')
+    python3 generate_history.py app-310-ops robusta-runner-5f7c9d8b46-wq2rx runner \
+        docker.io/library/python:3.12.8-alpine "$NODE" $(( $(date +%s) - 60 )) \
+      | kubectl exec -i -n app-310 deployment/prometheus -- sh -c \
+        'cat > /scratch/history.om && TMPDIR=/scratch promtool tsdb create-blocks-from openmetrics /scratch/history.om /prom >/dev/null && rm /scratch/history.om && touch /scratch/backfilled'
+  fi
+
+  # Prometheus picks up blocks written to its data dir on its periodic block
+  # reload, about once a minute.
+  VERIFIED=false
+  for i in $(seq 1 150); do
+    if history_loaded; then
+      VERIFIED=true
+      echo "24h robusta-runner history is queryable (attempt $i)"
+      break
+    fi
+    sleep 1
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "Backfilled robusta-runner history never became queryable"
+    kubectl logs -n app-310 deployment/prometheus --tail=30 || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-310 app-310-ops --ignore-not-found
+  kubectl delete clusterrolebinding app-310-prometheus --ignore-not-found
+  kubectl delete clusterrole app-310-prometheus --ignore-not-found

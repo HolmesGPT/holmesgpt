@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myapp-code
+  namespace: app-307
+type: Opaque
+stringData:
+  app.py: |
+    import logging
+    import random
+    import threading
+    import time
+    from collections import OrderedDict
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+    logger = logging.getLogger("myapp")
+
+
+    class LRUCache:
+        def __init__(self, capacity):
+            self.capacity = capacity
+            self.entries = OrderedDict()
+            self.hits = 0
+            self.misses = 0
+            self.evictions = 0
+
+        def get(self, key):
+            if key in self.entries:
+                self.hits += 1
+                self.entries.move_to_end(key)
+                return self.entries[key]
+            self.misses += 1
+            value = f"profile_{key}_{random.randint(1000, 9999)}"
+            self.entries[key] = value
+            if len(self.entries) > self.capacity:
+                self.entries.popitem(last=False)
+                self.evictions += 1
+            return value
+
+        def hit_ratio(self):
+            total = self.hits + self.misses
+            return self.hits / total if total else 0.0
+
+
+    cache = LRUCache(capacity=40)
+    stats = {"requests": 0, "db_seconds": 0.0}
+    lock = threading.Lock()
+
+
+    def traffic():
+        keys = [f"user_{i}" for i in range(200)]
+        while True:
+            # Skewed access: most requests hit a small set of popular profiles.
+            if random.random() < 0.8:
+                key = random.choice(keys[:30])
+            else:
+                key = random.choice(keys)
+            with lock:
+                before = cache.misses
+                cache.get(key)
+                stats["requests"] += 1
+                if cache.misses > before:
+                    stats["db_seconds"] += random.uniform(0.02, 0.08)
+            time.sleep(random.uniform(0.02, 0.08))
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args, **kwargs):
+            pass
+
+        def do_GET(self):
+            if self.path != "/metrics":
+                self.send_response(404)
+                self.end_headers()
+                return
+            with lock:
+                body = (
+                    "# HELP myapp_http_requests_total Profile lookups served by the API\n"
+                    "# TYPE myapp_http_requests_total counter\n"
+                    f'myapp_http_requests_total{{handler="/profile"}} {stats["requests"]}\n'
+                    "# HELP myapp_db_query_seconds_total Time spent fetching profiles from the database\n"
+                    "# TYPE myapp_db_query_seconds_total counter\n"
+                    f'myapp_db_query_seconds_total {stats["db_seconds"]:.4f}\n'
+                    "# HELP myapp_lru_cache_hit_ratio Fraction of profile lookups served from the in-process LRU cache\n"
+                    "# TYPE myapp_lru_cache_hit_ratio gauge\n"
+                    f"myapp_lru_cache_hit_ratio {cache.hit_ratio():.4f}\n"
+                    "# HELP myapp_lru_cache_entries Profiles currently held in the in-process LRU cache\n"
+                    "# TYPE myapp_lru_cache_entries gauge\n"
+                    f"myapp_lru_cache_entries {len(cache.entries)}\n"
+                )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+
+    if __name__ == "__main__":
+        logger.info("Starting myapp profile service on :8080")
+        threading.Thread(target=traffic, daemon=True).start()
+        HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  namespace: app-307
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: python:3.12.8-alpine
+        command: ["python", "-u", "/app/app.py"]
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8080
+          periodSeconds: 3
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+      volumes:
+      - name: app-code
+        secret:
+          secretName: myapp-code
