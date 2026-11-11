@@ -177,6 +177,12 @@ class GrafanaToolset(BaseGrafanaToolset):
                         f"Grafana Image Renderer not detected (render probe returned {resp.status_code}). "
                         f"Install grafana-image-renderer plugin to enable visual dashboard analysis."
                     )
+            except requests.exceptions.ReadTimeout as e:
+                # A render that runs past the read timeout means Grafana handed it to a renderer.
+                logger.info(
+                    f"Render probe timed out ({e}); keeping render tools because rendering is enabled."
+                )
+                renderer_detected = True
             except Exception as e:
                 logger.info(
                     f"Grafana Image Renderer not detected (render probe failed: {e}). "

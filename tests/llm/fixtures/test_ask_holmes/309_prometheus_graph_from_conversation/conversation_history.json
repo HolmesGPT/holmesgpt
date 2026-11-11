@@ -1,0 +1,30 @@
+[
+  {
+    "role": "user",
+    "content": "Can you show the memory usage of the ledger-sync-78599b764d-f847h pod?"
+  },
+  {
+    "role": "assistant",
+    "content": "I'll check the pod's current memory usage in Prometheus.",
+    "tool_calls": [
+      {
+        "id": "call_mK3v9QpX2tLw",
+        "type": "function",
+        "function": {
+          "name": "execute_prometheus_instant_query",
+          "arguments": "{\"query\": \"container_memory_working_set_bytes{pod=\\\"ledger-sync-78599b764d-f847h\\\", container!=\\\"\\\"}\", \"description\": \"Current memory working set of the ledger-sync-78599b764d-f847h pod\"}"
+        }
+      }
+    ]
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_mK3v9QpX2tLw",
+    "name": "execute_prometheus_instant_query",
+    "content": "Params used for the tool call: {\"query\": \"container_memory_working_set_bytes{pod=\\\"ledger-sync-78599b764d-f847h\\\", container!=\\\"\\\"}\", \"description\": \"Current memory working set of the ledger-sync-78599b764d-f847h pod\"}. The tool call output follows on the next line.\n{\"status\": \"success\", \"tool_name\": \"execute_prometheus_instant_query\", \"description\": \"Current memory working set of the ledger-sync-78599b764d-f847h pod\", \"query\": \"container_memory_working_set_bytes{pod=\\\"ledger-sync-78599b764d-f847h\\\", container!=\\\"\\\"}\", \"data\": {\"resultType\": \"vector\", \"result\": [{\"metric\": {\"__name__\": \"container_memory_working_set_bytes\", \"container\": \"ledger-sync\", \"image\": \"docker.io/library/python:3.12.8-alpine\", \"job\": \"kubelet\", \"metrics_path\": \"/metrics/cadvisor\", \"namespace\": \"app-309\", \"pod\": \"ledger-sync-78599b764d-f847h\"}, \"value\": [1794139800.512, \"166191104\"]}]}}"
+  },
+  {
+    "role": "assistant",
+    "content": "The `ledger-sync-78599b764d-f847h` pod in the `app-309` namespace is currently using about **158 MiB** of memory (working set of its `ledger-sync` container)."
+  }
+]
