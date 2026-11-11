@@ -500,6 +500,14 @@ class TestRequestContextShellInjection:
         assert "metacharacter" in (result.error or "")
         assert "uid=" not in (result.data or "")
 
+    def test_header_names_keep_their_case(self):
+        tool = YAMLTool(
+            name="t", description="t",
+            command="{% for k in request_context.headers %}echo {{ k }}{% endfor %}",
+        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Tenant-Id": "abc"}}))
+        assert result.data == "X-Tenant-Id"
+
     def test_unused_header_with_metacharacters_is_ignored(self):
         """ROB-1683: the server forwards every request header, so a normal
         `Accept: */*` must not fail a tool that never renders it."""

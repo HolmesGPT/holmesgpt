@@ -197,16 +197,16 @@ class _ShellSafeOnReadDict(Mapping):
     (ROB-1683). Every read goes through __getitem__."""
 
     def __init__(self, data):
-        self._data = {k.lower(): v for k, v in data.items()}
+        self._data = {k.lower(): (k, v) for k, v in data.items()}
 
     def __getitem__(self, key):
-        value = self._data[key.lower()]
+        value = self._data[key.lower()][1]
         if isinstance(value, str):
             reject_shell_metacharacters(value, f"request_context[{key!r}]")
         return value
 
     def __iter__(self):
-        return iter(self._data)
+        return (k for k, _ in self._data.values())
 
     def __len__(self):
         return len(self._data)
