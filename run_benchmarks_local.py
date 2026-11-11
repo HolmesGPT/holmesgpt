@@ -191,6 +191,8 @@ class BenchmarkRunner:
         print("=" * 50)
         print()
 
+        # A report left by an earlier run must not pass for this run's results
+        Path("eval_results.json").unlink(missing_ok=True)
         # Run tests (don't fail on test failures, like the bash script)
         result = subprocess.run(cmd)
         return result.returncode
@@ -320,10 +322,11 @@ If you are not redirected automatically, [click here]({history_relative}).
         self.check_environment()
         self.setup_environment()
         exit_code = self.run_tests()
-        if exit_code in (0, 1) and not any_test_ran(Path("eval_results.json")):
+        if not any_test_ran(Path("eval_results.json")):
             # No report, so CI opens no empty results PR; ::error shows on the run page
-            print("::error title=No tests ran::Every test errored before running. See the pytest errors above.")
-            return 5  # pytest's "no tests collected"
+            print("::error title=No tests ran::No test passed or failed. See the pytest output above.")
+            # Keep pytest's own failure code; 0 and 1 become 5, "no tests collected"
+            return 5 if exit_code in (0, 1) else exit_code
         report_file = self.generate_report()
         self.show_summary(report_file)
         return exit_code
