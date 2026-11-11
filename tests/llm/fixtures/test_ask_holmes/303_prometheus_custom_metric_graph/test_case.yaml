@@ -1,0 +1,75 @@
+description: |
+  Port of 119_new_relic_metrics to self-hosted Prometheus. A pod exposes a
+  custom business gauge, sales_amount{currency="SEK",...}, with values between
+  101 and 200, and Prometheus scrapes it. Holmes must graph the metric with a
+  Prometheus range query and report the currency from the label. The currency
+  is SEK rather than the original's USD so the answer cannot be guessed. The
+  lower bound is 101, not 100, so no sample rounds to 100.00 and "over 100"
+  holds for every value Holmes can report.
+
+user_prompt:
+  - give me a graph of the custom prometheus metric sales_amount and the currency
+
+expected_output:
+  - |
+    output contains something like << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "..."} >>
+    the output mentions the currency is SEK
+    also mentions its over 100
+
+tags:
+  - regression
+  - prometheus
+  - metrics
+  - embeds
+
+port_forwards:
+  - namespace: app-303
+    service: prometheus
+    local_port: 10303
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-303 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f sales.yaml
+  kubectl apply -f prometheus.yaml
+
+  READY=false
+  for i in $(seq 1 120); do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-303 --timeout=5s 2>/dev/null \
+      && kubectl wait --for=condition=ready pod/sales-metrics-tester-9x1 -n app-303 --timeout=5s 2>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "Pods failed to become ready"
+    kubectl get pods -n app-303
+    kubectl describe pods -n app-303 | tail -40
+    exit 1
+  fi
+
+  # Needle: a few samples of sales_amount carrying the SEK currency label.
+  QUERY='count_over_time(sales_amount{currency="SEK"}[10m])'
+  FOUND=false
+  for i in $(seq 1 120); do
+    N=$(kubectl exec -n app-303 deployment/prometheus -- \
+      wget -q -O- --post-data "query=$QUERY" http://localhost:9090/api/v1/query 2>/dev/null \
+      | sed -n 's/.*"value":\[[0-9.]*,"\([0-9]*\)"\].*/\1/p' || true)
+    if [ -n "$N" ] && [ "$N" -ge 3 ]; then
+      echo "sales_amount has $N samples in Prometheus (attempt $i)"
+      FOUND=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$FOUND" = false ]; then
+    echo "sales_amount never appeared in Prometheus"
+    kubectl exec -n app-303 deployment/prometheus -- \
+      wget -q -O- http://localhost:9090/api/v1/targets 2>/dev/null | head -c 3000
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-303 --ignore-not-found

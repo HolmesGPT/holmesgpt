@@ -48,7 +48,7 @@ confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
 # mcp >= 1.27.2 fixes CVE-2026-52869 and CVE-2026-52870 (both High); >= 1.28.1
 # additionally fixes CVE-2026-59950 (High).
-mcp = "1.28.1"
+mcp = "1.30.0"
 prompt-toolkit = "^3.0.51"
 pygments = "^2.18.0"
 azure-identity = "^1.23.0"
