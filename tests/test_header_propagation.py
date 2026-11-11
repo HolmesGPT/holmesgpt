@@ -459,17 +459,18 @@ class TestRequestContextShellInjection:
         assert "uid=" not in (result.data or "")
 
     def test_build_context_raises_on_metacharacter_header(self):
-        """_build_context refuses a metacharacter header at the source."""
+        """Reading a metacharacter header from the context refuses it."""
         from holmes.core.tools import ShellInjectionError
 
         tool = YAMLTool(
             name="t", description="t",
             command="echo {{ request_context.headers['X-Val'] }}",
         )
+        context = tool._build_context(
+            {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
+        )
         with pytest.raises(ShellInjectionError):
-            tool._build_context(
-                {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
-            )
+            context["request_context"]["headers"]["x-val"]
 
     def test_benign_header_with_whitespace_is_allowed(self):
         """A legitimate multi-word token (e.g. `Bearer <jwt>`) is permitted."""
@@ -482,6 +483,16 @@ class TestRequestContextShellInjection:
         )
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "Bearer abc.def-ghi_jkl"
+
+    def test_unused_header_with_metacharacters_is_ignored(self):
+        """ROB-1683: the server forwards every request header, so a normal
+        `Accept: */*` must not fail a tool that never renders it."""
+        tool = YAMLTool(name="t", description="t", command="echo ok")
+        result = tool._invoke(
+            {}, self._ctx({"headers": {"accept": "application/json, */*"}})
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "ok"
 
     def test_benign_header_still_renders_unchanged(self):
         """A normal token passes through untouched (no regression)."""

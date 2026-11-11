@@ -190,6 +190,17 @@ def reject_shell_metacharacters(value: str, source: str) -> str:
     return value
 
 
+class _CheckedOnRead(CaseInsensitiveDict):
+    """Checks a value only when a template reads it, so unused headers such as
+    `Accept: */*` don't fail the tool (ROB-1683)."""
+
+    def __getitem__(self, key):
+        value = super().__getitem__(key)
+        if isinstance(value, str):
+            reject_shell_metacharacters(value, f"request_context[{key!r}]")
+        return value
+
+
 class PrerequisiteCacheMode(str, Enum):
     """Controls how prerequisite check results are cached.
 
@@ -618,20 +629,8 @@ class YAMLTool(Tool, BaseModel):
             # Reject shell metacharacters outright; permitted values are passed
             # through unchanged so legitimate tokens render exactly as before
             # this fix, in whatever quoting the template uses (ROB-1104).
-            def _clean(value: Any, source: str) -> Any:
-                if not isinstance(value, str):
-                    return value
-                return reject_shell_metacharacters(value, source)
-
-            ctx_copy = {
-                k: _clean(v, f"request_context.{k}") for k, v in request_context.items()
-            }
-            ctx_copy["headers"] = CaseInsensitiveDict(
-                {
-                    k: _clean(v, f"request header {k!r}")
-                    for k, v in (request_context.get("headers") or {}).items()
-                }
-            )
+            ctx_copy = _CheckedOnRead(request_context)
+            ctx_copy["headers"] = _CheckedOnRead(request_context.get("headers") or {})
             context["request_context"] = ctx_copy
         else:
             context["request_context"] = {"headers": CaseInsensitiveDict()}
