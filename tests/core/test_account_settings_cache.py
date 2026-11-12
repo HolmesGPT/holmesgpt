@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import pytest
 
@@ -135,3 +136,55 @@ def test_the_old_ttl_name_warns(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         account_settings_cache_ttl()
     assert "deprecated" in caplog.text
+
+
+@pytest.mark.parametrize("accessor", ["get", "get_fresh"])
+def test_concurrent_callers_share_one_read(accessor):
+    """Callers that find the cache expired wait for the read in flight instead
+    of each starting their own."""
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def slow_read():
+        calls.append(1)
+        started.set()
+        release.wait(5)
+        return {"a": len(calls)}
+
+    cache = AccountSettingsCache(slow_read, ttl=60, timer=Clock())
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.append(getattr(cache, accessor)()))
+        for _ in range(5)
+    ]
+    for thread in threads:
+        thread.start()
+    assert started.wait(5)
+    release.set()
+    for thread in threads:
+        thread.join(5)
+
+    assert len(calls) == 1
+    assert results == [{"a": 1}] * 5
+
+
+def test_concurrent_callers_share_one_failed_read():
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def failing_read():
+        calls.append(1)
+        started.set()
+        release.wait(5)
+        raise RuntimeError("502")
+
+    cache = AccountSettingsCache(failing_read, ttl=60, timer=Clock())
+    threads = [threading.Thread(target=cache.get_fresh) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    assert started.wait(5)
+    release.set()
+    for thread in threads:
+        thread.join(5)
+
+    assert len(calls) == 1
