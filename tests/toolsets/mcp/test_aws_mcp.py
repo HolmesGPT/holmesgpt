@@ -1,5 +1,6 @@
 """Tests for the hosted AWS MCP Server toolset (SigV4-signed streamable-http)."""
 
+import datetime
 import json
 from unittest.mock import MagicMock, patch
 
@@ -26,6 +27,7 @@ from holmes.plugins.toolsets.mcp.toolset_mcp import (
 
 ENDPOINT = "https://aws-mcp.us-east-1.api.aws/mcp"
 FAKE_CREDENTIALS = Credentials("AKIAEXAMPLE", "secret", "session-token")
+SIGNING_TIME = datetime.datetime(2026, 1, 1, 12, 0, 0)
 TOOL_CALL = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -74,7 +76,10 @@ def test_streamable_http_mode_keeps_plain_toolset():
 
 
 @respx.mock
-async def test_requests_are_signed_after_region_metadata_injection():
+# Both signings stamp X-Amz-Date from this clock; a second rollover between
+# them changes the expected signature.
+@patch("botocore.auth.get_current_datetime", return_value=SIGNING_TIME)
+async def test_requests_are_signed_after_region_metadata_injection(_clock):
     route = respx.post(ENDPOINT).mock(return_value=httpx.Response(200, json={}))
     config = AwsMCPConfig(region="us-east-1", profile="prod")
     with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session") as session:
@@ -159,3 +164,123 @@ def test_run_script_one_liner_shows_first_line():
         )
         == "aws run_script: buckets = call_boto3('s3', 'ListBuckets')"
     )
+
+
+TWO_ACCOUNTS = {
+    "mode": "aws",
+    "region": "us-east-1",
+    "accounts": {
+        "dev": {"account_id": "111", "description": "Development"},
+        "prod": {"account_id": "222", "region": "us-east-2"},
+    },
+}
+
+
+def test_unquoted_account_id_is_accepted():
+    config = AwsMCPConfig(region="us-east-1", accounts={"dev": {"account_id": 131540503002}})
+    assert config.accounts["dev"].account_id == "131540503002"
+
+
+def _tool_call(account=None) -> dict:
+    arguments = {"account": account} if account else {}
+    return {**TOOL_CALL, "params": {"name": "aws___list_regions", "arguments": arguments}}
+
+
+@respx.mock
+@pytest.mark.parametrize("account, region", [("dev", "us-east-1"), ("prod", "us-east-2")])
+async def test_each_account_signs_with_its_profile_for_the_endpoint_region(account, region):
+    route = respx.post(ENDPOINT).mock(return_value=httpx.Response(200, json={}))
+    with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session") as session:
+        session.return_value.get_credentials.return_value = FAKE_CREDENTIALS
+        async with create_sigv4_http_client(AwsMCPConfig(**TWO_ACCOUNTS)) as client:
+            await client.post(ENDPOINT, json=_tool_call(account))
+    session.assert_called_with(account)
+    request = route.calls.last.request
+    body = json.loads(request.content)
+    assert body["params"]["arguments"] == {}
+    assert body["params"]["_meta"] == {"AWS_REGION": region}
+    assert "/us-east-1/aws-mcp/aws4_request" in request.headers["authorization"]
+
+
+@respx.mock
+async def test_requests_without_account_use_first_account():
+    respx.post(ENDPOINT).mock(return_value=httpx.Response(200, json={}))
+    with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session") as session:
+        session.return_value.get_credentials.return_value = FAKE_CREDENTIALS
+        async with create_sigv4_http_client(AwsMCPConfig(**TWO_ACCOUNTS)) as client:
+            await client.post(ENDPOINT, json={"jsonrpc": "2.0", "id": 0, "method": "initialize"})
+    session.assert_called_with("dev")
+
+
+@pytest.mark.parametrize("account", ["staging", None])
+async def test_unknown_or_missing_account_lists_valid_accounts(account):
+    with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session"):
+        async with create_sigv4_http_client(AwsMCPConfig(**TWO_ACCOUNTS)) as client:
+            with pytest.raises(ValueError, match="use one of: dev, prod"):
+                await client.post(ENDPOINT, json=_tool_call(account))
+
+
+def test_account_parameter_is_added_and_required():
+    toolset = AwsMCPToolset(name="aws_api", description="aws", config=TWO_ACCOUNTS)
+    toolset._mcp_config = AwsMCPConfig(**TWO_ACCOUNTS)
+    tool = RemoteMCPTool(
+        name="aws___run_script", description="d", parameters={}, toolset=toolset
+    )
+    with patch.object(RemoteMCPToolset, "_load_remote_tools", return_value=[tool]):
+        [loaded] = toolset._load_remote_tools()
+    account = loaded.parameters["account"]
+    assert account.required
+    assert account.enum == ["dev", "prod"]
+    assert "dev (111): Development" in account.description
+
+
+def test_single_account_has_no_account_parameter():
+    config = {"mode": "aws", "region": "us-east-1"}
+    toolset = AwsMCPToolset(name="aws_api", description="aws", config=config)
+    toolset._mcp_config = AwsMCPConfig(**config)
+    tool = RemoteMCPTool(
+        name="aws___run_script", description="d", parameters={}, toolset=toolset
+    )
+    with patch.object(RemoteMCPToolset, "_load_remote_tools", return_value=[tool]):
+        [loaded] = toolset._load_remote_tools()
+    assert "account" not in loaded.parameters
+
+
+def test_failing_account_is_dropped_and_toolset_stays_enabled():
+    toolset = AwsMCPToolset(name="aws_api", description="aws", config=TWO_ACCOUNTS)
+    error = ClientError(
+        {"Error": {"Code": "ExpiredToken", "Message": "expired"}}, "GetCallerIdentity"
+    )
+    sessions = {"dev": MagicMock(), "prod": MagicMock()}
+    sessions["dev"].client.return_value.get_caller_identity.return_value = {"Arn": "arn"}
+    sessions["prod"].client.return_value.get_caller_identity.side_effect = error
+    with patch(
+        "holmes.plugins.toolsets.mcp.aws_mcp.aws_session", side_effect=sessions.get
+    ), patch.object(AwsMCPToolset, "_load_remote_tools", return_value=[]):
+        ok, _ = toolset.prerequisites_callable(toolset.config)
+    assert ok
+    assert list(toolset._mcp_config.accounts) == ["dev"]
+
+
+def test_all_accounts_failing_disables_toolset():
+    toolset = AwsMCPToolset(name="aws_api", description="aws", config=TWO_ACCOUNTS)
+    error = ClientError(
+        {"Error": {"Code": "ExpiredToken", "Message": "expired"}}, "GetCallerIdentity"
+    )
+    with patch("holmes.plugins.toolsets.mcp.aws_mcp.aws_session") as session:
+        session.return_value.client.return_value.get_caller_identity.side_effect = error
+        ok, message = toolset.prerequisites_callable(toolset.config)
+    assert not ok
+    assert "profile 'dev'" in message and "profile 'prod'" in message
+
+
+def test_legacy_aws_mcp_server_url_warns(caplog):
+    toolset = RemoteMCPToolset(name="aws_api", description="aws", config={})
+    toolset._build_mcp_config(
+        {
+            "mode": "streamable-http",
+            "url": "http://holmes-aws-mcp-server.ns.svc.cluster.local:8000/mcp",
+        }
+    )
+    assert "deprecated" in caplog.text
+    assert "https://holmesgpt.dev/data-sources/builtin-toolsets/aws/" in caplog.text

@@ -25,7 +25,7 @@ from holmes.checks.models import (
 from holmes.config import Config
 from holmes.core.issue import Issue, IssueStatus
 from holmes.core.llm import _is_gemini_route
-from holmes.core.llm_usage import RequestStats
+from holmes.core.llm_usage import RequestStats, attach_request_usage, failure_usage
 from holmes.core.tool_calling_llm import LLMResult, ToolCallingLLM
 from holmes.core.usage_recorder import (
     UsageRecorderState,
@@ -131,13 +131,23 @@ def _execute_ai_check_two_phase(
         },
     ]
 
-    coerce_response = ai.llm.completion(
-        messages=coerce_messages,
-        tools=None,
-        response_format=CHECK_RESPONSE_FORMAT,
-        stream=False,
-        drop_params=True,
+    investigation_stats = RequestStats(
+        **{k: getattr(investigation, k) for k in RequestStats.model_fields}
     )
+    try:
+        coerce_response = ai.llm.completion(
+            messages=coerce_messages,
+            tools=None,
+            response_format=CHECK_RESPONSE_FORMAT,
+            stream=False,
+            drop_params=True,
+        )
+    except Exception as e:
+        # record_error only sees the error, so the billed investigation rides on it.
+        total = investigation_stats.model_copy()
+        total += failure_usage(e)
+        attach_request_usage(e, total)
+        raise
 
     try:
         coerce_choice = coerce_response.choices[0]  # type: ignore[union-attr]
@@ -152,9 +162,7 @@ def _execute_ai_check_two_phase(
 
     # Sum cost/token stats from both phases (LLMResult is a RequestStats subclass).
     stats = RequestStats()
-    stats += RequestStats(
-        **{k: getattr(investigation, k) for k in RequestStats.model_fields}
-    )
+    stats += investigation_stats
     stats += RequestStats.from_response(coerce_response)
 
     return LLMResult(

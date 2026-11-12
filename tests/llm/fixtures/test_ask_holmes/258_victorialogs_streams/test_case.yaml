@@ -1,11 +1,9 @@
-# Test: VictoriaLogs stream/label discovery
+# Test: VictoriaLogs stream/label discovery (self-hosted)
+# VictoriaLogs runs inside the test namespace, so the eval needs no credentials.
 # Tests that Holmes can use the streams or field_values tools to enumerate
 # distinct services in a given namespace.
-#
-# Requirements:
-# - VICTORIALOGS_URL: URL to a VictoriaLogs server (e.g., http://localhost:9428)
 
-user_prompt: "Which services have logs in the 'app-258' namespace in VictoriaLogs in the last 5 minutes? List them by name."
+user_prompt: "Which services have logs in the 'app-258' namespace in VictoriaLogs in the last 24 hours? List them by name."
 
 expected_output:
   - "Must call victorialogs_streams or victorialogs_field_values to discover the services"
@@ -14,47 +12,76 @@ expected_output:
 include_tool_calls: true
 
 tags:
+  - regression
   - victorialogs
   - logs
   - medium
 
-setup_timeout: 120
+port_forwards:
+  - namespace: app-258
+    service: victorialogs
+    local_port: 3258
+    remote_port: 9428
+
+setup_timeout: 480
 
 before_test: |
-  # Note: this fixture uses GNU date (-d 'N minutes ago'); CI runs on Linux.
-  set -euo pipefail
-  : "${VICTORIALOGS_URL:?VICTORIALOGS_URL must be set}"
+  set -e
+  NAMESPACE="app-258"
 
-  curl -sf "${VICTORIALOGS_URL}/health" >/dev/null
-  NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-  # Insert a few log lines per service so each shows up as its own stream.
-  curl -sf -X POST \
-    "${VICTORIALOGS_URL}/insert/jsonline?_stream_fields=service,namespace&_msg_field=message&_time_field=time" \
-    -H "Content-Type: application/stream+json" \
-    --data-binary @- <<EOF
-  {"time":"$NOW","service":"checkout-258","namespace":"app-258","message":"Cart updated"}
-  {"time":"$NOW","service":"checkout-258","namespace":"app-258","message":"Order placed"}
-  {"time":"$NOW","service":"inventory-258","namespace":"app-258","message":"Stock decremented"}
-  {"time":"$NOW","service":"inventory-258","namespace":"app-258","message":"Low stock warning"}
-  {"time":"$NOW","service":"shipping-258","namespace":"app-258","message":"Label printed"}
-  {"time":"$NOW","service":"shipping-258","namespace":"app-258","message":"Tracking number issued"}
-  EOF
+  echo "Deploying VictoriaLogs..."
+  kubectl apply -f victorialogs.yaml -n $NAMESPACE
 
-  sleep 3
-
-  # Verify each service stream is queryable.
-  for svc in checkout-258 inventory-258 shipping-258; do
-    LINES=$(curl -sf -X POST "${VICTORIALOGS_URL}/select/logsql/query" \
-      --data-urlencode "query={namespace=\"app-258\",service=\"${svc}\"}" \
-      -d "start=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
-      -d 'limit=10' | wc -l)
-    if [ "$LINES" -lt 1 ]; then
-      echo "❌ No logs found for service ${svc}"
-      exit 1
+  # Both waits are time-boxed (240s + 200s) so they, and the diagnostics after
+  # them, finish inside setup_timeout.
+  POD_READY=false
+  DEADLINE=$((SECONDS + 240))
+  while [ $SECONDS -lt $DEADLINE ]; do
+    if kubectl wait --for=condition=ready pod -l app=victorialogs -n $NAMESPACE --timeout=5s 2>/dev/null; then
+      echo "VictoriaLogs pod is ready"
+      POD_READY=true
+      break
     fi
+    sleep 1
   done
-  echo "✅ All three services have queryable streams in app-258"
+  if [ "$POD_READY" = false ]; then
+    echo "VictoriaLogs pod failed to become ready"
+    kubectl get pods -n $NAMESPACE
+    kubectl logs -l app=victorialogs -n $NAMESPACE --tail=20 || true
+    exit 1
+  fi
+
+  echo "Shipping logs from inside the cluster..."
+  kubectl create secret generic log-shipper-script \
+    --from-file=ship_logs.sh=./ship_logs.sh \
+    -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+  kubectl delete job log-shipper -n $NAMESPACE --ignore-not-found --wait=true
+  kubectl apply -f log-shipper-job.yaml -n $NAMESPACE
+
+  # The job ingests the logs and exits non-zero unless all 3 service streams are queryable.
+  # The Job's activeDeadlineSeconds (180) ends it inside this window.
+  JOB_DONE=false
+  DEADLINE=$((SECONDS + 200))
+  while [ $SECONDS -lt $DEADLINE ]; do
+    if kubectl wait --for=condition=complete job/log-shipper -n $NAMESPACE --timeout=2s 2>/dev/null; then
+      JOB_DONE=true
+      break
+    fi
+    FAILED=$(kubectl get job log-shipper -n $NAMESPACE -o jsonpath='{.status.failed}' 2>/dev/null || true)
+    if [ -n "$FAILED" ] && [ "$FAILED" -gt 0 ]; then
+      break
+    fi
+    sleep 1
+  done
+  kubectl logs job/log-shipper -n $NAMESPACE || true
+  if [ "$JOB_DONE" = false ]; then
+    echo "Log shipping or verification failed"
+    kubectl get pods -n $NAMESPACE
+    exit 1
+  fi
+  echo "Setup complete"
 
 after_test: |
-  echo "No cleanup needed (logs auto-expire by retention)."
+  kubectl delete namespace app-258 --ignore-not-found

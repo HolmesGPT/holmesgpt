@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import json
+import litellm
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
@@ -50,6 +51,29 @@ def test_api_chat_answers_a_relay_refusal_with_its_own_status(
     assert response.json()["detail"] == message
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        litellm.RateLimitError(message="slow down", llm_provider="openai", model="m"),
+        # Bedrock throttling arrives as a plain Exception
+        Exception("Model is getting throttled. Try your request again."),
+    ],
+)
+@patch("holmes.config.Config.create_toolcalling_llm")
+@patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
+def test_api_chat_answers_rate_limits_with_429(
+    mock_get_global_instructions, mock_create_toolcalling_llm, client, error
+):
+    mock_get_global_instructions.return_value = []
+    mock_ai = MagicMock()
+    mock_ai.call.side_effect = error
+    mock_create_toolcalling_llm.return_value = mock_ai
+
+    response = client.post("/api/chat", json={"ask": "what is wrong?"})
+
+    assert response.status_code == 429
+
+
 @pytest.mark.parametrize("status_code", [401, 403])
 @patch("holmes.config.Config.create_toolcalling_llm")
 @patch("holmes.core.supabase_dal.SupabaseDal.get_global_instructions_for_account")
@@ -89,6 +113,8 @@ def test_api_chat_stream_carries_a_relay_refusal_in_the_error_event(
             "error_code": RELAY_REFUSAL_ERROR_CODES[status_code],
             "msg": message,
             "success": False,
+            "error_class": "RelayRefusal",
+            "provider_status": status_code,
         }
     ]
 
@@ -164,12 +190,11 @@ def test_api_chat_all_fields(
     assert "analysis" in data
     assert "conversation_history" in data
     assert "tool_calls" in data
-    assert "follow_up_actions" in data
+    assert "follow_up_actions" not in data
 
     assert isinstance(data["analysis"], str)
     assert isinstance(data["conversation_history"], list)
     assert isinstance(data["tool_calls"], list)
-    assert isinstance(data["follow_up_actions"], list)
 
     assert any(msg.get("role") == "user" for msg in data["conversation_history"])
 
@@ -179,13 +204,6 @@ def test_api_chat_all_fields(
         assert "tool_name" in tool_call
         assert "description" in tool_call
         assert "result" in tool_call
-
-    if data["follow_up_actions"]:
-        action = data["follow_up_actions"][0]
-        assert "id" in action
-        assert "action_label" in action
-        assert "prompt" in action
-        assert "pre_action_notification_text" in action
 
 
 @patch("holmes.config.Config.create_toolcalling_llm")
@@ -234,7 +252,6 @@ def test_api_chat_with_images(
     assert "analysis" in data
     assert "conversation_history" in data
     assert "tool_calls" in data
-    assert "follow_up_actions" in data
 
     # Verify the messages were captured
     assert len(captured_messages) == 1

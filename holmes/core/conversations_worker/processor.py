@@ -27,6 +27,7 @@ from holmes.core.conversations_worker.models import (
     ConversationTask,
     conversation_identity,
 )
+from holmes.core.error_info import ErrorInfo
 from holmes.core.models import ChatRequest
 from holmes.core.prompt import PromptComponent
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
@@ -46,6 +47,35 @@ from holmes.utils.stream import StreamEvents
 if TYPE_CHECKING:
     from holmes.config import Config
     from holmes.core.supabase_dal import SupabaseDal
+
+
+GENERIC_FAILURE_DESCRIPTION = "An internal error occurred while processing your request"
+
+
+def _failure_description(error_info: ErrorInfo) -> str:
+    return (
+        error_info.summary()
+        if error_info.from_provider
+        else GENERIC_FAILURE_DESCRIPTION
+    )
+
+
+def _failure_raw_error(error_info: ErrorInfo) -> Optional[str]:
+    return error_info.message if error_info.from_provider else None
+
+
+# A relay refusal is the platform's own sentence ("Robusta-hosted models are
+# disabled for this account."): it is what the user has to act on, so it is not
+# held to the provider-message prose gate. Anything longer than a sentence, or
+# spanning lines, is not a refusal sentence and is dropped.
+MAX_REFUSAL_CHARS = 300
+
+
+def _refusal_text(refusal: RelayRefusal) -> Optional[str]:
+    text = str(refusal).strip()
+    if text and "\n" not in text and len(text) <= MAX_REFUSAL_CHARS:
+        return text
+    return None
 
 
 class ConversationProcessor:
@@ -85,7 +115,13 @@ class ConversationProcessor:
                 e,
                 exc_info=True,
             )
-            self.fail(task, "An internal error occurred while processing your request")
+            error_info = ErrorInfo.from_exception(e)
+            self.fail(
+                task,
+                _failure_description(error_info),
+                raw_error=_failure_raw_error(error_info),
+                error_info=error_info,
+            )
 
     def _process_conversation(self, task: ConversationTask) -> None:
         events = self.dal.get_conversation_events(task.conversation_id)
@@ -369,7 +405,6 @@ class ConversationProcessor:
 
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
-        is_robusta_model = False
         try:
             ai = self.config.create_toolcalling_llm(
                 dal=self.dal,
@@ -382,7 +417,6 @@ class ConversationProcessor:
                 tool_results_dir=tool_results_dir,
                 conversation_id=task.conversation_id,
             )
-            is_robusta_model = ai.llm.is_robusta_model
 
             request_ai = self._inject_frontend_tools(ai, chat_request, task)
             if request_ai is None:
@@ -516,11 +550,13 @@ class ConversationProcessor:
                 e.status_code,
                 e,
             )
+            refusal = _refusal_text(e)
             self.fail(
                 task,
-                str(e),
+                refusal or "The Robusta platform refused the request.",
                 error_code=RELAY_REFUSAL_ERROR_CODES[e.status_code],
-                raw_error=str(e),
+                raw_error=refusal,
+                error_info=ErrorInfo.from_exception(e),
             )
         except Exception as e:
             logging.exception(
@@ -529,14 +565,12 @@ class ConversationProcessor:
                 e,
                 exc_info=True,
             )
-            # Surface the raw error only for Robusta-AI models (our own backend).
-            raw_error = None
-            if is_robusta_model:
-                raw_error = str(e)
+            error_info = ErrorInfo.from_exception(e)
             self.fail(
                 task,
-                "An internal error occurred while processing your request",
-                raw_error=raw_error,
+                _failure_description(error_info),
+                raw_error=_failure_raw_error(error_info),
+                error_info=error_info,
             )
         finally:
             storage.__exit__(None, None, None)
@@ -577,6 +611,7 @@ class ConversationProcessor:
         error_code: int = 5000,
         raw_error: Optional[str] = None,
         reason: Optional[str] = None,
+        error_info: Optional[ErrorInfo] = None,
     ) -> None:
         self._post_error_event(
             task.conversation_id,
@@ -585,6 +620,7 @@ class ConversationProcessor:
             error_code,
             raw_error=raw_error,
             reason=reason,
+            error_info=error_info,
         )
 
     def _post_error_event(
@@ -595,6 +631,7 @@ class ConversationProcessor:
         error_code: int = 5000,
         raw_error: Optional[str] = None,
         reason: Optional[str] = None,
+        error_info: Optional[ErrorInfo] = None,
     ) -> None:
         """Post an error event to ConversationEvents so subscribers can see the failure reason."""
         data: Dict[str, Any] = {
@@ -608,10 +645,11 @@ class ConversationProcessor:
         # can group/filter on it without parsing prose.
         if reason is not None:
             data["reason"] = reason
-        # Full upstream error, included only for Robusta-AI (relay) models where
-        # the error originates from our own backend and is safe to surface.
+        # The provider's short message, when it is plain prose (see ErrorInfo).
         if raw_error is not None:
             data["raw_error"] = raw_error
+        if error_info is not None:
+            data.update(error_info.event_fields())
         try:
             self.dal.post_conversation_events(
                 conversation_id=conversation_id,
@@ -638,6 +676,7 @@ class ConversationProcessor:
         description: str,
         error_code: int = 5000,
         raw_error: Optional[str] = None,
+        error_info: Optional[ErrorInfo] = None,
     ) -> None:
         """Post an error event and then mark the conversation as failed."""
         self._fail(
@@ -646,6 +685,7 @@ class ConversationProcessor:
             description,
             error_code,
             raw_error=raw_error,
+            error_info=error_info,
         )
 
     def fail_unparsed_row(self, conv: Dict[str, Any], description: str) -> None:
@@ -664,9 +704,15 @@ class ConversationProcessor:
         description: str,
         error_code: int = 5000,
         raw_error: Optional[str] = None,
+        error_info: Optional[ErrorInfo] = None,
     ) -> None:
         self._post_error_event(
-            conversation_id, request_sequence, description, error_code, raw_error
+            conversation_id,
+            request_sequence,
+            description,
+            error_code,
+            raw_error,
+            error_info=error_info,
         )
         try:
             self.dal.update_conversation_status(

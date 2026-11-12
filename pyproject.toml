@@ -27,7 +27,8 @@ colorlog = "^6.8.2"
 python-json-logger = "^3.0.0"
 strenum = "^0.4.15"
 markdown = "^3.6"
-certifi = "^2024.7.4"
+# certifi >= 2026.10.19 fixes GHSA-6q48-6c7w-9gw2 (CRITICAL); 2026.10.18 dropped the emSign roots. Use >= (not ^): ^2024 would cap below it.
+certifi = ">=2026.10.19"
 boto3 = "^1.34.145"
 cachetools = "^5.5.0"
 bs4 = "^0.0.2"
@@ -40,13 +41,14 @@ backoff = "^2.2.1"
 # and released (expected in litellm 1.90+).
 # litellm >= 1.84.0 also fixes CRITICAL CVE-2026-49468 (auth bypass via Host header
 # injection) and relaxes the pinned aiohttp to >=3.10,<4.0, letting us take aiohttp 3.14.1.
-litellm = "1.89.0"
+# litellm >= 1.100.4 fixes CVE-2026-114612 and >= 1.95.0 fixes GHSA-g5ff-637f-6q2m (both High).
+litellm = "1.103.5"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
 kubernetes = "^32.0.1"
 # mcp >= 1.27.2 fixes CVE-2026-52869 and CVE-2026-52870 (both High); >= 1.28.1
 # additionally fixes CVE-2026-59950 (High).
-mcp = "1.28.1"
+mcp = "1.30.0"
 prompt-toolkit = "^3.0.51"
 pygments = "^2.18.0"
 azure-identity = "^1.23.0"
@@ -82,8 +84,15 @@ pydantic-settings = ">=2.14.2"
 # Use >= (not ^) because Poetry reads ^0.0.31 as ==0.0.31, which would exclude future 0.0.x patches.
 python-multipart = ">=0.0.31"
 # aiohttp >= 3.14.1 (pulled via litellm) clears CVE-2026-34993/47265 and the 3.14.x
-# hardening fixes; >= 3.14.3 fixes CVE-2026-69244 (HIGH) and CVE-2026-59881/69243 (Medium).
-aiohttp = ">=3.14.3"
+# hardening fixes; >= 3.14.3 fixes CVE-2026-69244 (HIGH) and CVE-2026-59881/69243 (Medium);
+# >= 3.14.4 fixes CVE-2026-111064/111066 and GHSA-2g87-pp6c-29x5 (all High).
+aiohttp = ">=3.14.4"
+# filelock >= 4.2.1 fixes CVE-2026-112940 (HIGH). Pulled in transitively (huggingface-hub via litellm).
+# 4.x requires Python >= 3.11, so Python 3.10 keeps the latest 3.x (no fixed 3.x release).
+filelock = [
+    {version = ">=4.2.1", python = ">=3.11"},
+    {version = ">=3.29.4", python = "<3.11"},
+]
 # pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High).
 # Pulled in transitively via pyasn1-modules -> google-auth.
 pyasn1 = ">=0.6.4"
@@ -114,13 +123,13 @@ opentelemetry-instrumentation-httpx = ">=0.51b0"
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-mkdocs-material = "^9.5.39"
+mkdocs-material = "^9.7.7"
 mkdocs-glightbox = "^0.4.0"
 pytest = "^8.3.3"
 pytest-xdist = "^3.6.1"
 pytest-json-report = "^1.5.0"
 ruff = "^0.7.3"
-braintrust = "^0.1.2"
+braintrust = "^0.45.0"
 autoevals = "^0.0.129"
 pre-commit = "^4.0.1"
 responses = "^0.23.1"
@@ -133,6 +142,7 @@ pytest-dotenv = "^0.5.2"
 pytest-sugar = "^1.1.1"
 pytest-shared-session-scope = "^0.4.0"
 mkdocs-awesome-nav = "^3.2.0"
+kubernetes-validate = "^1.36.0"
 mike = "^2.1.0"
 pytest-asyncio = "^1.3.0"
 respx = "^0.22.0"

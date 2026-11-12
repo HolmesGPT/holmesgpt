@@ -9,89 +9,30 @@ Use LiteLLM's native `baseten/` prefix with the Baseten model slug (`baseten/<or
 !!! warning "Do not use the `openai/` prefix"
     Baseten's endpoint is OpenAI-compatible, so `model: openai/zai-org/GLM-5.3` with `api_base: https://inference.baseten.co/v1` also answers requests. But HolmesGPT then cannot find the model in LiteLLM's registry: the registry keys Baseten models as `baseten/<slug>`, and an `openai/` model is looked up as `openai/<slug>` and `<slug>`. HolmesGPT falls back to a 200K context window, a 64K output budget and zero cost per token, which do not match the model.
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  - name: MODEL
+    value: "glm-5-3"  # modelList key name
 
-    ```bash
-    export BASETEN_API_KEY="..."
-    holmes ask "what pods are failing?" --model="baseten/zai-org/GLM-5.3"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-baseten \
-      --from-file=BASETEN_API_KEY=/path/to/baseten-api-key \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-baseten
-
-    additionalEnvVars:
-      - name: MODEL
-        value: "glm-5-3"  # modelList key name
-
-    modelList:
-      glm-5-3:
-        model: baseten/zai-org/GLM-5.3
-      kimi-k3:
-        model: baseten/moonshotai/Kimi-K3
-        # Kimi K3 is not in LiteLLM's registry yet; see "Models missing from LiteLLM" below.
-        input_cost_per_token: 0.000003
-        output_cost_per_token: 0.000015
-        custom_args:
-          max_context_size: 1048576
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-baseten \
-      --from-file=BASETEN_API_KEY=/path/to/baseten-api-key \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-baseten
-
-      additionalEnvVars:
-        - name: MODEL
-          value: "glm-5-3"  # modelList key name
-
-      modelList:
-        glm-5-3:
-          model: baseten/zai-org/GLM-5.3
-        kimi-k3:
-          model: baseten/moonshotai/Kimi-K3
-          # Kimi K3 is not in LiteLLM's registry yet; see "Models missing from LiteLLM" below.
-          input_cost_per_token: 0.000003
-          output_cost_per_token: 0.000015
-          custom_args:
-            max_context_size: 1048576
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+modelList:
+  glm-5-3:
+    model: baseten/zai-org/GLM-5.3
+  kimi-k3:
+    model: baseten/moonshotai/Kimi-K3
+    # Kimi K3 is not in LiteLLM's registry yet; see "Models missing from LiteLLM" below.
+    input_cost_per_token: 0.000003
+    output_cost_per_token: 0.000015
+    custom_args:
+      max_context_size: 1048576
+---
+secret:
+  - --from-file=BASETEN_API_KEY=/path/to/baseten-api-key
+cli: |
+  ```bash
+  export BASETEN_API_KEY="..."
+  holmes ask "what pods are failing?" --model="baseten/zai-org/GLM-5.3"
+  ```
+```
 
 ## Models missing from LiteLLM
 

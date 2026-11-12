@@ -9,22 +9,21 @@ This toolset is useful for troubleshooting network connectivity issues, verifyin
 
 ## Configuration
 
-```yaml
-holmes:
-    toolsets:
-        connectivity_check:
-            enabled: true
-            config: # optional
-              # Internal destinations must be named here before they can be probed.
-              # Accepts hostnames (matching subdomains), bare IPs, and CIDRs.
-              allowed_hosts:
-                - prometheus.monitoring.svc
-                - 10.96.0.0/12
-              allow_all_hosts: false     # true = skip the allowlist requirement
-              block_internal_ips: true   # enforce the destination policy
-              block_private_ips: false   # true = refuse private even if allowlisted
-              max_probes: 60             # probes per window (0 disables)
-              probe_window_seconds: 60   # must be > 0
+```yaml-toolset-config
+toolsets:
+    connectivity_check:
+        enabled: true
+        config: # optional
+          # Internal destinations must be named here before they can be probed.
+          # Accepts hostnames (matching subdomains), bare IPs, and CIDRs.
+          allowed_hosts:
+            - prometheus.monitoring.svc
+            - 10.96.0.0/12
+          allow_all_hosts: false     # true = skip the allowlist requirement
+          block_internal_ips: true   # enforce the destination policy
+          block_private_ips: false   # true = refuse private even if allowlisted
+          max_probes: 60             # probes per window (0 disables)
+          probe_window_seconds: 60   # must be > 0
 ```
 
 !!! warning "Probing internal addresses requires configuration"

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import responses as responses_
 
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.core.tracing import get_active_branch_name, readable_timestamp
 from tests.llm.conftest import show_llm_summary_report
 from tests.llm.utils.braintrust import get_braintrust_url
@@ -83,6 +84,32 @@ def pytest_addoption(parser):
         default=None,
         help="URL returning the additional system prompt text or JSON (expects 'additional_system_prompt' field)",
     )
+
+
+_SCALAR_LOG_VALUE_TYPES = (str, int, float, bool, type(None))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_logreport(report):
+    """Make pytest-json-report's captured log records safe to relay from xdist workers.
+
+    pytest-json-report copies each LogRecord's __dict__ into the report, and xdist
+    sends the report to the controller with execnet, which only serializes builtin
+    types. litellm >= 1.103 stamps records on its own loggers and on third-party ones
+    such as `backoff` with `litellm_redacted = object()`, so a test that logs through
+    them crashes its worker with "DumpError: can't serialize <class 'object'>".
+    Must run before xdist's own pytest_runtest_logreport, hence tryfirst.
+    """
+    extra = getattr(report, "_json_report_extra", None)
+    if not isinstance(extra, dict):
+        return
+    for stage in extra.values():
+        if not isinstance(stage, dict):
+            continue
+        for record in stage.get("log") or []:
+            for key, value in record.items():
+                if not isinstance(value, _SCALAR_LOG_VALUE_TYPES):
+                    record[key] = repr(value)
 
 
 def pytest_configure(config):
@@ -248,6 +275,7 @@ def storage_dal_mock():
         mock_supabase_dal_instance = MagicMock()
         MockSupabaseDal.return_value = mock_supabase_dal_instance
         mock_supabase_dal_instance.sign_in.return_value = "mock_supabase_user_id"
+        mock_supabase_dal_instance.api_endpoint = ROBUSTA_API_ENDPOINT
         mock_supabase_dal_instance.get_ai_credentials.return_value = (
             "mock_account_id",
             "mock_session_token",
