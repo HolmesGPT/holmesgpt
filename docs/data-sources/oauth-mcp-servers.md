@@ -79,6 +79,42 @@ mcp_servers:
         enabled: true
 ```
 
+## Example: CircleCI
+
+!!! tip "Running Holmes headlessly?"
+    OAuth requires a browser consent screen. To connect the CircleCI MCP server with a static credential instead, see [CircleCI (MCP)](builtin-toolsets/circleci-mcp.md).
+
+=== "Robusta CLI"
+
+    ```yaml
+    mcp_servers:
+      circleci:
+        description: "CircleCI CI/CD - pipelines, workflows, jobs, and deployments"
+        config:
+          mode: streamable-http
+          url: https://mcp.circleci.com/v1/mcp
+          oauth:
+            enabled: true
+    ```
+
+=== "Robusta Helm Chart with Platform"
+
+    ```yaml
+    holmes:
+      mcp_servers:
+        circleci:
+          description: "CircleCI CI/CD - pipelines, workflows, jobs, and deployments"
+          config:
+            mode: streamable-http
+            url: https://mcp.circleci.com/v1/mcp
+            oauth:
+              enabled: true
+    ```
+
+    ```bash
+    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
+    ```
+
 ## How It Works
 
 1. Holmes detects that the MCP server has `oauth.enabled: true`
