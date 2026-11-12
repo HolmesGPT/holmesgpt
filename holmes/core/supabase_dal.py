@@ -50,6 +50,10 @@ from holmes.common.env_vars import (
     STORE_PASSWORD,
     STORE_URL,
 )
+from holmes.core.account_settings_cache import (
+    AccountSettingsCache,
+    account_settings_cache_ttl,
+)
 from holmes.core.llm_rate_limit import RETRIES_KEY, WAIT_MS_KEY
 from holmes.core.resource_instruction import (
     ResourceInstructionDocument,
@@ -184,11 +188,6 @@ def _is_missing_rpc_error(exc: Exception) -> bool:
 def _is_jwt_error(exc: PGAPIError) -> bool:
     message = (exc.message or "").lower()
     return exc.code in ("PGRST301", "PGRST303") or "jwt expired" in message
-
-
-# How long the per-account executor sizes read from AccountSettings are
-# cached; a UI change takes at most this long to reach the executors.
-EXECUTOR_SIZES_CACHE_TTL_SEC = 60
 
 
 class ExecutorRpcUnsupportedError(Exception):
@@ -333,24 +332,8 @@ class SupabaseDal:
         ttl = int(os.environ.get("SAAS_SESSION_TOKEN_TTL_SEC", "82800"))  # 23 hours
         self.patch_postgrest_execute()
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
-        # Read on every chat request but per-account and rarely changed, so cache it briefly
-        # instead of adding an AccountSettings round trip per turn. Parsed defensively: this
-        # runs in __init__, so a bad env var must not stop Holmes from starting.
-        raw_ttl = os.environ.get("SKILL_HIERARCHY_CACHE_TTL_SEC", "60")
-        try:
-            hierarchy_ttl = int(raw_ttl)
-            if hierarchy_ttl <= 0:
-                raise ValueError(f"must be positive, got {hierarchy_ttl}")
-        except ValueError as e:
-            logging.warning(
-                "Invalid SKILL_HIERARCHY_CACHE_TTL_SEC=%r (%s); falling back to 60s",
-                raw_ttl,
-                e,
-            )
-            hierarchy_ttl = 60
-        self.skill_hierarchy_cache = TTLCache(maxsize=1, ttl=hierarchy_ttl)
-        self.executor_sizes_cache: TTLCache = TTLCache(
-            maxsize=1, ttl=EXECUTOR_SIZES_CACHE_TTL_SEC
+        self.account_settings = AccountSettingsCache(
+            self._read_account_settings, ttl=account_settings_cache_ttl()
         )
         self.confirmation_mode_cache: TTLCache = TTLCache(
             maxsize=1, ttl=CONFIRMATION_MODE_CACHE_TTL_SEC
@@ -928,38 +911,30 @@ class SupabaseDal:
             )
             return None
 
+    def _read_account_settings(self) -> Dict[str, Any]:
+        """This account's ``AccountSettings.settings``; ``{}`` when it has no
+        row. Raises when the read fails. Read through ``self.account_settings``."""
+        res = (
+            self.client.table(ACCOUNT_SETTINGS_TABLE)
+            .select("settings")
+            .eq("account_id", self.account_id)
+            .execute()
+        )
+        return (res.data[0].get("settings") or {}) if res.data else {}
+
     def get_conversation_executor_sizes(self) -> Any:
         """The raw ``AccountSettings.settings.conversation_executors`` value
-        (``{name: size}`` written from the UI; ROB-1369), cached for
-        ``EXECUTOR_SIZES_CACHE_TTL_SEC``. Validated by ``ExecutorSizing``, not
-        here. ``{}`` when unset, disabled, or the read fails (the failure is
-        cached too so an outage is not re-queried every discovery tick).
+        (``{name: size}`` written from the UI; ROB-1369). Validated by
+        ``ExecutorSizing``, not here. ``{}`` when unset, disabled, or no read of
+        the settings has succeeded yet; after a failed re-read the last value
+        read stays in use.
         """
         if not self.enabled:
             return {}
-        with self.lock:
-            cached = self.executor_sizes_cache.get("sizes")
-        if cached is not None:
-            return cached
-        sizes: Any = {}
-        try:
-            res = (
-                self.client.table(ACCOUNT_SETTINGS_TABLE)
-                .select("settings")
-                .eq("account_id", self.account_id)
-                .execute()
-            )
-            settings = (res.data[0].get("settings") or {}) if res.data else {}
-            sizes = settings.get("conversation_executors") or {}
-        except Exception:
-            logging.warning(
-                "Failed to read conversation_executors from AccountSettings; "
-                "using built-in executor sizes",
-                exc_info=True,
-            )
-        with self.lock:
-            self.executor_sizes_cache["sizes"] = sizes
-        return sizes
+        settings = self.account_settings.get()
+        if settings is None:
+            return {}
+        return settings.get("conversation_executors") or {}
 
     def get_confirmation_mode(self) -> ConfirmationMode:
         """The account's allowConfirmationMode. A failed read is DISABLED and is
@@ -1022,60 +997,32 @@ class SupabaseDal:
     def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
         """Read the per-account skill name-collision policy from AccountSettings.
 
-        Defaults to disabled, which preserves today's behaviour (no cross-tier dedup).
-        Any read failure also falls back to the default rather than changing behaviour.
+        Defaults to disabled, which preserves today's behaviour (no cross-tier dedup),
+        also when no read of the settings has succeeded yet.
         """
         default = SkillHierarchyConfig()
         if not self.enabled:
             return default
-
-        cached = self.skill_hierarchy_cache.get("config")
-        if cached is not None:
-            return cached
-
-        try:
-            res = (
-                self.client.table(ACCOUNT_SETTINGS_TABLE)
-                .select("settings")
-                .eq("account_id", self.account_id)
-                .execute()
-            )
-            if not res.data:
-                self.skill_hierarchy_cache["config"] = default
-                return default
-
-            settings = res.data[0].get("settings") or {}
-            raw_enabled = settings.get("skill_name_hierarchy_enabled", False)
-            if isinstance(raw_enabled, bool):
-                enabled = raw_enabled
-            else:
-                # Written by hand-run SQL, so the string "false" is a realistic mistake --
-                # and bool("false") is True, which would silently enable suppression.
-                logging.warning(
-                    "Ignoring non-boolean skill_name_hierarchy_enabled=%r; treating as false",
-                    raw_enabled,
-                )
-                enabled = False
-            order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
-            if not isinstance(order, list) or not all(
-                isinstance(tier, str) for tier in order
-            ):
-                logging.warning(
-                    f"Ignoring malformed skill_name_hierarchy_order: {order!r}"
-                )
-                order = DEFAULT_HIERARCHY_ORDER
-            config = SkillHierarchyConfig(enabled=enabled, order=order)
-            self.skill_hierarchy_cache["config"] = config
-            return config
-        except Exception:
-            logging.exception(
-                "Failed to fetch skill hierarchy config; falling back to disabled",
-                exc_info=True,
-            )
-            # Cache the fallback too, so a persistent read failure does not retry Supabase
-            # on every single chat request.
-            self.skill_hierarchy_cache["config"] = default
+        settings = self.account_settings.get()
+        if settings is None:
             return default
+
+        raw_enabled = settings.get("skill_name_hierarchy_enabled", False)
+        if isinstance(raw_enabled, bool):
+            enabled = raw_enabled
+        else:
+            # Written by hand-run SQL, so the string "false" is a realistic mistake --
+            # and bool("false") is True, which would silently enable suppression.
+            logging.warning(
+                "Ignoring non-boolean skill_name_hierarchy_enabled=%r; treating as false",
+                raw_enabled,
+            )
+            enabled = False
+        order = settings.get("skill_name_hierarchy_order") or DEFAULT_HIERARCHY_ORDER
+        if not isinstance(order, list) or not all(isinstance(tier, str) for tier in order):
+            logging.warning(f"Ignoring malformed skill_name_hierarchy_order: {order!r}")
+            order = DEFAULT_HIERARCHY_ORDER
+        return SkillHierarchyConfig(enabled=enabled, order=order)
 
     def get_resource_instructions(
         self, type: str, name: Optional[str]
