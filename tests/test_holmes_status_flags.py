@@ -33,6 +33,7 @@ def test_flags_published_once_realtime_verified():
     assert metadata["supports_realtime_conversations"] is True
     assert metadata["supports_oauth_via_realtime"] is True
     assert metadata["supports_holmes_logs"] is True
+    assert metadata["supports_remote_tool_approval"] is True
 
 
 def test_flags_off_until_realtime_verified():
@@ -41,6 +42,7 @@ def test_flags_off_until_realtime_verified():
     metadata = _published_metadata(realtime_available=False)
     assert metadata["supports_oauth_via_realtime"] is False
     assert metadata["supports_holmes_logs"] is False
+    assert metadata["supports_remote_tool_approval"] is False
 
 
 def test_flags_off_when_conversation_worker_disabled():
@@ -52,6 +54,7 @@ def test_flags_off_when_conversation_worker_disabled():
     metadata = json.loads(dal.upsert_holmes_status.call_args[0][0]["metadata"])
     assert metadata["supports_oauth_via_realtime"] is False
     assert metadata["supports_holmes_logs"] is False
+    assert metadata["supports_remote_tool_approval"] is False
 
 
 def test_metadata_keys_are_additive():
@@ -65,6 +68,7 @@ def test_metadata_keys_are_additive():
         "honors_robusta_ai_disabled",
         "supports_oauth_via_realtime",
         "supports_holmes_logs",
+        "supports_remote_tool_approval",
         "holmes_public_key",
         "models_limits",
     } == keys

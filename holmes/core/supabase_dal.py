@@ -121,6 +121,16 @@ def pre_select_patched(*args, **kwargs):
 supabase_request_builder.pre_select = pre_select_patched
 
 
+class ConfirmationMode(str, Enum):
+    """AccountSettings.settings.allowConfirmationMode: who may approve tool
+    calls that need confirmation. Unset or unknown reads as DISABLED, as in
+    relay and the UI."""
+
+    DISABLED = "disable-all"
+    ENABLE_ALL = "enable-all"
+    ENABLE_ADMINS = "enable-admins"
+
+
 class RunStatus(str, Enum):
     PENDING = "pending"
     PULLED = "pulled"
@@ -919,6 +929,50 @@ class SupabaseDal:
         if settings is None:
             return {}
         return settings.get("conversation_executors") or {}
+
+    def get_confirmation_mode(self) -> ConfirmationMode:
+        """The account's allowConfirmationMode, from settings read within the
+        AccountSettings TTL. Never from an older value: when the last read
+        failed, approvals are refused until a read succeeds."""
+        if not self.enabled:
+            return ConfirmationMode.DISABLED
+        settings = self.account_settings.get_fresh()
+        if settings is None:
+            logging.warning(
+                "Could not read allowConfirmationMode from AccountSettings; "
+                "refusing tool approvals"
+            )
+            return ConfirmationMode.DISABLED
+        try:
+            return ConfirmationMode(settings.get("allowConfirmationMode"))
+        except ValueError:
+            return ConfirmationMode.DISABLED
+
+    def is_account_admin(self, user_id: str) -> bool:
+        """Whether the user is an admin of this account (an ADMIN AccountUsers
+        row or an IdP group mapped to ADMIN). False when the lookup fails."""
+        if not self.enabled or not user_id:
+            return False
+        try:
+            res = self.client.rpc(
+                "is_account_admin",
+                {"_account_id": self.account_id, "_user_id": user_id},
+            ).execute()
+        except Exception:
+            logging.warning(
+                "is_account_admin failed for user %s; treating as not an admin",
+                user_id,
+                exc_info=True,
+            )
+            return False
+        if not isinstance(res.data, bool):
+            logging.warning(
+                "is_account_admin returned %r for user %s; treating as not an admin",
+                res.data,
+                user_id,
+            )
+            return False
+        return res.data
 
     def get_skill_hierarchy_config(self) -> SkillHierarchyConfig:
         """Read the per-account skill name-collision policy from AccountSettings.

@@ -75,6 +75,12 @@ class HolmesMetadata:
     # supports_realtime_conversations: the worker runs only on that path.
     supports_oauth_via_realtime: bool = False
     supports_holmes_logs: bool = False
+    # Relay offers a person's approval for a remote tool call only on targets
+    # that advertise this (the caller says so per request, in
+    # X-Robusta-Supports-Remote-Tool-Approval); on any other target the call
+    # is rejected and nobody is asked. It follows
+    # supports_realtime_conversations: remote calls run in the realtime worker.
+    supports_remote_tool_approval: bool = False
     # X25519 public key (base64) the platform encrypts data for this Holmes with.
     holmes_public_key: Optional[str] = None
     # Per model (keyed like the `model` column): the context window and max
@@ -153,6 +159,7 @@ def update_holmes_status_in_db(
         honors_robusta_ai_disabled=config.llm_model_registry.reads_robusta_catalog(),
         supports_oauth_via_realtime=supports_realtime,
         supports_holmes_logs=supports_realtime,
+        supports_remote_tool_approval=supports_realtime,
         holmes_public_key=get_public_key(),
         models_limits=_get_models_limits(config),
     )

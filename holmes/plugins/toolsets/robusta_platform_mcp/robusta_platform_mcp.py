@@ -27,6 +27,7 @@ from pydantic import AnyUrl, PrivateAttr
 
 from holmes.core.supabase_dal import SupabaseDal
 from holmes.core.tools import (
+    REQUEST_CAN_APPROVE_TOOL_CALLS,
     StructuredToolResult,
     ToolInvokeContext,
     ToolsetStatusEnum,
@@ -35,6 +36,7 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
+    REMOTE_TOOL_NAME_PREFIX,
     RemoteMCPTool,
     RemoteMCPToolset,
 )
@@ -112,7 +114,9 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         else:
             tools_result = asyncio.run(self._get_server_tools())
         return [
-            RobustaPlatformMCPTool.create(tool, self)
+            RobustaPlatformMCPTool.create(
+                tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
+            )
             for tool in self._filter_allowed_tools(tools_result.tools)
         ]
 
@@ -148,6 +152,12 @@ class RobustaPlatformMCPToolset(RemoteMCPToolset):
         # Always sent, independent of any feature flag: the executor version
         # gate and per-user RBAC on the relay depend on these.
         headers["X-Robusta-Holmes-Version"] = get_version()
+        # Relay offers approval-gated remote tools only to callers that can
+        # carry a person's approval, and rejects their calls otherwise. Tool
+        # discovery has no request context; a call can carry one only from a
+        # conversation turn where the user can approve.
+        if request_context is None or request_context.get(REQUEST_CAN_APPROVE_TOOL_CALLS):
+            headers["X-Robusta-Supports-Remote-Tool-Approval"] = "true"
         ctx = request_context or {}
         user_id = ctx.get("conversation_owner_id") or ctx.get("user_id")
         headers["X-Robusta-User-Id"] = str(user_id) if user_id else "None"

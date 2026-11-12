@@ -291,6 +291,11 @@ class ToolParameter(BaseModel):
         return self.type
 
 
+# request_context key: a person can approve this turn's tool calls (a
+# conversation with tool approval on). Only then may a remote call ask for one.
+REQUEST_CAN_APPROVE_TOOL_CALLS = "can_approve_tool_calls"
+
+
 class ToolInvokeContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

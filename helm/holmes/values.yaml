@@ -860,6 +860,11 @@ mcpAddons:
     approvalRequiredTools:
       - "run_kubectl_command"
 
+    # Publish these tools to Holmes in your other clusters and to Robusta MCP
+    # Server clients (cross-cluster remote tools). Tools in approvalRequiredTools
+    # still run only after a person approves each call.
+    exposeRemotely: false
+
     # Optional override of the default LLM instructions
     llmInstructions: ""
 
