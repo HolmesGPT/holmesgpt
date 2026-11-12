@@ -9,6 +9,7 @@ strict mode is disabled.  Common mistakes include:
 - String numbers: ``"42"`` instead of ``42``
 - String booleans: ``"true"`` instead of ``true``
 - A bare value where an array is expected: ``"cpu"`` instead of ``["cpu"]``
+- The string ``"null"`` instead of ``null`` for an optional or nullable param
 
 These mismatches cause hard-to-diagnose failures in downstream tool code.
 This module provides a single ``coerce_params`` function that fixes them.
@@ -79,11 +80,18 @@ def _primary_type(schema: Any) -> str:
     return raw
 
 
+def _accepts_null(schema: Any) -> bool:
+    """Whether the param may be null: optional (strict mode sends optional params
+    as nullable) or declaring ``"null"``, the same rule ``drop_unset_optionals`` uses."""
+    return _schema_attr(schema, "required", True) is False or _declares_null(schema)
+
+
 def _coerce_single_value(
     name: str,
     value: Any,
     expected: str,
     *,
+    nullable: bool,
     strict: bool,
     tool_name: str,
 ) -> Any:
@@ -99,6 +107,16 @@ def _coerce_single_value(
     """
     if value is None:
         return value
+
+    # --- The string "null" → null, for a param that accepts null ---
+    # glm-5.3 on OpenRouter has sent "null" for every unset optional param since
+    # Nov 2026 (likely the serving provider's tool-call parser), and kubectl then
+    # fails with "invalid selector: 'null'". First, because "null" is already a
+    # valid string and an array param would otherwise become ["null"]. Applies
+    # in strict mode too: it is a null, not a lossy type guess.
+    if nullable and value == "null":
+        logger.debug("Coerced param '%s' from string 'null' to null for tool '%s'", name, tool_name)
+        return None
 
     # --- Already the right type? Nothing to do. ---
     expected_types = _EXPECTED_PYTHON_TYPES.get(expected, ())
@@ -297,6 +315,7 @@ def coerce_params(
             name,
             value,
             expected,
+            nullable=_accepts_null(param_schema),
             strict=strict,
             tool_name=tool_name,
         )
