@@ -956,3 +956,22 @@ class TestGlobalSkillCatalog:
         skills_dal.get_skill_content("uuid-1")
 
         assert _eq_filters(q)["enabled"] is True
+
+
+def test_every_account_setting_shares_one_read(skills_dal):
+    """Executor sizes and the skill hierarchy come from one AccountSettings read."""
+    chain = skills_dal.client.table.return_value.select.return_value.eq.return_value
+    chain.execute.return_value = Mock(
+        data=[
+            {
+                "settings": {
+                    "conversation_executors": {"auto": 3},
+                    "skill_name_hierarchy_enabled": True,
+                }
+            }
+        ]
+    )
+
+    assert skills_dal.get_conversation_executor_sizes() == {"auto": 3}
+    assert skills_dal.get_skill_hierarchy_config().enabled is True
+    assert chain.execute.call_count == 1
