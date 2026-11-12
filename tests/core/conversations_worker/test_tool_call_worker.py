@@ -520,12 +520,12 @@ def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
 
 # ---- remote tool APPROVAL flow (target/executor side, metadata-only) ----
 #
-# Relay signals an approval it verified via row metadata: remote_tool_approved
-# plus the remote_tool_approval reference to the request it approved. These verify:
+# The approval comes in one metadata field, remote_tool_approval: the earlier
+# request it approved and who approved it, and/or session prefixes. These verify:
 #   1. first execution (no metadata flag) -> tool asks for approval -> response
 #      carries APPROVAL_REQUIRED + approval_params, posted as a normal COMPLETED
 #      row (no special DB status, no store RPC)
-#   2. approved re-invocation (metadata.remote_tool_approved=true) -> tool runs
+#   2. approved re-invocation (metadata.remote_tool_approval) -> tool runs
 #      with user_approved=True and the real result is returned/posted
 #   3. approved-but-still-gated -> fail closed (no infinite re-request loop)
 
@@ -555,20 +555,17 @@ def _approval_worker(behavior):
     return ToolCallWorker(dal=MagicMock(), config=config, holmes_id="h-test"), tool
 
 
-RELAY_APPROVAL = {
-    "verified_by": "relay",
+APPROVAL = {
     "approval_request_id": "row-request-0",
     "approved_by": "user-1",
     "source": "conversation",
 }
 
 
-def _approval_row(approved=False, approval=RELAY_APPROVAL):
+def _approval_row(approved=False, approval=APPROVAL):
     md = {"source_version": get_version()}
-    if approved:
-        md["remote_tool_approved"] = True
-        if approval is not None:
-            md["remote_tool_approval"] = approval
+    if approved and approval is not None:
+        md["remote_tool_approval"] = approval
     return {
         "id": "row-approve-1",
         "account_id": "acct-1",
@@ -624,7 +621,7 @@ def test_execute_safe_first_call_posts_completed_not_special_status():
 
 
 def test_execute_approved_reinvocation_runs_with_user_approved():
-    """metadata.remote_tool_approved=true -> tool runs with user_approved=True
+    """metadata.remote_tool_approval -> tool runs with user_approved=True
     and returns the real result — the approve->run half (executor side)."""
     worker, tool = _approval_worker(_needs_approval_unless_approved)
     resp = worker._execute(_approval_row(approved=True))
@@ -693,9 +690,9 @@ def test_execute_safe_approved_posts_completed_result():
 
 
 def test_execute_forwards_session_approved_prefixes_to_tool_context():
-    """Prefixes relay verified and forwarded (tool_request.session_approved_prefixes)
-    must reach the tool's ToolInvokeContext so the executor auto-approves them
-    instead of re-prompting."""
+    """Prefixes in metadata.remote_tool_approval must reach the tool's
+    ToolInvokeContext so the executor auto-approves them instead of
+    re-prompting."""
     seen = {}
 
     def capture(params, context):
@@ -706,8 +703,7 @@ def test_execute_forwards_session_approved_prefixes_to_tool_context():
 
     worker, _ = _approval_worker(capture)
     row = _approval_row(approved=False)
-    row["tool_request"]["session_approved_prefixes"] = ["curl", "dig"]
-    row["metadata"]["session_prefixes_verified_by"] = "relay"
+    row["metadata"]["remote_tool_approval"] = {"session_prefixes": ["curl", "dig"]}
     resp = worker._execute(row)
 
     assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
@@ -758,19 +754,17 @@ def test_realtime_worker_wake_all_tolerates_no_tool_worker():
 @pytest.mark.parametrize(
     "approval",
     [
-        None,
-        {},
-        "yes",
-        {"verified_by": "caller", "approval_request_id": "r", "approved_by": "u"},
-        {"verified_by": "relay", "approved_by": "u"},
-        {"verified_by": "relay", "approval_request_id": "", "approved_by": "u"},
-        {"verified_by": "relay", "approval_request_id": "row-approve-1", "approved_by": "u"},
-        {"verified_by": "relay", "approval_request_id": "r", "approved_by": ""},
+        {"approved_by": "u"},
+        {"approval_request_id": "r"},
+        {"approval_request_id": "", "approved_by": "u"},
+        {"approval_request_id": "row-approve-1", "approved_by": "u"},
+        {"approval_request_id": "r", "approved_by": ""},
+        {"approval_request_id": 7, "approved_by": "u"},
     ],
 )
-def test_execute_refuses_an_approval_relay_did_not_verify(approval):
-    """An approval claim without relay's verification reference (an older
-    relay forwarding the caller's own assertion) never runs the tool."""
+def test_execute_refuses_an_incomplete_approval(approval):
+    """An approval that does not name both an earlier request and its approver
+    never runs the tool, approved or not."""
     worker, tool = _approval_worker(_needs_approval_unless_approved)
     resp = worker._execute(_approval_row(approved=True, approval=approval))
 
@@ -779,32 +773,53 @@ def test_execute_refuses_an_approval_relay_did_not_verify(approval):
     tool.invoke.assert_not_called()
 
 
-def _row_with_prefixes(verified):
-    row = _approval_row(approved=False)
-    row["tool_request"]["session_approved_prefixes"] = ["curl"]
-    if verified:
-        row["metadata"]["session_prefixes_verified_by"] = "relay"
-    return row
-
-
-def test_execute_uses_session_prefixes_relay_verified():
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"remote_tool_approved": True},
+        {"remote_tool_approved": True, "remote_tool_approval": "yes"},
+        {"remote_tool_approved": True, "remote_tool_approval": {}},
+        {"remote_tool_approval": {"session_prefixes": ["kubectl"]}},
+    ],
+)
+def test_execute_runs_unapproved_without_an_approval(metadata):
+    """An older relay forwarded the caller's own claim as remote_tool_approved;
+    without an approval in remote_tool_approval the call runs unapproved, so
+    the tool asks again."""
     worker, tool = _approval_worker(_needs_approval_unless_approved)
-    worker._execute(_row_with_prefixes(verified=True))
+    row = _approval_row(approved=False)
+    row["metadata"].update(metadata)
+    resp = worker._execute(row)
+
+    assert resp["status"] == StructuredToolResultStatus.APPROVAL_REQUIRED.value
+    assert tool.invoke.call_args.args[1].user_approved is False
+
+
+def test_execute_uses_the_session_prefixes_in_the_approval():
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    row = _approval_row(approved=False)
+    row["metadata"]["remote_tool_approval"] = {"session_prefixes": ["curl"]}
+    worker._execute(row)
 
     assert tool.invoke.call_args.args[1].session_approved_prefixes == ["curl"]
 
 
-def test_execute_drops_session_prefixes_relay_did_not_verify():
+def test_execute_ignores_session_prefixes_in_the_tool_request():
+    """An older relay forwarded the caller's own prefixes in tool_request."""
     worker, tool = _approval_worker(_needs_approval_unless_approved)
-    worker._execute(_row_with_prefixes(verified=False))
+    row = _approval_row(approved=False)
+    row["tool_request"]["session_approved_prefixes"] = ["curl"]
+    row["metadata"]["session_prefixes_verified_by"] = "relay"
+    worker._execute(row)
 
     assert tool.invoke.call_args.args[1].session_approved_prefixes == []
 
 
-def test_execute_drops_session_prefixes_that_are_not_a_list_of_strings():
+@pytest.mark.parametrize("prefixes", ["curl", [1], {"curl": True}])
+def test_execute_drops_session_prefixes_that_are_not_a_list_of_strings(prefixes):
     worker, tool = _approval_worker(_needs_approval_unless_approved)
-    row = _row_with_prefixes(verified=True)
-    row["tool_request"]["session_approved_prefixes"] = "curl"
+    row = _approval_row(approved=False)
+    row["metadata"]["remote_tool_approval"] = {"session_prefixes": prefixes}
     worker._execute(row)
 
     assert tool.invoke.call_args.args[1].session_approved_prefixes == []

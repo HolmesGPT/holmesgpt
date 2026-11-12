@@ -224,37 +224,34 @@ def _serializable_images(images: Any) -> List[Dict[str, str]]:
     return [image for image in whole if image is not None]
 
 
-# Relay stamps the approvals and session prefixes it verified from its own
-# records; an older relay forwarded the caller's claim instead, so a row
-# without the stamp is never trusted.
-RELAY_VERIFIER = "relay"
+# The approval for a call, from metadata only: the call itself
+# (approval_request_id, approved_by) and/or the session prefixes saved for this
+# cluster. Only relay can write the row, and no relay before ROB-1671 writes
+# this field (an older one forwarded the caller's claim as
+# metadata.remote_tool_approved and tool_request.session_approved_prefixes,
+# both ignored here).
+APPROVAL_METADATA_KEY = "remote_tool_approval"
+_APPROVAL_KEYS = ("approval_request_id", "approved_by")
 
 
-def _unverified_approval_reason(approval: Any, row_id: Any) -> Optional[str]:
-    if not isinstance(approval, dict):
-        return "no approval reference"
-    if approval.get("verified_by") != RELAY_VERIFIER:
-        return "approval reference not issued by relay"
+def _call_approval(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    approval = metadata.get(APPROVAL_METADATA_KEY)
+    return approval if isinstance(approval, dict) else {}
+
+
+def _approval_refusal(approval: Dict[str, Any], row_id: Any) -> Optional[str]:
+    """Why an approval that is present cannot be used, or None."""
     request_id = approval.get("approval_request_id")
     if not isinstance(request_id, str) or not request_id or request_id == row_id:
-        return "approval reference names no earlier request"
+        return "it names no earlier request"
     approved_by = approval.get("approved_by")
     if not isinstance(approved_by, str) or not approved_by:
-        return "approval reference names no approver"
+        return "it names no approver"
     return None
 
 
-def _verified_session_prefixes(
-    tool_request: Dict[str, Any], metadata: Dict[str, Any]
-) -> List[str]:
-    prefixes = tool_request.get("session_approved_prefixes") or []
-    if not prefixes:
-        return []
-    if metadata.get("session_prefixes_verified_by") != RELAY_VERIFIER:
-        logging.warning(
-            "ToolCallWorker: ignoring session prefixes relay did not verify"
-        )
-        return []
+def _session_prefixes(approval: Dict[str, Any]) -> List[str]:
+    prefixes = approval.get("session_prefixes") or []
     if not isinstance(prefixes, list) or not all(isinstance(p, str) for p in prefixes):
         logging.warning("ToolCallWorker: ignoring malformed session prefixes")
         return []
@@ -542,11 +539,10 @@ class ToolCallWorker:
             )
 
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
-        user_approved = bool(metadata.get("remote_tool_approved"))
+        approval = _call_approval(metadata)
+        user_approved = any(key in approval for key in _APPROVAL_KEYS)
         if user_approved:
-            refusal = _unverified_approval_reason(
-                metadata.get("remote_tool_approval"), row.get("id")
-            )
+            refusal = _approval_refusal(approval, row.get("id"))
             if refusal:
                 logging.warning(
                     "ToolCallWorker: refusing approved call %s to '%s': %s",
@@ -555,10 +551,10 @@ class ToolCallWorker:
                     refusal,
                 )
                 return _error_response(
-                    f"the approval for '{tool_name}' was not verified by relay "
-                    f"({refusal}); the tool was not run"
+                    f"the approval for '{tool_name}' is incomplete ({refusal}); "
+                    "the tool was not run"
                 )
-        session_approved_prefixes = _verified_session_prefixes(tool_request, metadata)
+        session_approved_prefixes = _session_prefixes(approval)
 
         # 4. Tool invocation context.
         context = ToolInvokeContext(
