@@ -6,13 +6,18 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from cachetools import TTLCache
 
-from holmes.core.supabase_dal import (
-    CONFIRMATION_MODE_CACHE_TTL_SEC,
-    ConfirmationMode,
-    SupabaseDal,
-)
+from holmes.core.account_settings_cache import AccountSettingsCache
+from holmes.core.supabase_dal import ConfirmationMode, SupabaseDal
+
+TTL = 60
+
+
+class _Clock:
+    now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
 
 
 def _dal() -> SupabaseDal:
@@ -21,7 +26,10 @@ def _dal() -> SupabaseDal:
     dal.account_id = "acc-1"
     dal.client = MagicMock()
     dal.lock = threading.Lock()
-    dal.confirmation_mode_cache = TTLCache(maxsize=1, ttl=CONFIRMATION_MODE_CACHE_TTL_SEC)
+    dal.clock = _Clock()
+    dal.account_settings = AccountSettingsCache(
+        dal._read_account_settings, ttl=TTL, timer=dal.clock
+    )
     return dal
 
 
@@ -65,7 +73,7 @@ def test_confirmation_mode_is_cached():
     assert _settings_query(dal).call_count == 1
 
 
-def test_a_failed_confirmation_mode_read_is_disabled_and_not_cached():
+def test_a_failed_confirmation_mode_read_is_disabled_until_a_read_succeeds():
     dal = _dal()
     _settings_query(dal).side_effect = [
         RuntimeError("boom"),
@@ -73,7 +81,54 @@ def test_a_failed_confirmation_mode_read_is_disabled_and_not_cached():
     ]
 
     assert dal.get_confirmation_mode() == ConfirmationMode.DISABLED
+    assert dal.get_confirmation_mode() == ConfirmationMode.DISABLED
+    assert _settings_query(dal).call_count == 1  # retried once per TTL
+    dal.clock.now += TTL
     assert dal.get_confirmation_mode() == ConfirmationMode.ENABLE_ALL
+
+
+def test_approvals_never_use_a_mode_older_than_the_ttl():
+    """Other settings keep their last value through a failed re-read; the
+    approval mode refuses instead, so turning approvals off is never undone by
+    a database blip."""
+    dal = _dal()
+    _settings_query(dal).side_effect = [
+        MagicMock(
+            data=[
+                {
+                    "settings": {
+                        "allowConfirmationMode": "enable-all",
+                        "conversation_executors": {"auto": 3},
+                    }
+                }
+            ]
+        ),
+        RuntimeError("boom"),
+    ]
+    assert dal.get_confirmation_mode() == ConfirmationMode.ENABLE_ALL
+    dal.clock.now += TTL
+
+    assert dal.get_confirmation_mode() == ConfirmationMode.DISABLED
+    assert dal.get_conversation_executor_sizes() == {"auto": 3}
+
+
+def test_confirmation_mode_shares_the_settings_read():
+    dal = _dal()
+    _with_settings(
+        dal,
+        [
+            {
+                "settings": {
+                    "allowConfirmationMode": "enable-admins",
+                    "conversation_executors": {"auto": 3},
+                }
+            }
+        ],
+    )
+
+    assert dal.get_confirmation_mode() == ConfirmationMode.ENABLE_ADMINS
+    assert dal.get_conversation_executor_sizes() == {"auto": 3}
+    assert _settings_query(dal).call_count == 1
 
 
 def test_confirmation_mode_is_disabled_without_supabase():

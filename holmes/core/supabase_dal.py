@@ -131,9 +131,6 @@ class ConfirmationMode(str, Enum):
     ENABLE_ADMINS = "enable-admins"
 
 
-CONFIRMATION_MODE_CACHE_TTL_SEC = 30
-
-
 class RunStatus(str, Enum):
     PENDING = "pending"
     PULLED = "pulled"
@@ -334,9 +331,6 @@ class SupabaseDal:
         self.token_cache = TTLCache(maxsize=1, ttl=ttl)
         self.account_settings = AccountSettingsCache(
             self._read_account_settings, ttl=account_settings_cache_ttl()
-        )
-        self.confirmation_mode_cache: TTLCache = TTLCache(
-            maxsize=1, ttl=CONFIRMATION_MODE_CACHE_TTL_SEC
         )
         self.lock = threading.Lock()
 
@@ -937,36 +931,22 @@ class SupabaseDal:
         return settings.get("conversation_executors") or {}
 
     def get_confirmation_mode(self) -> ConfirmationMode:
-        """The account's allowConfirmationMode. A failed read is DISABLED and is
-        not cached, so approvals are refused only until the read succeeds."""
+        """The account's allowConfirmationMode, from settings read within the
+        AccountSettings TTL. Never from an older value: when the last read
+        failed, approvals are refused until a read succeeds."""
         if not self.enabled:
             return ConfirmationMode.DISABLED
-        with self.lock:
-            cached = self.confirmation_mode_cache.get("mode")
-        if cached is not None:
-            return cached
-        try:
-            res = (
-                self.client.table(ACCOUNT_SETTINGS_TABLE)
-                .select("settings")
-                .eq("account_id", self.account_id)
-                .execute()
-            )
-        except Exception:
+        settings = self.account_settings.get_fresh()
+        if settings is None:
             logging.warning(
-                "Failed to read allowConfirmationMode from AccountSettings; "
-                "refusing tool approvals",
-                exc_info=True,
+                "Could not read allowConfirmationMode from AccountSettings; "
+                "refusing tool approvals"
             )
             return ConfirmationMode.DISABLED
-        settings = (res.data[0].get("settings") or {}) if res.data else {}
         try:
-            mode = ConfirmationMode(settings.get("allowConfirmationMode"))
+            return ConfirmationMode(settings.get("allowConfirmationMode"))
         except ValueError:
-            mode = ConfirmationMode.DISABLED
-        with self.lock:
-            self.confirmation_mode_cache["mode"] = mode
-        return mode
+            return ConfirmationMode.DISABLED
 
     def is_account_admin(self, user_id: str) -> bool:
         """Whether the user is an admin of this account (an ADMIN AccountUsers
