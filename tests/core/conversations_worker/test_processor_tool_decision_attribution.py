@@ -241,3 +241,48 @@ def test_the_admin_lookup_is_the_owner_not_the_decision_text():
     _chat_request(_approval("user-1"), mode=ConfirmationMode.ENABLE_ADMINS, owner="user-1", admins=("user-1",), dal=dal)
 
     dal.is_account_admin.assert_called_once_with("user-1")
+
+
+def _oauth_login(decided_by):
+    return [
+        {
+            "tool_call_id": "t1",
+            "approved": True,
+            "decided_by": decided_by,
+            "decision": {
+                "toolset_name": "github-mcp",
+                "code": "c",
+                "redirect_uri": "https://example.invalid/callback",
+            },
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "mode,admins",
+    [(ConfirmationMode.DISABLED, ()), (ConfirmationMode.ENABLE_ADMINS, ())],
+    ids=["disabled", "enable-admins, non-admin owner"],
+)
+def test_the_owner_can_log_in_to_an_oauth_server_whatever_the_mode(mode, admins):
+    [decision] = _chat_request(_oauth_login("user-1"), mode=mode, owner="user-1", admins=admins).tool_decisions
+
+    assert decision.approved is True
+    assert decision.decision["code"] == "c"
+
+
+def test_an_oauth_login_by_someone_else_is_still_refused():
+    [decision] = _chat_request(
+        _oauth_login("user-2"), mode=ConfirmationMode.ENABLE_ALL, owner="user-1"
+    ).tool_decisions
+
+    assert decision.approved is False
+    assert decision.feedback == NOT_OWNER_APPROVAL_FEEDBACK
+
+
+def test_an_oauth_login_in_an_ownerless_chat_follows_the_mode():
+    [decision] = _chat_request(
+        _oauth_login("slack:T1:U1"), mode=ConfirmationMode.DISABLED, owner=None
+    ).tool_decisions
+
+    assert decision.approved is False
+    assert decision.feedback == APPROVALS_DISABLED_FEEDBACK

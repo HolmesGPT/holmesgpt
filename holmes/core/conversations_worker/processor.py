@@ -31,6 +31,7 @@ from holmes.core.conversations_worker.models import (
 )
 from holmes.core.error_info import ErrorInfo
 from holmes.core.models import ChatRequest
+from holmes.core.oauth_config import parse_oauth_decision
 from holmes.core.prompt import PromptComponent
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
 from holmes.core.supabase_dal import ConfirmationMode
@@ -89,16 +90,25 @@ def _approves(value: Any) -> bool:
 
 
 def _approval_refusal(
-    decider: Any, owner_id: Optional[str], dal: "SupabaseDal"
+    decider: Any,
+    owner_id: Optional[str],
+    dal: "SupabaseDal",
+    owner_oauth_login: bool = False,
 ) -> Optional[str]:
     """Why an approval may not run, or None when it may.
 
     The UI writes the signed-in user as decided_by, relay the Slack user, and
     Holmes cannot write user messages (robusta-storage ROB-1671). The owner
     comes from the Conversations row, so only its owner approves an owned
-    chat; under enable-admins an ownerless chat has nobody to check."""
+    chat; under enable-admins an ownerless chat has nobody to check.
+
+    An OAuth login is offered whatever the confirmation mode, so the mode does
+    not gate the owner's: its tool runs only if the code exchange for that
+    tool call succeeds."""
     if not (isinstance(decider, str) and decider):
         return UNATTRIBUTED_APPROVAL_FEEDBACK
+    if owner_oauth_login and owner_id and decider == str(owner_id):
+        return None
     mode = dal.get_confirmation_mode()
     if mode == ConfirmationMode.DISABLED:
         return APPROVALS_DISABLED_FEEDBACK
@@ -112,10 +122,17 @@ def _approval_refusal(
 
 
 def _attributed_tool_decisions(
-    decisions: Any, owner_id: Optional[str], dal: "SupabaseDal"
+    decisions: Any,
+    owner_id: Optional[str],
+    dal: "SupabaseDal",
+    request_user_id: Optional[str] = None,
 ) -> Any:
     """Turns each approval the approver rules refuse into a denial that tells
-    the model why, so the tool does not run."""
+    the model why, so the tool does not run.
+
+    ``request_user_id`` is the user the turn runs as. Without one, an OAuth
+    decision skips the code exchange and runs its tool, so it is judged like
+    any other approval."""
     if not isinstance(decisions, list):
         return decisions
     attributed = []
@@ -123,7 +140,15 @@ def _attributed_tool_decisions(
         if not isinstance(decision, dict) or not _approves(decision.get("approved")):
             attributed.append(decision)
             continue
-        refusal = _approval_refusal(decision.get("decided_by"), owner_id, dal)
+        owner_oauth_login = bool(
+            request_user_id
+            and owner_id
+            and str(request_user_id) == str(owner_id)
+            and parse_oauth_decision(decision.get("decision"))
+        )
+        refusal = _approval_refusal(
+            decision.get("decided_by"), owner_id, dal, owner_oauth_login
+        )
         if refusal:
             logging.warning(
                 "Treating tool decision %s as denied: %s",
@@ -318,7 +343,10 @@ class ConversationProcessor:
             additional_system_prompt=data.get("additional_system_prompt"),
             enable_tool_approval=enable_tool_approval,
             tool_decisions=_attributed_tool_decisions(  # type: ignore[arg-type]
-                data.get("tool_decisions"), task.user_id, self.dal
+                data.get("tool_decisions"),
+                task.user_id,
+                self.dal,
+                request_user_id=resolved_user_id,
             ),
             frontend_tools=data.get("frontend_tools"),  # type: ignore[arg-type]
             frontend_tool_results=data.get("frontend_tool_results"),  # type: ignore[arg-type]
