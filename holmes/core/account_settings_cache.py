@@ -17,6 +17,8 @@ AccountSettings = Dict[str, Any]
 
 DEFAULT_ACCOUNT_SETTINGS_CACHE_TTL_SEC = 60
 
+_NOT_CACHED = object()
+
 
 def account_settings_cache_ttl() -> int:
     """``ACCOUNT_SETTINGS_CACHE_TTL_SEC``, else the older
@@ -70,17 +72,23 @@ class AccountSettingsCache:
         self._ttl = ttl
         self._timer = timer
         self._lock = threading.Lock()
+        # One read at a time: callers that find the cache expired wait for the
+        # read in flight instead of starting their own, so an outage costs one
+        # failed read per TTL and an older read never replaces a newer one.
+        self._refresh_lock = threading.Lock()
         self._value: Optional[AccountSettings] = None
         self._read_at = -math.inf
         self._failed_at = -math.inf
 
     def get(self) -> Optional[AccountSettings]:
-        with self._lock:
-            if self._is_fresh():
-                return self._value
-            if self._failed_recently():
-                return self._value
-        settings = self._refresh()
+        cached = self._cached(fresh_only=False)
+        if cached is not _NOT_CACHED:
+            return cached
+        with self._refresh_lock:
+            cached = self._cached(fresh_only=False)
+            if cached is not _NOT_CACHED:
+                return cached
+            settings = self._refresh()
         if settings is not None:
             return settings
         with self._lock:
@@ -93,12 +101,23 @@ class AccountSettingsCache:
             return self._value
 
     def get_fresh(self) -> Optional[AccountSettings]:
+        cached = self._cached(fresh_only=True)
+        if cached is not _NOT_CACHED:
+            return cached
+        with self._refresh_lock:
+            cached = self._cached(fresh_only=True)
+            if cached is not _NOT_CACHED:
+                return cached
+            return self._refresh()
+
+    def _cached(self, fresh_only: bool) -> Any:
+        """The answer without reading, or ``_NOT_CACHED`` when a read is due."""
         with self._lock:
             if self._is_fresh():
                 return self._value
             if self._failed_recently():
-                return None
-        return self._refresh()
+                return None if fresh_only else self._value
+        return _NOT_CACHED
 
     def clear(self) -> None:
         with self._lock:
