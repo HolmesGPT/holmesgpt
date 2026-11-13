@@ -630,6 +630,7 @@ class YAMLTool(Tool, BaseModel):
                 {
                     k: _clean(v, f"request header {k!r}")
                     for k, v in (request_context.get("headers") or {}).items()
+                    if _clean(v, f"request header {k!r}") is not None
                 }
             )
             context["request_context"] = ctx_copy
