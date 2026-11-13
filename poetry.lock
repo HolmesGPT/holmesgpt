@@ -486,17 +486,17 @@ lxml = ["lxml"]
 
 [[package]]
 name = "boto3"
-version = "1.43.36"
-description = "The AWS SDK for Python"
+version = "1.44.2"
+description = "The AWS SDK for Python (Boto3)"
 optional = false
 python-versions = ">=3.10"
 files = [
-    {file = "boto3-1.43.36-py3-none-any.whl", hash = "sha256:42942dde254673abcbc9e6e60017c88341a4f49d99d24e1f2e290fb38138c26f"},
-    {file = "boto3-1.43.36.tar.gz", hash = "sha256:587d7ee92a12e440ad12b0e7f11f3358f0c4d65b19f64726efc94aaf194aff28"},
+    {file = "boto3-1.44.2-py3-none-any.whl", hash = "sha256:d62ff8a9eb06cab9f0b4242d7a2907a8fff9cca630e27ef736660f9d53e5b18e"},
+    {file = "boto3-1.44.2.tar.gz", hash = "sha256:70c02826640da17c15067033af01667059dde5e86057c2d1227cd8523c2f24dd"},
 ]
 
 [package.dependencies]
-botocore = ">=1.43.36,<1.44.0"
+botocore = ">=1.44.2,<1.45.0"
 jmespath = ">=0.7.1,<2.0.0"
 s3transfer = ">=0.19.0,<0.20.0"
 
@@ -505,13 +505,13 @@ crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
 
 [[package]]
 name = "botocore"
-version = "1.43.36"
+version = "1.44.2"
 description = "Low-level, data-driven core of boto 3."
 optional = false
 python-versions = ">=3.10"
 files = [
-    {file = "botocore-1.43.36-py3-none-any.whl", hash = "sha256:3c65fdc39ed01d8dfde1e961b34038aed03c459f8ddf80717a12ac006475e49d"},
-    {file = "botocore-1.43.36.tar.gz", hash = "sha256:4cae47d1b2d426316b85a0087d9e69e048f13bc003b5177d74639fe9dfd28205"},
+    {file = "botocore-1.44.2-py3-none-any.whl", hash = "sha256:f255849e8adc413812162e100cf53c4d096d07d9fd6f1773d90fa6034f7d8980"},
+    {file = "botocore-1.44.2.tar.gz", hash = "sha256:39da314d7bab66e9da9af5531445d237beaeeab1fce0ed034bb6315d480b85ce"},
 ]
 
 [package.dependencies]
@@ -520,7 +520,7 @@ python-dateutil = ">=2.1,<3.0.0"
 urllib3 = ">=1.25.4,<2.2.0 || >2.2.0,<3"
 
 [package.extras]
-crt = ["awscrt (==0.32.2)"]
+crt = ["awscrt (==0.38.0)"]
 
 [[package]]
 name = "bracex"
@@ -3086,24 +3086,25 @@ files = [
 
 [[package]]
 name = "litellm"
-version = "1.103.5"
+version = "1.103.8"
 description = "Library to easily interface with LLM API providers"
 optional = false
 python-versions = "<3.15,>=3.10"
 files = [
-    {file = "litellm-1.103.5-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:ec4f8b2de1b21b7aed3a0f464aa4ec854fb563326d5b41c42b63e09c7925b288"},
-    {file = "litellm-1.103.5-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:787a0893255ed867456a21589104e744878dc89628bc5d7d670d3bc54ebe0eae"},
-    {file = "litellm-1.103.5-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:11e1c59bb71d370e32cef5dd8037cfea5ff3f354f993b3c632332f3423a6648c"},
-    {file = "litellm-1.103.5-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:1cac55385ace13e6a12264f58ba6f81764e9e064c04e7da10ce07ed93296382f"},
-    {file = "litellm-1.103.5-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:b3abbc356e55fdbc7b641e7043e1bd71a227e886b44f6b3aefea0a6bb2987f88"},
-    {file = "litellm-1.103.5-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:5f964a7e669d0a36260a2cf3a8badf592ed78577e6ce16df23465b38966ff2e7"},
-    {file = "litellm-1.103.5-cp310-abi3-win_amd64.whl", hash = "sha256:ddf2e7e3489ece960a61497b838c87f21d24049b016d79aae5b65ab20599a88e"},
-    {file = "litellm-1.103.5.tar.gz", hash = "sha256:313e2756285bce99d646e042704a1d0e137580c148e7086277e96f178d7dcff2"},
+    {file = "litellm-1.103.8-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:7030cfbfbbf503907963fb352dbcdc5f4e2d512d3de4a03c7bc405beccc6f9cb"},
+    {file = "litellm-1.103.8-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:b2307c08f9411de6695fc77e4bf51d8650b3ff2281430d20d6c12af7a0b6f401"},
+    {file = "litellm-1.103.8-cp310-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:aff1c2396bee6b19f6ed61ad170737f6f5de2a7070f3dfc466777c6dc35dd5a2"},
+    {file = "litellm-1.103.8-cp310-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:e7ad3c6a8dfd262ddccf7602c1a577c76dfb35a32a0efa66d6c18b124742aab7"},
+    {file = "litellm-1.103.8-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:26f7fc02272a8568854eaa64a8981d619ba9386e8c62a698d9960430be852247"},
+    {file = "litellm-1.103.8-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:7796348bb98167c6e5dd5f1b73c490d23d63e9d5afc3e57cd2a372c54d788ce0"},
+    {file = "litellm-1.103.8-cp310-abi3-win_amd64.whl", hash = "sha256:ab6e4bfb1e683a1210da8ff982d7df129cc9718b0f75225d7aaf5c64924692f1"},
+    {file = "litellm-1.103.8.tar.gz", hash = "sha256:90d22ce8b61c8441d4365b4c5c20a6616d4c119729d85a68872b48c2bcb1ab1d"},
 ]
 
 [package.dependencies]
 aiohttp = ">=3.14.2,<4.0"
-boto3 = ">=1.43.1,<2.0"
+boto3 = ">=1.43.117,<2.0"
+certifi = ">=2026.10.19"
 click = ">=8.0.0,<9.0"
 fastuuid = ">=0.14.0,<1.0"
 httpx = {version = ">=0.28.0,<1.0", extras = ["http2"]}
@@ -3123,11 +3124,11 @@ caching = ["diskcache (>=5.6.3,<6.0)"]
 cli = ["inquirerpy (>=0.3.4,<1.0)", "keyring (>=25.6.0,<26.0)", "pyyaml (>=6.0.3,<7.0)", "requests (>=2.32.0,<3.0)", "rich (>=13.9.4,<14.0)", "tomlkit (>=0.13.3,<1.0)"]
 extra-proxy = ["a2a-sdk (>=1.1.0,<2.0)", "azure-identity (>=1.25.2,<2.0)", "azure-keyvault-secrets (>=4.10.0,<5.0)", "google-cloud-iam (>=2.19.1,<3.0)", "google-cloud-kms (>=2.24.2,<3.0)", "prisma (>=0.11.0,<1.0)", "psycopg (>=3.2,<4.0)", "psycopg-binary (>=3.2,<4.0)", "redisvl (>=0.4.1,<1.0)", "resend (>=2.23.0,<3.0)"]
 google = ["google-cloud-aiplatform (>=1.133.0,<2.0)"]
-grpc = ["grpcio (==1.78.0)"]
+grpc = ["grpcio (==1.84.1)"]
 mcp = ["httpx2 (>=2.5.0,<3)", "mcp (>=2.2.0,<3)", "pydantic (>=2.12.0,<3)"]
 mlflow = ["mlflow (>=3.11.1,<4.0)"]
-proxy = ["apscheduler (>=3.11.2,<4.0)", "azure-identity (>=1.25.2,<2.0)", "azure-storage-blob (>=12.28.0,<13.0)", "backoff (>=2.2.1,<3.0)", "boto3 (>=1.43.1,<2.0)", "cryptography (>=49.0.0,<51.0)", "expression (>=5.6.0,<6.0)", "fastapi (>=0.136.3,<1.0)", "fastapi-sso (>=0.19.0,<1.0)", "granian (>=2.7.4,<3.0)", "gunicorn (>=23.0.0,<24.0)", "hiredis (>=3.0.0,<4.0)", "httpx2 (>=2.5.0,<3)", "inquirerpy (>=0.3.4,<1.0)", "litellm-enterprise (==0.1.69.post1)", "litellm-proxy-extras (==0.4.100.post1)", "mcp (>=2.2.0,<3)", "orjson (>=3.11.6,<4.0)", "polars (>=1.38.1,<2.0)", "pydantic (>=2.12.0,<3)", "pyjwt (>=2.13.0,<3.0)", "pynacl (>=1.6.2,<2.0)", "pyroscope-io (>=0.8.16,<1.0)", "python-multipart (>=0.0.27,<1.0)", "pyyaml (>=6.0.3,<7.0)", "restrictedpython (>=8.5,<9.0)", "rich (>=13.9.4,<14.0)", "rq (>=2.7.0,<3.0)", "soundfile (>=0.12.1,<1.0)", "starlette (>=1.0.1,<2.0)", "tomlkit (>=0.13.3,<1.0)", "uvicorn (>=0.33.0,<1.0)", "uvloop (>=0.22.1,<1.0)", "websockets (>=15.0.1,<16.0)"]
-proxy-runtime = ["anthropic[vertex] (>=0.84.0,<1.0)", "azure-ai-contentsafety (>=1.0.0,<2.0)", "azure-storage-file-datalake (>=12.20.0,<13.0)", "ddtrace (>=4.8.2,<5.0)", "detect-secrets (>=1.5.0,<2.0)", "google-cloud-aiplatform (>=1.133.0,<2.0)", "google-cloud-speech (>=2.40.0,<3.0)", "google-genai (>=1.37.0,<2.0)", "grpcio (==1.78.0)", "langfuse (>=2.59.7,<3.0)", "llm-sandbox (>=0.3.39,<1.0)", "mangum (>=0.17.0,<1.0)", "opentelemetry-api (==1.28.0)", "opentelemetry-exporter-otlp (==1.28.0)", "opentelemetry-instrumentation-fastapi (==0.49b0)", "opentelemetry-sdk (==1.28.0)", "prometheus-client (>=0.20.0,<1.0)", "pypdf (>=6.16.1,<7.0)", "sentry-sdk (>=2.21.0,<3.0)"]
+proxy = ["apscheduler (>=3.11.2,<4.0)", "azure-identity (>=1.25.2,<2.0)", "azure-storage-blob (>=12.28.0,<13.0)", "backoff (>=2.2.1,<3.0)", "boto3 (>=1.43.117,<2.0)", "cryptography (>=49.0.0,<51.0)", "expression (>=5.6.0,<6.0)", "fastapi (>=0.136.3,<1.0)", "fastapi-sso (>=0.19.0,<1.0)", "granian (>=2.7.4,<3.0)", "gunicorn (>=23.0.0,<24.0)", "hiredis (>=3.0.0,<4.0)", "httpx2 (>=2.5.0,<3)", "inquirerpy (>=0.3.4,<1.0)", "litellm-enterprise (==0.1.69.post2)", "litellm-proxy-extras (==0.4.100.post1)", "mcp (>=2.2.0,<3)", "orjson (>=3.11.6,<4.0)", "polars (>=1.38.1,<2.0)", "pydantic (>=2.12.0,<3)", "pyjwt (>=2.13.0,<3.0)", "pynacl (>=1.6.2,<2.0)", "pyroscope-io (>=0.8.16,<1.0)", "python-multipart (>=0.0.27,<1.0)", "pyyaml (>=6.0.3,<7.0)", "restrictedpython (>=8.5,<9.0)", "rich (>=13.9.4,<14.0)", "rq (>=2.7.0,<3.0)", "soundfile (>=0.12.1,<1.0)", "starlette (>=1.0.1,<2.0)", "tomlkit (>=0.13.3,<1.0)", "uvicorn (>=0.33.0,<1.0)", "uvloop (>=0.22.1,<1.0)", "websockets (>=15.0.1,<16.0)"]
+proxy-runtime = ["anthropic[vertex] (>=0.84.0,<1.0)", "azure-ai-contentsafety (>=1.0.0,<2.0)", "azure-storage-file-datalake (>=12.20.0,<13.0)", "ddtrace (>=4.8.2,<5.0)", "detect-secrets (>=1.5.0,<2.0)", "google-cloud-aiplatform (>=1.133.0,<2.0)", "google-cloud-speech (>=2.40.0,<3.0)", "google-genai (>=1.37.0,<2.0)", "grpcio (==1.84.1)", "langfuse (>=2.59.7,<3.0)", "llm-sandbox (>=0.3.39,<1.0)", "mangum (>=0.17.0,<1.0)", "opentelemetry-api (==1.45.1)", "opentelemetry-exporter-otlp (==1.45.1)", "opentelemetry-instrumentation-fastapi (==0.66b1)", "opentelemetry-sdk (==1.45.1)", "prometheus-client (>=0.20.0,<1.0)", "pypdf (>=6.16.1,<7.0)", "sentry-sdk (>=2.21.0,<3.0)"]
 saml = ["python3-saml (>=1.16.0,<2.0)"]
 semantic-router = ["aurelio-sdk (>=0.0.19,<1.0)", "semantic-router (>=0.1.15,<1.0)"]
 stt-nvidia-riva = ["audioread (>=3.0.1)", "numpy (>=1.26.0)", "nvidia-riva-client (>=2.15.0)", "soundfile (>=0.12.1)"]
@@ -7694,4 +7695,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.14"
-content-hash = "029a4f59d8ee6f63a08660721c8580887dffbc536c61bab2d42a35748a0f17f9"
+content-hash = "f5d47c6c825197e20dbb1d9020850614cc8c81213cd457e26608239430ae3cad"
