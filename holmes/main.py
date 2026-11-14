@@ -802,9 +802,9 @@ def ticket(
 
 @investigate_app.command()
 def github(
-    github_url: str = typer.Option(
-        "https://api.github.com",
-        help="The GitHub api base url (e.g: https://api.github.com)",
+    github_url: Optional[str] = typer.Option(
+        None,
+        help="The GitHub api base url. Defaults to https://api.github.com",
     ),
     github_owner: Optional[str] = typer.Option(
         None,
@@ -819,8 +819,8 @@ def github(
     ),
     update: Optional[bool] = typer.Option(False, help="Update GitHub with AI results"),
     github_query: Optional[str] = typer.Option(
-        "is:issue is:open",
-        help="Investigate tickets matching a GitHub query (e.g. 'is:issue is:open')",
+        None,
+        help="Investigate tickets matching a GitHub query. Defaults to 'is:issue is:open'",
     ),
     # common options
     api_key: Optional[str] = opt_api_key,
