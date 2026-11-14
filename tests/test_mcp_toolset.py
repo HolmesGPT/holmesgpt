@@ -768,6 +768,23 @@ class TestMCPGeneral:
         assert str(mcp_toolset._mcp_config.url) == "http://localhost:1234/sse"
         assert mcp_toolset._mcp_config.mode == MCPMode.SSE
 
+    def test_url_migration_does_not_mutate_source_config(self, caplog):
+        source = {
+            "name": "test_mcp",
+            "description": "Test toolset",
+            "url": "http://localhost:1234",
+            "config": {"mode": "sse"},
+        }
+
+        with caplog.at_level(logging.WARNING):
+            first = RemoteMCPToolset.model_validate(source)
+            second = RemoteMCPToolset.model_validate(source)
+
+        assert source["url"] == "http://localhost:1234"
+        assert source["config"] == {"mode": "sse"}
+        assert first.config["url"] == second.config["url"] == "http://localhost:1234"
+        assert "has two urls defined" not in caplog.text
+
     def test_no_url_returns_false(self):
         mcp_toolset = RemoteMCPToolset(
             name="test_mcp",

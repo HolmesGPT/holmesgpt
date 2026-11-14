@@ -1152,14 +1152,14 @@ class RemoteMCPToolset(Toolset):
         if not isinstance(values, dict) or "url" not in values:
             return values
 
+        # Copy so the caller's dicts are not mutated: the same toolset config is validated more than once.
+        values = dict(values)
         url_value = values.pop("url")
         if url_value is None:
             return values
 
-        config = values.get("config")
-        if config is None:
-            config = {}
-            values["config"] = config
+        config = dict(values.get("config") or {})
+        values["config"] = config
 
         toolset_name = values.get("name", "unknown")
         if "url" in config:
