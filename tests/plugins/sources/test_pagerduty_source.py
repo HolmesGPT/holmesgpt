@@ -149,3 +149,27 @@ class TestFetchIssues:
 
         assert len(issues) == 1
         assert issues[0].description == "Alert triggered from Grafana"
+
+    @patch("holmes.plugins.sources.pagerduty.requests.get")
+    def test_fetch_issues_follows_pagination(self, mock_get):
+        """PagerDuty returns at most `limit` incidents per page and sets `more` when there are more."""
+        page1 = MagicMock()
+        page1.status_code = 200
+        page1.json.return_value = {
+            "incidents": [{**SAMPLE_INCIDENT, "id": "P1"}],
+            "more": True,
+        }
+        page2 = MagicMock()
+        page2.status_code = 200
+        page2.json.return_value = {
+            "incidents": [{**SAMPLE_INCIDENT, "id": "P2"}],
+            "more": False,
+        }
+        mock_get.side_effect = [page1, page2]
+
+        source = PagerDutySource(api_key="k", user_email="u@e.com")
+        issues = source.fetch_issues()
+
+        assert [issue.id for issue in issues] == ["P1", "P2"]
+        assert mock_get.call_count == 2
+        assert "offset=1" in mock_get.call_args_list[1].args[0]

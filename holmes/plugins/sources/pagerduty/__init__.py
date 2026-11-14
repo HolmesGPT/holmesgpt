@@ -34,18 +34,26 @@ class PagerDutySource(SourcePlugin):
             if self.incident_key:
                 query_params = f"{query_params}&incident_key={self.incident_key}"
 
-            response = requests.get(
-                f"{self.api_url}/incidents{query_params}", headers=headers
-            )
-            if response.status_code != 200:
-                print(f"Got response: {response}")
-                raise Exception(
-                    f"Failed to get issues: {response.status_code} {response.text}"
+            # PagerDuty returns at most `limit` incidents per page and sets `more` when there are more
+            incidents: List[dict] = []
+            while True:
+                response = requests.get(
+                    f"{self.api_url}/incidents{query_params}&limit=100&offset={len(incidents)}",
+                    headers=headers,
                 )
-            logging.debug(f"Got response: {response}")
-            response.raise_for_status()
-            data = response.json()
-            return [self.convert_to_issue(issue) for issue in data.get("incidents", [])]
+                if response.status_code != 200:
+                    print(f"Got response: {response}")
+                    raise Exception(
+                        f"Failed to get issues: {response.status_code} {response.text}"
+                    )
+                logging.debug(f"Got response: {response}")
+                response.raise_for_status()
+                data = response.json()
+                page = data.get("incidents", [])
+                incidents.extend(page)
+                if not data.get("more") or not page:
+                    break
+            return [self.convert_to_issue(issue) for issue in incidents]
         except requests.RequestException as e:
             raise ConnectionError("Failed to fetch data from PagerDuty.") from e
 
