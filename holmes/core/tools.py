@@ -4,7 +4,9 @@ import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -750,6 +752,62 @@ class YAMLTool(Tool, BaseModel):
             return output, 1
 
 
+PREREQ_KILL_GRACE_SECONDS = 5.0
+
+
+def _kill_process_tree(process: subprocess.Popen) -> None:
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def run_prerequisite_command(
+    command: str, timeout: float
+) -> subprocess.CompletedProcess:
+    """Run a shell command, killing it and all of its child processes on timeout.
+
+    On POSIX the command runs in its own session, so a timeout kills its whole
+    process group; on Windows the process tree is killed with taskkill. Either
+    way every process the shell started is killed, not only the shell itself.
+    Raises subprocess.TimeoutExpired on timeout and
+    subprocess.CalledProcessError on a non-zero exit code.
+    """
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(process)
+        try:
+            process.communicate(timeout=PREREQ_KILL_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "A timed-out prerequisite command left a process holding its output pipes"
+            )
+        raise
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(
+            process.returncode, command, output=stdout, stderr=stderr
+        )
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 class StaticPrerequisite(BaseModel):
     enabled: bool
     disabled_reason: str
@@ -1056,14 +1114,8 @@ class Toolset(BaseModel):
             if isinstance(prereq, ToolsetCommandPrerequisite):
                 try:
                     command = self.interpolate_command(prereq.command)
-                    result = subprocess.run(
-                        command,
-                        shell=True,
-                        check=True,
-                        text=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        timeout=get_prereq_timeout_seconds(),
+                    result = run_prerequisite_command(
+                        command, timeout=get_prereq_timeout_seconds()
                     )
                     if (
                         prereq.expected_output
