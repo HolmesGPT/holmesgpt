@@ -9,6 +9,10 @@ from holmes.plugins.interfaces import SourcePlugin
 from holmes.utils.markdown_utils import markdown_to_plain_text
 
 
+# PagerDuty rejects classic pagination requests where offset + limit exceeds 10000
+PAGERDUTY_MAX_INCIDENTS = 10000
+
+
 class PagerDutySource(SourcePlugin):
     def __init__(
         self, api_key: str, user_email: str, incident_key: Optional[str] = None
@@ -52,6 +56,12 @@ class PagerDutySource(SourcePlugin):
                 page = data.get("incidents", [])
                 incidents.extend(page)
                 if not data.get("more") or not page:
+                    break
+                if len(incidents) >= PAGERDUTY_MAX_INCIDENTS:
+                    logging.warning(
+                        f"PagerDuty has more than {PAGERDUTY_MAX_INCIDENTS} open incidents; "
+                        "stopping at the classic pagination limit"
+                    )
                     break
             return [self.convert_to_issue(issue) for issue in incidents]
         except requests.RequestException as e:
