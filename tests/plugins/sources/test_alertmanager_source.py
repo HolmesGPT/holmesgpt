@@ -24,3 +24,4 @@ def test_fetch_issues_without_severity_label(tmp_path):
     issues = source.fetch_issues()
 
     assert [issue.name for issue in issues] == ["MyAlert"]
+    assert issues[0].presentation_key_metadata.startswith("*Severity*: unknown\n")
