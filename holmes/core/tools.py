@@ -858,6 +858,10 @@ class Toolset(BaseModel):
     # multi-instance wrapper set ``self._is_core`` directly.
     _is_core: bool = PrivateAttr(default=False)
 
+    # Set when user config sets expose_remotely, so it wins over the
+    # toolset's locality heuristic for every instance that doesn't set its own.
+    _expose_remotely_explicit: bool = PrivateAttr(default=False)
+
     @property
     def is_core(self) -> bool:
         return self._is_core
@@ -903,6 +907,8 @@ class Toolset(BaseModel):
             if value in (None, [], {}, ""):
                 continue
             setattr(self, field, value)
+            if field == "expose_remotely":
+                self._expose_remotely_explicit = True
 
     @model_validator(mode="before")
     def warn_on_removed_restricted_tools(cls, values):

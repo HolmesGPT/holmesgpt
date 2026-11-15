@@ -59,6 +59,8 @@ config: |
   prometheus_url: http://<your-prometheus-service>:9090
 ```
 
+With the Robusta platform, Holmes in other clusters can query this cluster's in-cluster Prometheus instances. To choose which instances, see [Cross-Cluster Tools](../cross-cluster-tools.md#prometheus-and-other-multi-instance-toolsets).
+
 ## Specific Providers
 
 ### Coralogix Prometheus

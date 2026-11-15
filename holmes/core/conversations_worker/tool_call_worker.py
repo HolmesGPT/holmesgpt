@@ -475,15 +475,15 @@ class ToolCallWorker:
                 f"tool '{tool_name}' belongs to internal toolset '{toolset.name}' "
                 "and cannot run remotely"
             )
-        if not toolset.expose_remotely:
-            return _error_response(
-                f"toolset '{toolset.name}' is not exposed for remote execution"
-            )
-
         # Instance resolution: given -> must be exposed; omitted with exactly
         # one exposed instance -> default; omitted with several -> error.
         get_instances = getattr(toolset, "remote_exposed_instances", None)
         exposed = get_instances() if callable(get_instances) else None
+        is_exposed = bool(exposed) if exposed is not None else toolset.expose_remotely
+        if not is_exposed:
+            return _error_response(
+                f"toolset '{toolset.name}' is not exposed for remote execution"
+            )
         if exposed is not None:
             if instance:
                 if instance not in exposed:

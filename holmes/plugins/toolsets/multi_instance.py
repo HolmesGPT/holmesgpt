@@ -34,7 +34,7 @@ mTLS-as-a-pair global fall-through (see `_ATOMIC_GROUPS`).
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Type
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, TypeAdapter, ValidationError
 
 from holmes.core.tools import (
     CallablePrerequisite,
@@ -114,6 +114,23 @@ def _parse_instances(config: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]
         child_entry = {k: v for k, v in entry.items() if k != "name"}
         out.append((name, _merge_instance_config(globals_, child_entry)))
     return out
+
+
+EXPOSE_REMOTELY_KEY = "expose_remotely"
+_BOOL = TypeAdapter(bool)
+
+
+def _pop_exposure(name: str, flat: Dict[str, Any]) -> Optional[bool]:
+    """Remove an instance's `expose_remotely` from its child config and return it."""
+    if EXPOSE_REMOTELY_KEY not in flat:
+        return None
+    value = flat.pop(EXPOSE_REMOTELY_KEY)
+    try:
+        return _BOOL.validate_python(value)
+    except ValidationError:
+        raise ValueError(
+            f"instance '{name}': {EXPOSE_REMOTELY_KEY} must be true or false, got {value!r}"
+        )
 
 
 class _RoutingTool(Tool):
@@ -247,6 +264,7 @@ class MultiInstanceToolset(Toolset):
         self._child_cls = child_cls
         self._children: Dict[str, Toolset] = {}
         self._instance_configs: Dict[str, Dict[str, Any]] = {}
+        self._instance_exposure: Dict[str, Optional[bool]] = {}
         self._offline_instances: Dict[str, str] = {}
 
     # Config schema/example come from the child's config classes (the wrapper's own
@@ -266,17 +284,21 @@ class MultiInstanceToolset(Toolset):
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
-            instances = _parse_instances(config or {})
+            instances = [
+                (name, flat, _pop_exposure(name, flat))
+                for name, flat in _parse_instances(config or {})
+            ]
         except Exception as e:
             return False, f"Invalid {self.name} configuration: {e}"
 
         self._children = {}
         self._instance_configs = {}
+        self._instance_exposure = {}
         self._offline_instances = {}
         failures: List[str] = []
         successes: List[str] = []
 
-        for name, flat in instances:
+        for name, flat, exposure in instances:
             child = self._child_cls()
             self._forward_overrides(child)
             ok, msg = self._run_child_prerequisites(child, flat)
@@ -285,6 +307,7 @@ class MultiInstanceToolset(Toolset):
                 # separately so tools can't be silently called against them.
                 self._children[name] = child
                 self._instance_configs[name] = flat
+                self._instance_exposure[name] = exposure
                 successes.append(f"[{name}] {msg}".strip())
             else:
                 reason = msg or "prerequisite check failed"
@@ -298,15 +321,18 @@ class MultiInstanceToolset(Toolset):
 
     def remote_exposed_instances(self) -> Optional[List[str]]:
         """Healthy instance names that should be exposed for remote execution
-        (cross-cluster tool calls). Resolution per instance: the child's
-        locality heuristic (`remote_exposure_default`) wins when it has an
-        opinion, else fall back to the toolset-level `expose_remotely`.
-        Returns the list (possibly empty); the publish step skips the toolset
-        when it's empty. See design doc Business Logic B/C."""
+        (cross-cluster tool calls). Resolution per instance: the instance's own
+        `expose_remotely`, then the toolset-level value if the user set it,
+        then the child's locality heuristic (`remote_exposure_default`), then
+        the toolset's default. Returns the list (possibly empty); the publish
+        step skips the toolset when it's empty."""
         exposed: List[str] = []
         for name, child in self._children.items():
-            flat = self._instance_configs.get(name, {})
-            decision = child.remote_exposure_default(flat)
+            decision = self._instance_exposure.get(name)
+            if decision is None and self._expose_remotely_explicit:
+                decision = self.expose_remotely
+            if decision is None:
+                decision = child.remote_exposure_default(self._instance_configs.get(name, {}))
             if decision is None:
                 decision = self.expose_remotely
             if decision:
