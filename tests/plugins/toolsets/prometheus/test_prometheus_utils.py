@@ -23,7 +23,13 @@ class TestParseDurationToSeconds:
             ("2h", 7200.0),
             ("1d", 86400.0),
             # Decimal values with units
-            ("2.5s", 2.0),  # int(float(2.5) * 1) = 2
+            ("2.5s", 2.5),
+            # ms, w, y units; sub-second steps are kept
+            ("500ms", 0.5),
+            ("30000ms", 30.0),
+            ("1w", 604800.0),
+            ("1y", 31536000.0),
+            ("1m500ms", 60.5),
             ("1.5m", 90.0),  # int(float(1.5) * 60) = 90
             ("0.5h", 1800.0),  # int(float(0.5) * 3600) = 1800
             ("0.25d", 21600.0),  # int(float(0.25) * 86400) = 21600
