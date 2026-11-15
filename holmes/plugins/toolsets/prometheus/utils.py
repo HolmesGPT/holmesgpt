@@ -35,3 +35,8 @@ def parse_duration_to_seconds(v: Optional[Union[str, float, int]]) -> Optional[f
 
     # fallback: try float seconds
     return float(s)
+
+
+def format_step_for_prometheus(seconds: float) -> str:
+    # A float step like 1.001 is truncated by Prometheus to 1000999999ns (1000ms); "<n>ms" is exact.
+    return f"{round(seconds * 1000)}ms"

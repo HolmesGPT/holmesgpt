@@ -39,7 +39,10 @@ from holmes.plugins.toolsets.json_filter_mixin import JsonFilterMixin
 from holmes.plugins.toolsets.logging_utils.logging_api import (
     DEFAULT_GRAPH_TIME_SPAN_SECONDS,
 )
-from holmes.plugins.toolsets.prometheus.utils import parse_duration_to_seconds
+from holmes.plugins.toolsets.prometheus.utils import (
+    format_step_for_prometheus,
+    parse_duration_to_seconds,
+)
 from holmes.plugins.toolsets.service_discovery import PrometheusDiscovery
 from holmes.plugins.toolsets.utils import (
     get_param_or_raise,
@@ -1867,7 +1870,7 @@ class ExecuteRangeQuery(BasePrometheusTool):
                 "query": query,
                 "start": start,
                 "end": end,
-                "step": step,
+                "step": format_step_for_prometheus(step),
             }
 
             timeout = self._query_timeout(params)

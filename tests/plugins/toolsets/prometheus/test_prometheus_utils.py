@@ -1,6 +1,9 @@
 import pytest
 
-from holmes.plugins.toolsets.prometheus.utils import parse_duration_to_seconds
+from holmes.plugins.toolsets.prometheus.utils import (
+    format_step_for_prometheus,
+    parse_duration_to_seconds,
+)
 
 
 class TestParseDurationToSeconds:
@@ -82,3 +85,12 @@ class TestParseDurationToSeconds:
         # These should raise ValueError when trying to convert to float
         with pytest.raises(ValueError):
             parse_duration_to_seconds(invalid_input)
+
+
+@pytest.mark.parametrize(
+    "seconds,expected",
+    [(1.001, "1001ms"), (2.5, "2500ms"), (60.0, "60000ms"), (0.001, "1ms")],
+)
+def test_format_step_for_prometheus_keeps_millisecond(seconds, expected):
+    # Prometheus truncates a float step like 1.001 to 1000999999ns (1000ms); a "<n>ms" string is exact.
+    assert format_step_for_prometheus(seconds) == expected
