@@ -107,30 +107,49 @@ before_test: |
   echo "🔍 Checking all pods status"
   kubectl get pods -n app-174
 
-  echo "⏰ Waiting for ad traffic to produce traces..."
-  TRAFFIC_READY=false
-
-  echo "⏳ Waiting for at least 10 traces in Coralogix (poll every 5s)"
+  echo "⏳ Waiting for at least 10 ad-service spans in Coralogix (poll every 5s)"
+  # Only a 200 with too few spans means "still waiting". Anything else (bad key,
+  # rate limit, query error, network failure) fails now with the response body,
+  # because retrying cannot fix it and a silent 0 hides the cause.
+  CORALOGIX_RESPONSE=$(mktemp)
+  trap 'rm -f "$CORALOGIX_RESPONSE"' EXIT
   TRACES_READY=false
   for i in {1..60}; do
-    TRACE_COUNT=$(curl -s -X POST "https://ng-api-http.eu2.coralogix.com/api/v1/dataprime/query" \
+    CURL_RC=0
+    HTTP_CODE=$(curl -sS --max-time 20 -o "$CORALOGIX_RESPONSE" -w '%{http_code}' \
+      -X POST "https://ng-api-http.eu2.coralogix.com/api/v1/dataprime/query" \
       -H "Authorization: Bearer ${CORALOGIX_API_KEY}" \
       -H "Content-Type: application/json" \
-      -d '{"query": "source spans | lucene '\''app-174 AND ad-service'\'' | limit 50"}' \
-      | grep -o 'traceID' | wc -l)
+      -d '{"query": "source spans | lucene '\''app-174 AND ad-service'\'' | limit 50"}') || CURL_RC=$?
 
-    if [ "$TRACE_COUNT" -ge 10 ]; then
-      echo "✅ Found $TRACE_COUNT traces in Coralogix"
+    if [ "$CURL_RC" -ne 0 ] || [ "$HTTP_CODE" != "200" ]; then
+      echo "❌ Coralogix DataPrime query failed on attempt $i/60: HTTP ${HTTP_CODE}, curl exit ${CURL_RC}"
+      if [ -s "$CORALOGIX_RESPONSE" ]; then
+        echo "Response body (first 2000 bytes):"
+        head -c 2000 "$CORALOGIX_RESPONSE"
+        echo
+      else
+        echo "Response body: (empty)"
+      fi
+      exit 1
+    fi
+
+    SPAN_COUNT=$(grep -o 'traceID' "$CORALOGIX_RESPONSE" | wc -l)
+    if [ "$SPAN_COUNT" -ge 10 ]; then
+      echo "✅ Found $SPAN_COUNT spans in Coralogix"
       TRACES_READY=true
       break
     fi
 
-    echo "⏳ Attempt $i/60: traces found=$TRACE_COUNT"
+    echo "⏳ Attempt $i/60: HTTP 200, spans found=$SPAN_COUNT"
     sleep 5
   done
 
   if [ "$TRACES_READY" = false ]; then
-    echo "❌ Did not see 10 traces in Coralogix within timeout"
+    echo "❌ Coralogix answered every query with HTTP 200 but fewer than 10 spans after 60 attempts"
+    echo "Last response body (first 2000 bytes):"
+    head -c 2000 "$CORALOGIX_RESPONSE"
+    echo
     exit 1
   fi
 
