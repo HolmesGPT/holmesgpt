@@ -783,6 +783,7 @@ class TestMCPGeneral:
         assert source["url"] == "http://localhost:1234"
         assert source["config"] == {"mode": "sse"}
         assert first.config["url"] == second.config["url"] == "http://localhost:1234"
+        assert "'url' field has been migrated to config" in caplog.text
         assert "has two urls defined" not in caplog.text
 
     def test_no_url_returns_false(self):
