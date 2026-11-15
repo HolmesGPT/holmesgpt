@@ -27,6 +27,7 @@ from typing import (
 
 from jinja2 import Template
 
+from holmes.common.env_vars import get_prereq_timeout_seconds
 from holmes.core.json_schema_coerce import coerce_params
 from requests.structures import CaseInsensitiveDict
 from pydantic import (
@@ -1062,6 +1063,7 @@ class Toolset(BaseModel):
                         text=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        timeout=get_prereq_timeout_seconds(),
                     )
                     if (
                         prereq.expected_output
@@ -1075,6 +1077,11 @@ class Toolset(BaseModel):
                     detail = f": {stderr}" if stderr else ""
                     local_error = (
                         f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
+                    )
+                except subprocess.TimeoutExpired as e:
+                    local_status = ToolsetStatusEnum.FAILED
+                    local_error = (
+                        f"`{prereq.command}` timed out after {e.timeout:g} seconds"
                     )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):

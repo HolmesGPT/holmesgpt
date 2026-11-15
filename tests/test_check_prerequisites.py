@@ -1,11 +1,14 @@
 # type: ignore
 import os
 import subprocess
+import sys
+import time
 from typing import Any, Dict, List
 from unittest.mock import Mock, call, patch
 
 import pytest
 
+from holmes.common.env_vars import DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
 from holmes.core.tools import (
     CallablePrerequisite,
     StaticPrerequisite,
@@ -87,6 +90,7 @@ def test_check_prerequisites_command_success(mock_subprocess_run):
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        timeout=DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS,
     )
 
 
@@ -111,6 +115,64 @@ def test_check_prerequisites_command_failure(mock_subprocess_run):
     toolset = SampleToolset(prerequisites=[prereq])
     toolset.check_prerequisites()
     assert toolset.status == ToolsetStatusEnum.FAILED
+
+
+@patch("subprocess.run")
+def test_check_prerequisites_command_timeout(mock_subprocess_run):
+    mock_subprocess_run.side_effect = subprocess.TimeoutExpired(
+        cmd="argocd version", timeout=20.0
+    )
+    prereq = ToolsetCommandPrerequisite(command="argocd version")
+    toolset = SampleToolset(prerequisites=[prereq])
+    toolset.check_prerequisites()
+    assert toolset.status == ToolsetStatusEnum.FAILED
+    assert toolset.error == "`argocd version` timed out after 20 seconds"
+
+
+@patch("subprocess.run")
+def test_check_prerequisites_command_timeout_uses_env_override(mock_subprocess_run):
+    mock_subprocess_run.return_value = Mock(stdout="output", returncode=0)
+    with patch.dict(os.environ, {"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS": "3.5"}):
+        toolset = SampleToolset(
+            prerequisites=[ToolsetCommandPrerequisite(command="my_command")]
+        )
+        toolset.check_prerequisites()
+    assert mock_subprocess_run.call_args.kwargs["timeout"] == 3.5
+
+
+@patch("subprocess.run")
+def test_check_prerequisites_command_timeout_does_not_leak_interpolated_secret(
+    mock_subprocess_run,
+):
+    mock_subprocess_run.side_effect = subprocess.TimeoutExpired(
+        cmd="curl -H 'Authorization: s3cr3t'", timeout=20.0
+    )
+    with patch.dict(os.environ, {"MY_TOKEN": "s3cr3t"}, clear=True):
+        prereq = ToolsetCommandPrerequisite(
+            command="curl -H 'Authorization: $MY_TOKEN'"
+        )
+        toolset = SampleToolset(prerequisites=[prereq])
+        toolset.check_prerequisites()
+    assert toolset.status == ToolsetStatusEnum.FAILED
+    assert "s3cr3t" not in toolset.error
+    assert "$MY_TOKEN" in toolset.error
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="cmd.exe keeps the child as a grandchild holding the pipes; POSIX "
+    "sh execs a single command, so the kill reaches it directly",
+)
+def test_check_prerequisites_hung_command_is_killed():
+    hang = f'"{sys.executable}" -c "import time; time.sleep(60)"'
+    with patch.dict(os.environ, {"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS": "1"}):
+        toolset = SampleToolset(prerequisites=[ToolsetCommandPrerequisite(command=hang)])
+        start = time.monotonic()
+        toolset.check_prerequisites()
+        elapsed = time.monotonic() - start
+    assert toolset.status == ToolsetStatusEnum.FAILED
+    assert "timed out after 1 seconds" in toolset.error
+    assert elapsed < 30
 
 
 @patch.dict(os.environ, {"EXISTING_VAR": "value"}, clear=True)
@@ -186,6 +248,7 @@ def test_check_prerequisites_command_uses_interpolate_command(mock_subprocess_ru
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS,
         )
     assert toolset.status == ToolsetStatusEnum.ENABLED
 
@@ -222,6 +285,7 @@ def test_check_prerequisites_multiple_all_types_success(mock_subprocess_run):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS,
         ),
         call(
             "cmd2",
@@ -230,6 +294,7 @@ def test_check_prerequisites_multiple_all_types_success(mock_subprocess_run):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS,
         ),
         call(
             "cmd3",
@@ -238,6 +303,7 @@ def test_check_prerequisites_multiple_all_types_success(mock_subprocess_run):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            timeout=DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS,
         ),
     ]
     mock_subprocess_run.assert_has_calls(expected_subprocess_calls, any_order=False)
