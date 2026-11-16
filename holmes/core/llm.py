@@ -276,6 +276,92 @@ def _strip_strict_schema_from_tools(
     return stripped
 
 
+def _is_groq_route(litellm_model_name: str, args: Dict[str, Any]) -> bool:
+    """True if litellm sends this model to Groq (e.g. `groq/openai/gpt-oss-120b`)."""
+    custom_llm_provider = args.get("custom_llm_provider")
+    if custom_llm_provider == "groq":
+        return True
+    try:
+        _, provider, _, _ = litellm.get_llm_provider(
+            model=litellm_model_name, custom_llm_provider=custom_llm_provider
+        )
+    except Exception:
+        # Unknown to litellm: the completion call will raise its own error.
+        return False
+    return provider == "groq"
+
+
+def _is_nullable_schema(schema: Any) -> bool:
+    """True for an `anyOf` with a null branch, which is how strict mode marks optional parameters."""
+    if not isinstance(schema, dict):
+        return False
+    branches = schema.get("anyOf")
+    return isinstance(branches, list) and any(
+        isinstance(branch, dict) and branch.get("type") == "null" for branch in branches
+    )
+
+
+def _drop_nullable_from_required(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy of the schema whose `required` lists leave out nullable properties, at every level."""
+    schema = dict(schema)
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        required = schema.get("required")
+        if isinstance(required, list):
+            schema["required"] = [
+                name
+                for name in required
+                if not _is_nullable_schema(properties.get(name))
+            ]
+        schema["properties"] = {
+            name: _drop_nullable_from_required(prop) if isinstance(prop, dict) else prop
+            for name, prop in properties.items()
+        }
+    items = schema.get("items")
+    if isinstance(items, dict):
+        schema["items"] = _drop_nullable_from_required(items)
+    for keyword in ("anyOf", "oneOf"):
+        branches = schema.get(keyword)
+        if isinstance(branches, list):
+            schema[keyword] = [
+                _drop_nullable_from_required(branch)
+                if isinstance(branch, dict)
+                else branch
+                for branch in branches
+            ]
+    return schema
+
+
+def _relax_strict_schema_for_groq(
+    tools: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Return strict tools with their optional parameters no longer required, leaving the caller's dicts untouched.
+
+    Strict mode lists every parameter in `required` and makes the optional ones
+    nullable, which relies on the provider forcing the model to fill in every
+    field. Groq checks each tool call against the schema after the model has
+    written it, so a call that leaves an optional parameter out is rejected
+    (#2217: "missing properties: 'start_time', 'end_time', 'exclude_filter'").
+    For tools sent with `strict`, this drops `strict` and takes the nullable
+    parameters out of `required`, in nested objects and array items too. The
+    nullable types and `additionalProperties: false` stay, so the model can
+    still send null and unknown keys are still refused. Tools built without
+    strict already list only their real required parameters and are left as
+    they are.
+    """
+    relaxed: List[Dict[str, Any]] = []
+    for tool in tools:
+        function = tool.get("function") if isinstance(tool, dict) else None
+        if isinstance(function, dict) and function.get("strict"):
+            new_function = {k: v for k, v in function.items() if k != "strict"}
+            parameters = new_function.get("parameters")
+            if isinstance(parameters, dict):
+                new_function["parameters"] = _drop_nullable_from_required(parameters)
+            tool = {**tool, "function": new_function}
+        relaxed.append(tool)
+    return relaxed
+
+
 class ContextWindowUsage(BaseModel):
     total_tokens: int
     tools_tokens: int
@@ -972,6 +1058,8 @@ class DefaultLLM(LLM):
 
         if "tools" in tools_args and _is_bedrock_route(litellm_model_name, self.args):
             tools_args["tools"] = _strip_strict_schema_from_tools(tools_args["tools"])
+        elif "tools" in tools_args and _is_groq_route(litellm_model_name, self.args):
+            tools_args["tools"] = _relax_strict_schema_for_groq(tools_args["tools"])
 
         # When Azure AD (Entra ID) token auth is enabled, obtain a cached token
         # and pass it to litellm instead of an API key.

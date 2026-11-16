@@ -105,6 +105,8 @@ When set to `true`, disables strict tool calling for all models. By default, str
 
 Tools with dynamic-key parameters (`additionalProperties` with a schema, e.g., filter maps) are automatically excluded from strict mode on a per-tool basis, since both OpenAI and Anthropic require `additionalProperties: false` on all objects in strict mode.
 
+Groq models (`groq/<model>`) are sent their tools without `strict` and with optional parameters left out of `required`, because Groq rejects a tool call that leaves out a parameter listed as required.
+
 **Example:**
 ```bash
 export HOLMES_DISABLE_STRICT_TOOL_CALLS=true
