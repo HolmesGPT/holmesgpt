@@ -276,14 +276,19 @@ def _strip_strict_schema_from_tools(
     return stripped
 
 
-def _is_groq_route(litellm_model_name: str, args: Dict[str, Any]) -> bool:
-    """True if litellm sends this model to Groq (e.g. `groq/openai/gpt-oss-120b`)."""
+def _is_groq_route(
+    litellm_model_name: str, args: Dict[str, Any], api_base: Optional[str] = None
+) -> bool:
+    """True if litellm sends this model to Groq: a `groq/` model, `custom_llm_provider: groq`,
+    or a bare model name served from Groq's api_base."""
     custom_llm_provider = args.get("custom_llm_provider")
     if custom_llm_provider == "groq":
         return True
     try:
         _, provider, _, _ = litellm.get_llm_provider(
-            model=litellm_model_name, custom_llm_provider=custom_llm_provider
+            model=litellm_model_name,
+            custom_llm_provider=custom_llm_provider,
+            api_base=api_base,
         )
     except Exception:
         # Unknown to litellm: the completion call will raise its own error.
@@ -1058,7 +1063,9 @@ class DefaultLLM(LLM):
 
         if "tools" in tools_args and _is_bedrock_route(litellm_model_name, self.args):
             tools_args["tools"] = _strip_strict_schema_from_tools(tools_args["tools"])
-        elif "tools" in tools_args and _is_groq_route(litellm_model_name, self.args):
+        elif "tools" in tools_args and _is_groq_route(
+            litellm_model_name, self.args, self.api_base
+        ):
             tools_args["tools"] = _relax_strict_schema_for_groq(tools_args["tools"])
 
         # When Azure AD (Entra ID) token auth is enabled, obtain a cached token

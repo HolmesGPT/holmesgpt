@@ -186,6 +186,34 @@ def test_other_providers_keep_strict_schema(mock_completion, strict_tools, model
     assert sent == tool
 
 
+@pytest.mark.parametrize(
+    "api_base,relaxed",
+    [
+        ("https://api.groq.com/openai/v1", True),
+        ("https://api.openai.com/v1", False),
+    ],
+)
+def test_bare_model_name_routed_by_api_base(
+    mock_completion, strict_tools, api_base, relaxed
+):
+    # litellm sends a bare model name to Groq when the api_base is Groq's.
+    llm = _make_llm("llama-3.3-70b-versatile")
+    llm.api_base = api_base
+    llm.completion(
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[_fetch_pod_logs_tool()],
+        tool_choice="auto",
+    )
+
+    sent = _sent_tools(mock_completion)[0]["function"]
+    if relaxed:
+        assert "strict" not in sent
+        assert sent["parameters"]["required"] == ["pod_name", "namespace"]
+    else:
+        assert sent["strict"] is True
+        assert len(sent["parameters"]["required"]) == 7
+
+
 def test_relax_keeps_non_nullable_params_and_passes_other_entries_through():
     tool = {
         "type": "function",
