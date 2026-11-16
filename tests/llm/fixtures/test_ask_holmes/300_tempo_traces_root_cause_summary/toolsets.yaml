@@ -1,0 +1,10 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  kubernetes/logs:
+    enabled: false
+  grafana/tempo:
+    enabled: true
+    config:
+      api_url: http://localhost:3300
+      healthcheck: "ready"

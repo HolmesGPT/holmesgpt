@@ -1,0 +1,122 @@
+# Prometheus scraping the kubelet's cAdvisor endpoint (through the API server
+# proxy), so per-pod CPU and memory series exist without kube-prometheus-stack.
+# Only series from namespace app-305 are kept. The ClusterRole/Binding are
+# cluster-scoped and are removed explicitly in after_test.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: app-305
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: app-305-prometheus
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "nodes/proxy", "nodes/metrics"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: app-305-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: app-305-prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: app-305
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: app-305
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+      evaluation_interval: 10s
+    scrape_configs:
+    - job_name: kubernetes-cadvisor
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      authorization:
+        credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      kubernetes_sd_configs:
+      - role: node
+      relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+      metric_relabel_configs:
+      - source_labels: [namespace]
+        regex: app-305
+        action: keep
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: app-305
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: prometheus }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v3.5.0
+        args:
+          - "--config.file=/etc/prometheus/prometheus.yml"
+          - "--storage.tsdb.path=/prom"
+        ports:
+        - containerPort: 9090
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          periodSeconds: 3
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        volumeMounts:
+        - name: cfg
+          mountPath: /etc/prometheus
+        - name: data
+          mountPath: /prom
+      volumes:
+      - name: cfg
+        configMap:
+          name: prometheus-config
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: app-305
+spec:
+  selector: { app: prometheus }
+  ports:
+  - name: http
+    port: 9090
+    targetPort: http
