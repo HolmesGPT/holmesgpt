@@ -261,3 +261,30 @@ def test_relax_keeps_non_nullable_params_and_passes_other_entries_through():
     assert relaxed[1:3] == ["not-a-dict", {"type": "browser_search"}]
     assert relaxed[3] == loose
     assert [tool, loose] == original
+
+
+def test_relax_handles_nullable_type_lists():
+    # Frontend tools keep the client's raw schema, which can mark an optional
+    # field with a "type" list containing "null" instead of anyOf.
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "frontend_tool",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "note": {"type": ["string", "null"]},
+                },
+                "required": ["id", "note"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+    relaxed = _relax_strict_schema_for_groq([tool])[0]["function"]
+
+    assert "strict" not in relaxed
+    assert relaxed["parameters"]["required"] == ["id"]
+    assert relaxed["parameters"]["properties"]["note"] == {"type": ["string", "null"]}

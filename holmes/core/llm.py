@@ -297,9 +297,14 @@ def _is_groq_route(
 
 
 def _is_nullable_schema(schema: Any) -> bool:
-    """True for an `anyOf` with a null branch, which is how strict mode marks optional parameters."""
+    """True for a schema that accepts null: an `anyOf` with a null branch, which is how
+    strict mode marks optional parameters, or a `type` list containing "null", as raw
+    frontend tool schemas may use."""
     if not isinstance(schema, dict):
         return False
+    types = schema.get("type")
+    if isinstance(types, list) and "null" in types:
+        return True
     branches = schema.get("anyOf")
     return isinstance(branches, list) and any(
         isinstance(branch, dict) and branch.get("type") == "null" for branch in branches
