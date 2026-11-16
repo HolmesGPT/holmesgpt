@@ -17,115 +17,50 @@ The examples below lead with the Anthropic option and include a GPT deployment a
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "azure-opus-4-7"  # This refers to the key name in modelList below
 
-    **Anthropic models (recommended):**
+# Configure at least one model using modelList
+modelList:
+  # Anthropic model on Azure AI Foundry (recommended)
+  azure-opus-4-7:
+    api_key: "{{ env.AZURE_API_KEY }}"
+    model: anthropic/claude-opus-4-7
+    api_base: https://XXXX.services.ai.azure.com/anthropic
+    temperature: 1
 
-    ```bash
-    export AZURE_API_KEY="your-azure-api-key"
-    export AZURE_API_BASE="https://XXXX.services.ai.azure.com/anthropic"
+  # Azure OpenAI-style deployment (e.g. GPT-5.4)
+  azure-gpt-5-4:
+    api_key: "{{ env.AZURE_API_KEY }}"
+    model: azure/my-gpt-5.4-deployment
+    api_base: https://YYYY.cognitiveservices.azure.com/
+    api_version: "2025-04-01-preview"
+---
+secret:
+  - --from-literal=AZURE_API_KEY="your-azure-api-key"
+cli: |
+  **Anthropic models (recommended):**
 
-    holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-7"
-    ```
+  ```bash
+  export AZURE_API_KEY="your-azure-api-key"
+  export AZURE_API_BASE="https://XXXX.services.ai.azure.com/anthropic"
 
-    **Azure OpenAI deployments:**
+  holmes ask "what pods are failing?" --model="anthropic/claude-opus-4-7"
+  ```
 
-    ```bash
-    export AZURE_API_KEY="your-azure-api-key"
-    export AZURE_API_BASE="https://YYYY.cognitiveservices.azure.com/"
-    export AZURE_API_VERSION="2025-04-01-preview"
+  **Azure OpenAI deployments:**
 
-    holmes ask "what pods are failing?" --model="azure/<your-deployment-name>"
-    ```
+  ```bash
+  export AZURE_API_KEY="your-azure-api-key"
+  export AZURE_API_BASE="https://YYYY.cognitiveservices.azure.com/"
+  export AZURE_API_VERSION="2025-04-01-preview"
 
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-azure-ai-foundry \
-      --from-literal=AZURE_API_KEY="your-azure-api-key" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-azure-ai-foundry
-
-    additionalEnvVars:
-      # Optional: Set default model (use modelList key name)
-      - name: MODEL
-        value: "azure-opus-4-7"  # This refers to the key name in modelList below
-
-    # Configure at least one model using modelList
-    modelList:
-      # Anthropic model on Azure AI Foundry (recommended)
-      azure-opus-4-7:
-        api_key: "{{ env.AZURE_API_KEY }}"
-        model: anthropic/claude-opus-4-7
-        api_base: https://XXXX.services.ai.azure.com/anthropic
-        temperature: 1
-
-      # Azure OpenAI-style deployment (e.g. GPT-5.4)
-      azure-gpt-5-4:
-        api_key: "{{ env.AZURE_API_KEY }}"
-        model: azure/my-gpt-5.4-deployment
-        api_base: https://YYYY.cognitiveservices.azure.com/
-        api_version: "2025-04-01-preview"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-azure-ai-foundry \
-      --from-literal=AZURE_API_KEY="your-azure-api-key" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-azure-ai-foundry
-
-      additionalEnvVars:
-        # Optional: Set default model (use modelList key name)
-        - name: MODEL
-          value: "azure-opus-4-7"  # This refers to the key name in modelList below
-
-      # Configure at least one model using modelList
-      modelList:
-        # Anthropic model on Azure AI Foundry (recommended)
-        azure-opus-4-7:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: anthropic/claude-opus-4-7
-          api_base: https://XXXX.services.ai.azure.com/anthropic
-          temperature: 1
-
-        # Azure OpenAI-style deployment (e.g. GPT-5.4)
-        azure-gpt-5-4:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: azure/my-gpt-5.4-deployment
-          api_base: https://YYYY.cognitiveservices.azure.com/
-          api_version: "2025-04-01-preview"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  holmes ask "what pods are failing?" --model="azure/<your-deployment-name>"
+  ```
+```
 
 ## Using CLI Parameters
 
@@ -256,94 +191,39 @@ az identity federated-credential create \
 
 Note that `api_key` is omitted from the `modelList` entries — authentication is handled entirely by the workload identity token.
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+additionalEnvVars:
+  - name: AZURE_AD_TOKEN_AUTH
+    value: "true"
+  - name: AZURE_CLIENT_ID
+    value: "<managed-identity-client-id>"
+  - name: AZURE_TENANT_ID
+    value: "<tenant-id>"
+  - name: MODEL
+    value: "azure-opus-4-7"
 
-    Holmes runs as the service account `holmes-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account) in the deployment `holmes-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: "<managed-identity-client-id>"
 
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
+commonLabels:
+  azure.workload.identity/use: "true"
 
-    ```yaml
-    additionalEnvVars:
-      - name: AZURE_AD_TOKEN_AUTH
-        value: "true"
-      - name: AZURE_CLIENT_ID
-        value: "<managed-identity-client-id>"
-      - name: AZURE_TENANT_ID
-        value: "<tenant-id>"
-      - name: MODEL
-        value: "azure-opus-4-7"
+modelList:
+  # Anthropic model on Azure AI Foundry (recommended)
+  azure-opus-4-7:
+    model: anthropic/claude-opus-4-7
+    api_base: https://XXXX.services.ai.azure.com/anthropic
+    temperature: 1
 
-    serviceAccount:
-      annotations:
-        azure.workload.identity/client-id: "<managed-identity-client-id>"
-
-    commonLabels:
-      azure.workload.identity/use: "true"
-
-    modelList:
-      # Anthropic model on Azure AI Foundry (recommended)
-      azure-opus-4-7:
-        model: anthropic/claude-opus-4-7
-        api_base: https://XXXX.services.ai.azure.com/anthropic
-        temperature: 1
-
-      # Azure OpenAI-style deployment (e.g. GPT-5.4)
-      azure-gpt-5-4:
-        model: azure/my-gpt-5.4-deployment
-        api_base: https://YYYY.cognitiveservices.azure.com/
-        api_version: "2025-04-01-preview"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Holmes runs as the service account `robusta-holmes-service-account` (the chart's default; if you set `customServiceAccountName`, it runs as that name, and with `createServiceAccount: false`, as the namespace's `default` service account) in the deployment `robusta-holmes`. Use them as `<service-account>` and `<holmes-deployment>` on this page.
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: AZURE_AD_TOKEN_AUTH
-          value: "true"
-        - name: AZURE_CLIENT_ID
-          value: "<managed-identity-client-id>"
-        - name: AZURE_TENANT_ID
-          value: "<tenant-id>"
-        - name: MODEL
-          value: "azure-opus-4-7"
-
-      serviceAccount:
-        annotations:
-          azure.workload.identity/client-id: "<managed-identity-client-id>"
-
-      commonLabels:
-        azure.workload.identity/use: "true"
-
-      modelList:
-        # Anthropic model on Azure AI Foundry (recommended)
-        azure-opus-4-7:
-          model: anthropic/claude-opus-4-7
-          api_base: https://XXXX.services.ai.azure.com/anthropic
-          temperature: 1
-
-        # Azure OpenAI-style deployment (e.g. GPT-5.4)
-        azure-gpt-5-4:
-          model: azure/my-gpt-5.4-deployment
-          api_base: https://YYYY.cognitiveservices.azure.com/
-          api_version: "2025-04-01-preview"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  # Azure OpenAI-style deployment (e.g. GPT-5.4)
+  azure-gpt-5-4:
+    model: azure/my-gpt-5.4-deployment
+    api_base: https://YYYY.cognitiveservices.azure.com/
+    api_version: "2025-04-01-preview"
+---
+deployment-values: [service-account, holmes-deployment]
+```
 
 ### Troubleshooting
 

@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: invoice-renderer-script
+  namespace: app-305
+type: Opaque
+stringData:
+  render.sh: |
+    #!/bin/sh
+    echo "invoice renderer started"
+    n=0
+    while true; do
+      head -c 2000000 /dev/urandom | md5sum > /dev/null
+      n=$((n + 1))
+      echo "rendered invoice batch $n"
+      sleep 3
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invoice-renderer
+  namespace: app-305
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: invoice-renderer
+  template:
+    metadata:
+      labels:
+        app: invoice-renderer
+    spec:
+      containers:
+      - name: renderer
+        image: busybox:1.36
+        command: ["/bin/sh", "/scripts/render.sh"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+      volumes:
+      - name: script
+        secret:
+          secretName: invoice-renderer-script
+          defaultMode: 0755

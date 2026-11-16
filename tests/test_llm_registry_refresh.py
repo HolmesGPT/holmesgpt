@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from holmes.clients.robusta_client import RobustaModel, RobustaModelsResponse
+from holmes.common.env_vars import ROBUSTA_API_ENDPOINT
 from holmes.config import Config
 from holmes.core.llm import ROBUSTA_AI_MODEL_NAME, LLMModelRegistry, ModelEntry
 from holmes.utils.holmes_status import update_holmes_status_in_db
@@ -51,6 +52,7 @@ def _dal() -> MagicMock:
     dal = MagicMock()
     dal.account_id = "account-id"
     dal.enabled = True
+    dal.api_endpoint = ROBUSTA_API_ENDPOINT
     dal.get_ai_credentials.return_value = ("account-id", "token")
     return dal
 

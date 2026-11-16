@@ -1,0 +1,65 @@
+description: |
+  Prometheus port of 91e_datadog_custom_metrics. myapp exposes its own cache
+  metrics on /metrics, scraped by a self-hosted Prometheus alongside the
+  kubelet's cAdvisor metrics. The user asks about "cache performance" without
+  naming a metric; the hit-ratio gauge is called myapp_lru_cache_hit_ratio, a
+  name that can't be guessed from the prompt, so Holmes has to discover it in
+  Prometheus and graph it.
+
+user_prompt:
+  - "Show me the cache performance metrics for myapp in namespace app-307"
+  - "Can you display a graph of cache hit statistics for the myapp pod in app-307?"
+
+expected_output:
+  - 'Output must contain 1 or more embeds in the following format: << {"type": "promql", "tool_name": "execute_prometheus_range_query", "tool_call_id": "<random_value>"} >>. tool_call_id may be any random-looking key, but type and tool_name must be exactly as shown.'
+  - "The response must show that Holmes discovered and queried the custom metric myapp_lru_cache_hit_ratio"
+  - "Output must NOT say it cannot find metrics, that no cache metrics are available, or that it doesn't have access to metrics"
+
+tags:
+  - prometheus
+  - metrics
+  - embeds
+  - kubernetes
+
+test_type: server
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-307
+    service: prometheus
+    local_port: 10307
+    remote_port: 9090
+
+before_test: |
+  set -e
+  kubectl create namespace app-307 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f manifest.yaml
+  kubectl apply -f prometheus.yaml
+
+  kubectl rollout status deployment/myapp -n app-307 --timeout=180s
+  kubectl rollout status deployment/prometheus -n app-307 --timeout=180s
+
+  # The needle: the custom hit-ratio gauge has a few scraped samples, so a
+  # range query over it renders a graph.
+  VERIFIED=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n app-307 deployment/prometheus -- promtool query instant http://localhost:9090 \
+        'count_over_time(myapp_lru_cache_hit_ratio{namespace="app-307"}[5m]) >= 3' 2>/dev/null | grep -q '=>'; then
+      VERIFIED=true
+      echo "myapp_lru_cache_hit_ratio is queryable (attempt $i)"
+      break
+    fi
+    sleep 1
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "myapp_lru_cache_hit_ratio never reached Prometheus"
+    kubectl exec -n app-307 deployment/prometheus -- wget -q -O- http://localhost:9090/api/v1/targets | head -c 3000 || true
+    kubectl logs -n app-307 deployment/myapp --tail=20 || true
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-307 --ignore-not-found
+  kubectl delete clusterrolebinding app-307-prometheus --ignore-not-found
+  kubectl delete clusterrole app-307-prometheus --ignore-not-found

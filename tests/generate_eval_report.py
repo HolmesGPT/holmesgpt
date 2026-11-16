@@ -9,6 +9,18 @@ from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional, Set
 from urllib.parse import quote
 
+from tests.llm.utils.reporting.infra_errors import (
+    InfraError,
+    classify_result_infra_error,
+)
+from tests.llm.utils.reporting.skill_check import (
+    SKILL_CHECK_MARKER,
+    SkillCheckFailure,
+    classify_skill_check_failure,
+    failure_message,
+    judge_verdict,
+    suggested_skill_titles,
+)
 from tests.llm.utils.test_env_vars import (
     BRAINTRUST_API_KEY,
     BRAINTRUST_ORG,
@@ -67,12 +79,38 @@ def get_model_display_name(model_name: str) -> str:
     return model_name
 
 
+def merge_user_properties(test: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten pytest-json-report's list of one-key dicts into one dict."""
+    props: Dict[str, Any] = {}
+    for prop in test.get("user_properties", []):
+        if isinstance(prop, dict):
+            props.update(prop)
+    return props
+
+
+def get_test_infra_error(test: Dict[str, Any]) -> Optional[InfraError]:
+    """Provider/timeout failure of a run that never produced a model answer."""
+    if test.get("outcome") in ("passed", "skipped"):
+        return None
+    return classify_result_infra_error(merge_user_properties(test))
+
+
+def get_test_skill_check_failure(test: Dict[str, Any]) -> Optional[SkillCheckFailure]:
+    """Skill-suggestion check that failed this run, if any (still a failure)."""
+    if test.get("outcome") != "failed":
+        return None
+    return classify_skill_check_failure(
+        merge_user_properties(test), failure_message(test.get("call"))
+    )
+
+
 def calculate_success_rate(
     passed: int,
     total: int,
     skipped: int = 0,
     setup_failures: int = 0,
     mock_failures: int = 0,
+    infra_errors: int = 0,
 ) -> float:
     """Calculate success rate using consistent formula across all metrics.
 
@@ -82,11 +120,12 @@ def calculate_success_rate(
         skipped: Number of skipped tests
         setup_failures: Number of setup failures
         mock_failures: Number of mock failures
+        infra_errors: Number of provider errors/timeouts (model never answered)
 
     Returns:
         Success rate percentage (0-100), or 0 if no valid tests
     """
-    valid_tests = total - skipped - setup_failures - mock_failures
+    valid_tests = total - skipped - setup_failures - mock_failures - infra_errors
     if valid_tests > 0:
         return (passed / valid_tests) * 100
     return 0
@@ -115,6 +154,7 @@ def format_test_cell(
     skipped: int = 0,
     setup_failures: int = 0,
     mock_failures: int = 0,
+    infra_errors: int = 0,
 ) -> str:
     """Format a test result cell with emoji and percentage.
 
@@ -124,6 +164,7 @@ def format_test_cell(
         skipped: Number of skipped tests
         setup_failures: Number of setup failures
         mock_failures: Number of mock failures
+        infra_errors: Number of provider errors/timeouts
 
     Returns:
         Formatted string for the table cell
@@ -132,8 +173,10 @@ def format_test_cell(
         return "N/A"
 
     # Use the DRY function for consistent calculation
-    rate = calculate_success_rate(passed, total, skipped, setup_failures, mock_failures)
-    valid_tests = total - skipped - setup_failures - mock_failures
+    rate = calculate_success_rate(
+        passed, total, skipped, setup_failures, mock_failures, infra_errors
+    )
+    valid_tests = total - skipped - setup_failures - mock_failures - infra_errors
 
     if valid_tests > 0:
         # Add emoji based on rate
@@ -165,37 +208,28 @@ def get_test_status_emoji(
     Returns:
         Emoji string representing the test status
     """
-    # Check for specific error types in user properties
-    is_timeout = False
-    is_throttled = False
-    for test in stats.get("tests", []):
-        user_props = test.get("user_properties", [])
-        for prop in user_props:
-            if isinstance(prop, dict):
-                # Check for timeout errors
-                error_type = prop.get("error_type", "")
-                if "Timeout" in error_type:
-                    is_timeout = True
-                # Check for throttled status (terminal failure)
-                if prop.get("failed_due_to_throttling", False):
-                    is_throttled = True
-        if is_timeout or is_throttled:
-            break
+    infra_kinds = {get_test_infra_error(test) for test in stats.get("tests", [])}
+    infra_kinds.discard(None)
+    infra_errors = stats.get("infra_errors", 0)
 
     # Determine emoji based on status priority
     mock_failures = stats.get("mock_failures", 0)
+    valid_tests = total - skipped - setup_failures - mock_failures - infra_errors
     if mock_failures == total:
         return "🔧"  # All runs had mock data failures
     elif setup_failures == total:
         return "⚠️"  # All runs had setup failures
     elif skipped == total:
         return "⏭️"  # All runs were skipped
-    elif (is_throttled or is_timeout) and passed == 0 and total > 0:
-        return "⏱️"  # Timeout/throttled error (exceeded time or rate limit)
+    elif infra_kinds and valid_tests <= 0:
+        # No run produced a model answer: ⏱️ timeout/rate limit, ⚠️ provider error
+        if InfraError.TIMEOUT in infra_kinds:
+            return InfraError.TIMEOUT.emoji
+        return InfraError.PROVIDER.emoji
     else:
         # Calculate success rate using the consistent formula
         rate = calculate_success_rate(
-            passed, total, skipped, setup_failures, mock_failures
+            passed, total, skipped, setup_failures, mock_failures, infra_errors
         )
         return get_rate_emoji(rate)
 
@@ -508,6 +542,7 @@ def generate_summary_table(results: Dict[str, Any]) -> str:
             "skipped": 0,
             "setup_failures": 0,
             "mock_failures": 0,
+            "infra_errors": 0,
         }
     )
 
@@ -550,6 +585,8 @@ def generate_summary_table(results: Dict[str, Any]) -> str:
             model_stats[model]["setup_failures"] += 1
         if is_mock_failure:
             model_stats[model]["mock_failures"] += 1
+        if get_test_infra_error(test):
+            model_stats[model]["infra_errors"] += 1
 
     # Build markdown table
     lines = []
@@ -564,17 +601,16 @@ def generate_summary_table(results: Dict[str, Any]) -> str:
         skipped = stats["skipped"]
         setup_failures = stats.get("setup_failures", 0)
         mock_failures = stats.get("mock_failures", 0)
+        infra_errors = stats.get("infra_errors", 0)
 
-        # Calculate real failures (failures that are not setup or mock failures)
-        real_failures = failed - setup_failures - mock_failures
+        # Real failures: the model answered and got it wrong
+        real_failures = failed - setup_failures - mock_failures - infra_errors
 
-        # Calculate total skip/error (skipped + setup failures + mock failures)
-        skip_error_total = skipped + setup_failures + mock_failures
+        # Skip/Error: runs that never produced a model answer
+        skip_error_total = skipped + setup_failures + mock_failures + infra_errors
 
-        # Calculate success rate using consistent formula
-        # Valid tests = total - skipped - setup_failures - mock_failures
         success_rate = calculate_success_rate(
-            passed, total, skipped, setup_failures, mock_failures
+            passed, total, skipped, setup_failures, mock_failures, infra_errors
         )
 
         # Get clean display name
@@ -594,6 +630,115 @@ def generate_summary_table(results: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _table_safe(text: str, limit: int = 200) -> str:
+    text = " ".join(text.split())
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return text.replace("|", "\\|")
+
+
+def generate_infra_errors_section(results: Dict[str, Any]) -> str:
+    """List runs that failed on the provider side, with their error."""
+    rows = []
+    for test in results.get("tests", []):
+        if test.get("outcome") == "deselected":
+            continue
+        kind = get_test_infra_error(test)
+        if kind is None:
+            continue
+        props = merge_user_properties(test)
+        eval_case = (
+            props.get("clean_test_case_id")
+            or test.get("test_case")
+            or test.get("nodeid", "")
+        )
+        model = props.get("model") or test.get("model", "unknown")
+        error_type = props.get("error_type") or "ThrottledError"
+        error_message = str(
+            props.get("error_message") or props.get("throttle_reason") or ""
+        )
+        rows.append(
+            (
+                get_model_sort_key(model),
+                eval_case,
+                f"| {kind.emoji} | {eval_case} | {get_model_display_name(model)} "
+                f"| `{error_type}`: {_table_safe(error_message)} |",
+            )
+        )
+
+    if not rows:
+        return ""
+
+    lines = [
+        "## Provider Errors and Timeouts",
+        "",
+        "These runs failed before the model produced an answer. They are counted "
+        "under Skip/Error and left out of every success rate in this report.",
+        "",
+        "| | Eval | Model | Error |",
+        "|---|------|-------|-------|",
+    ]
+    lines.extend(row for _, _, row in sorted(rows))
+    return "\n".join(lines)
+
+
+def generate_skill_check_section(results: Dict[str, Any]) -> str:
+    """List runs failed by the skill-suggestion check, with the skill titles."""
+    rows = []
+    has_unrecorded_verdict = False
+    for test in results.get("tests", []):
+        failure = get_test_skill_check_failure(test)
+        if failure is None:
+            continue
+        props = merge_user_properties(test)
+        eval_case = (
+            props.get("clean_test_case_id")
+            or test.get("test_case")
+            or test.get("nodeid", "")
+        )
+        model = props.get("model") or test.get("model", "unknown")
+        verdict = judge_verdict(props)
+        if verdict is None:
+            has_unrecorded_verdict = True
+            judge = "not recorded"
+        else:
+            judge = "correct" if verdict else "wrong"
+        titles = "; ".join(
+            _table_safe(title, 120) for title in suggested_skill_titles(props)
+        )
+        rows.append(
+            (
+                get_model_sort_key(model),
+                eval_case,
+                f"| {SKILL_CHECK_MARKER} | {eval_case} | "
+                f"{get_model_display_name(model)} | {failure.label} | {judge} | "
+                f"{titles or '—'} |",
+            )
+        )
+
+    if not rows:
+        return ""
+
+    lines = [
+        "## Skill-Suggestion Check Failures",
+        "",
+        "These runs failed a deterministic skill-suggestion check, whatever the "
+        "judge decided about the answer. They count as failures in the success "
+        "rates above.",
+        "",
+        "| | Eval | Model | Check | Judge | Suggested skill(s) |",
+        "|---|------|-------|-------|-------|--------------------|",
+    ]
+    lines.extend(row for _, _, row in sorted(rows))
+    if has_unrecorded_verdict:
+        lines.append("")
+        lines.append(
+            "_Judge \"not recorded\": this run predates `fail_reason`, when the "
+            "skill check overwrote the judge's score with 0._"
+        )
+    return "\n".join(lines)
+
+
 def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
     """Generate a heatmap dashboard showing each eval x model with color-coded pass rates."""
     # Collect data by eval test and model, including test references for Braintrust links
@@ -607,6 +752,8 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
                 "total_cost": 0,
                 "setup_failures": 0,
                 "skipped": 0,
+                "infra_errors": 0,
+                "skill_check_failures": 0,
             }
         )
     )
@@ -669,6 +816,10 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
                 if "mock_failures" not in eval_model_stats[eval_case][model]:
                     eval_model_stats[eval_case][model]["mock_failures"] = 0
                 eval_model_stats[eval_case][model]["mock_failures"] += 1
+            if get_test_infra_error(test):
+                eval_model_stats[eval_case][model]["infra_errors"] += 1
+            if get_test_skill_check_failure(test):
+                eval_model_stats[eval_case][model]["skill_check_failures"] += 1
 
             # Add duration if available
             duration = (
@@ -702,9 +853,17 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
     lines.append("- 🟡 Passing 1-99%")
     lines.append("- 🔴 Passing 0% (failing)")
     lines.append("- 🔧 Mock data failure (missing or invalid test data)")
-    lines.append("- ⚠️ Setup failure (environment/infrastructure issue)")
-    lines.append("- ⏱️ Timeout or rate limit error")
+    lines.append(
+        "- ⚠️ Setup or model-provider failure (environment/infrastructure issue; "
+        "the model never answered, so the run is left out of success rates)"
+    )
+    lines.append("- ⏱️ Timeout or rate limit error (left out of success rates)")
     lines.append("- ⏭️ Test skipped (e.g., known issue or precondition not met)")
+    lines.append(
+        f"- {SKILL_CHECK_MARKER} Failed the skill-suggestion check (counted as a "
+        f"failure; see Skill-Suggestion Check Failures for the skill and the "
+        f"judge's verdict)"
+    )
     lines.append("")
 
     # Sort evals alphabetically by name
@@ -775,13 +934,6 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
                 skipped = stats["skipped"]
                 setup_failures = stats["setup_failures"]
 
-                # Calculate rate using consistent formula
-                mock_failures = stats.get("mock_failures", 0)
-                rate = calculate_success_rate(
-                    passed, total, skipped, setup_failures, mock_failures
-                )
-                valid_tests = total - skipped - setup_failures - mock_failures
-
                 # Get Braintrust filter URL for this eval/model combination
                 braintrust_url = get_braintrust_filter_url(
                     eval_case, model, experiment_name
@@ -791,6 +943,8 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
                 emoji = get_test_status_emoji(
                     stats, total, passed, skipped, setup_failures
                 )
+                if stats.get("skill_check_failures"):
+                    emoji += SKILL_CHECK_MARKER
 
                 # Create cell with link if available
                 if braintrust_url:
@@ -812,12 +966,14 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
         total_tests = 0
         total_skipped = 0
         total_setup_failures = 0
+        total_infra_errors = 0
         for eval_case in sorted_evals:
             stats = eval_model_stats[eval_case][model]
             total_passed += stats["passed"]
             total_tests += stats["total"]
             total_skipped += stats.get("skipped", 0)
             total_setup_failures += stats.get("setup_failures", 0)
+            total_infra_errors += stats.get("infra_errors", 0)
 
         if total_tests > 0:
             # Calculate rate using consistent formula (include mock failures)
@@ -833,11 +989,16 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
                 total_skipped,
                 total_setup_failures,
                 total_mock_failures,
+                total_infra_errors,
             )
 
             # Calculate valid tests for the count
             valid_tests = (
-                total_tests - total_skipped - total_setup_failures - total_mock_failures
+                total_tests
+                - total_skipped
+                - total_setup_failures
+                - total_mock_failures
+                - total_infra_errors
             )
 
             # Create summary text with emoji and count
@@ -886,10 +1047,13 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
 
                 # Calculate rate using consistent formula
                 mock_failures = stats.get("mock_failures", 0)
+                infra_errors = stats.get("infra_errors", 0)
                 rate = calculate_success_rate(
-                    passed, total, skipped, setup_failures, mock_failures
+                    passed, total, skipped, setup_failures, mock_failures, infra_errors
                 )
-                valid_tests = total - skipped - setup_failures - mock_failures
+                valid_tests = (
+                    total - skipped - setup_failures - mock_failures - infra_errors
+                )
 
                 # Calculate average duration and cost if available
                 avg_duration = (
@@ -912,14 +1076,16 @@ def generate_eval_dashboard_heatmap(results: Dict[str, Any]) -> str:
                 emoji = get_test_status_emoji(
                     stats, total, passed, skipped, setup_failures
                 )
+                if stats.get("skill_check_failures"):
+                    emoji += SKILL_CHECK_MARKER
 
                 # Build the cell parts with simplified format
                 if valid_tests > 0:
                     # Show percentage with passed/valid in parentheses
                     status_line = f"{emoji} {rate:.0f}% ({passed}/{valid_tests})"
                 else:
-                    # All tests were skipped/failed setup
-                    status_line = "⚪️ -"
+                    # No run produced a model answer
+                    status_line = f"{emoji} -"
 
                 # Add Braintrust link if available
                 if braintrust_url:
@@ -953,6 +1119,7 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
                 "skipped": 0,
                 "setup_failures": 0,
                 "mock_failures": 0,
+                "infra_errors": 0,
             }
         )
     )
@@ -996,6 +1163,7 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
         if model and tags:
             all_models.add(model)
             outcome = test.get("outcome", "unknown")
+            is_infra_error = get_test_infra_error(test) is not None
 
             # Generate a unique test identifier (using nodeid as unique key)
             test_id = test.get("nodeid", "")
@@ -1006,6 +1174,7 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
                     "outcome": outcome,
                     "is_setup_failure": is_setup_failure,
                     "is_mock_failure": is_mock_failure,
+                    "is_infra_error": is_infra_error,
                 }
 
             for tag in tags:
@@ -1020,6 +1189,8 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
                     model_tag_stats[model][tag]["setup_failures"] += 1
                 if is_mock_failure:
                     model_tag_stats[model][tag]["mock_failures"] += 1
+                if is_infra_error:
+                    model_tag_stats[model][tag]["infra_errors"] += 1
 
     if not all_tags or not all_models:
         return ""
@@ -1070,6 +1241,7 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
                 skipped=stats.get("skipped", 0),
                 setup_failures=stats.get("setup_failures", 0),
                 mock_failures=stats.get("mock_failures", 0),
+                infra_errors=stats.get("infra_errors", 0),
             )
             row.append(cell)
 
@@ -1078,6 +1250,7 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
                 stats.get("skipped", 0)
                 + stats.get("setup_failures", 0)
                 + stats.get("mock_failures", 0)
+                + stats.get("infra_errors", 0)
             )
 
         # Build simplified warnings cell
@@ -1099,6 +1272,7 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
         total_skipped = 0
         total_setup_failures = 0
         total_mock_failures = 0
+        total_infra_errors = 0
 
         # Count unique tests per model
         for test_id, test_info in model_unique_tests[model].items():
@@ -1112,6 +1286,8 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
                 total_setup_failures += 1
             if test_info["is_mock_failure"]:
                 total_mock_failures += 1
+            if test_info["is_infra_error"]:
+                total_infra_errors += 1
 
         cell = format_test_cell(
             passed=total_passed,
@@ -1119,12 +1295,16 @@ def generate_model_by_tag_table(results: Dict[str, Any]) -> str:
             skipped=total_skipped,
             setup_failures=total_setup_failures,
             mock_failures=total_mock_failures,
+            infra_errors=total_infra_errors,
         )
         overall_row.append(cell)
 
         # Accumulate all types of skipped tests
         grand_total_skipped_all += (
-            total_skipped + total_setup_failures + total_mock_failures
+            total_skipped
+            + total_setup_failures
+            + total_mock_failures
+            + total_infra_errors
         )
 
     # Build simplified warnings for overall row
@@ -1221,7 +1401,6 @@ def generate_latency_comparison_table(results: Dict[str, Any]) -> str:
         model = None
         is_setup_failure = False
         encountered_throttling = False  # Use new flag for ANY throttling
-        has_timeout_error = False
 
         user_props = test.get("user_properties", [])
         for prop in user_props:
@@ -1236,15 +1415,13 @@ def generate_latency_comparison_table(results: Dict[str, Any]) -> str:
                 # Also check terminal failure flag
                 if prop.get("failed_due_to_throttling", False):
                     encountered_throttling = True
-                # Check for timeout errors
-                error_type = prop.get("error_type", "")
-                if "Timeout" in error_type:
-                    has_timeout_error = True
+        has_infra_error = get_test_infra_error(test) is not None
 
-        # Skip if this was a setup failure, had ANY throttling (even if succeeded), or had timeout errors
-        # This ensures accurate latency measurements exclude tests with retry delays
-        if is_setup_failure or encountered_throttling or has_timeout_error:
-            if model and (encountered_throttling or has_timeout_error):
+        # Skip setup failures, provider errors/timeouts, and runs that hit ANY
+        # throttling (even if they succeeded): their durations include retry
+        # delays or no model work at all.
+        if is_setup_failure or encountered_throttling or has_infra_error:
+            if model and (encountered_throttling or has_infra_error):
                 model_excluded_counts[model] += 1
             continue
 
@@ -1307,7 +1484,7 @@ def generate_latency_comparison_table(results: Dict[str, Any]) -> str:
 
         lines.append("")
         lines.append(
-            f"⚠️ **Note:** {total_excluded} test(s) excluded from latency calculations due to throttling/timeout errors ({', '.join(excluded_details)})"
+            f"⚠️ **Note:** {total_excluded} test(s) excluded from latency calculations due to throttling/timeout/provider errors ({', '.join(excluded_details)})"
         )
 
     return "\n".join(lines)
@@ -1487,6 +1664,16 @@ def main():
     report_lines.append("")
     report_lines.append(generate_summary_table(results))
     report_lines.append("")
+
+    infra_errors_section = generate_infra_errors_section(results)
+    if infra_errors_section:
+        report_lines.append(infra_errors_section)
+        report_lines.append("")
+
+    skill_check_section = generate_skill_check_section(results)
+    if skill_check_section:
+        report_lines.append(skill_check_section)
+        report_lines.append("")
 
     # Model cost comparison table
     cost_table = generate_cost_comparison_table(results)

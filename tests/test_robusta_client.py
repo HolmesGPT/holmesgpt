@@ -43,6 +43,17 @@ def test_returns_models_on_first_success(mocked_responses):
 
     assert result is not None
     assert set(result.models) == {"Robusta/gpt-5"}
+
+
+def test_posts_to_the_given_api_endpoint(mocked_responses):
+    eu_models_url = "https://api.eu.robusta.dev/api/llm/models/v3"
+    mocked_responses.add(responses.POST, eu_models_url, json=MODELS_PAYLOAD, status=200)
+
+    result = fetch_robusta_models(
+        "account-id", "token", api_endpoint="https://api.eu.robusta.dev"
+    )
+
+    assert result is not None
     assert result.models["Robusta/gpt-5"].is_default
     assert len(mocked_responses.calls) == 1
 

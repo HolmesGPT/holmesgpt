@@ -72,6 +72,124 @@ def test_incompressible_result_stays_plain():
     assert p["data"] == noise
 
 
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64).decode()
+
+
+def test_images_travel_in_the_payload_as_the_tool_returned_them():
+    result = _ok("Rendered screenshot of panel 1")
+    result.images = [{"data": PNG, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1)
+    assert p["images"] == [{"data": PNG, "mimeType": "image/png"}]
+    assert p["data"] == "Rendered screenshot of panel 1"
+
+
+def test_a_result_without_images_has_none():
+    assert serialize_tool_response(_ok("hello"), 0.1)["images"] is None
+
+
+def test_only_whole_images_travel():
+    result = _ok("x")
+    result.images = [
+        {"data": PNG, "mimeType": "image/png"},
+        {"data": "", "mimeType": "image/png"},
+        {"data": PNG},
+        {"mimeType": "image/png"},
+        {"data": PNG, "mimeType": "text/plain"},
+        {"data": PNG, "mimeType": "image/"},
+        {"data": PNG, "mimeType": "image/svg+xml"},
+        {"data": PNG, "mimeType": ["image/png"]},
+        {"data": "%%not base64%%", "mimeType": "image/png"},
+        {"data": PNG[:-1], "mimeType": "image/png"},
+        "not a dict",
+        {"data": PNG, "mimeType": "image/jpeg", "extra": "dropped"},
+        {"data": PNG[:40] + "\n" + PNG[40:] + "\n", "mimeType": "image/webp"},
+    ]
+    p = serialize_tool_response(result, 0.1, tool_call_id="call-3")
+    assert p["images"] == [
+        {"data": PNG, "mimeType": "image/png"},
+        {"data": PNG, "mimeType": "image/jpeg"},
+        {"data": PNG, "mimeType": "image/webp"},
+    ]
+    assert p["data"] == (
+        "x\n\n[10 image(s) of tool call call-3 omitted: not base64 of a "
+        "gif/jpeg/png/webp image]"
+    )
+
+
+def test_an_image_only_result_whose_image_is_not_whole_says_so(caplog):
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=None,
+        images=[{"data": PNG, "mimeType": "image/svg+xml"}],
+    )
+    p = serialize_tool_response(result, 0.1, max_bytes=120, tool_call_id="c")
+    assert p["images"] is None
+    assert p["data"].startswith("\n\n[1 image(s) of tool call c omitted: not base64")
+    assert len(p["data"].encode()) <= 120 and p["data"].endswith("]")
+    assert "remote tool call c: 1 image entry is not base64" in caplog.text
+
+
+def test_images_over_the_cap_are_dropped_and_the_text_says_so(caplog):
+    result = _ok("small text")
+    result.images = [{"data": "A" * 996, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1, max_bytes=1000, tool_call_id="call-7")
+    assert p["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert p["images"] is None
+    assert p["data"].startswith(
+        "small text\n\n[1 image(s) (996 bytes) omitted from tool call call-7:"
+    )
+    assert "1000-byte limit" in p["data"]
+    assert "remote tool call call-7: dropping 1 image" in caplog.text
+
+
+def test_the_omission_note_never_takes_the_text_over_the_cap():
+    """The note itself is ~170 bytes; text within that of the cap used to
+    end up over it."""
+    for text_size in (950, 970, 990, 1000):
+        result = _ok("t" * text_size)
+        result.images = [{"data": "A" * 52, "mimeType": "image/png"}]
+        p = serialize_tool_response(result, 0.1, max_bytes=1000)
+        assert p["status"] == StructuredToolResultStatus.SUCCESS.value
+        assert p["images"] is None and p["data"].endswith("]")
+        assert len(p["data"].encode()) <= 1000, text_size
+        assert "1 image(s) (52 bytes) omitted" in p["data"]
+    assert "the end of the text was cut" in p["data"]  # the last, 1000 bytes
+    assert p["data"].startswith("t" * 700)
+
+
+def test_a_cut_for_the_omission_note_lands_on_a_character_boundary():
+    result = _ok("é" * 500)  # 1000 bytes of two-byte characters
+    result.images = [{"data": "A" * 52, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1, max_bytes=1000)
+    kept = p["data"].split("\n\n[")[0]
+    assert set(kept) == {"é"} and len(p["data"].encode()) <= 1000
+
+
+def test_an_images_only_result_travels_with_empty_text():
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=None,
+        images=[{"data": PNG, "mimeType": "image/png"}],
+    )
+    p = serialize_tool_response(result, 0.1)
+    assert p["data"] == "" and p["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_images_within_the_cap_stay_next_to_gzipped_text():
+    result = _ok("x" * 200_000)
+    result.images = [{"data": PNG, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1)
+    assert p["compressed"] and p["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_an_oversized_text_result_carries_no_images():
+    result = _ok("y" * 2_000_000)
+    result.images = [{"data": PNG, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1)
+    assert p["status"] == StructuredToolResultStatus.ERROR.value
+    assert p["images"] is None
+
+
 # ---- multi-instance resolution in _execute ----
 
 
@@ -502,6 +620,50 @@ def test_execute_approved_reinvocation_runs_with_user_approved():
     assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
     assert resp["data"] == "ran the command"
     assert tool.invoke.call_args.args[1].user_approved is True
+
+
+def test_execute_keeps_the_images_a_tool_returned():
+    """A Grafana panel rendered on this cluster reaches the caller's
+    Holmes, which cites it like a local one."""
+
+    def render_panel(params, context):
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="Rendered screenshot of panel 1",
+            images=[{"data": PNG, "mimeType": "image/png"}],
+        )
+
+    worker, _ = _approval_worker(render_panel)
+    resp = worker._execute(_approval_row(approved=True))
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert resp["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_execute_drops_images_over_the_cap_and_keeps_the_text():
+    """The real path, with the module's cap: a 1 MB+ panel costs the
+    picture, never the result."""
+
+    def render_huge_panel(params, context):
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="Rendered screenshot of panel 1",
+            images=[{"data": "A" * 1_100_000, "mimeType": "image/png"}],
+        )
+
+    worker, _ = _approval_worker(render_huge_panel)
+    resp = worker._execute(_approval_row(approved=True))
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert resp["images"] is None
+    assert resp["data"].startswith("Rendered screenshot of panel 1\n\n[1 image(s)")
+
+
+def test_every_payload_shape_carries_the_images_key():
+    worker, _ = _approval_worker(_needs_approval_unless_approved)
+    approval = worker._execute(_approval_row(approved=False))
+    assert approval["images"] is None
+    from holmes.core.conversations_worker.tool_call_worker import _error_response
+
+    assert _error_response("boom")["images"] is None
 
 
 def test_execute_safe_approved_posts_completed_result():

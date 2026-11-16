@@ -35,6 +35,7 @@ def log_to_braintrust(
     error: Optional[Exception] = None,
     suggested_memories: Optional[List[Any]] = None,
     expected_override: Optional[str] = None,
+    fail_reason: Optional[str] = None,
 ) -> None:
     """Log evaluation data to Braintrust.
 
@@ -54,6 +55,8 @@ def log_to_braintrust(
         expected_override: Replaces the test case's expected_output in the
             logged row. Used by the closed-loop replay, which is judged
             against expected_replay_output when the fixture declares one.
+        fail_reason: Why a deterministic check failed a run the judge may
+            have accepted (e.g. "unexpected_skill_suggestion").
     """
 
     # Prepare tags
@@ -97,6 +100,9 @@ def log_to_braintrust(
         "eval_id": base_test_id,  # Base test case ID without variant suffix
         "test_id": test_case.id,  # Full test case ID with variant suffix if present
     }
+
+    if fail_reason:
+        metadata["fail_reason"] = fail_reason
 
     if suggested_memories is not None:
         metadata["memories_count"] = len(suggested_memories)

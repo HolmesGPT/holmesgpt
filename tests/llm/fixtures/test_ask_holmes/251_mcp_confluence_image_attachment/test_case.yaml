@@ -3,15 +3,10 @@
 # The mcp-atlassian server's confluence_get_page_images tool returns ImageContent
 # blocks, which Holmes must pass through to the vision-capable LLM.
 #
-# Currently RED: MCP tool results only extract text content (c.type == "text"),
-# dropping image content blocks entirely. Holmes cannot see images from MCP tools.
-#
 # Requirements:
 #   CONFLUENCE_BASE_URL - Atlassian instance URL (e.g. https://robusta-llm-test.atlassian.net)
-#   CONFLUENCE_USER - Email/username for Confluence (personal API key)
-#   CONFLUENCE_API_KEY - Atlassian API token (personal API key)
-#   CONFLUENCE_SA_USER - Service account email (used only for setup)
-#   CONFLUENCE_SA_API_KEY - Service account API token (used only for setup)
+#   CONFLUENCE_SA_USER - Service account email (used for setup)
+#   CONFLUENCE_SA_API_KEY - Service account API token (setup and the MCP server)
 #   CONFLUENCE_SA_BASE_URL - API gateway URL (used only for setup, auto-derived by conftest.py)
 #
 # Reentrancy: This test is fully idempotent. The space, page, and attachment
