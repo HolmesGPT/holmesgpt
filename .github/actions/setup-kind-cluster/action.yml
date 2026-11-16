@@ -22,8 +22,22 @@ runs:
         sudo mv ./kind /usr/local/bin/kind
         kind version
 
+    # Every pod on the KIND node shares the runner's inotify limits, and the
+    # runner default of 128 instances runs out once a full eval set is
+    # deployed: promtail then exits with "too many open files". Values are
+    # the ones KIND's known-issues page recommends.
+    - name: Raise inotify limits
+      shell: bash
+      run: |
+        sudo sysctl -w fs.inotify.max_user_instances=512
+        sudo sysctl -w fs.inotify.max_user_watches=524288
+
     - name: Create KIND cluster
       shell: bash
+      env:
+        # Read action inputs via env (not inline ${{ }}) so a caller passing a
+        # crafted value cannot have it parsed as shell.
+        CLUSTER_NAME: ${{ inputs.cluster-name }}
       run: |
         cat <<EOF > kind-config.yaml
         kind: Cluster
@@ -54,10 +68,10 @@ runs:
         EOF
 
         # Create cluster without waiting for full readiness (CNI needed first)
-        kind create cluster --name ${{ inputs.cluster-name }} --config kind-config.yaml
+        kind create cluster --name "$CLUSTER_NAME" --config kind-config.yaml
 
         # Configure kubectl
-        kubectl cluster-info --context kind-${{ inputs.cluster-name }}
+        kubectl cluster-info --context "kind-$CLUSTER_NAME"
 
     - name: Install Calico CNI
       shell: bash

@@ -90,7 +90,6 @@ Existing single-instance configs keep working unchanged — `instances:` is pure
 - [Coralogix](builtin-toolsets/coralogix-logs.md)
 - [VictoriaLogs](builtin-toolsets/victorialogs.md)
 - [New Relic](builtin-toolsets/newrelic.md)
-- [Azure SQL](builtin-toolsets/azure-sql.md)
 - [MongoDB Atlas](builtin-toolsets/mongodb-atlas.md)
 - [ServiceNow](builtin-toolsets/servicenow.md)
 - [Confluence](builtin-toolsets/confluence.md)

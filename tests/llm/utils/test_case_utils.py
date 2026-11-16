@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, List, Literal, Optional, TypeVar, Union, cast
 
@@ -231,6 +232,11 @@ class AskHolmesTestCase(HolmesTestCase, BaseModel):
     allow_toolset_failures: Optional[bool] = (
         False  # Allow toolsets to fail prerequisite checks (default False)
     )
+    # Tool names that must NOT appear in the (live) run's tool calls. Asserts on
+    # Holmes's actual behavior, deterministically (no LLM grading), e.g. a
+    # negative eval proving that when the answer is already in the request,
+    # Holmes does not make an unnecessary lookup. None/empty disables the check.
+    forbidden_tools: Optional[List[str]] = None
 
     # Internal fields for variant handling
     variant_index: Optional[int] = None  # Which variant this instance represents
@@ -307,6 +313,18 @@ def load_frontend_tools(
     return FrontendPayload(
         tools=definitions, additional_system_prompt=additional_system_prompt
     )
+
+
+ENV_REF_PATTERN = re.compile(r"\{\{\s*env\.(\w+)")
+
+
+def find_missing_env_vars(test_case_folder: Path) -> List[str]:
+    referenced = {
+        name
+        for yaml_file in test_case_folder.glob("*.yaml")
+        for name in ENV_REF_PATTERN.findall(yaml_file.read_text())
+    }
+    return sorted(name for name in referenced if not os.environ.get(name))
 
 
 def check_and_skip_test(
@@ -460,6 +478,12 @@ class TestCaseLoader:
                 )
                 config_dict["id"] = test_case_id
                 config_dict["folder"] = str(test_case_folder)
+                missing_env_vars = find_missing_env_vars(test_case_folder)
+                if missing_env_vars and not config_dict.get("skip"):
+                    config_dict["skip"] = True
+                    config_dict["skip_reason"] = (
+                        f"Missing env vars: {', '.join(missing_env_vars)}"
+                    )
                 test_case: Optional[HolmesTestCase] = None
 
                 if config_dict.get("user_prompt"):

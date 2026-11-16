@@ -194,8 +194,9 @@ def build_authorization_url(
     code_challenge: str,
     state: str,
     scopes: Optional[List[str]] = None,
+    resource: Optional[str] = None,
 ) -> str:
-    """Build the full authorization URL with PKCE and scope parameters."""
+    """Build the full authorization URL with PKCE, scope, and RFC 8707 resource parameters."""
     params = {
         "response_type": "code",
         "client_id": client_id,
@@ -206,6 +207,8 @@ def build_authorization_url(
     }
     if scopes:
         params["scope"] = " ".join(scopes)
+    if resource:
+        params["resource"] = resource
     return f"{authorization_url}?{urlencode(params)}"
 
 
@@ -253,6 +256,7 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
         state = secrets.token_urlsafe(32)
         auth_url = build_authorization_url(
             oauth.authorization_url, oauth.client_id, redirect_uri, code_challenge, state, oauth.scopes,
+            resource=oauth.resource,
         )
 
         logger.info("CLI OAuth %s: opening browser for authentication", server_name)
@@ -284,6 +288,7 @@ def cli_oauth_flow(oauth: OAuthEndpoints, server_name: str) -> Optional[Dict[str
             client_id=oauth.client_id,
             code_verifier=code_verifier,
             client_secret=oauth.client_secret,
+            resource=oauth.resource,
         )
     except OAuthTokenExchangeError as e:
         logger.warning("CLI OAuth %s: token exchange failed: %s", server_name, e)

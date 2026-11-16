@@ -899,12 +899,12 @@ class TestHttpRequest:
 
 
 class TestHttpToolsetHealthCheck:
-    @patch("holmes.plugins.toolsets.http.http_toolset.requests.get")
-    def test_health_check_success(self, mock_get):
+    @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
+    def test_health_check_success(self, mock_request):
         mock_response = Mock()
         mock_response.ok = True
         mock_response.status_code = 200
-        mock_get.return_value = mock_response
+        mock_request.return_value = mock_response
 
         toolset = HttpToolset()
         success, message = toolset.prerequisites_callable(
@@ -919,15 +919,15 @@ class TestHttpToolsetHealthCheck:
             }
         )
         assert success is True
-        mock_get.assert_called_once()
+        mock_request.assert_called_once()
 
-    @patch("holmes.plugins.toolsets.http.http_toolset.requests.get")
-    def test_health_check_failure(self, mock_get):
+    @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
+    def test_health_check_failure(self, mock_request):
         mock_response = Mock()
         mock_response.ok = False
         mock_response.status_code = 401
         mock_response.text = "Unauthorized"
-        mock_get.return_value = mock_response
+        mock_request.return_value = mock_response
 
         toolset = HttpToolset()
         success, message = toolset.prerequisites_callable(
@@ -947,9 +947,9 @@ class TestHttpToolsetHealthCheck:
         assert "To troubleshoot, run: curl" in message
         assert "$TOKEN" in message
 
-    @patch("holmes.plugins.toolsets.http.http_toolset.requests.get")
-    def test_health_check_connection_error(self, mock_get):
-        mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
+    @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
+    def test_health_check_connection_error(self, mock_request):
+        mock_request.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
         toolset = HttpToolset()
         success, message = toolset.prerequisites_callable(
@@ -968,9 +968,9 @@ class TestHttpToolsetHealthCheck:
         assert "Connection error" in message
         assert "To troubleshoot, run: curl" in message
 
-    @patch("holmes.plugins.toolsets.http.http_toolset.requests.get")
-    def test_health_check_timeout(self, mock_get):
-        mock_get.side_effect = requests.exceptions.Timeout("Request timed out")
+    @patch("holmes.plugins.toolsets.http.http_toolset.requests.request")
+    def test_health_check_timeout(self, mock_request):
+        mock_request.side_effect = requests.exceptions.Timeout("Request timed out")
 
         toolset = HttpToolset()
         success, message = toolset.prerequisites_callable(
@@ -991,8 +991,8 @@ class TestHttpToolsetHealthCheck:
     def test_no_health_check_skips_request(self):
         toolset = HttpToolset()
         with patch(
-            "holmes.plugins.toolsets.http.http_toolset.requests.get"
-        ) as mock_get:
+            "holmes.plugins.toolsets.http.http_toolset.requests.request"
+        ) as mock_request:
             success, message = toolset.prerequisites_callable(
                 {
                     "endpoints": [
@@ -1004,7 +1004,7 @@ class TestHttpToolsetHealthCheck:
                 }
             )
             assert success is True
-            mock_get.assert_not_called()
+            mock_request.assert_not_called()
 
 
 class TestHttpRequestOneLiner:

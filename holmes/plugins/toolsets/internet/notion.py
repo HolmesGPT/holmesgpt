@@ -98,7 +98,14 @@ class FetchNotion(Tool):
                 params=params,
             )
 
-        content, _ = scrape(url, additional_headers)
+        block_internal_ips = (
+            self.toolset.internet_config.block_internal_ips
+            if self.toolset.internet_config
+            else True
+        )
+        content, _ = scrape(
+            url, additional_headers, block_internal_ips=block_internal_ips
+        )
 
         if not content:
             logging.error("Failed to retrieve Notion content (empty response) for %s", url)

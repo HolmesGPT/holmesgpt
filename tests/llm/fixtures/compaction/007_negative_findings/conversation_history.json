@@ -166,7 +166,7 @@
         "type": "function",
         "function": {
           "name": "run_bash_command",
-          "arguments": "{\"command\": \"kubectl logs api-gateway-8d7f6c5b9-h3k4m -n production | grep -i 'database\\|db\\|query' | tail -10\"}"
+          "arguments": "{\"command\": \"kubectl logs api-gateway-8d7f6c5b9-h3k4m -n production | grep -i 'database\\\\|db\\\\|query' | tail -10\"}"
         }
       }
     ]
@@ -234,7 +234,7 @@
         "type": "function",
         "function": {
           "name": "run_bash_command",
-          "arguments": "{\"command\": \"kubectl logs api-gateway-8d7f6c5b9-h3k4m -n production | grep -i 'profil\\|performance\\|slow' | tail -15\"}"
+          "arguments": "{\"command\": \"kubectl logs api-gateway-8d7f6c5b9-h3k4m -n production | grep -i 'profil\\\\|performance\\\\|slow' | tail -15\"}"
         }
       }
     ]

@@ -4,11 +4,14 @@ Unit tests for LLMSummarizeTransformer.
 
 from unittest.mock import Mock, patch
 
+import litellm
+
 import pytest
 from pydantic import ValidationError
 
 from holmes.core.tools import ToolInvokeContext
 from holmes.core.transformers.base import TransformerError
+from holmes.core.llm_rate_limit import call_with_rate_limit_retry
 from holmes.core.transformers.llm_summarize import LLMSummarizeTransformer
 from tests.conftest import create_mock_tool_invoke_context
 
@@ -167,6 +170,31 @@ class TestLLMSummarizeTransformer:
         assert not transformer.should_apply(short_text)
         assert not transformer.should_apply(exact_threshold)  # <= threshold, not >
         assert transformer.should_apply(long_text)
+
+    @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
+    def test_transform_does_not_wait_out_rate_limits(self, mock_default_llm):
+        """The caller falls back to the raw output, so a rate limit fails fast."""
+        provider_calls = []
+
+        def rate_limited():
+            provider_calls.append(1)
+            raise litellm.RateLimitError(
+                message="slow down", llm_provider="openai", model="gpt-4o-mini"
+            )
+
+        mock_llm = Mock()
+        mock_llm.completion.side_effect = lambda *_a, **_kw: call_with_rate_limit_retry(
+            rate_limited, model="gpt-4o-mini"
+        )
+        mock_default_llm.return_value = mock_llm
+        transformer = LLMSummarizeTransformer(fast_model="gpt-4o-mini")
+
+        with patch("time.sleep") as sleep:
+            with pytest.raises(TransformerError):
+                transformer.transform("x" * 2000)
+
+        assert len(provider_calls) == 1
+        sleep.assert_not_called()
 
     @patch("holmes.core.transformers.llm_summarize.DefaultLLM")
     def test_transform_success_default_prompt(self, mock_default_llm):

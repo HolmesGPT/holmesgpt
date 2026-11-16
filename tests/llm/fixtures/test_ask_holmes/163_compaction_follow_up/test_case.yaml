@@ -21,6 +21,7 @@ test_env_vars:
 test_type: server
 
 tags:
+  - advanced
   - kubernetes
   - compaction
   - counting

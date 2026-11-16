@@ -14,6 +14,7 @@
 | Roi Glinik          | [RoiGlinik](https://github.com/RoiGlinik)         | [Robusta](https://github.com/robusta-dev)           |
 | Moshe Morad         | [moshemorad](https://github.com/moshemorad)       | [Robusta](https://github.com/robusta-dev)           |
 | Naomi Caren         | [naomi-robusta](https://github.com/naomi-robusta) | [Robusta](https://github.com/robusta-dev)           |
+| Ezra Yellin         | [ezra-robusta](https://github.com/ezra-robusta)   | [Robusta](https://github.com/robusta-dev)           |
 | Qingchuan Hao       | [mainred](https://github.com/mainred)             | [Microsoft](https://github.com/microsoft)           |
 
 ## Emeritus

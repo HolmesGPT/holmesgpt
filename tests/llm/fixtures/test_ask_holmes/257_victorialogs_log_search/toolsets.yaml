@@ -8,4 +8,4 @@ toolsets:
   victorialogs:
     enabled: true
     config:
-      api_url: "{{ env.VICTORIALOGS_URL }}"
+      api_url: http://localhost:3257

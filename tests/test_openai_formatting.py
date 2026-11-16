@@ -92,6 +92,59 @@ def test_is_strict_compatible_nested_dynamic_keys():
     assert outer.is_strict_compatible() is False
 
 
+@pytest.mark.parametrize("param_type", ["object", ["object", "null"]])
+def test_is_strict_compatible_free_form_object(param_type):
+    """Strict mode would close it with additionalProperties: false, leaving {} as
+    the only value the model can send."""
+    param = ToolParameter(type=param_type, required=False)
+    assert param.is_strict_compatible() is False
+
+
+def test_is_strict_compatible_explicitly_closed_empty_object():
+    param = ToolParameter(type="object", required=False, additional_properties=False)
+    assert param.is_strict_compatible() is True
+
+
+def test_is_strict_compatible_nested_free_form_object():
+    outer = ToolParameter(
+        type="object",
+        required=True,
+        properties={"query": ToolParameter(type="object", required=False)},
+    )
+    assert outer.is_strict_compatible() is False
+
+
+def test_format_tool_leaves_a_free_form_object_open(monkeypatch):
+    monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", True)
+    params = {
+        "incident_id": ToolParameter(type="string", required=True),
+        "matcher": ToolParameter(type="object", required=False, description="A rule"),
+    }
+    result = format_tool_to_open_ai_standard("update_incident", "Update", params)
+    assert "strict" not in result["function"]
+    matcher = result["function"]["parameters"]["properties"]["matcher"]
+    assert matcher == {"type": "object", "description": "A rule"}
+
+
+def test_format_mcp_tool_with_free_form_object_is_not_strict(monkeypatch):
+    from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool
+
+    monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", True)
+    params = RemoteMCPTool.parse_input_schema(
+        {
+            "type": "object",
+            "properties": {
+                "incident_id": {"type": "string"},
+                "matcher": {"type": "object", "description": "A rule"},
+            },
+            "required": ["incident_id"],
+        }
+    )
+    result = format_tool_to_open_ai_standard("update_incident", "Update", params)
+    assert "strict" not in result["function"]
+    assert "additionalProperties" not in result["function"]["parameters"]["properties"]["matcher"]
+
+
 def test_format_tool_strict_for_compatible_tool(monkeypatch):
     monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", True)
     params = {

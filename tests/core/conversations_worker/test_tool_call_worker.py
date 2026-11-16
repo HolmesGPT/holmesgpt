@@ -72,6 +72,124 @@ def test_incompressible_result_stays_plain():
     assert p["data"] == noise
 
 
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64).decode()
+
+
+def test_images_travel_in_the_payload_as_the_tool_returned_them():
+    result = _ok("Rendered screenshot of panel 1")
+    result.images = [{"data": PNG, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1)
+    assert p["images"] == [{"data": PNG, "mimeType": "image/png"}]
+    assert p["data"] == "Rendered screenshot of panel 1"
+
+
+def test_a_result_without_images_has_none():
+    assert serialize_tool_response(_ok("hello"), 0.1)["images"] is None
+
+
+def test_only_whole_images_travel():
+    result = _ok("x")
+    result.images = [
+        {"data": PNG, "mimeType": "image/png"},
+        {"data": "", "mimeType": "image/png"},
+        {"data": PNG},
+        {"mimeType": "image/png"},
+        {"data": PNG, "mimeType": "text/plain"},
+        {"data": PNG, "mimeType": "image/"},
+        {"data": PNG, "mimeType": "image/svg+xml"},
+        {"data": PNG, "mimeType": ["image/png"]},
+        {"data": "%%not base64%%", "mimeType": "image/png"},
+        {"data": PNG[:-1], "mimeType": "image/png"},
+        "not a dict",
+        {"data": PNG, "mimeType": "image/jpeg", "extra": "dropped"},
+        {"data": PNG[:40] + "\n" + PNG[40:] + "\n", "mimeType": "image/webp"},
+    ]
+    p = serialize_tool_response(result, 0.1, tool_call_id="call-3")
+    assert p["images"] == [
+        {"data": PNG, "mimeType": "image/png"},
+        {"data": PNG, "mimeType": "image/jpeg"},
+        {"data": PNG, "mimeType": "image/webp"},
+    ]
+    assert p["data"] == (
+        "x\n\n[10 image(s) of tool call call-3 omitted: not base64 of a "
+        "gif/jpeg/png/webp image]"
+    )
+
+
+def test_an_image_only_result_whose_image_is_not_whole_says_so(caplog):
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=None,
+        images=[{"data": PNG, "mimeType": "image/svg+xml"}],
+    )
+    p = serialize_tool_response(result, 0.1, max_bytes=120, tool_call_id="c")
+    assert p["images"] is None
+    assert p["data"].startswith("\n\n[1 image(s) of tool call c omitted: not base64")
+    assert len(p["data"].encode()) <= 120 and p["data"].endswith("]")
+    assert "remote tool call c: 1 image entry is not base64" in caplog.text
+
+
+def test_images_over_the_cap_are_dropped_and_the_text_says_so(caplog):
+    result = _ok("small text")
+    result.images = [{"data": "A" * 996, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1, max_bytes=1000, tool_call_id="call-7")
+    assert p["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert p["images"] is None
+    assert p["data"].startswith(
+        "small text\n\n[1 image(s) (996 bytes) omitted from tool call call-7:"
+    )
+    assert "1000-byte limit" in p["data"]
+    assert "remote tool call call-7: dropping 1 image" in caplog.text
+
+
+def test_the_omission_note_never_takes_the_text_over_the_cap():
+    """The note itself is ~170 bytes; text within that of the cap used to
+    end up over it."""
+    for text_size in (950, 970, 990, 1000):
+        result = _ok("t" * text_size)
+        result.images = [{"data": "A" * 52, "mimeType": "image/png"}]
+        p = serialize_tool_response(result, 0.1, max_bytes=1000)
+        assert p["status"] == StructuredToolResultStatus.SUCCESS.value
+        assert p["images"] is None and p["data"].endswith("]")
+        assert len(p["data"].encode()) <= 1000, text_size
+        assert "1 image(s) (52 bytes) omitted" in p["data"]
+    assert "the end of the text was cut" in p["data"]  # the last, 1000 bytes
+    assert p["data"].startswith("t" * 700)
+
+
+def test_a_cut_for_the_omission_note_lands_on_a_character_boundary():
+    result = _ok("é" * 500)  # 1000 bytes of two-byte characters
+    result.images = [{"data": "A" * 52, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1, max_bytes=1000)
+    kept = p["data"].split("\n\n[")[0]
+    assert set(kept) == {"é"} and len(p["data"].encode()) <= 1000
+
+
+def test_an_images_only_result_travels_with_empty_text():
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=None,
+        images=[{"data": PNG, "mimeType": "image/png"}],
+    )
+    p = serialize_tool_response(result, 0.1)
+    assert p["data"] == "" and p["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_images_within_the_cap_stay_next_to_gzipped_text():
+    result = _ok("x" * 200_000)
+    result.images = [{"data": PNG, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1)
+    assert p["compressed"] and p["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_an_oversized_text_result_carries_no_images():
+    result = _ok("y" * 2_000_000)
+    result.images = [{"data": PNG, "mimeType": "image/png"}]
+    p = serialize_tool_response(result, 0.1)
+    assert p["status"] == StructuredToolResultStatus.ERROR.value
+    assert p["images"] is None
+
+
 # ---- multi-instance resolution in _execute ----
 
 
@@ -112,7 +230,7 @@ def _worker_with_tool(exposed_instances: Optional[list], is_core=False):
     executor._tool_to_toolset = {"probe": toolset}
 
     config = MagicMock()
-    config.create_tool_executor.return_value = executor
+    config.create_server_tool_executor.return_value = executor
     config._get_llm.return_value = MagicMock(spec=LLM)
 
     return ToolCallWorker(dal=MagicMock(), config=config, holmes_id="h-test")
@@ -396,6 +514,208 @@ def test_signal_arriving_during_claim_is_not_lost(monkeypatch):
     worker._try_claim_and_dispatch()
     assert worker._notify_event.is_set()
     assert worker._notify_event.wait(timeout=0) is True
+
+
+# ---- remote tool APPROVAL flow (target/executor side, metadata-only) ----
+#
+# Approval is signalled entirely by the caller via row metadata (no token, no
+# pending_approval status, no approval_* columns). These verify:
+#   1. first execution (no metadata flag) -> tool asks for approval -> response
+#      carries APPROVAL_REQUIRED + approval_params, posted as a normal COMPLETED
+#      row (no special DB status, no store RPC)
+#   2. approved re-invocation (metadata.remote_tool_approved=true) -> tool runs
+#      with user_approved=True and the real result is returned/posted
+#   3. approved-but-still-gated -> fail closed (no infinite re-request loop)
+
+
+def _approval_worker(behavior):
+    """ToolCallWorker whose single 'bash' tool runs behavior(params, context)."""
+    tool = MagicMock(name="tool", spec=["name", "invoke"])
+    tool.name = "bash"
+    tool.invoke.side_effect = behavior
+
+    toolset = MagicMock(
+        name="toolset", spec=["name", "is_core", "expose_remotely", "status"]
+    )
+    toolset.name = "bash_ts"
+    toolset.is_core = False
+    toolset.expose_remotely = True
+    toolset.status = ToolsetStatusEnum.ENABLED
+
+    executor = MagicMock()
+    executor.tools_by_name = {"bash": tool}
+    executor._tool_to_toolset = {"bash": toolset}
+
+    config = MagicMock()
+    config.create_server_tool_executor.return_value = executor
+    config._get_llm.return_value = MagicMock(spec=LLM)
+
+    return ToolCallWorker(dal=MagicMock(), config=config, holmes_id="h-test"), tool
+
+
+def _approval_row(approved=False):
+    md = {"source_version": get_version()}
+    if approved:
+        md["remote_tool_approved"] = True
+    return {
+        "id": "row-approve-1",
+        "account_id": "acct-1",
+        "user_id": None,
+        "tool_request": {
+            "tool_name": "bash",
+            "tool_params": {"command": "curl http://svc/healthz"},
+            "instance": None,
+            "tool_call_id": "call-xyz",
+            "max_token_count": 16000,
+        },
+        "metadata": md,
+    }
+
+
+def _needs_approval_unless_approved(params, context):
+    if context.user_approved:
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS, data="ran the command"
+        )
+    return StructuredToolResult(
+        status=StructuredToolResultStatus.APPROVAL_REQUIRED,
+        error="Command requires approval. Segment(s) not in allow list: 'curl'",
+    )
+
+
+def test_execute_first_call_surfaces_approval_required():
+    """First execution (no approval flag): tool asks for approval -> response
+    carries APPROVAL_REQUIRED + params; the tool ran with user_approved=False."""
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    resp = worker._execute(_approval_row(approved=False))
+
+    assert resp["status"] == StructuredToolResultStatus.APPROVAL_REQUIRED.value
+    assert resp["approval_params"] == {"command": "curl http://svc/healthz"}
+    assert "not in allow list" in resp["error"]
+    assert tool.invoke.call_args.args[1].user_approved is False
+
+
+def test_execute_safe_first_call_posts_completed_not_special_status():
+    """_execute_safe posts the approval-required response as a normal COMPLETED
+    row (no pending_approval status, no store RPC)."""
+    worker, _ = _approval_worker(_needs_approval_unless_approved)
+    worker.dal.post_remote_tool_call_result.return_value = True
+
+    worker._execute_safe(_approval_row(approved=False))
+
+    worker.dal.post_remote_tool_call_result.assert_called_once()
+    kwargs = worker.dal.post_remote_tool_call_result.call_args.kwargs
+    assert kwargs["status"] == "completed"
+    assert kwargs["tool_response"]["status"] == (
+        StructuredToolResultStatus.APPROVAL_REQUIRED.value
+    )
+
+
+def test_execute_approved_reinvocation_runs_with_user_approved():
+    """metadata.remote_tool_approved=true -> tool runs with user_approved=True
+    and returns the real result — the approve->run half (executor side)."""
+    worker, tool = _approval_worker(_needs_approval_unless_approved)
+    resp = worker._execute(_approval_row(approved=True))
+
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert resp["data"] == "ran the command"
+    assert tool.invoke.call_args.args[1].user_approved is True
+
+
+def test_execute_keeps_the_images_a_tool_returned():
+    """A Grafana panel rendered on this cluster reaches the caller's
+    Holmes, which cites it like a local one."""
+
+    def render_panel(params, context):
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="Rendered screenshot of panel 1",
+            images=[{"data": PNG, "mimeType": "image/png"}],
+        )
+
+    worker, _ = _approval_worker(render_panel)
+    resp = worker._execute(_approval_row(approved=True))
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert resp["images"] == [{"data": PNG, "mimeType": "image/png"}]
+
+
+def test_execute_drops_images_over_the_cap_and_keeps_the_text():
+    """The real path, with the module's cap: a 1 MB+ panel costs the
+    picture, never the result."""
+
+    def render_huge_panel(params, context):
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS,
+            data="Rendered screenshot of panel 1",
+            images=[{"data": "A" * 1_100_000, "mimeType": "image/png"}],
+        )
+
+    worker, _ = _approval_worker(render_huge_panel)
+    resp = worker._execute(_approval_row(approved=True))
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert resp["images"] is None
+    assert resp["data"].startswith("Rendered screenshot of panel 1\n\n[1 image(s)")
+
+
+def test_every_payload_shape_carries_the_images_key():
+    worker, _ = _approval_worker(_needs_approval_unless_approved)
+    approval = worker._execute(_approval_row(approved=False))
+    assert approval["images"] is None
+    from holmes.core.conversations_worker.tool_call_worker import _error_response
+
+    assert _error_response("boom")["images"] is None
+
+
+def test_execute_safe_approved_posts_completed_result():
+    """Full _execute_safe on an approved row: runs the tool and posts a
+    COMPLETED terminal result the caller is waiting for."""
+    worker, _ = _approval_worker(_needs_approval_unless_approved)
+    worker.dal.post_remote_tool_call_result.return_value = True
+
+    worker._execute_safe(_approval_row(approved=True))
+
+    worker.dal.post_remote_tool_call_result.assert_called_once()
+    kwargs = worker.dal.post_remote_tool_call_result.call_args.kwargs
+    assert kwargs["status"] == "completed"
+    assert kwargs["tool_response"]["data"] == "ran the command"
+
+
+def test_execute_forwards_session_approved_prefixes_to_tool_context():
+    """Prefixes the caller forwarded (tool_request.session_approved_prefixes)
+    must reach the tool's ToolInvokeContext so the executor auto-approves them
+    instead of re-prompting."""
+    seen = {}
+
+    def capture(params, context):
+        seen["prefixes"] = list(context.session_approved_prefixes)
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.SUCCESS, data="ok"
+        )
+
+    worker, _ = _approval_worker(capture)
+    row = _approval_row(approved=False)
+    row["tool_request"]["session_approved_prefixes"] = ["curl", "dig"]
+    resp = worker._execute(row)
+
+    assert resp["status"] == StructuredToolResultStatus.SUCCESS.value
+    assert seen["prefixes"] == ["curl", "dig"]
+
+
+def test_execute_approved_but_still_gated_fails_closed():
+    """If the tool STILL demands approval after user_approved=True, do NOT
+    re-request (would loop) — return an internal error instead."""
+
+    def always_gated(params, context):
+        return StructuredToolResult(
+            status=StructuredToolResultStatus.APPROVAL_REQUIRED, error="still gated"
+        )
+
+    worker, _ = _approval_worker(always_gated)
+    resp = worker._execute(_approval_row(approved=True))
+
+    assert resp["status"] == StructuredToolResultStatus.ERROR.value
+    assert "loop" in resp["error"].lower() or "internal" in resp["error"].lower()
+    assert "approval_params" not in resp  # not re-surfaced
 
 
 # ---- _wake_all routes to both workers ----

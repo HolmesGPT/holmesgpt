@@ -1,9 +1,18 @@
 """Unit tests for the database toolset."""
 
+import datetime
+import ipaddress
 import os
 import tempfile
 
+import certifi
+import pytds.tls
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+from OpenSSL import crypto
 from pydantic import ValidationError
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
@@ -21,6 +30,7 @@ from holmes.plugins.toolsets.database.database import (  # noqa: E402
     _icon_url_for_subtype,
     _lookup_driver_info,
     _normalise_url,
+    _pytds_validate_host,
     _serialize_value,
 )
 
@@ -55,7 +65,14 @@ class TestNormaliseUrl:
     def test_mssql_url(self):
         assert (
             _normalise_url("mssql://user:pass@host/db")
-            == "mssql+pymssql://user:pass@host/db"
+            == "mssql+pytds://user:pass@host/db"
+        )
+
+    def test_legacy_pymssql_url_rewritten_to_pytds(self):
+        # Configs written before the pymssql -> python-tds swap keep working.
+        assert (
+            _normalise_url("mssql+pymssql://user:pass@host/db")
+            == "mssql+pytds://user:pass@host/db"
         )
 
     def test_sqlite_url(self):
@@ -142,6 +159,115 @@ class TestDatabaseToolset:
     def test_toolset_disabled_by_default(self):
         toolset = DatabaseToolset()
         assert toolset.enabled is False
+
+
+_CERTIFI_BUNDLE = certifi.where()
+
+
+class TestCreateEngineConnectArgs:
+    """verify_ssl maps to the correct driver-specific connect_args."""
+
+    def _connect_args(self, monkeypatch, url, verify_ssl):
+        toolset = DatabaseToolset()
+        toolset.config = DatabaseConfig(connection_url=url, verify_ssl=verify_ssl)
+        captured = {}
+
+        def fake_create_engine(engine_url, **kwargs):
+            captured["connect_args"] = kwargs["connect_args"]
+
+        monkeypatch.setattr(sqlalchemy, "create_engine", fake_create_engine)
+        toolset._create_engine(url)
+        return captured["connect_args"]
+
+    def test_mssql_verify_ssl_enables_tls_with_ca_bundle(self, monkeypatch):
+        # pytds only turns TLS on when a CA bundle is passed; certifi's bundle
+        # gives a certificate-verified connection (required by Azure SQL).
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {"cafile": certifi.where()}
+
+    def test_mssql_no_verify_ssl_disables_tls(self, monkeypatch):
+        # pytds has no encrypt-without-verification mode, so verify_ssl=False
+        # means no TLS at all (self-signed / plain servers).
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=False
+        )
+        assert args == {}
+
+    def test_postgres_no_verify_ssl(self, monkeypatch):
+        args = self._connect_args(
+            monkeypatch, "postgresql+pg8000://user:pass@host/db", verify_ssl=False
+        )
+        assert args == {"ssl_context": None}
+
+    def test_postgres_verify_ssl_passes_no_args(self, monkeypatch):
+        args = self._connect_args(
+            monkeypatch, "postgresql+pg8000://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {}
+
+    def test_mssql_ca_bundle_resolved_per_connection(self, monkeypatch):
+        """A custom CA added at startup (CERTIFICATE env var) must be honored.
+
+        cert_utils patches certifi.where(), so resolving it per connection is
+        what lets a private-CA SQL Server work without a toolset-level setting.
+        """
+        monkeypatch.setattr(certifi, "where", lambda: "/tmp/custom_ca.pem")
+        args = self._connect_args(
+            monkeypatch, "mssql+pytds://user:pass@host/db", verify_ssl=True
+        )
+        assert args == {"cafile": "/tmp/custom_ca.pem"}
+
+    @pytest.mark.parametrize("verify_ssl", [True, False])
+    def test_engine_name_in_credentials_does_not_pick_wrong_driver(
+        self, monkeypatch, verify_ssl
+    ):
+        """A username containing another engine's name must not route SSL args.
+
+        'mssql' appears in the username here, but this is a PostgreSQL URL and
+        must get pg8000's arguments, never pytds's cafile.
+        """
+        url = "postgresql+pg8000://mssql_sync_user:pw@pg.example.com:5432/analytics"
+        args = self._connect_args(monkeypatch, url, verify_ssl=verify_ssl)
+        assert "cafile" not in args
+        assert args == ({} if verify_ssl else {"ssl_context": None})
+
+    def test_mysql_credentials_containing_mssql(self, monkeypatch):
+        url = "mysql+pymysql://mssql_migrator:pw@mysql.example.com/db"
+        args = self._connect_args(monkeypatch, url, verify_ssl=False)
+        assert args == {"ssl_disabled": True}
+
+    # Full engine x verify_ssl matrix. Every supported engine is pinned here so
+    # a change to one driver's SSL handling cannot silently alter another's.
+    # URLs are post-_normalise_url, which is what _create_engine always receives.
+    @pytest.mark.parametrize(
+        "url,verify_ssl,expected",
+        [
+            # SQL Server: TLS only when verifying; certifi bundle enables it.
+            ("mssql+pytds://u:p@host/db", True, {"cafile": _CERTIFI_BUNDLE}),
+            ("mssql+pytds://u:p@host/db", False, {}),
+            # PostgreSQL: pg8000 disables verification via ssl_context=None.
+            ("postgresql+pg8000://u:p@host/db", True, {}),
+            ("postgresql+pg8000://u:p@host/db", False, {"ssl_context": None}),
+            # MySQL / MariaDB: both normalise to pymysql, which uses ssl_disabled.
+            ("mysql+pymysql://u:p@host/db", True, {}),
+            ("mysql+pymysql://u:p@host/db", False, {"ssl_disabled": True}),
+            ("mariadb://u:p@host/db", True, {}),
+            ("mariadb://u:p@host/db", False, {"ssl_disabled": True}),
+            # ClickHouse uses `verify`.
+            ("clickhouse://u:p@host/db", True, {}),
+            ("clickhouse://u:p@host/db", False, {"verify": False}),
+            # SQLite is a local file: no SSL arguments in either mode.
+            ("sqlite:///tmp/test.db", True, {}),
+            ("sqlite:///tmp/test.db", False, {}),
+            # An unrecognised engine must not inherit another driver's args.
+            ("oracle+cx_oracle://u:p@host/db", True, {}),
+            ("oracle+cx_oracle://u:p@host/db", False, {}),
+        ],
+    )
+    def test_ssl_args_matrix(self, monkeypatch, url, verify_ssl, expected):
+        assert self._connect_args(monkeypatch, url, verify_ssl) == expected
 
 
 class TestSubtypeIcons:
@@ -361,6 +487,9 @@ class TestDetectSubtype:
     def test_mssql(self):
         assert _detect_subtype("mssql://user:pass@host/db") == DatabaseSubtype.MSSQL
 
+    def test_mssql_pytds(self):
+        assert _detect_subtype("mssql+pytds://user:pass@host/db") == DatabaseSubtype.MSSQL
+
     def test_mssql_pymssql(self):
         assert _detect_subtype("mssql+pymssql://user:pass@host/db") == DatabaseSubtype.MSSQL
 
@@ -467,3 +596,70 @@ class TestDatabaseToolsetMeta:
             {"connection_url": "sqlite:///path/to/db"}
         )
         assert toolset.meta == {"type": "database", "subtype": "sqlite"}
+
+
+def _make_cert(cn, dns_names=(), ips=()):
+    key = ec.generate_private_key(ec.SECP256R1())
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + datetime.timedelta(days=1))
+    )
+    sans = [x509.DNSName(d) for d in dns_names] + [
+        x509.IPAddress(ipaddress.ip_address(i)) for i in ips
+    ]
+    if sans:
+        builder = builder.add_extension(
+            x509.SubjectAlternativeName(sans), critical=False
+        )
+    # pytds hands validate_host a pyOpenSSL X509, so the tests do too.
+    return crypto.X509.from_cryptography(builder.sign(key, hashes.SHA256()))
+
+
+class TestPytdsValidateHost:
+    def test_patch_installed(self):
+        assert pytds.tls.validate_host is _pytds_validate_host
+
+    def test_cn_match(self):
+        assert _pytds_validate_host(_make_cert("sql.example.com"), b"sql.example.com")
+
+    def test_san_match_when_cn_differs(self):
+        # The case that raised AttributeError with stock pytds on pyOpenSSL >= 26.2.
+        cert = _make_cert("other", dns_names=["a.example.com", "sql.example.com"])
+        assert _pytds_validate_host(cert, b"sql.example.com")
+
+    def test_case_insensitive(self):
+        cert = _make_cert("other", dns_names=["SQL.Example.com"])
+        assert _pytds_validate_host(cert, b"sql.example.COM")
+
+    def test_wildcard_first_label_only(self):
+        cert = _make_cert("other", dns_names=["*.example.com"])
+        assert _pytds_validate_host(cert, b"sql.example.com")
+        assert not _pytds_validate_host(cert, b"a.sql.example.com")
+        assert not _pytds_validate_host(cert, b"example.com")
+
+    def test_no_match(self):
+        cert = _make_cert("other", dns_names=["a.example.com"], ips=["10.0.0.1"])
+        assert not _pytds_validate_host(cert, b"sql.example.com")
+
+    def test_ip_san_match(self):
+        cert = _make_cert("other", dns_names=["a.example.com"], ips=["10.0.0.1"])
+        assert _pytds_validate_host(cert, b"10.0.0.1")
+        assert not _pytds_validate_host(cert, b"10.0.0.2")
+
+    def test_cn_ignored_when_dns_san_present(self):
+        cert = _make_cert("sql.example.com", dns_names=["other.example.com"])
+        assert not _pytds_validate_host(cert, b"sql.example.com")
+
+    def test_cn_fallback_for_ip_without_ip_san(self):
+        cert = _make_cert("10.0.0.1", dns_names=["a.example.com"])
+        assert _pytds_validate_host(cert, b"10.0.0.1")
+
+    def test_no_san_extension(self):
+        assert not _pytds_validate_host(_make_cert("other"), b"sql.example.com")

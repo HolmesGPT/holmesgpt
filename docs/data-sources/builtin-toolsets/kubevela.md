@@ -18,24 +18,26 @@ vela version
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**:
 
-    Add the following to **~/.holmes/config.yaml**:
+  <!-- markdownlint-disable-next-line MD046 -->
+  ```yaml
+  toolsets:
+      kubevela/core:
+          enabled: true
+  ```
 
-    <!-- markdownlint-disable-next-line MD046 -->
-    ```yaml
-    toolsets:
-        kubevela/core:
-            enabled: true
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
 
-    --8<-- "snippets/toolset_refresh_warning.md"
+  To test, run:
 
-    To test, run:
-
-    ```bash
-    holmes ask "What is the status of my KubeVela applications?"
-    ```
+  ```bash
+  holmes ask "What is the status of my KubeVela applications?"
+  ```
+```
 
 ## Common Use Cases
 

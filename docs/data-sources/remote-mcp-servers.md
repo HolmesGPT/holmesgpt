@@ -12,86 +12,24 @@ HolmesGPT supports three MCP transport modes:
 
 ## Streamable-HTTP (Recommended)
 
-=== "Holmes CLI"
-
-    Add to `~/.holmes/config.yaml`:
-
-    ```yaml
-    mcp_servers:
-      dynatrace:
-        description: "Dynatrace observability platform"
-        config:
-          url: "http://dynatrace-mcp:8000/mcp/messages"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
-          icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
-    ```
-
-    ```bash
-    holmes ask "What services have high error rates in Dynatrace?"
-    ```
-
-=== "Holmes Helm Chart"
-
-    Add to your Helm values:
-
-    ```yaml
-    additionalEnvVars:
-      - name: DYNATRACE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: mcp-credentials
-            key: api_key
-
-    mcp_servers:
-      dynatrace:
-        description: "Dynatrace observability platform"
-        config:
-          url: "http://dynatrace-mcp:8000/mcp/messages"
-          mode: streamable-http
-          headers:
-            Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
-          icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
-    ```
-
-    ```bash
-    helm upgrade holmes robusta/holmes --values=values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: DYNATRACE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: mcp-credentials
-              key: api_key
-
-      mcp_servers:
-        dynatrace:
-          description: "Dynatrace observability platform"
-          config:
-            url: "http://dynatrace-mcp:8000/mcp/messages"
-            mode: streamable-http
-            headers:
-              Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
-            icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
-          # llm_instructions tells Holmes WHEN and HOW to use this server
-          llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
-    ```
-
-    ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+mcp_servers:
+  dynatrace:
+    description: "Dynatrace observability platform"
+    config:
+      url: "http://dynatrace-mcp:8000/mcp/messages"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.DYNATRACE_API_KEY }}"
+      icon_url: "https://cdn.simpleicons.org/dynatrace/1496FF"  # Optional: icon for UI
+    # llm_instructions tells Holmes WHEN and HOW to use this server
+    llm_instructions: "Use Dynatrace to investigate application performance issues, analyze distributed traces, and query infrastructure metrics. Prefer this over Prometheus for APM data."
+---
+secret:
+  - --from-literal=DYNATRACE_API_KEY=<YOUR_DYNATRACE_API_KEY>
+test: |
+  holmes ask "What services have high error rates in Dynatrace?"
+```
 
 The URL path depends on your MCP server (e.g., `/mcp/messages`, `/mcp`, or a custom path). Check your server's documentation.
 
@@ -99,252 +37,143 @@ The URL path depends on your MCP server (e.g., `/mcp/messages`, `/mcp`, or a cus
 
 Stdio mode runs MCP servers as subprocesses, communicating via standard input/output.
 
-=== "Holmes CLI"
+!!! warning "Stdio requires Supergateway for Kubernetes"
+    In Kubernetes, stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
 
-    Add to `~/.holmes/config.yaml`:
+**Step 1: Create a Docker image with your MCP server**
 
-    ```yaml
-    mcp_servers:
-      ticket_db:
-        description: "Internal ticket database"
-        config:
-          mode: stdio
-          command: "python3"
-          args:
-            - "/path/to/my_mcp_server.py"
-          env:
-            CUSTOM_VAR: "value"
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
-    ```
+CLI users can skip this step and the next: the CLI runs the server as a subprocess.
 
-    ```bash
-    holmes ask "Find tickets related to payment service errors"
-    ```
+```dockerfile
+FROM supercorp/supergateway:latest
 
-    Ensure required dependencies (e.g., `mcp`, `fastmcp` packages) are installed in your environment.
+USER root
+# Install your MCP server dependencies
+# Example: RUN apk add --no-cache python3 py3-pip
+# Example: RUN pip3 install --no-cache-dir --break-system-packages your-mcp-package
+USER node
 
-=== "Holmes Helm Chart"
+EXPOSE 8000
+# Replace with your MCP server command, passed to --stdio as one string. Examples:
+#   CMD ["--port", "8000", "--stdio", "python3 -m your_mcp_module"]
+#   CMD ["--port", "8000", "--stdio", "python3 /app/stdio_server.py"]
+#   CMD ["--port", "8000", "--stdio", "npx -y @your-org/your-mcp-server@latest"]
+CMD ["--port", "8000", "--stdio", "python3 -m your_mcp_module"]
+```
 
-    !!! warning "Stdio requires Supergateway for Kubernetes"
-        Stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
+**Step 2: Deploy the MCP server pod**
 
-    **Create a Docker image with your MCP server:**
+The manifest passes your server an `API_KEY` from the Secret `mcp-credentials`, and the pod does not start until that Secret exists. Create it in the namespace you apply the manifest in (`default` in the Holmes config below), or remove the `env` block if your server needs no credentials:
 
-    ```dockerfile
-    FROM supercorp/supergateway:latest
+```bash
+kubectl create secret generic mcp-credentials \
+  --from-literal=api_key="<your-api-key>" \
+  -n default
+```
 
-    USER root
-    # Install your MCP server dependencies
-    # Example: RUN apk add --no-cache python3 py3-pip
-    # Example: RUN pip3 install --no-cache-dir --break-system-packages your-mcp-package
-    USER node
+Then apply the manifest:
 
-    EXPOSE 8000
-    # Replace with your MCP server command. Examples:
-    #   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    #   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
-    #   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
-    CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    ```
-
-    **Deploy the MCP server pod:**
-
-    ```yaml
-    apiVersion: v1
-    kind: Pod
-    metadata:
-      name: ticket-db-mcp
-      labels:
-        app: ticket-db-mcp
-    spec:
-      containers:
-        - name: supergateway
-          image: your-registry/your-mcp-server:latest
-          ports:
-            - containerPort: 8000
-          args:
-            - "--stdio"
-            # Replace with your MCP server command
-            # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
-            - "python3 -m your_mcp_module"
-            - "--port"
-            - "8000"
-            - "--logLevel"
-            - "debug"
-          env:
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: mcp-credentials
-                  key: api_key
-          stdin: true
-          tty: true
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: ticket-db-mcp
-    spec:
-      selector:
-        app: ticket-db-mcp
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ticket-db-mcp
+  labels:
+    app: ticket-db-mcp
+spec:
+  containers:
+    - name: supergateway
+      image: your-registry/your-mcp-server:latest
       ports:
-        - protocol: TCP
-          port: 8000
-          targetPort: 8000
-      type: ClusterIP
-    ```
+        - containerPort: 8000
+      args:
+        - "--stdio"
+        # Replace with your MCP server command
+        # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
+        - "python3 -m your_mcp_module"
+        - "--port"
+        - "8000"
+        - "--logLevel"
+        - "debug"
+      env:
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-credentials
+              key: api_key
+      stdin: true
+      tty: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ticket-db-mcp
+spec:
+  selector:
+    app: ticket-db-mcp
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP
+```
 
-    **Connect Holmes to the MCP server:**
+**Step 3: Configure HolmesGPT**
 
-    ```yaml
-    mcp_servers:
-      ticket_db:
-        description: "Internal ticket database"
-        config:
-          url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
-          mode: sse
-        # llm_instructions tells Holmes WHEN and HOW to use this server
-        llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
-    ```
+```yaml-toolset-config
+mcp_servers:
+  ticket_db:
+    description: "Internal ticket database"
+    config:
+      url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
+      mode: sse
+    # llm_instructions tells Holmes WHEN and HOW to use this server
+    llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
+---
+cli: |
+  Add to `~/.holmes/config.yaml`:
 
-    ```bash
-    helm upgrade holmes robusta/holmes --values=values.yaml
-    ```
+  ```yaml
+  mcp_servers:
+    ticket_db:
+      description: "Internal ticket database"
+      config:
+        mode: stdio
+        command: "python3"
+        args:
+          - "/path/to/my_mcp_server.py"
+        env:
+          CUSTOM_VAR: "value"
+      # llm_instructions tells Holmes WHEN and HOW to use this server
+      llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
+  ```
 
-=== "Robusta Helm Chart"
+  ```bash
+  holmes ask "Find tickets related to payment service errors"
+  ```
 
-    !!! warning "Stdio requires Supergateway for Kubernetes"
-        Stdio mode cannot run directly in the Holmes container due to missing dependencies. Run your stdio MCP server in a separate pod using [Supergateway](https://github.com/supercorp-ai/supergateway) to expose it as HTTP.
-
-    **Create a Docker image with your MCP server:**
-
-    ```dockerfile
-    FROM supercorp/supergateway:latest
-
-    USER root
-    # Install your MCP server dependencies
-    # Example: RUN apk add --no-cache python3 py3-pip
-    # Example: RUN pip3 install --no-cache-dir --break-system-packages your-mcp-package
-    USER node
-
-    EXPOSE 8000
-    # Replace with your MCP server command. Examples:
-    #   CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    #   CMD ["--port", "8000", "--stdio", "python3", "/app/stdio_server.py"]
-    #   CMD ["--port", "8000", "--stdio", "npx", "-y", "@your-org/your-mcp-server@latest"]
-    CMD ["--port", "8000", "--stdio", "python3", "-m", "your_mcp_module"]
-    ```
-
-    **Deploy the MCP server pod:**
-
-    ```yaml
-    apiVersion: v1
-    kind: Pod
-    metadata:
-      name: ticket-db-mcp
-      labels:
-        app: ticket-db-mcp
-    spec:
-      containers:
-        - name: supergateway
-          image: your-registry/your-mcp-server:latest
-          ports:
-            - containerPort: 8000
-          args:
-            - "--stdio"
-            # Replace with your MCP server command
-            # Examples: "python3 -m your_mcp_module", "python3 /app/stdio_server.py", "npx -y @your-org/your-mcp-server@latest"
-            - "python3 -m your_mcp_module"
-            - "--port"
-            - "8000"
-            - "--logLevel"
-            - "debug"
-          env:
-            - name: API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: mcp-credentials
-                  key: api_key
-          stdin: true
-          tty: true
-    ---
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: ticket-db-mcp
-    spec:
-      selector:
-        app: ticket-db-mcp
-      ports:
-        - protocol: TCP
-          port: 8000
-          targetPort: 8000
-      type: ClusterIP
-    ```
-
-    **Connect Holmes to the MCP server:**
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        ticket_db:
-          description: "Internal ticket database"
-          config:
-            url: "http://ticket-db-mcp.default.svc.cluster.local:8000/sse"
-            mode: sse
-          # llm_instructions tells Holmes WHEN and HOW to use this server
-          llm_instructions: "Use this server to query the internal ticket database. Search for related incidents by error message or service name."
-    ```
-
-    ```bash
-    helm upgrade robusta robusta/robusta --values=generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+  Ensure required dependencies (e.g., `mcp`, `fastmcp` packages) are installed in your environment.
+```
 
 ## SSE (Deprecated)
 
 SSE transport is deprecated. Use `streamable-http` for new integrations.
 
-=== "Holmes CLI"
-
-    Add to `~/.holmes/config.yaml`:
-
-    ```yaml
-    mcp_servers:
-      legacy_analytics:
-        description: "Legacy analytics platform (SSE transport)"
-        config:
-          url: "http://analytics-mcp:8000/sse"
-          mode: sse
-        llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
-    ```
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    mcp_servers:
-      legacy_analytics:
-        description: "Legacy analytics platform (SSE transport)"
-        config:
-          url: "http://analytics-mcp:8000/sse"
-          mode: sse
-        llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        legacy_analytics:
-          description: "Legacy analytics platform (SSE transport)"
-          config:
-            url: "http://analytics-mcp:8000/sse"
-            mode: sse
-          llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
-    ```
+```yaml-toolset-config
+mcp_servers:
+  legacy_analytics:
+    description: "Legacy analytics platform (SSE transport)"
+    config:
+      url: "http://analytics-mcp:8000/sse"
+      mode: sse
+    llm_instructions: "Query historical analytics data. Use for trend analysis over periods longer than 30 days."
+```
 
 The URL should end with `/sse`. If it doesn't, HolmesGPT will automatically append it.
+
+## AWS MCP Server
+
+The hosted AWS MCP Server needs SigV4-signed requests. Use `mode: aws` instead of `streamable-http` and Holmes signs with its AWS credentials; see [AWS (MCP)](builtin-toolsets/aws.md).
 
 ## OAuth Authentication
 
@@ -356,38 +185,19 @@ For MCP servers that require OAuth authentication (e.g. Atlassian, Notion), see 
 
 MCP servers can forward HTTP headers from the incoming request to the MCP backend. Use `extra_headers` with Jinja2 templates referencing `request_context.headers`. Header lookups are case-insensitive. You can also use environment variables (`{{ env.MY_VAR }}`) or combine them (`Bearer {{ request_context.headers['token'] }}`).
 
-=== "Holmes CLI"
+This does not apply to the CLI: request context is only available when running Holmes as a server.
 
-    Not applicable — request context is only available when running Holmes as a server.
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    mcp_servers:
-      customer_data:
-        description: "Customer data API (requires per-request auth)"
-        config:
-          url: "http://customer-api:8000/mcp"
-          mode: streamable-http
-          extra_headers:
-            X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-        llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      mcp_servers:
-        customer_data:
-          description: "Customer data API (requires per-request auth)"
-          config:
-            url: "http://customer-api:8000/mcp"
-            mode: streamable-http
-            extra_headers:
-              X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
-          llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
-    ```
+```yaml-helm-values
+mcp_servers:
+  customer_data:
+    description: "Customer data API (requires per-request auth)"
+    config:
+      url: "http://customer-api:8000/mcp"
+      mode: streamable-http
+      extra_headers:
+        X-Auth-Token: "{{ request_context.headers['X-Auth-Token'] }}"
+    llm_instructions: "Query customer account details and subscription status. Use when investigating user-reported issues."
+```
 
 For full details on template syntax, blocked headers, precedence rules, and examples for other toolset types, see [HTTP Header Propagation](header-propagation.md).
 
@@ -416,6 +226,53 @@ mcp_servers:
       health_check_tool: get_current_user
     llm_instructions: "..."
 ```
+
+**Re-checking a Server Less Often**
+
+In server mode, Holmes re-checks every enabled toolset every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS` (default 300), and after 30, 60 and 120 seconds while an MCP server is failing. Each re-check of an MCP server opens a session, lists its tools and runs its health check tool, if it has one. When many Holmes instances share one rate-limited credential, these checks alone can exhaust the limit.
+
+Set `status_refresh_interval_seconds` on the server to have these periodic re-checks run at most once per that many seconds. Between checks it keeps the status and tools of its last check, and a failed server stays failed until its next check instead of being retried sooner. Holmes still checks it whenever it builds its toolsets from scratch, such as at startup and on config reload, and on the next refresh after an edit to a custom toolsets file.
+
+```yaml
+mcp_servers:
+  issue_tracker:
+    description: "Issue tracker shared by every cluster"
+    status_refresh_interval_seconds: 3600
+    config:
+      url: "https://mcp.example.com/mcp"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.ISSUE_TRACKER_API_KEY }}"
+```
+
+The setting works on any toolset, not only MCP servers.
+
+**Loading Only Some of a Server's Tools**
+
+Holmes sends the definition of every tool an MCP server lists to the LLM on each request. A server with a large catalog can fill most of the model's context window, or exceed it, before the investigation starts, and the catalog can grow on the server side without any change to your config.
+
+Set `allowed_tools` to the tool names Holmes should load. Holmes drops every other tool the server lists. Entries are matched with `fnmatch`, so `incident_*` matches every tool whose name starts with `incident_`. When `allowed_tools` is unset or empty, Holmes loads every tool.
+
+```yaml
+mcp_servers:
+  incident_io:
+    description: "incident.io - incidents, alerts and on-call"
+    config:
+      url: "https://mcp.incident.io/mcp"
+      mode: streamable-http
+      headers:
+        Authorization: "Bearer {{ env.INCIDENT_IO_API_KEY }}"
+    allowed_tools:
+      - incident_*
+      - alert_list
+      - alert_show
+      - escalation_*
+      - schedule_show
+    approval_required_tools:
+      - incident_update
+```
+
+`approval_required_tools` applies on top of `allowed_tools`: a tool must be loaded before it can require approval. The auth health check still picks from every tool the server lists, so `health_check_tool`, or an auto-detected identity tool such as `get_me`, does not need to be in `allowed_tools` and stays hidden from the LLM if it is not.
 
 ## Configuration Format Migration
 

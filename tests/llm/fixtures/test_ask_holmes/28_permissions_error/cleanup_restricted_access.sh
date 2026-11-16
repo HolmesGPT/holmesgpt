@@ -11,7 +11,5 @@ kubectl delete serviceaccount restricted-holmes-sa -n 28-test --ignore-not-found
 # Delete the test namespace
 kubectl delete namespace 28-test --ignore-not-found
 
-# Clean up temporary directory and kubeconfig (cross-platform)
-TEMP_BASE="${TMPDIR:-/tmp}"
-TEMP_DIR="$TEMP_BASE/holmes-test-28-permissions"
-rm -rf "$TEMP_DIR" 2>/dev/null || true
+# Clean up temporary directory and kubeconfig (fixed path, see setup script)
+rm -rf "/tmp/holmes-test-28-permissions" 2>/dev/null || true

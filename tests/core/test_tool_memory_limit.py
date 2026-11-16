@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from holmes.common.env_vars import TOOL_MEMORY_LIMIT_MB
@@ -77,6 +79,24 @@ class TestCheckOomAndAppendHint:
         """Test that hint shows default when env var not set."""
         result = check_oom_and_append_hint("Killed", 137)
         assert f"{TOOL_MEMORY_LIMIT_MB} MB" in result
+
+    def test_warning_logged_on_oom(self, caplog):
+        """Test that an OOM emits an info log naming TOOL_MEMORY_LIMIT_MB and the docs."""
+        with caplog.at_level(logging.INFO, logger="holmes.utils.memory_limit"):
+            check_oom_and_append_hint("Killed", 137)
+        assert any(
+            "TOOL_MEMORY_LIMIT_MB" in r.message
+            and f"currently {TOOL_MEMORY_LIMIT_MB} MB" in r.message
+            and "https://holmesgpt.dev/data-sources/tool-execution-safety/#when-to-raise-the-limit"
+            in r.message
+            for r in caplog.records
+        )
+
+    def test_no_warning_logged_on_success(self, caplog):
+        """Test that successful commands do not emit the OOM info log."""
+        with caplog.at_level(logging.INFO, logger="holmes.utils.memory_limit"):
+            check_oom_and_append_hint("all good", 0)
+        assert not caplog.records
 
     @pytest.mark.parametrize(
         "output",

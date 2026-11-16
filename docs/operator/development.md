@@ -130,18 +130,18 @@ Test Helm template rendering without installing:
 
 ```bash
 # Render templates with default values
-helm template holmesgpt helm/holmes --set operator.enabled=true
+helm template holmes helm/holmes --set operator.enabled=true
 
 # Render with custom values
-helm template holmesgpt helm/holmes -f your-values.yaml --set operator.enabled=true
+helm template holmes helm/holmes -f your-values.yaml --set operator.enabled=true
 
 # Render only operator templates
-helm template holmesgpt helm/holmes \
+helm template holmes helm/holmes \
   --set operator.enabled=true \
   --show-only templates/operator-deployment.yaml
 
 # Render and pipe to kubectl diff
-helm template holmesgpt helm/holmes -f your-values.yaml | kubectl diff -f -
+helm template holmes helm/holmes -f your-values.yaml | kubectl diff -f -
 ```
 
 ## Installing Local Changes
@@ -171,10 +171,10 @@ Install or upgrade:
 
 ```bash
 # Install new release
-helm install holmesgpt helm/holmes -f values-dev.yaml
+helm install holmes helm/holmes -f values-dev.yaml
 
 # Upgrade existing release
-helm upgrade holmesgpt helm/holmes -f values-dev.yaml
+helm upgrade holmes helm/holmes -f values-dev.yaml
 
 # Verify deployment
 kubectl get pods -l app.kubernetes.io/name=holmes-operator
@@ -190,10 +190,10 @@ Test changes to the Helm chart itself:
 helm lint helm/holmes
 
 # Install from local path
-helm install holmesgpt ./helm/holmes -f values-dev.yaml
+helm install holmes ./helm/holmes -f values-dev.yaml
 
 # Upgrade from local path
-helm upgrade holmesgpt ./helm/holmes -f values-dev.yaml
+helm upgrade holmes ./helm/holmes -f values-dev.yaml
 ```
 
 ### Applying CRD Changes

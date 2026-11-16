@@ -5,7 +5,10 @@ expected_output:
 before_test: ./setup_restricted_access.sh
 after_test: ./cleanup_restricted_access.sh
 test_env_vars:
-  KUBECONFIG: "$TMPDIR/holmes-test-28-permissions/restricted-kubeconfig"
+  # Fixed path (no $TMPDIR): the harness expands this with os.path.expandvars,
+  # so an unset TMPDIR would leave a literal, broken path. Kept in sync with
+  # setup_restricted_access.sh / cleanup_restricted_access.sh.
+  KUBECONFIG: "/tmp/holmes-test-28-permissions/restricted-kubeconfig"
 tags:
   - easy
   - transparency

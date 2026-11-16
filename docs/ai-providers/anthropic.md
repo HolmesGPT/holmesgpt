@@ -8,99 +8,43 @@ Get an [Anthropic API key](https://support.anthropic.com/en/articles/8114521-how
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "claude-sonnet-4"  # This refers to the key name in modelList below
 
-    ```bash
-    export ANTHROPIC_API_KEY="your-anthropic-api-key"
-    holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5"
-    ```
+# Configure at least one model using modelList
+modelList:
+  claude-sonnet-4:
+    api_key: "{{ env.ANTHROPIC_API_KEY }}"
+    model: claude-sonnet-4-20250514
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
 
-    **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
+  claude-opus-4:
+    api_key: "{{ env.ANTHROPIC_API_KEY }}"
+    model: anthropic/claude-opus-4-1-20250805
+    temperature: 1
+---
+secret:
+  - --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
+cli: |
+  ```bash
+  export ANTHROPIC_API_KEY="your-anthropic-api-key"
+  holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5"
+  ```
 
-    You can also pass the API key directly as a command-line parameter:
+  **Note**: You can use any Anthropic model by changing the model name. See [Claude Models Overview](https://docs.claude.com/en/docs/about-claude/models/overview#latest-models-comparison){:target="_blank"} for available model names.
 
-    ```bash
-    holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
-    ```
+  You can also pass the API key directly as a command-line parameter:
 
-=== "Holmes Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: ANTHROPIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: anthropic-api-key
-
-    # Configure at least one model using modelList
-    modelList:
-      claude-sonnet-4:
-        api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-sonnet-4-20250514
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-
-      claude-opus-4:
-        api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: anthropic/claude-opus-4-1-20250805
-        temperature: 1
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "claude-sonnet-4"  # This refers to the key name in modelList above
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: anthropic-api-key
-
-      # Configure at least one model using modelList
-      modelList:
-        claude-sonnet-4:
-          api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-sonnet-4-20250514
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        claude-opus-4:
-          api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: anthropic/claude-opus-4-1-20250805
-          temperature: 1
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "claude-sonnet-4"  # This refers to the key name in modelList above
-    ```
+  ```bash
+  holmes ask "what pods are failing?" --model="anthropic/claude-sonnet-4-5" --api-key="your-api-key"
+  ```
+```
 
 ## Prompt Caching
 

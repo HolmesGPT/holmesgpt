@@ -16,9 +16,23 @@ There are three ways to load custom skills, covered below. Within each, pick you
 
 Keep skills version-controlled in a Git repo so they can be reviewed, versioned, and shared across a team.
 
-=== "Holmes Helm Chart"
+For private repos there are two ways to authenticate: a fine-grained [Personal Access Token](#using-a-personal-access-token) (simplest) or a [GitHub App](#using-a-github-app) (short-lived auto-expiring tokens, not tied to a personal account).
 
-    Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
+Holmes syncs the repos itself: it clones each configured repo at startup and re-pulls it periodically (every `TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS`, default 5 minutes), so pushed skill changes reach a running agent automatically — no pod restart needed. Configure as many repos as you like; skills from all of them are merged. On Helm deployments, rotating a credential Secret needs one `helm upgrade` afterwards (the chart checksums the Secret data into the pod template, so the upgrade rolls the pod with the new credential) — or restart the Deployment yourself if you'd rather not run an upgrade.
+
+Repo URLs must be `https://`. SSH URLs (`git@github.com:org/repo.git`) are not supported — Holmes holds no SSH key — so use the HTTPS URL with a token or a GitHub App instead.
+
+!!! note "Where the checkouts live, and how big they get"
+
+    On Helm deployments the chart mounts a dedicated `emptyDir` at `/var/holmes/skill-repos` (sized by `skillReposVolumeSize`, default `1Gi`) and points Holmes at it, so a large repo cannot crowd out the `/tmp` volume Holmes uses for tool results. Holmes garbage-collects the object store on every update, so disk use tracks the size of your repo rather than the number of pushes. Set `SKILL_REPOS_DIR` to override the location (the CLI defaults to a directory under the system temp dir).
+
+!!! note "If a repo cannot be synced"
+
+    A repo that has synced at least once keeps serving its last good checkout when a later pull fails, so a transient outage or an expired token does not remove skills that are already loaded. A repo that has *never* synced successfully — a wrong branch name, a `subPath` that does not exist, a bad token — contributes no skills, and the reason is logged once per sync cycle (`Skill repo '<name>' has no checkout ...`). Other skill sources are unaffected either way.
+
+#### Using a Personal Access Token
+
+=== "Holmes Helm Chart"
 
     **1. Create a Secret with a GitHub Personal Access Token.** Use a fine-grained PAT scoped to a single repo with `Contents: Read`:
 
@@ -28,61 +42,23 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
       --from-literal=token='<PAT>'
     ```
 
-    For a public repo, omit the Secret and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
+    For a public repo, omit the Secret and the `tokenSecret` block below.
 
-    **2. Add the init container, volume, and skill path to your Helm values:**
+    **2. Add the repo to your Helm values:**
 
     ```yaml
-    additionalVolumes:
-      - name: skills-repo
-        emptyDir:
-          sizeLimit: 64Mi
-
-    additionalVolumeMounts:
-      - name: skills-repo
-        mountPath: /etc/holmes/skills-git
-        readOnly: true
-
-    initContainers:
-      - name: clone-skills
-        image: alpine/git:2.45.2
-        env:
-          - name: GIT_PAT
-            valueFrom:
-              secretKeyRef:
-                name: holmes-skills-git-credentials
-                key: token
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            set -e
-            rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-            git clone --depth 1 --branch main \
-              "https://oauth2:${GIT_PAT}@github.com/<org>/<repo>.git" \
-              /skills-repo
-        volumeMounts:
-          - name: skills-repo
-            mountPath: /skills-repo
-
-    customSkillPaths:
-      - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+    skillRepos:
+      - url: https://github.com/<org>/<repo>.git
+        branch: main        # optional; defaults to the repo's default branch
+        subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
+        tokenSecret:
+          name: holmes-skills-git-credentials
+          key: token
     ```
 
-    Adjust:
-
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
-    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
-
-    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
-
-    ```bash
-    kubectl rollout restart deploy/<release>-holmes -n <holmes-namespace>
-    ```
+    That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
 
 === "Robusta Helm Chart"
-
-    Have Holmes re-clone the repo on every pod restart. An init container pulls the repo into an `emptyDir` shared with the main Holmes container, and a `customSkillPaths` entry registers the directory.
 
     **1. Create a Secret with a GitHub Personal Access Token.** Use a fine-grained PAT scoped to a single repo with `Contents: Read`:
 
@@ -92,70 +68,206 @@ Keep skills version-controlled in a Git repo so they can be reviewed, versioned,
       --from-literal=token='<PAT>'
     ```
 
-    For a public repo, omit the Secret and drop the `oauth2:${GIT_PAT}@` segment from the clone URL below.
+    For a public repo, omit the Secret and the `tokenSecret` block below.
 
-    **2. Add the init container, volume, and skill path to your `generated_values.yaml`:**
+    **2. Add the repo to your `generated_values.yaml`:**
 
     ```yaml
     enableHolmesGPT: true
     holmes:
-      additionalVolumes:
-        - name: skills-repo
-          emptyDir:
-            sizeLimit: 64Mi
-
-      additionalVolumeMounts:
-        - name: skills-repo
-          mountPath: /etc/holmes/skills-git
-          readOnly: true
-
-      initContainers:
-        - name: clone-skills
-          image: alpine/git:2.45.2
-          env:
-            - name: GIT_PAT
-              valueFrom:
-                secretKeyRef:
-                  name: holmes-skills-git-credentials
-                  key: token
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              set -e
-              rm -rf /skills-repo/.git /skills-repo/* 2>/dev/null || true
-              git clone --depth 1 --branch main \
-                "https://oauth2:${GIT_PAT}@github.com/<org>/<repo>.git" \
-                /skills-repo
-          volumeMounts:
-            - name: skills-repo
-              mountPath: /skills-repo
-
-      customSkillPaths:
-        - /etc/holmes/skills-git/skills   # subdirectory inside the repo where SKILL.md files live
+      skillRepos:
+        - url: https://github.com/<org>/<repo>.git
+          branch: main        # optional; defaults to the repo's default branch
+          subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
+          tokenSecret:
+            name: holmes-skills-git-credentials
+            key: token
     ```
 
-    Adjust:
-
-    - `--branch main` — branch you push skills to.
-    - `https://github.com/<org>/<repo>.git` — your repo URL.
-    - `customSkillPaths` — point at the subdirectory inside the repo that contains skill folders. If skills are in the repo root, use `/etc/holmes/skills-git`.
-
-    **3. Refresh after changes.** The clone runs only on pod startup. After pushing skill changes to the tracked branch, roll the Holmes Deployment:
-
-    ```bash
-    kubectl rollout restart deploy/robusta-holmes -n <robusta-namespace>
-    ```
+    That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
 
 === "Holmes CLI"
 
-    Clone the repo to your machine and point `custom_skill_paths` at the clone in `~/.holmes/config.yaml`:
+    Add the repo to `~/.holmes/config.yaml`. Holmes syncs it at the start of each run:
 
     ```yaml
-    custom_skill_paths:
-      - /path/to/your-skills-clone/
+    skill_repos:
+      - url: https://github.com/<org>/<repo>.git
+        branch: main        # optional; defaults to the repo's default branch
+        sub_path: skills    # optional; subdirectory inside the repo where SKILL.md dirs live
+        token_env: GITHUB_SKILLS_TOKEN   # env var holding the PAT; omit for public repos
     ```
 
-    Run `git pull` in the clone whenever you want to pick up new or updated skills.
+    ```bash
+    export GITHUB_SKILLS_TOKEN='<PAT>'
+    holmes ask "why is my pod crashing?"
+    ```
+
+    Alternatively, clone the repo yourself and point `custom_skill_paths` at the clone — then `git pull` manually whenever you want updates.
+
+#### Using a GitHub App
+
+Instead of a Personal Access Token, authenticate with a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/about-creating-github-apps). GitHub Apps have no static token: Holmes signs a JWT with the App's private key, exchanges it for a short-lived installation token (valid 1 hour), and fetches with that — re-minting automatically on the periodic sync. A leaked token goes stale on its own, and the credential is not tied to a personal account.
+
+Create the App, generate a private key, and install it on your skills repo by following steps 1-4 in [GitHub MCP — Using a GitHub App](../data-sources/builtin-toolsets/github-mcp.md#using-a-github-app). For skills the App only needs the **Contents: Read-only** repository permission (plus Metadata, which GitHub adds automatically).
+
+=== "Holmes Helm Chart"
+
+    **1. Create a Secret with the App's private key:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      -n <holmes-namespace> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
+    ```
+
+    **2. Add the repo to your Helm values:**
+
+    ```yaml
+    skillRepos:
+      - url: https://github.com/<org>/<repo>.git
+        branch: main        # optional; defaults to the repo's default branch
+        subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
+        githubApp:
+          appId: "<YOUR_APP_ID>"
+          installationId: "<YOUR_INSTALLATION_ID>"
+          privateKeySecret:
+            name: holmes-github-app
+            key: GITHUB_APP_PRIVATE_KEY
+    ```
+
+    That's it — Holmes keeps the repo in sync, minting a fresh installation token whenever the cached one nears expiry. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
+
+    For GitHub Enterprise Server, add `apiUrl: https://<ghe-host>/api/v3` under `githubApp`.
+
+=== "Robusta Helm Chart"
+
+    **1. Create a Secret with the App's private key:**
+
+    ```bash
+    kubectl create secret generic holmes-github-app \
+      -n <robusta-namespace> \
+      --from-file=GITHUB_APP_PRIVATE_KEY=/path/to/private-key.pem
+    ```
+
+    **2. Add the repo to your `generated_values.yaml`:**
+
+    ```yaml
+    enableHolmesGPT: true
+    holmes:
+      skillRepos:
+        - url: https://github.com/<org>/<repo>.git
+          branch: main        # optional; defaults to the repo's default branch
+          subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
+          githubApp:
+            appId: "<YOUR_APP_ID>"
+            installationId: "<YOUR_INSTALLATION_ID>"
+            privateKeySecret:
+              name: holmes-github-app
+              key: GITHUB_APP_PRIVATE_KEY
+    ```
+
+    That's it — Holmes keeps the repo in sync, minting a fresh installation token whenever the cached one nears expiry. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
+
+    For GitHub Enterprise Server, add `apiUrl: https://<ghe-host>/api/v3` under `githubApp`.
+
+=== "Holmes CLI"
+
+    Add the repo to `~/.holmes/config.yaml`. Holmes syncs it at the start of each run, minting the installation token from the App's private key:
+
+    ```yaml
+    skill_repos:
+      - url: https://github.com/<org>/<repo>.git
+        branch: main        # optional; defaults to the repo's default branch
+        sub_path: skills    # optional; subdirectory inside the repo where SKILL.md dirs live
+        github_app_id: "<YOUR_APP_ID>"
+        github_app_installation_id: "<YOUR_INSTALLATION_ID>"
+        github_app_private_key_env: GITHUB_APP_PRIVATE_KEY
+    ```
+
+    ```bash
+    export GITHUB_APP_PRIVATE_KEY="$(cat /path/to/private-key.pem)"
+    holmes ask "why is my pod crashing?"
+    ```
+
+
+### From a Bitbucket Repository
+
+Same pattern as GitHub — only the credentials differ. Bitbucket uses a [Repository Access Token](https://support.atlassian.com/bitbucket-cloud/docs/repository-access-tokens/) with the `x-token-auth` username.
+
+=== "Holmes Helm Chart"
+
+    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
+
+    ```bash
+    kubectl create secret generic holmes-skills-git-credentials \
+      -n <holmes-namespace> \
+      --from-literal=token='<repository-access-token>'
+    ```
+
+    For a public repo, omit the Secret and the `tokenSecret`/`username` entries below.
+
+    **2. Add the repo to your Helm values:**
+
+    ```yaml
+    skillRepos:
+      - url: https://bitbucket.org/<workspace>/<repo>.git
+        branch: main        # optional; defaults to the repo's default branch
+        subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
+        username: x-token-auth
+        tokenSecret:
+          name: holmes-skills-git-credentials
+          key: token
+    ```
+
+    That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
+
+=== "Robusta Helm Chart"
+
+    **1. Create a Secret with a Bitbucket Repository Access Token.** Create the token under *Repository settings → Access tokens* with the `Repositories: Read` scope:
+
+    ```bash
+    kubectl create secret generic holmes-skills-git-credentials \
+      -n <robusta-namespace> \
+      --from-literal=token='<repository-access-token>'
+    ```
+
+    For a public repo, omit the Secret and the `tokenSecret`/`username` entries below.
+
+    **2. Add the repo to your `generated_values.yaml`:**
+
+    ```yaml
+    enableHolmesGPT: true
+    holmes:
+      skillRepos:
+        - url: https://bitbucket.org/<workspace>/<repo>.git
+          branch: main        # optional; defaults to the repo's default branch
+          subPath: skills     # optional; subdirectory inside the repo where SKILL.md dirs live
+          username: x-token-auth
+          tokenSecret:
+            name: holmes-skills-git-credentials
+            key: token
+    ```
+
+    That's it — Holmes keeps the repo in sync. After pushing skill changes to the tracked branch, they show up within the refresh interval (default 5 minutes).
+
+=== "Holmes CLI"
+
+    Add the repo to `~/.holmes/config.yaml`. Holmes syncs it at the start of each run:
+
+    ```yaml
+    skill_repos:
+      - url: https://bitbucket.org/<workspace>/<repo>.git
+        branch: main        # optional; defaults to the repo's default branch
+        sub_path: skills    # optional; subdirectory inside the repo where SKILL.md dirs live
+        username: x-token-auth
+        token_env: BITBUCKET_SKILLS_TOKEN   # env var holding the token; omit for public repos
+    ```
+
+    ```bash
+    export BITBUCKET_SKILLS_TOKEN='<repository-access-token>'
+    holmes ask "why is my pod crashing?"
+    ```
 
 ### Inline in Helm Values
 

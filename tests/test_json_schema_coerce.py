@@ -2,8 +2,9 @@
 
 import pytest
 
-from holmes.core.json_schema_coerce import coerce_params
-from holmes.core.tools import ToolParameter
+from holmes.core.json_schema_coerce import coerce_params, drop_unset_optionals
+from holmes.core.tools import ToolParameter, YAMLTool
+from tests.conftest import create_mock_tool_invoke_context
 
 
 # ---------------------------------------------------------------------------
@@ -331,3 +332,311 @@ class TestGeneralBehavior:
             {"tags": {"type": ["array", "null"]}},
         )
         assert result["tags"] == ["a"]
+
+
+# ---------------------------------------------------------------------------
+# The string "null" for a param that accepts null
+# ---------------------------------------------------------------------------
+
+class TestStringNull:
+    """Some providers turn a JSON null into the string "null" (glm-5.3 on OpenRouter
+    since Nov 2026). Holmes must treat it as null, or e.g. kubectl gets `-l null`.
+    An optional param's null is then dropped, the same as a real null."""
+
+    def test_optional_string_is_dropped(self):
+        result = coerce_params(
+            {"label_selector": "null", "namespace": "default"},
+            _schema(
+                label_selector=ToolParameter(type="string", required=False),
+                namespace=ToolParameter(type="string"),
+            ),
+        )
+        assert result == {"namespace": "default"}
+
+    def test_nullable_type_becomes_none(self):
+        result = coerce_params(
+            {"label_selector": "null"},
+            _schema(label_selector=ToolParameter(type=["string", "null"])),
+        )
+        assert result["label_selector"] is None
+
+    def test_optional_array_is_dropped_not_wrapped(self):
+        result = coerce_params(
+            {"tags": "null"},
+            _schema(tags=ToolParameter(type="array", required=False)),
+        )
+        assert result == {}
+
+    def test_optional_integer_is_dropped(self):
+        result = coerce_params(
+            {"limit": "null"},
+            _schema(limit=ToolParameter(type="integer", required=False)),
+        )
+        assert result == {}
+
+    def test_applies_in_strict_mode(self):
+        result = coerce_params(
+            {"limit": "null"},
+            _schema(limit=ToolParameter(type="integer", required=False)),
+            strict=True,
+        )
+        assert result == {}
+
+    def test_raw_dict_nullable_type_becomes_none(self):
+        result = coerce_params(
+            {"tags": "null"},
+            {"tags": {"type": ["string", "null"]}},
+        )
+        assert result == {"tags": None}
+
+    def test_raw_dict_optional_is_dropped(self):
+        result = coerce_params(
+            {"tags": "null"},
+            {"tags": {"type": "string", "required": False}},
+        )
+        assert result == {}
+
+    def test_any_of_null_branch_becomes_none(self):
+        result = coerce_params(
+            {"filter": "null"},
+            {"filter": {"anyOf": [{"type": "object"}, {"type": "null"}]}},
+        )
+        assert result == {"filter": None}
+
+    def test_required_non_nullable_string_kept(self):
+        """A required string can't be null, so "null" is the value the model meant."""
+        result = coerce_params(
+            {"query": "null"},
+            _schema(query=ToolParameter(type="string", required=True)),
+        )
+        assert result["query"] == "null"
+
+    @pytest.mark.parametrize("value", ["Null", "NULL", "None", "nil", "", "null "])
+    def test_other_spellings_kept(self, value):
+        result = coerce_params(
+            {"label_selector": value},
+            _schema(label_selector=ToolParameter(type="string", required=False)),
+        )
+        assert result["label_selector"] == value
+
+
+def test_yaml_tool_renders_string_null_like_omitted():
+    """End to end through Tool.invoke: "null" renders the same as a real JSON null,
+    which is dropped as unset, instead of reaching the command as the word null."""
+    tool = YAMLTool(
+        name="echo_selector",
+        description="Echo the label selector",
+        command="echo sel={{ label_selector }}",
+        parameters={"label_selector": ToolParameter(type="string", required=False)},
+    )
+    context = create_mock_tool_invoke_context()
+
+    from_string = tool.invoke({"label_selector": "null"}, context)
+    from_null = tool.invoke({"label_selector": None}, context)
+
+    assert from_string.data.strip() == "sel="
+    assert from_string.data == from_null.data
+
+
+# ---------------------------------------------------------------------------
+# null for optional params (strict tool calling sends null for "not set")
+# ---------------------------------------------------------------------------
+
+class TestNullOptionalParams:
+    def test_optional_null_is_dropped(self):
+        result = coerce_params(
+            {"query": "up", "timeout": None},
+            _schema(
+                query=ToolParameter(type="string"),
+                timeout=ToolParameter(type="integer", required=False),
+            ),
+        )
+        assert result == {"query": "up"}
+
+    def test_required_null_is_kept(self):
+        result = coerce_params(
+            {"query": None},
+            _schema(query=ToolParameter(type="string")),
+        )
+        assert result == {"query": None}
+
+    def test_declared_nullable_optional_null_is_kept(self):
+        result = coerce_params(
+            {"cursor": None},
+            _schema(cursor=ToolParameter(type=["string", "null"], required=False)),
+        )
+        assert result == {"cursor": None}
+
+    def test_any_of_with_null_branch_is_kept(self):
+        param = ToolParameter(
+            required=False,
+            any_of=[ToolParameter(type="string"), ToolParameter(type="null")],
+        )
+        assert coerce_params({"v": None}, _schema(v=param)) == {"v": None}
+
+    def test_any_of_without_null_branch_is_dropped(self):
+        param = ToolParameter(
+            required=False,
+            any_of=[ToolParameter(type="string"), ToolParameter(type="integer")],
+        )
+        assert coerce_params({"v": None}, _schema(v=param)) == {}
+
+    def test_optional_array_null_is_not_wrapped(self):
+        schema = _schema(
+            labels=ToolParameter(type="array", items=ToolParameter(type="string"), required=False)
+        )
+        assert coerce_params({"labels": None}, schema) == {}
+
+    def test_nullable_array_null_stays_null(self):
+        schema = _schema(
+            labels=ToolParameter(type=["array", "null"], items=ToolParameter(type="string"))
+        )
+        assert coerce_params({"labels": None}, schema) == {"labels": None}
+
+    def test_nested_object_optional_null_is_dropped(self):
+        schema = _schema(
+            filter=ToolParameter(
+                type="object",
+                properties={
+                    "name": ToolParameter(type="string"),
+                    "limit": ToolParameter(type="integer", required=False),
+                    "owner": ToolParameter(type="string"),
+                },
+            )
+        )
+        result = coerce_params(
+            {"filter": {"name": "a", "limit": None, "owner": None}}, schema
+        )
+        assert result == {"filter": {"name": "a", "owner": None}}
+
+    def test_array_of_objects_optional_null_is_dropped(self):
+        schema = _schema(
+            items=ToolParameter(
+                type="array",
+                items=ToolParameter(
+                    type="object",
+                    properties={
+                        "key": ToolParameter(type="string"),
+                        "op": ToolParameter(type="string", required=False),
+                    },
+                ),
+            )
+        )
+        result = coerce_params(
+            {"items": [{"key": "a", "op": None}, {"key": "b", "op": "eq"}, "x"]}, schema
+        )
+        assert result == {"items": [{"key": "a"}, {"key": "b", "op": "eq"}, "x"]}
+
+    def test_unknown_param_null_is_kept(self):
+        assert coerce_params({"extra": None}, _schema(q=ToolParameter())) == {"extra": None}
+
+    def test_input_is_not_mutated(self):
+        params = {"timeout": None, "filter": {"limit": None}}
+        schema = _schema(
+            timeout=ToolParameter(type="integer", required=False),
+            filter=ToolParameter(
+                type="object",
+                properties={"limit": ToolParameter(type="integer", required=False)},
+            ),
+        )
+        assert coerce_params(params, schema) == {"filter": {}}
+        assert params == {"timeout": None, "filter": {"limit": None}}
+
+    def test_dict_schema_optional_null_is_dropped(self):
+        schema = {"limit": {"type": "integer", "required": False}}
+        assert coerce_params({"limit": None}, schema) == {}
+
+    def test_arrays_without_nulls_are_returned_as_is(self):
+        schema = _schema(
+            objs=ToolParameter(
+                type="array",
+                items=ToolParameter(
+                    type="object", properties={"op": ToolParameter(type="string", required=False)}
+                ),
+            ),
+            names=ToolParameter(type="array", items=ToolParameter(type="string")),
+        )
+        params = {"objs": [{"op": "eq"}], "names": ["a", None]}
+        assert drop_unset_optionals(params, schema) is params
+
+    def test_drop_unset_optionals_without_schema(self):
+        params = {"timeout": None}
+        assert drop_unset_optionals(params, {}) is params
+
+    def test_stringified_object_optional_null_is_dropped(self):
+        schema = _schema(
+            filter=ToolParameter(
+                type="object",
+                properties={
+                    "name": ToolParameter(type="string"),
+                    "limit": ToolParameter(type="integer", required=False),
+                },
+            )
+        )
+        result = coerce_params({"filter": '{"name": "a", "limit": null}'}, schema)
+        assert result == {"filter": {"name": "a"}}
+
+    def test_any_of_object_branch_optional_null_is_dropped(self):
+        param = ToolParameter(
+            any_of=[
+                ToolParameter(type="string"),
+                ToolParameter(
+                    type="object",
+                    properties={
+                        "name": ToolParameter(type="string"),
+                        "limit": ToolParameter(type="integer", required=False),
+                    },
+                ),
+            ]
+        )
+        result = coerce_params({"v": {"name": "a", "limit": None}}, _schema(v=param))
+        assert result == {"v": {"name": "a"}}
+
+    def test_any_of_picks_the_branch_that_declares_every_key(self):
+        param = ToolParameter(
+            any_of=[
+                ToolParameter(
+                    type="object",
+                    properties={"id": ToolParameter(type="string")},
+                ),
+                ToolParameter(
+                    type="object",
+                    properties={
+                        "name": ToolParameter(type="string"),
+                        "limit": ToolParameter(type="integer", required=False),
+                    },
+                ),
+            ]
+        )
+        result = coerce_params({"v": {"name": "a", "limit": None}}, _schema(v=param))
+        assert result == {"v": {"name": "a"}}
+
+    def test_any_of_without_matching_branch_is_left_alone(self):
+        param = ToolParameter(
+            any_of=[
+                ToolParameter(
+                    type="object",
+                    properties={"limit": ToolParameter(type="integer", required=False)},
+                ),
+            ]
+        )
+        params = {"v": {"limit": None, "other": 1}}
+        assert drop_unset_optionals(params, _schema(v=param)) is params
+
+    def test_array_items_any_of_branch_optional_null_is_dropped(self):
+        schema = _schema(
+            objs=ToolParameter(
+                type="array",
+                items=ToolParameter(
+                    any_of=[
+                        ToolParameter(type="string"),
+                        ToolParameter(
+                            type="object",
+                            properties={"op": ToolParameter(type="string", required=False)},
+                        ),
+                    ]
+                ),
+            )
+        )
+        result = coerce_params({"objs": [{"op": None}, "x"]}, schema)
+        assert result == {"objs": [{}, "x"]}

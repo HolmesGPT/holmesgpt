@@ -1,7 +1,7 @@
 """Shared helper for recording AI usage events to HolmesUsageEvents.
 
 Used by every LLM-consuming entry point (server.py /api/chat, the
-ConversationWorker, scheduled prompts, the AG-UI server, and
+the conversation runtime, scheduled prompts, the AG-UI server, and
 holmes/checks/checks_api.py) so usage tracking is consistent and there's
 exactly one place to update if the recording shape changes.
 
@@ -19,7 +19,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, Generator, Optional
 
-from holmes.core.llm_usage import RequestStats
+from holmes.core.error_info import ERROR_META_KEYS, ErrorInfo
+from holmes.core.llm_rate_limit import is_rate_limit_error
+from holmes.core.llm_usage import RequestStats, failure_usage, request_usage
 from holmes.utils.stream import StreamEvents, StreamMessage
 
 if TYPE_CHECKING:
@@ -48,7 +50,7 @@ _RECORDER_EXECUTOR = ThreadPoolExecutor(
 # a fixed prefix to the user's message before POSTing /api/chat. Example:
 #   "**@user_U0AKMP2CZ97** • 2026-05-04T05:10:04Z\n\nhigh cpu in pod alert"
 # Extracted into a shared regex so both the direct /api/chat path (server.py)
-# and the worker path (conversations_worker/worker.py) can run the same
+# and the worker path (conversations_worker/processor.py) can run the same
 # detection. Heuristic — fragile if the runner format changes.
 _SLACK_ASK_PREFIX_RE = re.compile(
     r"^\*\*@user_(?P<slack_user_id>U[A-Z0-9]+)\*\*\s*•\s*"
@@ -98,7 +100,7 @@ def build_chat_recorder_state(
     """Construct a UsageRecorderState from a ChatRequest.
 
     Used by every code path that consumes a ChatRequest and wraps a stream:
-    server.py:chat() (direct /api/chat) and ConversationWorker._run_chat_and_publish
+    server.py:chat() (direct /api/chat) and ConversationProcessor._run_chat_and_publish
     (worker path). Centralizes the request_type / request_source / is_internal
     / Slack auto-detection logic so all entry points get identical behavior.
     """
@@ -144,7 +146,9 @@ def build_chat_recorder_state(
     # Merge meta: FE-supplied keys, then backend-derived keys (backend wins
     # on collision). Slack info goes under a 'slack' sub-key so it doesn't
     # clutter the top level.
-    merged_meta: Dict[str, Any] = dict(chat_request.meta or {})
+    merged_meta: Dict[str, Any] = {
+        k: v for k, v in (chat_request.meta or {}).items() if k not in ERROR_META_KEYS
+    }
     if slack_info is not None:
         merged_meta["slack"] = slack_info
 
@@ -161,7 +165,7 @@ def build_chat_recorder_state(
         is_internal=is_internal,
         model=model_name,
         provider=resolve_provider(model_name),
-        is_robusta_model=getattr(request_ai.llm, "is_robusta_model", False),
+        is_robusta_model=request_ai.llm.is_robusta_model,
         meta=merged_meta,
     )
 
@@ -427,6 +431,40 @@ class UsageRecorderState:
             metadata.get("finish_reason") or self.finish_reason
         )
 
+    def _capture_failure(self, exc: BaseException, match_message: bool = False) -> None:
+        """Set the failed status and the request's usage from the error.
+
+        ``match_message`` keeps ``record_error``'s legacy "rate" + "limit"
+        text match, so non-streaming ``rate_limited`` counts stay comparable;
+        streamed rows never had it.
+
+        The request's usage carried on the error (``attach_request_usage``)
+        replaces the last TOKEN_COUNT total, which lags behind it. Otherwise
+        the failing call's retries are added, as they never reached a
+        TOKEN_COUNT event.
+        """
+        msg = str(exc).lower()
+        if is_rate_limit_error(exc) or (
+            match_message and "rate" in msg and "limit" in msg
+        ):
+            self.status = RequestStatus.RATE_LIMITED
+        else:
+            self.status = RequestStatus.ERROR
+        total = request_usage(exc)
+        if total is not None:
+            self.stats = total
+            return
+        if self.stats is None:
+            self.stats = RequestStats()
+        self.stats += failure_usage(exc)
+
+    def capture_error(self, exc: BaseException) -> None:
+        """Record why the run failed in ``meta``; backend keys win over any
+        frontend-supplied ones."""
+        for key in ERROR_META_KEYS:
+            self.meta.pop(key, None)
+        self.meta.update(ErrorInfo.from_exception(exc).meta_fields())
+
     def _fire(self) -> None:
         """Submit the dal write to the shared recorder thread pool.
 
@@ -505,9 +543,10 @@ def stream_with_usage_recording(
                 state.status = RequestStatus.ERROR
                 saw_terminal = True
             yield msg
-    except Exception:
+    except Exception as e:
         if not saw_terminal:
-            state.status = RequestStatus.ERROR
+            state._capture_failure(e)
+        state.capture_error(e)
         raise
     finally:
         # If the inner stream ended without yielding any terminal event
@@ -568,11 +607,8 @@ def record_from_llm_result(
 
 def record_error(state: UsageRecorderState, exc: Exception) -> None:
     """Record a failed call where an exception bubbled before getting a result."""
-    msg = str(exc).lower()
-    if "rate" in msg and "limit" in msg:
-        state.status = RequestStatus.RATE_LIMITED
-    else:
-        state.status = RequestStatus.ERROR
+    state._capture_failure(exc, match_message=True)
+    state.capture_error(exc)
     state._fire()
 
 

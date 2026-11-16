@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sales-emitter-code
+  namespace: app-303
+type: Opaque
+stringData:
+  sales_emitter.py: |
+    import os
+    import random
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    REGION = os.getenv("REGION", "EMEA")
+    STORE_ID = os.getenv("STORE_ID", "store-42")
+    CURRENCY = os.getenv("CURRENCY", "SEK")
+    SERVICE_NAME = os.getenv("SERVICE_NAME", "sales-emitter")
+    INTERVAL_SEC = float(os.getenv("SEND_INTERVAL_SEC", "10"))
+
+    state = {"amount": random.uniform(101, 200)}
+
+    def update_forever():
+        while True:
+            state["amount"] = random.uniform(101, 200)
+            time.sleep(INTERVAL_SEC)
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args, **kwargs):
+            pass
+
+        def do_GET(self):
+            if self.path != "/metrics":
+                self.send_response(404)
+                self.end_headers()
+                return
+            labels = (
+                f'currency="{CURRENCY}",region="{REGION}",'
+                f'store_id="{STORE_ID}",service_name="{SERVICE_NAME}"'
+            )
+            body = (
+                "# HELP sales_amount Amount of the most recent sale\n"
+                "# TYPE sales_amount gauge\n"
+                f"sales_amount{{{labels}}} {state['amount']:.2f}\n"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+    if __name__ == "__main__":
+        threading.Thread(target=update_forever, daemon=True).start()
+        print(f"[sales-emitter] serving sales_amount on :8080 (store={STORE_ID}, region={REGION})", flush=True)
+        HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sales-metrics-tester-9x1
+  namespace: app-303
+  labels:
+    app: sales-metrics
+spec:
+  containers:
+  - name: sales-emitter
+    image: python:3.11-alpine
+    command: ["python3", "-u", "/app/sales_emitter.py"]
+    env:
+    - name: REGION
+      value: "EMEA"
+    - name: STORE_ID
+      value: "store-42"
+    - name: CURRENCY
+      value: "SEK"
+    - name: SEND_INTERVAL_SEC
+      value: "10"
+    ports:
+    - containerPort: 8080
+      name: metrics
+    readinessProbe:
+      httpGet:
+        path: /metrics
+        port: metrics
+      periodSeconds: 2
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 64Mi
+    volumeMounts:
+    - name: code
+      mountPath: /app
+  volumes:
+  - name: code
+    secret:
+      secretName: sales-emitter-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sales-metrics
+  namespace: app-303
+spec:
+  selector:
+    app: sales-metrics
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: metrics

@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -6,6 +7,7 @@ import pytest
 import yaml
 
 from holmes.config import Config
+from holmes.core import toolset_manager as toolset_manager_module
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.tools import ToolInvokeContext
 
@@ -58,8 +60,8 @@ def clear_all_caches():
 @pytest.fixture(autouse=False)
 def server_config(tmp_path, monkeypatch, responses):
     responses.post(
-        "https://api.robusta.dev/api/llm/models/v2",
-        json=ROBUSTA_MODELS,
+        "https://api.robusta.dev/api/llm/models/v3",
+        json={"models": ROBUSTA_MODELS},
     )
     temp_config_file = tmp_path / "custom_toolset.yaml"
     data = {
@@ -77,6 +79,33 @@ def server_config(tmp_path, monkeypatch, responses):
     monkeypatch.setenv("CLUSTER_NAME", "test-cluster")
 
     return Config.load_from_env()
+
+
+class _ShiftedTime:
+    def __init__(self) -> None:
+        self.offset = 0.0
+
+    def __getattr__(self, name: str):
+        return getattr(time, name)
+
+    def monotonic(self) -> float:
+        return time.monotonic() + self.offset
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Lets a test move the status-check clock forward without sleeping.
+
+    Only the module that times status checks sees the shift; patching
+    time.monotonic itself would also shift background threads other tests
+    left running in this worker, such as the OAuth token refresh sweep."""
+    shifted = _ShiftedTime()
+    monkeypatch.setattr(toolset_manager_module, "time", shifted)
+
+    def advance(seconds: float) -> None:
+        shifted.offset += seconds
+
+    return advance
 
 
 @pytest.fixture(autouse=False)

@@ -10,46 +10,37 @@ By enabling this toolset, HolmesGPT will be able to interact with Cilium CNI and
 4. `hubble` CLI tool installed and configured (for Hubble tools)
 5. Appropriate RBAC permissions for Cilium resources
 
+These toolsets run only in the Holmes CLI. They are tagged `cli`, so the Holmes server, which is what runs in Kubernetes, does not load them, even when they are enabled.
+
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, ensure your tools are properly configured:
 
-    First, ensure your tools are properly configured:
+  ```bash
+  # Verify Cilium is accessible
+  cilium version
+  cilium status
 
-    ```bash
-    # Verify Cilium is accessible
-    cilium version
-    cilium status
+  # Verify Hubble is accessible (if using Hubble tools)
+  hubble version
+  hubble status
+  ```
 
-    # Verify Hubble is accessible (if using Hubble tools)
-    hubble version
-    hubble status
-    ```
+  Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+    cilium/core:
+      enabled: true
+    hubble/observability:
+      enabled: true
+  ```
 
-    ```yaml
-    toolsets:
-      cilium/core:
-        enabled: true
-      hubble/observability:
-        enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      toolsets:
-        cilium/core:
-          enabled: true
-        hubble/observability:
-          enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Advanced Configuration
 

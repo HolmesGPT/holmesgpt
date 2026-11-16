@@ -7,17 +7,19 @@ Read access to Docker resources.
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
 
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
+  ```yaml
+  toolsets:
+      docker/core:
+          enabled: true
+  ```
 
-    ```yaml
-    toolsets:
-        docker/core:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Capabilities
 

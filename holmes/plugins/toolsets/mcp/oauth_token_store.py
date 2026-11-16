@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from holmes.common.env_vars import DEFAULT_CLI_USER
 from holmes.core.config import config_path_dir
+from holmes.core.holmes_key import get_signing_key
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class _CachedToken:
         client_id: Optional[str] = None,
         authorization_url: Optional[str] = None,
         user_id: Optional[str] = None,
+        resource: Optional[str] = None,
     ) -> None:
         self.access_token = access_token
         self.expires_at = expires_at
@@ -48,6 +50,7 @@ class _CachedToken:
         self.client_id = client_id
         self.authorization_url = authorization_url
         self.user_id = user_id
+        self.resource = resource
 
     @property
     def access_expired(self) -> bool:
@@ -90,6 +93,14 @@ class OAuthTokenCache:
                 return None
             return entry.refresh_token
 
+    def get_resource(self, key: str) -> Optional[str]:
+        """Return the RFC 8707 resource the cached token was issued for, if any."""
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            return entry.resource
+
     def set(
         self,
         key: str,
@@ -101,6 +112,7 @@ class OAuthTokenCache:
         client_id: Optional[str] = None,
         authorization_url: Optional[str] = None,
         user_id: Optional[str] = None,
+        resource: Optional[str] = None,
     ) -> None:
         now = time.monotonic()
         # Subtract a small buffer so we refresh before actual expiry
@@ -115,6 +127,7 @@ class OAuthTokenCache:
                 access_token, access_expires_at, refresh_token, refresh_expires_at,
                 token_url=token_url, client_id=client_id,
                 authorization_url=authorization_url, user_id=user_id,
+                resource=resource,
             )
 
     def evict(self, key: str) -> None:
@@ -168,6 +181,7 @@ class TokenStore(ABC):
         user_id: Optional[str] = None,
         token_url: Optional[str] = None,
         client_id: Optional[str] = None,
+        resource: Optional[str] = None,
     ) -> bool:
         """Store a token. Returns True on success."""
 
@@ -242,6 +256,7 @@ class DalTokenStore(TokenStore):
         user_id: Optional[str] = None,
         token_url: Optional[str] = None,
         client_id: Optional[str] = None,
+        resource: Optional[str] = None,
     ) -> bool:
         signing_key_hash = self._get_signing_key_hash()
         if not signing_key_hash:
@@ -254,6 +269,8 @@ class DalTokenStore(TokenStore):
                 enriched["token_url"] = token_url
             if client_id:
                 enriched["client_id"] = client_id
+            if resource is not None:
+                enriched["resource"] = resource
             encrypted = self._encrypt_token(enriched)
             if not encrypted:
                 logger.warning("Cannot encrypt token (no signing key)")
@@ -314,13 +331,8 @@ class DalTokenStore(TokenStore):
 
     # ── Encryption helpers ─────────────────────────────────────────────
 
-    @staticmethod
-    def _get_signing_key() -> Optional[str]:
-        from holmes.config import Config
-        return Config.get_robusta_global_config_value("signing_key")
-
     def _get_signing_key_hash(self) -> Optional[str]:
-        key = self._get_signing_key()
+        key = get_signing_key()
         if not key:
             return None
         return hashlib.sha256(key.encode()).hexdigest()
@@ -333,13 +345,13 @@ class DalTokenStore(TokenStore):
         )
 
     def _encrypt_token(self, token_data: Dict[str, Any]) -> Optional[str]:
-        signing_key = self._get_signing_key()
+        signing_key = get_signing_key()
         if not signing_key:
             return None
         return Fernet(self._derive_fernet_key(signing_key)).encrypt(json.dumps(token_data).encode()).decode()
 
     def _decrypt_token(self, encrypted: str) -> Optional[Dict[str, Any]]:
-        signing_key = self._get_signing_key()
+        signing_key = get_signing_key()
         if not signing_key:
             return None
         try:
@@ -390,12 +402,22 @@ class DiskTokenStore(TokenStore):
         user_id: Optional[str] = None,
         token_url: Optional[str] = None,
         client_id: Optional[str] = None,
+        resource: Optional[str] = None,
     ) -> bool:
         if not self._enabled:
             return False
         with self._lock:
             data = self._load()
-            data[provider_name] = token_data
+            # Include metadata needed for refresh after a process restart
+            # (mirrors DalTokenStore's enrichment)
+            enriched = dict(token_data)
+            if token_url:
+                enriched["token_url"] = token_url
+            if client_id:
+                enriched["client_id"] = client_id
+            if resource is not None:
+                enriched["resource"] = resource
+            data[provider_name] = enriched
             fd = os.open(self._path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 json.dump(data, f, indent=2)

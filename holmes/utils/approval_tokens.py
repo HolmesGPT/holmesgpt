@@ -113,3 +113,46 @@ def verify_token(
         raise ApprovalTokenError(
             "claims do not match tool_call_id / tool_name / args_hash"
         )
+
+
+_PREFIX_TOKEN_TYPE = "bash_session_prefixes"
+
+
+def mint_prefix_token(prefixes: Optional[list], agent: Optional[str]) -> str:
+    """Sign a set of session-approved bash prefixes for one agent scope."""
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "typ": _PREFIX_TOKEN_TYPE,
+            "prefixes": sorted(prefixes or []),
+            "agent": agent or "",
+            "iat": now,
+            "exp": now + TOKEN_TTL_SECONDS,
+        },
+        SIGNING_KEY,
+        algorithm="HS256",
+    )
+
+
+def verify_prefix_token(
+    token: Optional[str], prefixes: Optional[list], agent: Optional[str]
+) -> bool:
+    """Return True iff `token` is a server-minted prefix token authorizing
+    exactly `prefixes` for `agent`. Never raises — an invalid, expired, absent,
+    or malformed input simply yields False so the caller drops the prefixes.
+
+    `prefixes` and `agent` come from caller-supplied conversation history, so
+    they may be any JSON type; anything that is not a well-formed list of
+    prefixes fails closed rather than raising.
+    """
+    if not token or not isinstance(prefixes, list):
+        return False
+    try:
+        claims = jwt.decode(token, SIGNING_KEY, algorithms=["HS256"])
+        return (
+            claims.get("typ") == _PREFIX_TOKEN_TYPE
+            and claims.get("agent", "") == (agent or "")
+            and claims.get("prefixes") == sorted(prefixes)
+        )
+    except (jwt.InvalidTokenError, TypeError):
+        return False

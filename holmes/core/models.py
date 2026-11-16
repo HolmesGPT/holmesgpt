@@ -134,6 +134,7 @@ class OAuthCallbackRequest(BaseModel):
     redirect_uri: str
     client_id: Optional[str] = None
     client_secret: Optional[str] = None  # Required by some IdPs (e.g. Supabase) that don't support public clients
+    resource: Optional[str] = None  # RFC 8707 resource indicator (canonical MCP server URL)
     user_id: Optional[str] = None
 
 
@@ -259,6 +260,17 @@ class ChatRequestBaseModel(BaseModel):
             "conversation_id is non-NULL and not already set."
         ),
     )
+    conversation_link: Optional[str] = Field(
+        default=None,
+        description=(
+            "URL of the surface where this request originated: a Slack thread "
+            "permalink, an MS Teams message link, a platform Ask Holmes chat URL, "
+            "or a triggered-workflow run URL. Unlike the analytics-only fields "
+            "above, this IS rendered into the system prompt so that artifacts "
+            "Holmes creates outside the conversation (pull requests, issues) can "
+            "link back to the request that initiated them."
+        ),
+    )
     meta: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
@@ -340,17 +352,9 @@ class ChatRequest(ChatRequestBaseModel):
     )
 
 
-class FollowUpAction(BaseModel):
-    id: str
-    action_label: str
-    pre_action_notification_text: str
-    prompt: str
-
-
 class ChatResponse(BaseModel):
     analysis: str
     conversation_history: list[dict]
     tool_calls: Optional[List[ToolCallResult]] = []
-    follow_up_actions: Optional[List[FollowUpAction]] = []
     pending_approvals: Optional[List[PendingToolApproval]] = None
     metadata: Optional[Dict[Any, Any]] = None

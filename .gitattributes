@@ -1,1 +1,8 @@
 holmes/.git_archival.json  export-subst
+
+# Checksum manifests are consumed by `sha256sum -c` inside the Linux build image
+# (see the bin/go-cve-rebuild COPY steps in the Dockerfile). A Windows clone with
+# core.autocrlf=true would otherwise check them out CRLF, and Docker COPY is
+# byte-verbatim, so sha256sum reads the filename as "<name>.gz\r" and fails with
+# "No such file or directory" before the build ever gets going.
+*.sha256 text eol=lf

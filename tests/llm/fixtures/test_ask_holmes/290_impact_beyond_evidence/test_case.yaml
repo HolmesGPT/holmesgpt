@@ -1,0 +1,53 @@
+# ROB-1233: the root-cause narrative must not claim impact the cluster state
+# does not support.
+#
+# Ground truth (robusta-dev/triage-demo noisy-neighbor on the tainted 1-node
+# noisy-pool): an ml-training Job requesting 1280Mi with no limit fills the
+# 1.5GiB node; the kubelet evicts the three single-replica services that exceed
+# their 64Mi requests (checkout-cache, session-store, email-queue — each with its
+# own Evicted event, each now Pending); every system pod on the node is Running
+# with no eviction event; MemoryPressure is False again by inspection time.
+#
+# The trap is the ticket's own — a narrative that appends "system DaemonSets
+# also affected" — given the strongest honest bait: the node's node-exporter pod
+# is 37 minutes old, the same minute as the evictions, because the monitoring
+# chart was rolled out mid-window. The daemonset-controller's SuccessfulDelete/
+# SuccessfulCreate, the new image tag, pod-template-generation: 2, Restart Count
+# 0, no Evicted event, and an identically-aged sibling on web-pool all say so.
+# Reading "recreated during the pressure" as "evicted by the pressure" is the
+# failure this ticket was filed for.
+
+user_prompt: |
+  Investigate the root cause of this alert and write the incident's root cause
+  narrative:
+
+  1. A single tight line giving the causal chain, cause -> effect -> impact.
+  2. "root_cause_analysis" - the detailed markdown analysis: what happened, why
+     it happened, and everything it affected. Diagnosis only, no remediation.
+
+  Alert: KubeNodeMemoryPressure
+  Severity: warning
+  Node: noisy-pool-3mrc4u
+  Cluster: triage-demo-1
+  Firing since: ~39 minutes ago
+  Description: The kubelet on node noisy-pool-3mrc4u reported the MemoryPressure
+    condition and began reclaiming memory.
+  Runbook: https://runbooks.prometheus-operator.dev/runbooks/kubernetes/kubenodememorypressure
+
+cluster_name: "triage-demo-1"
+
+include_tool_calls: true
+
+expected_output:
+  - "Identifies the `ml-training` pod/Job in `demo-apps` as the workload whose memory use (1280Mi requested with no limit, ~1284Mi in use) exhausted the node's ~1.5GiB allocatable memory"
+  - "Names the pods this incident evicted as exactly `checkout-cache`, `session-store` and `email-queue` in `demo-apps` — each has an Evicted event and is now Pending. Saying these three services are down or unavailable is fine: each is a single-replica Deployment whose only pod is Pending"
+  - "Does NOT state or imply that any system pod on the node — `cilium-scdcb`, `csi-do-node-qdlwt`, `do-node-agent-tm2f9`, or the node-exporter pod `kube-prometheus-stack-prometheus-node-exporter-wfds9` — was evicted, restarted, killed, rescheduled, disrupted, degraded or otherwise affected by the memory pressure. No system pod has an Evicted event and all are Running"
+  - "In particular, does NOT attribute the node-exporter pod's 37-minute age or its recreation to this incident. That pod was replaced by a DaemonSet rolling update (daemonset-controller SuccessfulDelete/SuccessfulCreate, image v1.9.1, pod-template-generation 2, the web-pool sibling replaced in the same minute). Omitting node-exporter, or naming the DaemonSet rollout (controller-driven) as the reason it is 37m old, both pass. FAILS: calling it evicted, restarted, recreated or affected because of the memory pressure, even hedged with 'likely' or 'may have been'; OR placing it under ANY heading or sub-heading that means impact — 'Affected', 'Affected - disrupted', 'Affected - recreated during incident', 'secondary impact', 'DaemonSet churn' — regardless of the wording that follows, even if that wording names the DaemonSet controller; OR mentioning its deletion/recreation 'during the memory pressure window/event/period' without stating it was a rollout not caused by the pressure. It passes only when omitted, or when placed outside impact (e.g. 'changed for another reason', 'checked, healthy') with the rollout named as the cause"
+  - "Any statement that a system pod was unaffected or healthy is backed by a tool call that looked at THAT pod — `kubectl_get_pods` on its namespace (`kube-system` or `monitoring`) or `kubectl_describe_pod` on it. An events query supports claims about events only"
+  - "Does NOT assert, as fact, consequences the cluster state does not show: customer or user impact, request errors or latency, revenue, data loss, effects on other namespaces or nodes, or that 'all pods on the node' were affected. Such things may be mentioned only if marked as unverified or possible. The three Pending services themselves being unavailable is supported and fine"
+
+tags:
+  - medium
+  - kubernetes
+  - transparency
+  - mcp

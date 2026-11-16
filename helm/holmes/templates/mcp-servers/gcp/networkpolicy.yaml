@@ -25,12 +25,19 @@ spec:
   - Ingress
   - Egress
   ingress:
-  # Allow traffic from Holmes pods
+  # Allow traffic only from HolmesGPT pods (app: holmes) in the release namespace.
+  # The Holmes pod template carries `app: holmes` and nothing else, and
+  # holmes.commonLabels rejects the app.kubernetes.io/* keys as reserved, so
+  # those labels can never be used to select it.
+  # podSelector + namespaceSelector in the same `from` element are AND-ed, which
+  # keeps this working when the MCP server runs in its own namespace.
   - from:
     - podSelector:
         matchLabels:
-          app.kubernetes.io/instance: {{ .Release.Name }}
-          app.kubernetes.io/name: holmes
+          app: holmes
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
     ports:
     {{- if .Values.mcpAddons.gcp.gcloud.enabled }}
     - protocol: TCP

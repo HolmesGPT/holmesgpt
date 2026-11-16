@@ -20,7 +20,6 @@ from holmes.core.tools import (
     YAMLToolset,
 )
 from holmes.plugins.toolsets.atlas_mongodb.mongodb_atlas import MongoDBAtlasToolset
-from holmes.plugins.toolsets.azure_sql.azure_sql_toolset import AzureSQLToolset
 from holmes.plugins.toolsets.bash.bash_toolset import BashExecutorToolset
 from holmes.plugins.toolsets.confluence.confluence import ConfluenceToolset
 from holmes.plugins.toolsets.connectivity_check import ConnectivityCheckToolset
@@ -54,9 +53,9 @@ from holmes.plugins.toolsets.investigator.core_investigation import (
     CoreInvestigationToolset,
 )
 from holmes.plugins.toolsets.kafka import KafkaToolset
-from holmes.plugins.toolsets.kubectl_run.kubectl_run_toolset import KubectlRunToolset
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
-from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.plugins.toolsets.mcp.aws_mcp import AwsMCPToolset
+from holmes.plugins.toolsets.mcp.toolset_mcp import MCPMode, RemoteMCPToolset
 from holmes.plugins.toolsets.multi_instance import multi_instance
 from holmes.plugins.toolsets.newrelic.newrelic import NewRelicToolset
 from holmes.plugins.toolsets.rabbitmq.toolset_rabbitmq import RabbitMQToolset
@@ -121,11 +120,9 @@ def load_python_toolsets(
         multi_instance(CoralogixToolset),
         RabbitMQToolset(),
         BashExecutorToolset(),
-        KubectlRunToolset(),
         multi_instance(ConfluenceToolset),
         multi_instance(MongoDBAtlasToolset),
         SkillsToolset(dal=dal, additional_search_paths=additional_search_paths),
-        multi_instance(AzureSQLToolset),
         multi_instance(ServiceNowTablesToolset),
         multi_instance(VictoriaLogsToolset),
         DatabaseToolset(),
@@ -137,6 +134,12 @@ def load_python_toolsets(
         from holmes.plugins.toolsets.prometheus.prometheus import PrometheusToolset
 
         toolsets.append(multi_instance(PrometheusToolset))
+
+        from holmes.plugins.toolsets.prometheus.multi_tenant_prometheus import (
+            MultiTenantPrometheusToolset,
+        )
+
+        toolsets.append(MultiTenantPrometheusToolset())
 
     if not USE_LEGACY_KUBERNETES_LOGS:
         toolsets.append(KubernetesLogsToolset())
@@ -223,6 +226,11 @@ def _make_invalid_toolset_placeholder(
     return placeholder
 
 
+def _mcp_mode(config: dict[str, Any]) -> Optional[str]:
+    mcp_config = config.get("config")
+    return mcp_config.get("mode") if isinstance(mcp_config, dict) else None
+
+
 def load_toolsets_from_config(
     toolsets: dict[str, dict[str, Any]],
     strict_check: bool = True,
@@ -269,7 +277,8 @@ def load_toolsets_from_config(
             validated_toolset: Optional[Toolset] = None
             # MCP server is not a built-in toolset, so we need to set the type explicitly
             if toolset_type == ToolsetType.MCP.value:
-                validated_toolset = RemoteMCPToolset(**config, name=name)
+                mcp_class = AwsMCPToolset if _mcp_mode(config) == MCPMode.AWS.value else RemoteMCPToolset
+                validated_toolset = mcp_class(**config, name=name)
             elif toolset_type == ToolsetType.HTTP.value:
                 validated_toolset = HttpToolset(name=name, **config)
             elif toolset_type == ToolsetType.DATABASE.value:

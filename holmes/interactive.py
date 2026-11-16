@@ -67,7 +67,6 @@ from holmes.core.tool_calling_llm import (
     LLMResult,
     ToolCallingLLM,
     ToolCallResult,
-    extract_bash_session_prefixes,
 )
 from holmes.core.llm_usage import RequestStats
 from holmes.core.models import ToolApprovalDecision

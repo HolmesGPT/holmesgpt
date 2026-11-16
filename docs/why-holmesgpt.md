@@ -65,13 +65,13 @@ HolmesGPT ships with read-only integrations for every major observability vendor
 - **Databases**: PostgreSQL, MySQL, ClickHouse, MariaDB, SQL Server, MongoDB Atlas
 - **ITSM**: ServiceNow
 - **Messaging**: Kafka, RabbitMQ
-- **Knowledge**: Confluence, Notion, Slab, Internet/web search
+- **Knowledge**: Atlassian Rovo (Jira + Confluence), Confluence, Notion, Slab, Internet/web search
 
 See the [full list of built-in toolsets](data-sources/builtin-toolsets/index.md).
 
 ### Safe by Design
 
-Give SRE agents the data access they need, with the safety profile production demands. All built-in toolsets are read-only, respecting existing platform permissions (Kubernetes RBAC, Grafana roles, cloud IAM policies) with full audit logging of every tool call.
+Give SRE agents the data access they need, with the safety profile production demands. Built-in toolsets are read-only by default, respecting existing platform permissions (Kubernetes RBAC, Grafana roles, cloud IAM policies). The few integrations that can write — remediation and ticketing, for example — are opt-in and gated by the credentials you grant them. For a full audit trail of every tool call, prompt, and answer, [export traces via OpenTelemetry](reference/opentelemetry.md).
 
 ### Controlled Access for Your Whole Team
 
