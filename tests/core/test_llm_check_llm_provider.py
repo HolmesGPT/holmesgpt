@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import litellm
 import pytest
 
@@ -61,3 +63,18 @@ class TestCheckLLMMissingProvider:
 
     def test_robusta_model_skips_check(self):
         _llm(is_robusta_model=True).check_llm(UNPREFIXED_MODEL, None, None, None)
+
+    def test_other_lookup_errors_are_not_rewritten(self):
+        # litellm wraps any provider-lookup failure (e.g. a GitHub Copilot token
+        # error) in BadRequestError; those must surface unchanged, not as
+        # "add a provider prefix" advice.
+        original = litellm.BadRequestError(
+            message="GetLLMProvider Exception - token request failed",
+            model="github_copilot/gpt-4o",
+            llm_provider="",
+        )
+        with patch("litellm.get_llm_provider", side_effect=original):
+            with pytest.raises(litellm.BadRequestError) as exc_info:
+                _llm().check_llm("github_copilot/gpt-4o", None, None, None)
+
+        assert exc_info.value is original

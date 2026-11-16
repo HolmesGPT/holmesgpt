@@ -687,6 +687,10 @@ class DefaultLLM(LLM):
         try:
             lookup = litellm.get_llm_provider(model)
         except litellm.BadRequestError as e:
+            # litellm wraps every lookup failure in BadRequestError; only the
+            # missing-prefix case is fixed by the advice below.
+            if "LLM Provider NOT provided" not in str(e):
+                raise
             raise Exception(_missing_provider_message(model, api_base)) from e
         if not lookup:
             raise Exception(f"Unknown provider for model {model}")
