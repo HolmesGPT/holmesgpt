@@ -1,6 +1,5 @@
 import json
 import logging
-import math
 import os
 import platform
 import tempfile
@@ -312,6 +311,7 @@ CONVERSATION_WORKER_REALTIME_VERIFY_MAX_BACKOFF_SECONDS = float(
 # within this many seconds are marked failed so startup can proceed.
 # Override with the HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS env var.
 DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS = 20.0
+MAX_TOOLSET_PREREQ_TIMEOUT_SECONDS = 86400.0
 
 
 def get_prereq_timeout_seconds() -> float:
@@ -327,9 +327,10 @@ def get_prereq_timeout_seconds() -> float:
             f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
         )
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
-    if not math.isfinite(value) or value <= 0:
+    if not 0 < value <= MAX_TOOLSET_PREREQ_TIMEOUT_SECONDS:
         logging.warning(
-            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is not a finite positive number; "
+            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} must be greater than 0 "
+            f"and at most {MAX_TOOLSET_PREREQ_TIMEOUT_SECONDS:g}; "
             f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
         )
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
