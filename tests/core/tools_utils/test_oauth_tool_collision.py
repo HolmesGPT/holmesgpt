@@ -193,3 +193,31 @@ def test_oauth_raw_name_wins_over_a_generated_name():
     raw = executor.get_tool_by_name("coroot__query_logs", user_id="user-1")
     assert raw is not None
     assert raw.mcp_tool_name == "coroot__query_logs", "the raw-named tool must keep its name"
+
+
+def test_eviction_during_rebuild_does_not_republish_stale_tools(monkeypatch):
+    """An eviction that lands between snapshot and publish must win.
+
+    ``apply_user_tools`` takes its snapshot with the lock released, so a 401
+    eviction can run before the exposed-name map is published. The map must not
+    then resolve tools whose token was just dropped.
+    """
+    base = _BaseToolset(["query_logs"])
+    mcp = _mcp_toolset("coroot", ["list_applications"])
+    executor = ToolExecutor([base, mcp])
+    connector = executor.oauth_connector
+    connector.store_user_tools("user-1", "coroot", [_oauth_tool("query_logs", mcp)])
+
+    original_resolve = connector.resolve_tools
+
+    def resolve_then_evict(user_id):
+        snapshot = original_resolve(user_id)
+        connector._clear_user_tools(user_id, mcp)  # the 401 lands here
+        return snapshot
+
+    monkeypatch.setattr(connector, "resolve_tools", resolve_then_evict)
+    executor.get_all_tools_openai_format(user_id="user-1")
+    monkeypatch.undo()
+
+    assert connector.find_tool("coroot__query_logs", "user-1") is None
+    assert connector.get_toolset("coroot__query_logs", "user-1") is None

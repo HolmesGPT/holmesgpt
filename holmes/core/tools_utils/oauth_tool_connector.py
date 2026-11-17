@@ -222,10 +222,19 @@ class OAuthToolConnector:
 
         # Rebuild the whole per-user map: oauth_replacements covers every toolset
         # stored for this user, so names cannot go stale when a colliding toolset
-        # is enabled or disabled between calls.
+        # is enabled or disabled between calls. resolve_tools() released the lock
+        # before this point, so an eviction may have landed in between: publish
+        # only toolsets that are still stored, otherwise the map keeps resolving
+        # tools whose token was just dropped.
         if user_id:
             with self._lock:
-                self._user_exposed_tools[user_id] = exposed_tools
+                live_toolsets = set(self._user_tools.get(user_id, {}))
+                self._user_exposed_tools[user_id] = {
+                    name: tool
+                    for name, tool in exposed_tools.items()
+                    if getattr(getattr(tool, "toolset", None), "name", None)
+                    in live_toolsets
+                }
 
         return filtered
 
