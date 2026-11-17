@@ -142,6 +142,9 @@ spec:
         - name: READ_ONLY_MODE
           value: "true"
         {{- end }}
+        # v0.22+ refuses the pod's credentials without this
+        - name: ALLOW_GLOBAL_CRED_FALLBACK
+          value: "true"
         {{- if .Values.mcpAddons.confluenceMcp.additionalEnvVars }}
         {{- toYaml .Values.mcpAddons.confluenceMcp.additionalEnvVars | nindent 8 }}
         {{- end }}

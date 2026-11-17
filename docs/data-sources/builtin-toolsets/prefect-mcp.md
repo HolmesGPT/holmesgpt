@@ -80,7 +80,7 @@ cli: |
       spec:
         containers:
         - name: prefect-mcp
-          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/prefect-mcp:1.0.0
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/prefect-mcp:1.0.5
           imagePullPolicy: IfNotPresent
           ports:
           - containerPort: 8000
