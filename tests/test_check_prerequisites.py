@@ -184,22 +184,23 @@ def test_run_prerequisite_command_raises_on_non_zero_exit():
     assert "boom" in exc_info.value.stderr
 
 
-def test_run_prerequisite_command_timeout_kills_child_processes(tmp_path):
+def _write_heartbeat_child(tmp_path):
     heartbeat = tmp_path / "heartbeat"
     child = tmp_path / "child.py"
     child.write_text(
         "import sys, time\n"
+        "start = time.monotonic()\n"
         "count = 0\n"
-        "while True:\n"
+        "while time.monotonic() - start < 60:\n"
         "    count += 1\n"
         "    with open(sys.argv[1], 'w') as f:\n"
         "        f.write(str(count))\n"
         "    time.sleep(0.1)\n"
     )
-    command = (
-        f'"{sys.executable}" "{child}" "{heartbeat}" && "{sys.executable}" -c "pass"'
-    )
+    return f'"{sys.executable}" "{child}" "{heartbeat}"', heartbeat
 
+
+def _assert_timeout_kills_heartbeat_child(command, heartbeat):
     start = time.monotonic()
     with pytest.raises(subprocess.TimeoutExpired):
         run_prerequisite_command(command, timeout=2)
@@ -210,6 +211,67 @@ def test_run_prerequisite_command_timeout_kills_child_processes(tmp_path):
     time.sleep(1)
     assert heartbeat.read_text() == last_beat, "child process still running after timeout"
     assert elapsed < 15
+
+
+def test_run_prerequisite_command_timeout_kills_child_processes(tmp_path):
+    child_command, heartbeat = _write_heartbeat_child(tmp_path)
+    command = f'{child_command} && "{sys.executable}" -c "pass"'
+    _assert_timeout_kills_heartbeat_child(command, heartbeat)
+
+
+def test_run_prerequisite_command_timeout_kills_children_after_shell_exits(tmp_path):
+    child_command, heartbeat = _write_heartbeat_child(tmp_path)
+    if sys.platform == "win32":
+        command = f'start "" /b {child_command}'
+    else:
+        command = f"{child_command} &"
+    _assert_timeout_kills_heartbeat_child(command, heartbeat)
+
+
+def test_run_prerequisite_command_kills_child_processes_on_keyboard_interrupt(tmp_path):
+    child_command, heartbeat = _write_heartbeat_child(tmp_path)
+    real_communicate = subprocess.Popen.communicate
+    calls = {"count": 0}
+
+    def interrupt_first_wait(self, *args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            deadline = time.monotonic() + 10
+            while not heartbeat.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            raise KeyboardInterrupt
+        return real_communicate(self, *args, **kwargs)
+
+    with patch.object(subprocess.Popen, "communicate", interrupt_first_wait):
+        with pytest.raises(KeyboardInterrupt):
+            run_prerequisite_command(child_command, timeout=30)
+
+    assert heartbeat.exists(), "child process never started"
+    last_beat = heartbeat.read_text()
+    time.sleep(1)
+    assert heartbeat.read_text() == last_beat, "child process still running after interrupt"
+
+
+UNDECODABLE_OUTPUT_COMMAND = (
+    f'"{sys.executable}" -c "import sys; sys.stdout.buffer.write(bytes([0x81, 0xff])); '
+    'sys.stdout.flush()"'
+)
+
+
+def test_run_prerequisite_command_replaces_undecodable_output():
+    result = run_prerequisite_command(UNDECODABLE_OUTPUT_COMMAND, timeout=30)
+    assert result.returncode == 0
+    assert "�" in result.stdout
+
+
+def test_run_prerequisite_command_timeout_with_undecodable_output_still_times_out():
+    command = (
+        f'"{sys.executable}" -c "import sys, time; '
+        "sys.stdout.buffer.write(bytes([0x81, 0xff])); sys.stdout.flush(); "
+        'time.sleep(60)"'
+    )
+    with pytest.raises(subprocess.TimeoutExpired):
+        run_prerequisite_command(command, timeout=1)
 
 
 @patch.dict(os.environ, {"EXISTING_VAR": "value"}, clear=True)

@@ -1,4 +1,6 @@
+import ctypes
 import fnmatch
+import functools
 import json
 import logging
 import os
@@ -753,16 +755,57 @@ class YAMLTool(Tool, BaseModel):
 
 
 PREREQ_KILL_GRACE_SECONDS = 5.0
+_PROCESS_TERMINATE = 0x0001
+_PROCESS_SET_QUOTA = 0x0100
 
 
-def _kill_process_tree(process: subprocess.Popen) -> None:
+@functools.lru_cache(maxsize=None)
+def _windows_kernel32() -> Any:
+    if sys.platform != "win32":
+        raise OSError("kernel32 is only available on Windows")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.TerminateJobObject.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    return kernel32
+
+
+def _create_windows_job(pid: int) -> Optional[int]:
+    """Put the process in a new Job Object; processes it starts later join the job too."""
+    kernel32 = _windows_kernel32()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    process_handle = kernel32.OpenProcess(
+        _PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, pid
+    )
+    assigned = bool(process_handle) and bool(
+        kernel32.AssignProcessToJobObject(job, process_handle)
+    )
+    if process_handle:
+        kernel32.CloseHandle(process_handle)
+    if not assigned:
+        kernel32.CloseHandle(job)
+        return None
+    return job
+
+
+def _kill_process_tree(process: subprocess.Popen, job: Optional[int]) -> None:
     if sys.platform == "win32":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(process.pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
+        if job is None or not _windows_kernel32().TerminateJobObject(job, 1):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
         process.kill()
     else:
         try:
@@ -777,23 +820,32 @@ def run_prerequisite_command(
     """Run a shell command, killing it and all of its child processes on timeout.
 
     On POSIX the command runs in its own session, so a timeout kills its whole
-    process group; on Windows the process tree is killed with taskkill. Either
-    way every process the shell started is killed, not only the shell itself.
+    process group. On Windows it runs in a Job Object, so a timeout terminates
+    every process in the job, even after the shell itself has exited (taskkill
+    is the fallback if the job can't be created). Either way every process the
+    shell started is killed, not only the shell itself.
+    The same cleanup runs if the wait is interrupted (e.g. KeyboardInterrupt),
+    because the command is in its own session and doesn't receive Ctrl+C.
+    Output is decoded as UTF-8 with errors="replace", independent of the
+    system locale, so undecodable bytes can't raise and replace the
+    TimeoutExpired being handled.
     Raises subprocess.TimeoutExpired on timeout and
     subprocess.CalledProcessError on a non-zero exit code.
     """
     process = subprocess.Popen(
         command,
         shell=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    job = _create_windows_job(process.pid) if sys.platform == "win32" else None
     try:
         stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _kill_process_tree(process)
+    except BaseException:
+        _kill_process_tree(process, job)
         try:
             process.communicate(timeout=PREREQ_KILL_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
@@ -801,6 +853,9 @@ def run_prerequisite_command(
                 "A timed-out prerequisite command left a process holding its output pipes"
             )
         raise
+    finally:
+        if job is not None:
+            _windows_kernel32().CloseHandle(job)
     if process.returncode != 0:
         raise subprocess.CalledProcessError(
             process.returncode, command, output=stdout, stderr=stderr
