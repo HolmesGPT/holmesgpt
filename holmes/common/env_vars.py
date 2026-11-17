@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import platform
 import tempfile
@@ -326,9 +327,9 @@ def get_prereq_timeout_seconds() -> float:
             f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
         )
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         logging.warning(
-            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is non-positive; "
+            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is not a finite positive number; "
             f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
         )
         return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS

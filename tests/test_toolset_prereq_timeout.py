@@ -191,5 +191,12 @@ def test_default_timeout_picked_up_from_env(monkeypatch):
     monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", "0")
     assert tm.get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
 
+    for non_finite in ("nan", "inf", "-inf", "1e309"):
+        monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", non_finite)
+        assert tm.get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
+
+    monkeypatch.setenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", "0.25")
+    assert tm.get_prereq_timeout_seconds() == pytest.approx(0.25)
+
     monkeypatch.delenv("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS", raising=False)
     assert tm.get_prereq_timeout_seconds() == tm.DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
