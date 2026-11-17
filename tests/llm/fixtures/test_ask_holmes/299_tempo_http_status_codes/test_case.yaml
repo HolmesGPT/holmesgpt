@@ -1,0 +1,101 @@
+description: |
+  Tempo port of 117_new_relic_tracing. Three traced services run in app-299:
+  checkout (POST /orders) calls inventory and then risk before writing the order,
+  and answers 409 when stock is short, 403 when the risk score flags fraud, and 200
+  otherwise. The internal inventory/risk calls always return 200. Traces go to an
+  in-namespace Tempo; request status codes are not written to any pod log.
+
+user_prompt:
+- What http status code we have for /orders in the last 24 hours
+
+expected_output:
+  - code are 200, 403, 409
+  - Must not report any other status code (for example 500 or 404) as returned by /orders
+
+tags:
+  - regression
+  - kubernetes
+  - chain-of-causation
+  - traces
+
+setup_timeout: 600
+
+port_forwards:
+  - namespace: app-299
+    service: tempo
+    local_port: 3299
+    remote_port: 3200
+
+before_test: |
+  set -e
+  kubectl create namespace app-299 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ../../shared/tempo.yaml -n app-299
+
+  TEMPO_READY=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n app-299 deployment/tempo -- wget -q -O - http://localhost:3200/ready 2>/dev/null | grep -q ready; then
+      TEMPO_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$TEMPO_READY" = false ]; then
+    echo "Tempo did not become ready"
+    kubectl get pods -n app-299
+    exit 1
+  fi
+
+  kubectl apply -f services.yaml -n app-299
+  SERVICES_READY=false
+  for i in $(seq 1 120); do
+    # Per Deployment: a label-selector wait can pass before every Deployment has a pod.
+    if kubectl wait --for=condition=available deployment/checkout deployment/inventory deployment/risk -n app-299 --timeout=5s 2>/dev/null; then
+      SERVICES_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$SERVICES_READY" = false ]; then
+    echo "services did not become ready"
+    kubectl get pods -n app-299
+    exit 1
+  fi
+
+  kubectl apply -f traffic-generator.yaml -n app-299
+  CLIENT_DONE=false
+  DEADLINE=$((SECONDS + 300))
+  while [ $SECONDS -lt $DEADLINE ]; do
+    if kubectl wait --for=condition=complete job/orders-client -n app-299 --timeout=5s 2>/dev/null; then
+      CLIENT_DONE=true
+      break
+    fi
+    if kubectl wait --for=condition=failed job/orders-client -n app-299 --timeout=1s 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  if [ "$CLIENT_DONE" = false ]; then
+    echo "orders client did not complete"
+    kubectl logs -n app-299 job/orders-client --tail=20 || true
+    exit 1
+  fi
+
+  # The needle: Tempo has /orders traces for 200, 403 and 409 and for no other code.
+  VERIFIED=false
+  for i in $(seq 1 30); do
+    if kubectl exec -i -n app-299 deployment/checkout -- python - < verify_traces.py; then
+      VERIFIED=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$VERIFIED" = false ]; then
+    echo "Tempo does not show the expected /orders status codes"
+    exit 1
+  fi
+
+  # Remove the client so its script and output cannot reveal the answer.
+  kubectl delete -f traffic-generator.yaml -n app-299 --ignore-not-found
+
+after_test: |
+  kubectl delete namespace app-299 --ignore-not-found

@@ -174,3 +174,70 @@ es_validate_shard_count() {
 
   echo "✅ Verified $index has $actual primary shards"
 }
+
+# Reentrant setup helpers. The same eval runs in parallel against one shared
+# cluster (every model in a benchmark, plus PR runs), so setup must never
+# DELETE an index another run may be querying.
+
+# Create an index unless it already exists.
+# Usage: es_ensure_index "index-name" '{"settings": ..., "mappings": ...}'
+es_ensure_index() {
+  local index="$1"
+  local body="$2"
+  local response http_code
+  response=$(curl -s -w '\n%{http_code}' -X PUT "${ELASTICSEARCH_URL}/${index}?wait_for_active_shards=1" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d "$body")
+  http_code=$(echo "$response" | tail -n1)
+  response=$(echo "$response" | sed '$d')
+  if [ "$http_code" = "200" ] && echo "$response" | grep -q '"acknowledged":true'; then
+    echo "✅ Created index $index"
+  elif echo "$response" | grep -q 'resource_already_exists_exception'; then
+    echo "✅ Index $index already exists, reusing it"
+  else
+    echo "❌ Failed to create index $index (HTTP $http_code): $response"
+    exit 1
+  fi
+}
+
+# Bulk-load an ndjson file whose action lines are {"index":{}}, giving each
+# document a fixed _id (<id_prefix>-1, -2, ...) so reruns overwrite the same
+# documents instead of adding copies. Documents with any other _id (left by
+# older non-reentrant setups) are deleted; ours are never touched.
+# Usage: es_bulk_load_idempotent "index-name" "/path/to/bulk.ndjson" "254"
+es_bulk_load_idempotent() {
+  local index="$1"
+  local bulk_file="$2"
+  local id_prefix="$3"
+  local ids_file="${bulk_file}.ids"
+  local response
+
+  awk -v p="$id_prefix" -v ids="$ids_file" '
+    $0 == "{\"index\":{}}" { n++; printf "{\"index\":{\"_id\":\"%s-%d\"}}\n", p, n; print "\"" p "-" n "\"" > ids; next }
+    { print }' "$bulk_file" > "${bulk_file}.with_ids"
+
+  response=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${index}/_bulk?refresh=true" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"${bulk_file}.with_ids")
+  if [ -z "$response" ] || echo "$response" | grep -q '"errors":true'; then
+    echo "❌ Bulk load into $index failed: $response"
+    rm -f "${bulk_file}.with_ids" "$ids_file"
+    exit 1
+  fi
+
+  response=$(curl -sf -X POST "${ELASTICSEARCH_URL}/${index}/_delete_by_query?refresh=true&conflicts=proceed" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d "{\"query\":{\"bool\":{\"must_not\":{\"ids\":{\"values\":[$(paste -sd, "$ids_file")]}}}}}")
+  # A 200 can still report a partial delete via timed_out or failures.
+  if [ -z "$response" ] || echo "$response" | grep -q '"timed_out":true' \
+    || ! echo "$response" | grep -q '"failures":\[\]'; then
+    echo "❌ Removing stale documents from $index failed: $response"
+    rm -f "${bulk_file}.with_ids" "$ids_file"
+    exit 1
+  fi
+  echo "✅ Loaded $(wc -l < "$ids_file") documents into $index"
+  rm -f "${bulk_file}.with_ids" "$ids_file"
+}

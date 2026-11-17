@@ -29,181 +29,96 @@ For Azure SQL Database, see the [Azure SQL Database](#azure-sql-database) sectio
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+mssql+pytds://[username]:[password]@[host]:[port]/[database]
+```
 
-    ```yaml
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
-        llm_instructions: "Production SQL Server database with application data"
+Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewritten to use the `pytds` driver.
 
-      sqlserver-analytics:
-        type: database
-        config:
-          connection_url: "mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics"
-        llm_instructions: "Analytics SQL Server for reporting and BI"
-    ```
+```yaml-toolset-config
+toolsets:
+  sqlserver-prod:
+    type: database
+    config:
+      connection_url: "{{ env.SQLSERVER_URL }}"
+    llm_instructions: "Production SQL Server database with application data"
+---
+secret:
+  - --from-literal=SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **Using environment variables:**
+  ```yaml
+  toolsets:
+    sqlserver-prod:
+      type: database
+      config:
+        connection_url: "mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb"
+      llm_instructions: "Production SQL Server database with application data"
 
-    ```yaml
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "{{ env.SQLSERVER_URL }}"
-    ```
+    sqlserver-analytics:
+      type: database
+      config:
+        connection_url: "mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics"
+      llm_instructions: "Analytics SQL Server for reporting and BI"
+  ```
 
-    **Connection URL format:**
-    ```
-    mssql+pytds://[username]:[password]@[host]:[port]/[database]
-    ```
+  **Using environment variables:**
 
-    Plain `mssql://` URLs and legacy `mssql+pymssql://` URLs are automatically rewritten to use the `pytds` driver.
+  ```yaml
+  toolsets:
+    sqlserver-prod:
+      type: database
+      config:
+        connection_url: "{{ env.SQLSERVER_URL }}"
+  ```
+```
 
-    **TLS encryption:**
+### Multiple instances
 
-    Encryption is controlled by the `verify_ssl` option (default: `true`). When `true`, connections use TLS with certificate verification — this is what Azure SQL and other TLS-enforcing servers need. Set it to `false` for servers with self-signed certificates, which disables TLS entirely:
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  sqlserver-prod:
+    type: database
+    config:
+      connection_url: "{{ env.PROD_SQLSERVER_URL }}"
 
-    ```yaml
-    toolsets:
-      sqlserver-dev:
-        type: database
-        config:
-          connection_url: "mssql+pytds://user:pass@server:1433/db"
-          verify_ssl: false  # self-signed certificate
-    ```
+  sqlserver-analytics:
+    type: database
+    config:
+      connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
+---
+secret:
+  - --from-literal=PROD_SQLSERVER_URL='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb'
+  - --from-literal=ANALYTICS_SQLSERVER_URL='mssql+pytds://analyst:pass@analytics-sql.internal:1433/analytics'
+```
 
-    **Servers with an internal or private CA:**
+## TLS encryption
 
-    If your SQL Server's certificate is issued by a private CA, keep `verify_ssl: true` and add the CA to Holmes's trust store with the base64-encoded `certificate` Helm value (the `CERTIFICATE` environment variable). This keeps connections encrypted *and* verified, and applies to every Holmes integration, not just this toolset:
+Encryption is controlled by the `verify_ssl` option (default: `true`). When `true`, connections use TLS with certificate verification — this is what Azure SQL and other TLS-enforcing servers need. Set it to `false` for servers with self-signed certificates, which disables TLS entirely.
 
-    ```bash
-    base64 -w0 internal-ca.pem   # value for the setting below
-    ```
+### Servers with an internal or private CA
 
-    ```yaml
-    # values.yaml
-    certificate: "<base64-encoded CA certificate>"
-    ```
+If your SQL Server's certificate is issued by a private CA, keep `verify_ssl: true` and add the CA to Holmes's trust store. This keeps connections encrypted *and* verified, and applies to every Holmes integration, not just this toolset. Servers that require encryption cannot be reached with `verify_ssl: false`, so this is the correct option for a private-CA deployment.
 
-    Servers that require encryption cannot be reached with `verify_ssl: false`, so this is the correct option for a private-CA deployment.
+Encode the CA certificate:
 
-=== "Holmes Helm Chart"
+```bash
+base64 -w0 internal-ca.pem
+```
 
-    **Step 1: Create secret with credentials**
+```yaml-toolset-config
+certificate: "<base64-encoded CA certificate>"
+---
+cli: |
+  Set the environment variable:
 
-    ```bash
-    kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      -n holmes
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    additionalEnvVars:
-      - name: SQLSERVER_URL
-        valueFrom:
-          secretKeyRef:
-            name: sqlserver-credentials
-            key: url
-
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "{{ env.SQLSERVER_URL }}"
-        llm_instructions: "Production SQL Server database with application data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    additionalEnvVars:
-      - name: PROD_SQLSERVER_URL
-        valueFrom:
-          secretKeyRef:
-            name: sqlserver-prod
-            key: url
-      - name: ANALYTICS_SQLSERVER_URL
-        valueFrom:
-          secretKeyRef:
-            name: sqlserver-analytics
-            key: url
-
-    toolsets:
-      sqlserver-prod:
-        type: database
-        config:
-          connection_url: "{{ env.PROD_SQLSERVER_URL }}"
-
-      sqlserver-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic sqlserver-credentials \
-      --from-literal=url='mssql+pytds://holmes_readonly:Your_Secure_Password123!@sqlserver.example.com:1433/mydb' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: SQLSERVER_URL
-          valueFrom:
-            secretKeyRef:
-              name: sqlserver-credentials
-              key: url
-
-      toolsets:
-        sqlserver-prod:
-          type: database
-          config:
-            connection_url: "{{ env.SQLSERVER_URL }}"
-          llm_instructions: "Production SQL Server database with application data"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: PROD_SQLSERVER_URL
-          valueFrom:
-            secretKeyRef:
-              name: sqlserver-prod
-              key: url
-        - name: ANALYTICS_SQLSERVER_URL
-          valueFrom:
-            secretKeyRef:
-              name: sqlserver-analytics
-              key: url
-
-      toolsets:
-        sqlserver-prod:
-          type: database
-          config:
-            connection_url: "{{ env.PROD_SQLSERVER_URL }}"
-
-        sqlserver-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.ANALYTICS_SQLSERVER_URL }}"
-    ```
+  ```bash
+  export CERTIFICATE="<base64-encoded CA certificate>"
+  ```
+```
 
 ## Azure SQL Database
 
@@ -220,7 +135,7 @@ GRANT VIEW DEFINITION TO holmes_readonly;
 
 Then configure the connection:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   azure-sql-prod:
     type: database

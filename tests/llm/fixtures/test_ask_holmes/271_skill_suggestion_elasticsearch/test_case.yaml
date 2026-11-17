@@ -43,7 +43,7 @@ expected_output:
   - "Must report the error code PMT-ERR-7K3M9X in the answer"
   - "Must call the SuggestSkills tool with at least one suggestion"
   - "The SuggestSkills suggestion(s) must capture environment-specific Elasticsearch know-how discovered during the investigation. At least two of the following must appear in the suggestion instructions: (a) timestamps are stored in the event_ts field rather than @timestamp, (b) exact service-name matching requires the svc.keyword subfield (svc is analyzed text), (c) log messages are JSON-encoded strings inside the msg field"
-  - "The SuggestSkills tool call arguments must NOT contain the error code PMT-ERR-7K3M9X, must NOT state the root cause or findings of this specific incident, and must NOT contain timestamps of specific events. Skills must capture reusable data-source knowledge, not incident memories. (This criterion applies only to the SuggestSkills tool call arguments — the error code appearing in other tool outputs or in the final answer is expected.)"
+  - "The SuggestSkills tool call arguments must NOT contain the error code PMT-ERR-7K3M9X, must NOT state the root cause or findings of this specific incident, and must NOT contain timestamps of specific events. Skills must capture reusable data-source knowledge, not incident memories. (This criterion applies only to the SuggestSkills tool call arguments — the error code appearing in other tool outputs or in the final answer is expected.) Mapping the service name the user gave to the name it is logged under in this index (e.g. \"checkout\" is logged as svc \"checkout-gateway\") is reusable data-source knowledge, not an incident finding, and is allowed in the suggestion."
 
 tags:
   - elasticsearch
@@ -51,6 +51,7 @@ tags:
   - logs
   - medium
   - fast
+  - benchmark
 
 setup_timeout: 300
 
@@ -69,15 +70,9 @@ before_test: |
   T_45M=$(ts "minutes=45")
   T_55M=$(ts "minutes=55")
 
-  curl -sf -X DELETE "${ELASTICSEARCH_URL}/${LOGS_INDEX}" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
-
   # Quirky-but-realistic schema: event_ts instead of @timestamp, svc as
   # analyzed text with a .keyword subfield, msg holding JSON-encoded payloads.
-  curl -sf -X PUT "${ELASTICSEARCH_URL}/${LOGS_INDEX}?wait_for_active_shards=1" \
-    -H "Content-Type: application/json" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    -d '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"dynamic":"strict","properties":{"event_ts":{"type":"date"},"svc":{"type":"text","fields":{"keyword":{"type":"keyword"}}},"env":{"type":"keyword"},"msg":{"type":"text"}}}}' > /dev/null
+  es_ensure_index "$LOGS_INDEX" '{"settings":{"number_of_shards":1,"number_of_replicas":0},"mappings":{"dynamic":"strict","properties":{"event_ts":{"type":"date"},"svc":{"type":"text","fields":{"keyword":{"type":"keyword"}}},"env":{"type":"keyword"},"msg":{"type":"text"}}}}'
 
   BULK_FILE=$(es_temp_file "logs" "271")
   cat > "$BULK_FILE" << BULK_EOF
@@ -97,10 +92,7 @@ before_test: |
   {"event_ts":"${T_5M}","svc":"checkout-gateway","env":"prod","msg":"{\\"level\\":\\"INFO\\",\\"component\\":\\"router\\",\\"detail\\":\\"request completed\\",\\"latency_ms\\":98}"}
   BULK_EOF
   sed 's/^  //' "$BULK_FILE" > "${BULK_FILE}.tmp" && mv "${BULK_FILE}.tmp" "$BULK_FILE"
-  curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_bulk" \
-    -H "Content-Type: application/x-ndjson" \
-    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
-    --data-binary @"$BULK_FILE" > /dev/null
+  es_bulk_load_idempotent "$LOGS_INDEX" "$BULK_FILE" "271"
   rm -f "$BULK_FILE"
   curl -sf -X POST "${ELASTICSEARCH_URL}/${LOGS_INDEX}/_refresh" \
     -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null

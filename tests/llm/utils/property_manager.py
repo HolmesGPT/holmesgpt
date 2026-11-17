@@ -239,6 +239,13 @@ def update_test_results(
             caplog=caplog,
         )
         scores["correctness"] = correctness_eval.score
+        # Braintrust is not the only reader of results: the review script and
+        # the committed report read eval_results.json, and need the reason too.
+        update_property(
+            request,
+            "judge_rationale",
+            (correctness_eval.metadata or {}).get("rationale", ""),
+        )
 
     # Default scores if still None
     if scores is None:

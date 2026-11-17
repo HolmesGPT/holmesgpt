@@ -47,7 +47,7 @@ class TestInfoDefault:
         ]
         executor = MagicMock()
         executor.toolsets = toolsets
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = ["gpt-4.1", "claude-sonnet-4"]
 
         response = client.get("/api/info")
@@ -68,7 +68,7 @@ class TestInfoDefault:
         """Default mode must not include toolsets list, runbooks, mcp_servers, or paths."""
         executor = MagicMock()
         executor.toolsets = [_mock_toolset("test")]
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
 
         data = client.get("/api/info").json()
@@ -91,7 +91,7 @@ class TestInfoFull:
         ]
         executor = MagicMock()
         executor.toolsets = toolsets
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = ["gpt-4.1"]
         mock_config._config_file_path = "/app/config.yaml"
         mock_config.mcp_servers = {"my-server": {}}
@@ -121,7 +121,7 @@ class TestInfoFull:
         toolsets = [_mock_runbook_toolset(["cpu_high.md", "oom.md", "lag.md"])]
         executor = MagicMock()
         executor.toolsets = toolsets
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
         mock_config._config_file_path = None
         mock_config.mcp_servers = None
@@ -135,7 +135,7 @@ class TestInfoFull:
         """Full mode lists MCP server names."""
         executor = MagicMock()
         executor.toolsets = []
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
         mock_config._config_file_path = None
         mock_config.mcp_servers = {"server-a": {}, "server-b": {}}
@@ -148,7 +148,7 @@ class TestInfoFull:
         """Full mode exposes config_path and model_list_path."""
         executor = MagicMock()
         executor.toolsets = []
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
         mock_config._config_file_path = "/etc/holmes/config.yaml"
         mock_config.mcp_servers = None
@@ -169,7 +169,7 @@ class TestInfoAuthEnabled:
         monkeypatch.delenv("HOLMES_API_KEY", raising=False)
         executor = MagicMock()
         executor.toolsets = []
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
 
         data = client.get("/api/info").json()
@@ -181,7 +181,7 @@ class TestInfoAuthEnabled:
         monkeypatch.setenv("HOLMES_API_KEY", "test-key-123")
         executor = MagicMock()
         executor.toolsets = []
-        mock_config.create_tool_executor.return_value = executor
+        mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
 
         data = client.get("/api/info").json()

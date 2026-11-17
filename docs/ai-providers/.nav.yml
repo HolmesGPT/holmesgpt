@@ -13,5 +13,6 @@ nav:
 - OpenAI: openai.md
 - OpenAI-Compatible: openai-compatible.md
 - Other: other.md
+- Models Missing from LiteLLM: model-limits.md
 - Robusta AI: robusta-ai.md
 - Using Multiple Providers: using-multiple-providers.md

@@ -1,0 +1,38 @@
+# ROB-1564: the kubernetes/core query tools accept an optional `label_selector`.
+# The prompt gives the app's label but not its namespace, and there is no
+# large-cluster guidance (compare 295, which adds it). This checks that the
+# tool descriptions alone lead Holmes to filter server-side by label. A ConfigMap
+# with the same name but a different app label sits in a second namespace.
+user_prompt: "Our ledger-sync app's resources carry the label app=ledger-sync. Which namespace is its ConfigMap in, and what owner-ticket value is set in its data?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must say the ConfigMap is in namespace app-294"
+  - "Must report the owner ticket OPS-7731-xk"
+  - "Must NOT give OPS-2208-qp as the answer (that ConfigMap has a different app label)"
+  - "The tool calls must include a kubernetes_jq_query, kubernetes_count or kubernetes_tabular_query call whose label_selector parameter selects app=ledger-sync"
+
+tags:
+  - kubernetes
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+  for ns in app-294 app-294-archive; do
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+  done
+  kubectl create configmap ledger-sync-config -n app-294 \
+    --from-literal=owner-ticket=OPS-7731-xk --from-literal=batch-size=200 \
+    --dry-run=client -o yaml | kubectl label --local -f - app=ledger-sync -o yaml | kubectl apply -f -
+  kubectl create configmap ledger-sync-config -n app-294-archive \
+    --from-literal=owner-ticket=OPS-2208-qp --from-literal=batch-size=50 \
+    --dry-run=client -o yaml | kubectl label --local -f - app=ledger-sync-v1 -o yaml | kubectl apply -f -
+  if ! kubectl get configmaps -A -l app=ledger-sync -o yaml | grep -q OPS-7731-xk; then
+    echo "❌ no ConfigMap labelled app=ledger-sync holds the expected ticket"
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-294 app-294-archive --ignore-not-found

@@ -1,0 +1,37 @@
+# ROB-1564: the kubernetes/core query tools accept an optional `namespace`.
+# The prompt names the namespace, so Holmes should pass it to the tool rather
+# than listing every namespace and filtering client-side. A same-named ConfigMap
+# with a different token lives in a second namespace, so answering from an
+# unscoped query that mixes them up gives the wrong token.
+user_prompt: "In the app-293 namespace, what release-token is set in the checkout service's settings ConfigMap?"
+
+include_tool_calls: true
+
+expected_output:
+  - "Must report the release token rt-4q8w2z"
+  - "Must NOT give rt-9m3k7d as the answer (that ConfigMap is in a different namespace)"
+  - "The tool calls must include a kubernetes_jq_query, kubernetes_count or kubernetes_tabular_query call whose namespace parameter is app-293"
+
+tags:
+  - kubernetes
+  - question-answer
+  - medium
+
+before_test: |
+  set -e
+  for ns in app-293 app-293-staging; do
+    kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+  done
+  kubectl create configmap checkout-settings -n app-293 \
+    --from-literal=release-token=rt-4q8w2z --from-literal=region=us-east-1 \
+    --dry-run=client -o yaml | kubectl label --local -f - app=checkout -o yaml | kubectl apply -f -
+  kubectl create configmap checkout-settings -n app-293-staging \
+    --from-literal=release-token=rt-9m3k7d --from-literal=region=us-east-1 \
+    --dry-run=client -o yaml | kubectl label --local -f - app=checkout -o yaml | kubectl apply -f -
+  if ! kubectl get configmap checkout-settings -n app-293 -o yaml | grep -q rt-4q8w2z; then
+    echo "❌ checkout-settings in app-293 does not hold the expected token"
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-293 app-293-staging --ignore-not-found

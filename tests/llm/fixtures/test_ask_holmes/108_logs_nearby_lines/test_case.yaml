@@ -6,6 +6,7 @@ description: |
 user_prompt: "What is causing connection refused errors in api-service in namespace app-108?"
 
 tags:
+  - advanced
   - logs
   - hard
   - benchmark

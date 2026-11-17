@@ -4,254 +4,100 @@ Define multiple model configurations and switch between them by name. This is us
 
 ## Configuration
 
-=== "Holmes CLI"
+Define the models in a model list, each with the credentials its provider needs. Keep only the models of the providers you use: HolmesGPT fails to load the model list when a model reads an environment variable (`{{ env.VAR_NAME }}`) that is not set. In Kubernetes, the secret then holds only the keys those models read.
 
-    **1. Create `~/.holmes/model_list.yaml`:**
+In Kubernetes, when multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
 
-    ```yaml
-    sonnet:
-        aws_access_key_id: "your-access-key"
-        aws_region_name: us-east-1
-        aws_secret_access_key: "your-secret-key"
-        model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
-        temperature: 1
-        thinking:
-            budget_tokens: 10000
-            type: enabled
+```yaml-toolset-config
+# Configure the model list using the environment variables
+modelList:
+  # Standard OpenAI
+  openai-4.1:
+    api_key: "{{ env.OPENAI_API_KEY }}"
+    model: openai/gpt-4.1
+    temperature: 0
 
-    azure-5:
-        api_base: https://your-resource.openai.azure.com
-        api_key: "your-api-key"
-        api_version: 2025-01-01-preview
-        model: azure/gpt-5
-        temperature: 0
-    ```
+  # Azure AI Foundry Models
+  azure-41:
+    api_key: "{{ env.AZURE_API_KEY }}"
+    model: azure/gpt-4.1
+    api_base: https://your-resource.openai.azure.com/
+    api_version: "2025-01-01-preview"
+    temperature: 0
 
-    **2. Use models by name:**
+  azure-gpt-5:
+    api_key: "{{ env.AZURE_API_KEY }}"
+    model: azure/gpt-5
+    api_base: https://your-resource.openai.azure.com/
+    api_version: "2025-01-01-preview"
+    temperature: 1 # only 1 is supported for gpt-5 models
 
-    ```bash
-    holmes ask "what pods are failing?" --model=sonnet --no-interactive
-    holmes ask "analyze deployment" --model=azure-5 --no-interactive
-    ```
+  # Anthropic Models
+  claude-sonnet-4:
+    api_key: "{{ env.ANTHROPIC_API_KEY }}"
+    model: claude-sonnet-4-20250514
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
 
-    When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
+  claude-opus-4-1:
+    api_key: "{{ env.ANTHROPIC_API_KEY }}"
+    model: claude-opus-4-1-20250805
+    temperature: 0
 
-    **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
+  # AWS Bedrock
+  bedrock-claude:
+    aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+    aws_region_name: us-east-1
+    aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+    model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
+---
+secret:
+  - --from-literal=OPENAI_API_KEY="sk-..."
+  - --from-literal=AZURE_API_KEY="..."
+  - --from-literal=ANTHROPIC_API_KEY="sk-ant-..."
+  - --from-literal=AWS_ACCESS_KEY_ID="AKIA..."
+  - --from-literal=AWS_SECRET_ACCESS_KEY="..."
+cli: |
+  **1. Create `~/.holmes/model_list.yaml`:**
 
-    **Custom path:** To load the model list from a different location, set `MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml`.
-
-=== "Holmes Helm Chart"
-
-    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables.
-
-    **Create the Kubernetes Secret:**
-
-    ```bash
-    # Example with all providers - only include what you're using
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      --from-literal=azure-api-key="..." \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="..." \
-      -n <namespace>
-
-    # Example with just OpenAI and Anthropic
-    kubectl create secret generic holmes-secrets \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-
-    ```yaml
-    # values.yaml
-    # Reference only the API keys you created in the secret
-    additionalEnvVars:
-      - name: AZURE_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: azure-api-key
-      - name: ANTHROPIC_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: anthropic-api-key
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-access-key-id
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-secret-access-key
-      - name: OPENAI_API_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: openai-api-key
-
-    # Configure the model list using the environment variables
-    modelList:
-      # Standard OpenAI
-      openai-4.1:
-        api_key: "{{ env.OPENAI_API_KEY }}"
-        model: openai/gpt-4.1
-        temperature: 0
-
-      # Azure AI Foundry Models
-      azure-41:
-        api_key: "{{ env.AZURE_API_KEY }}"
-        model: azure/gpt-4.1
-        api_base: https://your-resource.openai.azure.com/
-        api_version: "2025-01-01-preview"
-        temperature: 0
-
-      azure-gpt-5:
-        api_key: "{{ env.AZURE_API_KEY }}"
-        model: azure/gpt-5
-        api_base: https://your-resource.openai.azure.com/
-        api_version: "2025-01-01-preview"
-        temperature: 1 # only 1 is supported for gpt-5 models
-
-      # Anthropic Models
-      claude-sonnet-4:
-        api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-sonnet-4-20250514
-        temperature: 1
-        thinking:
+  ```yaml
+  sonnet:
+      aws_access_key_id: "your-access-key"
+      aws_region_name: us-east-1
+      aws_secret_access_key: "your-secret-key"
+      model: bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0
+      temperature: 1
+      thinking:
           budget_tokens: 10000
           type: enabled
 
-      claude-opus-4-1:
-        api_key: "{{ env.ANTHROPIC_API_KEY }}"
-        model: claude-opus-4-1-20250805
-        temperature: 0
+  azure-5:
+      api_base: https://your-resource.openai.azure.com
+      api_key: "your-api-key"
+      api_version: 2025-01-01-preview
+      model: azure/gpt-5
+      temperature: 1 # only 1 is supported for gpt-5 models
+  ```
 
-      # AWS Bedrock
-      bedrock-claude:
-        aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-        aws_region_name: us-east-1
-        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-    ```
+  **2. Use models by name:**
 
-    When multiple providers are defined, users can specify the `model` parameter via the HTTP API. If deployed with Robusta, a model selector dropdown is also available in the UI.
+  ```bash
+  holmes ask "what pods are failing?" --model=sonnet --no-interactive
+  holmes ask "analyze deployment" --model=azure-5 --no-interactive
+  ```
 
-=== "Robusta Helm Chart"
+  When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
 
-    Configure multiple models using the `modelList` parameter in your Helm values, along with the necessary environment variables. All Holmes configuration is nested under the `holmes:` key.
+  **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
 
-    **Create the Kubernetes Secret:**
-
-    ```bash
-    # Example with all providers - only include what you're using
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      --from-literal=azure-api-key="..." \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="..." \
-      -n <namespace>
-
-    # Example with just OpenAI and Anthropic
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=openai-api-key="sk-..." \
-      --from-literal=anthropic-api-key="sk-ant-..." \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-
-    ```yaml
-    # values.yaml
-    holmes:
-      # Reference only the API keys you created in the secret
-      additionalEnvVars:
-        - name: AZURE_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: azure-api-key
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: anthropic-api-key
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-secret-access-key
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: openai-api-key
-
-      # Configure the model list using the environment variables
-      modelList:
-        # Standard OpenAI
-        openai-4.1:
-          api_key: "{{ env.OPENAI_API_KEY }}"
-          model: openai/gpt-4.1
-          temperature: 0
-
-        # Azure AI Foundry Models
-        azure-41:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: azure/gpt-4.1
-          api_base: https://your-resource.openai.azure.com/
-          api_version: "2025-01-01-preview"
-          temperature: 0
-
-        azure-gpt-5:
-          api_key: "{{ env.AZURE_API_KEY }}"
-          model: azure/gpt-5
-          api_base: https://your-resource.openai.azure.com/
-          api_version: "2025-01-01-preview"
-          temperature: 1 # only 1 is supported for gpt-5 models
-
-        # Anthropic Models
-        claude-sonnet-4:
-          api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-sonnet-4-20250514
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        claude-opus-4-1:
-          api_key: "{{ env.ANTHROPIC_API_KEY }}"
-          model: claude-opus-4-1-20250805
-          temperature: 0
-
-        # AWS Bedrock
-        bedrock-claude:
-          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-          aws_region_name: us-east-1
-          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-    ```
-
-    When multiple providers are defined, users can select which model to use from a dropdown in the Robusta UI, or specify a `model` parameter when using the HTTP API directly.
+  **Custom path:** To load the model list from a different location, set `MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml`.
+```
 
 ## Model Parameters
 

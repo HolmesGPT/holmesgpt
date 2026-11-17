@@ -23,6 +23,9 @@ from holmes.plugins.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
+# Deprecated-field warnings already logged, so repeated validation stays quiet.
+_warned_deprecated_fields: set[str] = set()
+
 try:
     # pydantic v2
     from pydantic_core import PydanticUndefined  # type: ignore
@@ -166,10 +169,14 @@ class ToolsetConfig(BaseModel):
                     deprecated_used.append(f"{old_name} (removed)")
 
         if deprecated_used:
-            logger.warning(
+            # Configs are re-validated on every toolset refresh; warn once per process.
+            message = (
                 f"{cls.__name__} uses deprecated field names. "
                 f"Please update: {', '.join(deprecated_used)}"
             )
+            if message not in _warned_deprecated_fields:
+                _warned_deprecated_fields.add(message)
+                logger.warning(message)
 
         return data
 

@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: telemetry-processor-script
+  namespace: app-306
+type: Opaque
+stringData:
+  process.sh: |
+    #!/bin/sh
+    echo "telemetry processor started"
+    n=0
+    while true; do
+      head -c 2000000 /dev/urandom | md5sum > /dev/null
+      n=$((n + 1))
+      echo "flushed telemetry batch $n"
+      sleep 3
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-processor
+  namespace: app-306
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: telemetry-processor
+  template:
+    metadata:
+      labels:
+        app: telemetry-processor
+    spec:
+      containers:
+      - name: processor
+        image: busybox:1.36
+        command: ["/bin/sh", "/scripts/process.sh"]
+        resources:
+          requests:
+            cpu: 5m
+            memory: 8Mi
+          limits:
+            cpu: 200m
+            memory: 32Mi
+        volumeMounts:
+        - name: script
+          mountPath: /scripts
+      volumes:
+      - name: script
+        secret:
+          secretName: telemetry-processor-script
+          defaultMode: 0755

@@ -15,139 +15,62 @@ Configure HolmesGPT to use AWS Bedrock foundation models.
 
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+additionalEnvVars:
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList below
 
-    ```bash
-    export AWS_REGION_NAME="us-east-1"  # Replace with your region
-    export AWS_ACCESS_KEY_ID="your-access-key"
-    export AWS_SECRET_ACCESS_KEY="your-secret-key"
+# Configure at least one model using modelList
+modelList:
+  bedrock-claude-sonnet-4:
+    aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+    aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+    aws_region_name: eu-south-2
+    model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
 
-    holmes ask "what pods are failing?" --model="bedrock/<your-bedrock-model>"
-    ```
+  bedrock-claude-sonnet-4-1M-context:
+    aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
+    aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
+    aws_region_name: eu-south-2
+    model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
+    extra_headers:
+      anthropic-beta: context-1m-2025-08-07
+    custom_args:
+      max_context_size: 1000000
+---
+secret:
+  - --from-literal=AWS_ACCESS_KEY_ID="AKIA..."
+  - --from-literal=AWS_SECRET_ACCESS_KEY="your-secret-key"
+cli: |
+  ```bash
+  export AWS_REGION_NAME="us-east-1"  # Replace with your region
+  export AWS_ACCESS_KEY_ID="your-access-key"
+  export AWS_SECRET_ACCESS_KEY="your-secret-key"
 
-    **For Claude Sonnet with 1M context window:**
-    ```bash
-    export AWS_REGION_NAME="us-east-1"
-    export AWS_ACCESS_KEY_ID="your-access-key"
-    export AWS_SECRET_ACCESS_KEY="your-secret-key"
-    export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
-    export OVERRIDE_MAX_CONTENT_SIZE="1000000"
+  holmes ask "what pods are failing?" --model="bedrock/<your-bedrock-model>"
+  ```
 
-    holmes ask "what pods are failing?" --model="bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0"
-    ```
+  **For Claude Sonnet with 1M context window:**
 
-=== "Holmes Helm Chart"
+  ```bash
+  export AWS_REGION_NAME="eu-south-2"
+  export AWS_ACCESS_KEY_ID="your-access-key"
+  export AWS_SECRET_ACCESS_KEY="your-secret-key"
+  export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
+  export OVERRIDE_MAX_CONTENT_SIZE="1000000"
 
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic holmes-secrets \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="your-secret-key" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    additionalEnvVars:
-      - name: AWS_ACCESS_KEY_ID
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-access-key-id
-      - name: AWS_SECRET_ACCESS_KEY
-        valueFrom:
-          secretKeyRef:
-            name: holmes-secrets
-            key: aws-secret-access-key
-
-    # Configure at least one model using modelList
-    modelList:
-      bedrock-claude-sonnet-4:
-        aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        aws_region_name: eu-south-2
-        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-
-      bedrock-claude-sonnet-4-1M-context:
-        aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-        aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-        aws_region_name: eu-south-2
-        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-        extra_headers:
-          anthropic-beta: context-1m-2025-08-07
-        custom_args:
-          max_context_size: 1000000
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Create Kubernetes Secret:**
-    ```bash
-    kubectl create secret generic robusta-holmes-secret \
-      --from-literal=aws-access-key-id="AKIA..." \
-      --from-literal=aws-secret-access-key="your-secret-key" \
-      -n <namespace>
-    ```
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      additionalEnvVars:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-access-key-id
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: robusta-holmes-secret
-              key: aws-secret-access-key
-
-      # Configure at least one model using modelList
-      modelList:
-        bedrock-claude-sonnet-4:
-          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-        bedrock-claude-sonnet-4-1M-context:
-          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-          extra_headers:
-            anthropic-beta: context-1m-2025-08-07
-          custom_args:
-            max_context_size: 1000000
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "bedrock-claude-sonnet-4"  # This refers to the key name in modelList above
-    ```
+  holmes ask "what pods are failing?" --model="bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0"
+  ```
+```
 
 ### Using Claude Sonnet with 1M Context Window
 
@@ -172,61 +95,35 @@ This tells HolmesGPT the actual context window size (1M tokens) so it can proper
 
 ### Using IRSA (IAM Roles for Service Accounts)
 
-If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate without static credentials. The AWS SDK picks up the role automatically when the pod's service account is annotated with the role ARN and the following environment variables are injected into the pod:
+If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate without static credentials. The IAM role's trust policy must allow your cluster's OIDC provider for the subject `system:serviceaccount:<namespace>:<service-account>`, the service account Holmes runs as. The AWS SDK picks up the role automatically when the pod's service account is annotated with the role ARN and the following environment variables are injected into the pod:
 
 | Variable | Description |
 |---|---|
 | `AWS_ROLE_ARN` | ARN of the IAM role to assume |
 | `AWS_WEB_IDENTITY_TOKEN_FILE` | Path to the projected service account token |
 
-=== "Holmes Helm Chart"
+```yaml-helm-values
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/<role-name>"
 
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    serviceAccount:
-      annotations:
-        eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/<role-name>"
+# Configure at least one model using modelList (no credentials needed)
+modelList:
+  bedrock-claude-sonnet-4:
+    aws_region_name: eu-west-3
+    model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
+    temperature: 1
+    thinking:
+      budget_tokens: 10000
+      type: enabled
 
-    # Configure at least one model using modelList (no credentials needed)
-    modelList:
-      bedrock-claude-sonnet-4:
-        aws_region_name: eu-west-3
-        model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-        temperature: 1
-        thinking:
-          budget_tokens: 10000
-          type: enabled
-
-    # Optional: Set default model (use modelList key name)
-    config:
-      model: "bedrock-claude-sonnet-4"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Configure Helm Values:**
-    ```yaml
-    # values.yaml
-    holmes:
-      serviceAccount:
-        annotations:
-          eks.amazonaws.com/role-arn: "arn:aws:iam::<account-id>:role/<role-name>"
-
-      # Configure at least one model using modelList (no credentials needed)
-      modelList:
-        bedrock-claude-sonnet-4:
-          aws_region_name: eu-west-3
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-
-      # Optional: Set default model (use modelList key name)
-      config:
-        model: "bedrock-claude-sonnet-4"
-    ```
+additionalEnvVars:
+  # Optional: Set default model (use modelList key name)
+  - name: MODEL
+    value: "bedrock-claude-sonnet-4"
+---
+deployment-values: [service-account]
+```
 
 **Note:** With IRSA, you do not need `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY`. The AWS SDK picks up the injected token automatically.
 
@@ -234,18 +131,21 @@ If you're running HolmesGPT on Kubernetes with IRSA, you can authenticate withou
 
 If you're using AWS IAM Identity Center (SSO) with Bedrock, you can authenticate via bearer token instead of access/secret keys.
 
-Set the environment variable:
-```bash
-export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
-```
-
-Or use `api_key` in the `modelList` config:
-```yaml
+```yaml-toolset-config {secret-qualifier=bearer}
 modelList:
   bedrock-claude-sonnet-4:
     api_key: "{{ env.AWS_BEARER_TOKEN_BEDROCK }}"
     aws_region_name: us-east-1
     model: bedrock/anthropic.claude-sonnet-4-20250514-v1:0
+---
+secret:
+  - --from-literal=AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
+cli: |
+  Set the environment variable:
+
+  ```bash
+  export AWS_BEARER_TOKEN_BEDROCK="your-bearer-token"
+  ```
 ```
 
 ### Finding Your AWS Credentials
@@ -274,32 +174,14 @@ You can enable various beta features in AWS Bedrock by setting custom headers.
 
 For example, to enable 1M context windows.
 
-You can enable ``Extra Headers`` in both the CLI (via env vars) and the Helm charts options.
+You can enable ``Extra Headers`` in the CLI (via env vars) or in a model's `modelList` entry.
 
 For the CLI:
 ```bash
 export EXTRA_HEADERS="{\"anthropic-beta\": \"context-1m-2025-08-07\"}"
 ```
 
-Or, for Helm:
-
-    # values.yaml
-    holmes:
-      ...
-      modelList:
-        ...
-        bedrock-claude-sonnet-4-1M-context:
-          aws_access_key_id: "{{ env.AWS_ACCESS_KEY_ID }}"
-          aws_secret_access_key: "{{ env.AWS_SECRET_ACCESS_KEY }}"
-          aws_region_name: eu-south-2
-          model: bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0
-          temperature: 1
-          thinking:
-            budget_tokens: 10000
-            type: enabled
-          extra_headers:
-            anthropic-beta: context-1m-2025-08-07
-
+In Kubernetes, set `extra_headers` on the model's `modelList` entry, as the `bedrock-claude-sonnet-4-1M-context` model in the [Configuration](#configuration) section does.
 
 ## Additional Resources
 

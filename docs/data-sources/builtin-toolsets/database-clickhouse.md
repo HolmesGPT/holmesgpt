@@ -19,6 +19,7 @@ GRANT SELECT ON information_schema.* TO holmes_readonly;
 ```
 
 **For all databases:**
+
 ```sql
 CREATE USER holmes_readonly IDENTIFIED BY 'your_secure_password';
 GRANT SELECT ON *.* TO holmes_readonly;
@@ -27,155 +28,73 @@ GRANT SELECT ON system.* TO holmes_readonly;
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+clickhouse://[username]:[password]@[host]:[port]/[database]
+clickhouse+http://[username]:[password]@[host]:[port]/[database]
+```
 
-    ```yaml
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics"
-        llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
+Note: Use native protocol (port 9000) or HTTP interface (port 8123).
 
-      clickhouse-logs:
-        type: database
-        config:
-          connection_url: "clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs"
-          clickhouse_use_http_json: true
-        llm_instructions: "Log analytics database with application and system logs"
-    ```
+```yaml-toolset-config
+toolsets:
+  clickhouse-analytics:
+    type: database
+    config:
+      connection_url: "{{ env.CLICKHOUSE_URL }}"
+    llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
+---
+secret:
+  - --from-literal=CLICKHOUSE_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **Using environment variables:**
+  ```yaml
+  toolsets:
+    clickhouse-analytics:
+      type: database
+      config:
+        connection_url: "clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics"
+      llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
 
-    ```yaml
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_URL }}"
-    ```
+    clickhouse-logs:
+      type: database
+      config:
+        connection_url: "clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs"
+        clickhouse_use_http_json: true
+      llm_instructions: "Log analytics database with application and system logs"
+  ```
 
-    **Connection URL format:**
-    ```
-    clickhouse://[username]:[password]@[host]:[port]/[database]
-    clickhouse+http://[username]:[password]@[host]:[port]/[database]
-    ```
+  **Using environment variables:**
 
-    Note: Use native protocol (port 9000) or HTTP interface (port 8123).
+  ```yaml
+  toolsets:
+    clickhouse-analytics:
+      type: database
+      config:
+        connection_url: "{{ env.CLICKHOUSE_URL }}"
+  ```
+```
 
-=== "Holmes Helm Chart"
+### Multiple instances
 
-    **Step 1: Create secret with credentials**
+```yaml-toolset-config {secret-qualifier=instances}
+toolsets:
+  clickhouse-analytics:
+    type: database
+    config:
+      connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
 
-    ```bash
-    kubectl create secret generic clickhouse-credentials \
-      --from-literal=url='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n holmes
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    additionalEnvVars:
-      - name: CLICKHOUSE_URL
-        valueFrom:
-          secretKeyRef:
-            name: clickhouse-credentials
-            key: url
-
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_URL }}"
-        llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    additionalEnvVars:
-      - name: CLICKHOUSE_ANALYTICS_URL
-        valueFrom:
-          secretKeyRef:
-            name: clickhouse-analytics
-            key: url
-      - name: CLICKHOUSE_LOGS_URL
-        valueFrom:
-          secretKeyRef:
-            name: clickhouse-logs
-            key: url
-
-    toolsets:
-      clickhouse-analytics:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
-
-      clickhouse-logs:
-        type: database
-        config:
-          connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create secret with credentials**
-
-    ```bash
-    kubectl create secret generic clickhouse-credentials \
-      --from-literal=url='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics' \
-      -n default
-    ```
-
-    **Step 2: Configure in values.yaml**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CLICKHOUSE_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-credentials
-              key: url
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_URL }}"
-          llm_instructions: "ClickHouse analytics warehouse with event streams and metrics"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: CLICKHOUSE_ANALYTICS_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-analytics
-              key: url
-        - name: CLICKHOUSE_LOGS_URL
-          valueFrom:
-            secretKeyRef:
-              name: clickhouse-logs
-              key: url
-
-      toolsets:
-        clickhouse-analytics:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_ANALYTICS_URL }}"
-
-        clickhouse-logs:
-          type: database
-          config:
-            connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
-    ```
+  clickhouse-logs:
+    type: database
+    config:
+      connection_url: "{{ env.CLICKHOUSE_LOGS_URL }}"
+---
+secret:
+  - --from-literal=CLICKHOUSE_ANALYTICS_URL='clickhouse://holmes_readonly:your_secure_password@clickhouse.example.com:9000/metrics'
+  - --from-literal=CLICKHOUSE_LOGS_URL='clickhouse+http://log_reader:pass@clickhouse-logs.internal:8123/logs'
+```
 
 ## Configuration Options
 
@@ -197,7 +116,7 @@ ValueError: unconverted data remains: 789
 
 Enable JSONEachRow when you query tables that return high-precision `DateTime64` columns:
 
-```yaml
+```yaml-toolset-config
 toolsets:
   clickhouse-otel-logs:
     type: database

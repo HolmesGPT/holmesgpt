@@ -81,9 +81,8 @@ Usage: {{- include "holmes.commonLabels" . | nindent 4 }}
 Checksum of the Secret DATA behind every skillRepos credential, for the
 pod-template annotation: env comes from these Secrets via secretKeyRef, which
 does not restart pods when the data rotates, so the rollout must be triggered
-here. Same lookup pattern as holmes.kubernetesRemediationMcp.authTokenChecksum;
-during `helm template` (no cluster) lookup returns nothing and the checksum is
-stable, exactly like that precedent.
+here. During `helm template` (no cluster) lookup returns nothing and the
+checksum is stable.
 */}}
 {{- define "holmes.skillRepoSecretsChecksum" -}}
 {{- $parts := list -}}

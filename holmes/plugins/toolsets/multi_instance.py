@@ -369,6 +369,7 @@ class MultiInstanceToolset(Toolset):
     def _forward_overrides(self, child: Toolset) -> None:
         """Propagate toolset-level overrides so the child enforces them too."""
         child.approval_required_tools = self.approval_required_tools
+        child.subtype = self.subtype
 
     def _run_child_prerequisites(
         self, child: Toolset, flat_config: Dict[str, Any]
