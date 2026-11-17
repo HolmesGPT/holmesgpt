@@ -279,6 +279,8 @@ export TOOL_MEMORY_LIMIT_MB=2000
 
 Sets the per-subprocess cap as a percentage (greater than 0, up to 100) of the container's memory limit (`resources.limits.memory` on Kubernetes), read from the cgroup at startup. The cap then follows the pod size, so you do not have to update `TOOL_MEMORY_LIMIT_MB` each time you resize the pod.
 
+Warning: the resulting cap is applied with `ulimit -v` (address space), so a percentage that yields less than about 800 MB (for example 25% on a 1–2 Gi pod) can make `kubectl` and other Go binaries fail. Keep the result at or above the `TOOL_MEMORY_LIMIT_MB` default.
+
 Priority: an explicit `TOOL_MEMORY_LIMIT_MB` always wins. If `TOOL_MEMORY_LIMIT_PERCENT` is set but the container has no memory limit (or it cannot be read), Holmes logs a warning and uses the default of `TOOL_MEMORY_LIMIT_MB`. An out-of-range value is ignored with a warning.
 
 Several tool commands can run at the same time, each with its own cap, so pick a conservative value. Combined with [`TOOL_MAX_PARALLEL_CALLS`](#tool_max_parallel_calls), the worst case is roughly `TOOL_MAX_PARALLEL_CALLS × percent` of the pod limit.
