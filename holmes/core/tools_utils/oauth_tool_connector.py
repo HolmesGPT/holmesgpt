@@ -198,27 +198,18 @@ class OAuthToolConnector:
             filtered.append(t)
 
         used = {t["function"]["name"] for t in filtered}
+        user_tools_flat: List[Tool] = [
+            tool for tools in oauth_replacements.values() for tool in tools
+        ]
+        exposed_names = self._allocate_names(user_tools_flat, used)
+
         exposed_tools: Dict[str, Tool] = {}
-        for user_tools in oauth_replacements.values():
-            for tool in user_tools:
-                exposed = tool.name
-                if exposed in used:
-                    # The collision-safe name can itself be taken, e.g. by a tool
-                    # the base resolver namespaced the same way. Grow a
-                    # deterministic suffix until the name is free, or the
-                    # duplicate this method exists to prevent comes back.
-                    collision_safe_name = self._collision_safe_name(tool)
-                    exposed = collision_safe_name
-                    suffix = 2
-                    while exposed in used:
-                        exposed = f"{collision_safe_name}_{suffix}"
-                        suffix += 1
-                used.add(exposed)
-                exposed_tools[exposed] = tool
-                payload = tool.get_openai_format()
-                if exposed != tool.name:
-                    payload["function"]["name"] = exposed
-                filtered.append(payload)
+        for tool, exposed in zip(user_tools_flat, exposed_names):
+            exposed_tools[exposed] = tool
+            payload = tool.get_openai_format()
+            if exposed != tool.name:
+                payload["function"]["name"] = exposed
+            filtered.append(payload)
 
         # Rebuild the whole per-user map: oauth_replacements covers every toolset
         # stored for this user, so names cannot go stale when a colliding toolset
@@ -237,6 +228,41 @@ class OAuthToolConnector:
                 }
 
         return filtered
+
+    def _allocate_names(self, user_tools: List[Tool], used: set) -> List[str]:
+        """Pick a unique exposed name for each user tool, in input order.
+
+        Raw names win, whatever the discovery order: every name a tool can keep
+        is reserved before any generated name is allocated, so an alias never
+        shadows a server tool that is really called ``<toolset>__<tool>``. An
+        alias can itself be taken, by the base list or by a reserved raw name,
+        so it grows a deterministic suffix until it is free.
+        """
+        names: List[str] = []
+        reserved: set = set()
+        for tool in user_tools:
+            # First occurrence keeps a free raw name; a repeat of that raw name
+            # (a server can list a tool twice) falls through to an alias.
+            if tool.name in used or tool.name in reserved:
+                names.append("")
+                continue
+            names.append(tool.name)
+            reserved.add(tool.name)
+
+        taken = used | reserved
+
+        for index, tool in enumerate(user_tools):
+            if names[index]:
+                continue
+            collision_safe_name = self._collision_safe_name(tool)
+            exposed = collision_safe_name
+            suffix = 2
+            while exposed in taken:
+                exposed = f"{collision_safe_name}_{suffix}"
+                suffix += 1
+            names[index] = exposed
+            taken.add(exposed)
+        return names
 
     @staticmethod
     def _collision_safe_name(tool: Tool) -> str:
