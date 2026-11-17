@@ -240,3 +240,29 @@ def test_duplicate_raw_names_from_one_server_still_get_unique_aliases():
 
     assert len(names) == len(set(names)), f"duplicate tool names reached the model: {names}"
     assert sorted(names) == ["coroot__list_applications", "list_applications", "query_logs"]
+
+
+def test_evicting_one_toolset_does_not_redirect_the_name_to_another():
+    """An evicted name must fail, not dispatch to another toolset's tool.
+
+    Two OAuth toolsets can share a raw tool name. Once one is evicted (401), a
+    raw-name match would silently run the other toolset's tool with arguments
+    built for the evicted one's schema.
+    """
+    coroot = _mcp_toolset("coroot", [])
+    n9e = _mcp_toolset("n9e", [])
+    executor = ToolExecutor([coroot, n9e])
+    connector = executor.oauth_connector
+    connector.store_user_tools("user-1", "coroot", [_oauth_tool("query_logs", coroot)])
+    connector.store_user_tools("user-1", "n9e", [_oauth_tool("query_logs", n9e)])
+
+    names = [t["function"]["name"] for t in executor.get_all_tools_openai_format(user_id="user-1")]
+    assert names == ["query_logs", "n9e__query_logs"]
+    assert connector.find_tool("query_logs", "user-1").toolset is coroot
+
+    connector._clear_user_tools("user-1", coroot)
+
+    assert connector.find_tool("query_logs", "user-1") is None, (
+        "the evicted name must not fall through to n9e's query_logs"
+    )
+    assert connector.find_tool("n9e__query_logs", "user-1").toolset is n9e

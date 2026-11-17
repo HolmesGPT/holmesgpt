@@ -290,9 +290,16 @@ class OAuthToolConnector:
         if not user_id:
             return None
         with self._lock:
-            exposed = self._user_exposed_tools.get(user_id, {}).get(name)
+            exposed_map = self._user_exposed_tools.get(user_id, {})
+            exposed = exposed_map.get(name)
             if exposed is not None:
                 return exposed
+            if exposed_map:
+                # The map lists every name advertised for this user, so a name
+                # that is missing was evicted. Matching raw names across the
+                # remaining toolsets would dispatch to a different toolset's
+                # tool that happens to share the raw name.
+                return None
             toolset_tools = self._user_tools.get(user_id, {})
             for tools in toolset_tools.values():
                 for tool in tools:
