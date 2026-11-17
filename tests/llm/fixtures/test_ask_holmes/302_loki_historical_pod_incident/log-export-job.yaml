@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: log-export-302
+  namespace: app-302
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: export
+          image: python:3.9-slim
+          command: ["python", "-u", "/scripts/export_logs.py"]
+          env:
+            - name: TARGET_NAMESPACE
+              value: app-302
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+      volumes:
+        - name: scripts
+          secret:
+            secretName: log-export-302-script

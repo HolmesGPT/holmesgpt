@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
 from datetime import datetime
 
@@ -39,7 +40,7 @@ def main():
     total_hits = 0
     total_misses = 0
 
-    for i in range(50000):
+    for i in range(18000):
         # Good cache performance with 1 hour TTL
         if random.random() < 0.85:  # 85% hit rate
             total_hits += 1
@@ -75,7 +76,7 @@ def main():
     total_hits = 0
     total_misses = 0
 
-    for i in range(50000):
+    for i in range(18000):
         # Poor cache performance with 60 second TTL
         if random.random() < 0.25:  # Only 25% hit rate now
             total_hits += 1
@@ -112,6 +113,8 @@ def main():
                     )
                 )
 
+    sys.stdout.flush()
+    open("/tmp/ready", "w").close()
     # Keep pod running
     while True:
         time.sleep(3600)

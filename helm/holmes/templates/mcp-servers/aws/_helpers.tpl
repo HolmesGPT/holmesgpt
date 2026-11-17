@@ -305,13 +305,14 @@ mcp_servers entries for the hosted AWS MCP Server: one per account
       "icon_url" $icon)
     "llm_instructions" $instructions) -}}
 {{- else if include "holmes.awsMcp.multiAccount" . -}}
+{{- $accounts := dict -}}
 {{- range $profile, $account := .Values.mcpAddons.aws.multiAccount.profiles -}}
-{{- $config := merge (dict "profile" $profile "region" ($account.region | default $.Values.mcpAddons.aws.config.region)) $base -}}
-{{- $_ := set $servers (printf "aws_%s" $profile) (dict
-    "description" ($account.description | default (printf "AWS MCP Server for the %s account (%s)" $profile $account.account_id))
-    "config" $config
-    "llm_instructions" $instructions) -}}
+{{- $_ := set $accounts $profile (pick $account "account_id" "region" "description") -}}
 {{- end -}}
+{{- $_ := set $servers "aws_api" (dict
+    "description" "AWS MCP Server - query any AWS API in the configured accounts."
+    "config" (merge (dict "region" .Values.mcpAddons.aws.config.region "accounts" $accounts) $base)
+    "llm_instructions" $instructions) -}}
 {{- else -}}
 {{- $_ := set $servers "aws_api" (dict
     "description" "AWS MCP Server - query any AWS API in this account."
