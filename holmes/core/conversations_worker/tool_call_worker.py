@@ -485,6 +485,7 @@ class ToolCallWorker:
                 f"toolset '{toolset.name}' is not exposed for remote execution"
             )
         if exposed is not None:
+            instance = instance or tool_params.get("instance")
             if instance:
                 if instance not in exposed:
                     return _error_response(
@@ -493,7 +494,7 @@ class ToolCallWorker:
                     )
                 tool_params["instance"] = instance
             elif len(exposed) == 1:
-                tool_params.setdefault("instance", exposed[0])
+                tool_params["instance"] = exposed[0]
             else:
                 return _error_response(
                     "this toolset has several instances on this cluster; pass "

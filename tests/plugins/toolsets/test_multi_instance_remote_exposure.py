@@ -393,3 +393,25 @@ def test_the_docs_example_exposes_what_its_comments_say():
     toolset = _prometheus(example["toolsets"][PROM])
 
     assert toolset.remote_exposed_instances() == ["in-cluster", "grafana-cloud"]
+
+
+@pytest.mark.parametrize("expose_remotely", [False, None], ids=["toolset-false", "toolset-default"])
+def test_executor_refuses_a_withheld_instance_named_inside_the_tool_params(expose_remotely):
+    worker = _worker(_two_instance_fake(expose_remotely))
+    row = {
+        "id": "row-1",
+        "user_id": None,
+        "tool_request": {
+            "tool_name": "fake_echo",
+            "tool_params": {"instance": "a"},
+            "instance": None,
+            "tool_call_id": "call-1",
+            "max_token_count": 16000,
+        },
+        "metadata": {"source_version": get_version()},
+    }
+
+    resp = worker._execute(row)
+
+    assert resp["status"] == StructuredToolResultStatus.ERROR.value, resp
+    assert "instance 'a' is not exposed on this cluster" in resp["error"]
