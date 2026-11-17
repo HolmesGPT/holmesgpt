@@ -134,3 +134,62 @@ def test_other_users_are_unaffected(executor_with_collision):
 
     assert "coroot__query_logs" not in names
     assert executor.get_tool_by_name("coroot__query_logs", user_id="user-2") is None
+
+
+def test_collision_safe_name_that_is_also_taken_gets_a_suffix():
+    """The namespaced name itself may be taken by the base list.
+
+    A base tool can legitimately be called ``coroot__query_logs``. Namespacing
+    the OAuth ``query_logs`` to that name would emit the duplicate the fix is
+    meant to prevent, so the name must grow a deterministic suffix instead.
+    """
+    base = _BaseToolset(["query_logs", "coroot__query_logs"])
+    mcp = _mcp_toolset("coroot", ["list_applications"])
+    executor = ToolExecutor([base, mcp])
+    executor.oauth_connector.store_user_tools(
+        "user-1", "coroot", [_oauth_tool("query_logs", mcp)]
+    )
+
+    names = [t["function"]["name"] for t in executor.get_all_tools_openai_format(user_id="user-1")]
+
+    assert len(names) == len(set(names)), f"duplicate tool names reached the model: {names}"
+    assert "coroot__query_logs_2" in names, "the taken name must gain a suffix"
+    assert "query_logs" in names
+    assert "coroot__query_logs" in names, "the base tool keeps its name"
+
+
+def test_suffixed_name_resolves_to_the_oauth_tool():
+    """A name allocated with a suffix must still resolve for invocation."""
+    base = _BaseToolset(["query_logs", "coroot__query_logs"])
+    mcp = _mcp_toolset("coroot", ["list_applications"])
+    executor = ToolExecutor([base, mcp])
+    executor.oauth_connector.store_user_tools(
+        "user-1", "coroot", [_oauth_tool("query_logs", mcp)]
+    )
+    executor.get_all_tools_openai_format(user_id="user-1")
+
+    tool = executor.get_tool_by_name("coroot__query_logs_2", user_id="user-1")
+
+    assert tool is not None, "the model was given a name that does not resolve"
+    assert tool.mcp_tool_name == "query_logs", "the MCP call must use the raw name"
+    assert executor.get_toolset_name("coroot__query_logs_2", user_id="user-1") == "coroot"
+    # The base tool that already owned the unsuffixed name is not shadowed.
+    assert executor.get_tool_by_name("coroot__query_logs", user_id="user-1") is base.tools[1]
+
+
+def test_oauth_raw_name_wins_over_a_generated_name():
+    """A server tool really named ``<toolset>__<tool>`` must not be shadowed."""
+    mcp = _mcp_toolset("coroot", [])
+    executor = ToolExecutor([_BaseToolset(["query_logs"])])
+    executor.oauth_connector.store_user_tools(
+        "user-1",
+        "coroot",
+        [_oauth_tool("coroot__query_logs", mcp), _oauth_tool("query_logs", mcp)],
+    )
+
+    names = [t["function"]["name"] for t in executor.get_all_tools_openai_format(user_id="user-1")]
+
+    assert len(names) == len(set(names)), f"duplicate tool names reached the model: {names}"
+    raw = executor.get_tool_by_name("coroot__query_logs", user_id="user-1")
+    assert raw is not None
+    assert raw.mcp_tool_name == "coroot__query_logs", "the raw-named tool must keep its name"

@@ -203,7 +203,16 @@ class OAuthToolConnector:
             for tool in user_tools:
                 exposed = tool.name
                 if exposed in used:
-                    exposed = self._collision_safe_name(tool)
+                    # The collision-safe name can itself be taken, e.g. by a tool
+                    # the base resolver namespaced the same way. Grow a
+                    # deterministic suffix until the name is free, or the
+                    # duplicate this method exists to prevent comes back.
+                    collision_safe_name = self._collision_safe_name(tool)
+                    exposed = collision_safe_name
+                    suffix = 2
+                    while exposed in used:
+                        exposed = f"{collision_safe_name}_{suffix}"
+                        suffix += 1
                 used.add(exposed)
                 exposed_tools[exposed] = tool
                 payload = tool.get_openai_format()
