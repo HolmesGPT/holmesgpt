@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -24,8 +25,7 @@ def generate_log_entry(status=200, message="OK", path="/api/health", level="INFO
 
 
 def main():
-    # Generate 50,000 successful requests
-    for i in range(50000):
+    for i in range(15000):
         print(generate_log_entry())
 
     # The critical error in the middle
@@ -37,10 +37,10 @@ def main():
         )
     )
 
-    # Another 50,000 successful requests
-    for i in range(50000):
+    for i in range(15000):
         print(generate_log_entry())
 
+    sys.stdout.flush()
     # Keep pod running
     while True:
         time.sleep(3600)

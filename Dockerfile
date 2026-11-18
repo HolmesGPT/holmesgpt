@@ -6,9 +6,11 @@
 #   wheel >= 0.46.2     CVE-2026-24049
 #   pip >= 26.1         CVE-2026-3219/6357, CVE-2025-8869
 #   setuptools >= 80.0  CVE-2026-1703 (final-stage system Python only)
+#   virtualenv >= 21.14.9  CVE-2026-113718/113722/113723 (poetry's dependency, builder venv only)
 ARG PIP_MIN_VERSION=26.1
 ARG WHEEL_MIN_VERSION=0.46.2
 ARG SETUPTOOLS_MIN_VERSION=80.0.0
+ARG VIRTUALENV_MIN_VERSION=21.14.9
 
 # Build stage
 FROM python:3.11-alpine AS builder
@@ -64,11 +66,12 @@ RUN cd /tmp && sha256sum -c helm.gz.sha256 \
     && rm -f /tmp/helm.gz.sha256
 
 # Set up poetry
+ARG VIRTUALENV_MIN_VERSION
 ARG PRIVATE_PACKAGE_REGISTRY="none"
 RUN if [ "${PRIVATE_PACKAGE_REGISTRY}" != "none" ]; then \
     pip config set global.index-url "${PRIVATE_PACKAGE_REGISTRY}"; \
     fi \
-    && pip install poetry
+    && pip install poetry "virtualenv>=${VIRTUALENV_MIN_VERSION}"
 ARG POETRY_REQUESTS_TIMEOUT
 RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock /

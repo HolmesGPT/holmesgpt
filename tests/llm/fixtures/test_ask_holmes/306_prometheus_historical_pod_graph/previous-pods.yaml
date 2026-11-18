@@ -1,0 +1,62 @@
+# Pods of the previous rollout, named <deployment>-<replicaset-hash>-<id>.
+# The current ReplicaSet selects on its own pod-template-hash, so it never
+# adopts them. before_test deletes them once Prometheus has scraped them.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: telemetry-processor-5f9d8b7c4d-x2km9
+  namespace: app-306
+  labels:
+    app: telemetry-processor
+    pod-template-hash: 5f9d8b7c4d
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+  - name: processor
+    image: busybox:1.36
+    command: ["/bin/sh", "/scripts/process.sh"]
+    resources:
+      requests:
+        cpu: 5m
+        memory: 8Mi
+      limits:
+        cpu: 200m
+        memory: 32Mi
+    volumeMounts:
+    - name: script
+      mountPath: /scripts
+  volumes:
+  - name: script
+    secret:
+      secretName: telemetry-processor-script
+      defaultMode: 0755
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: telemetry-processor-5f9d8b7c4d-p7nz3
+  namespace: app-306
+  labels:
+    app: telemetry-processor
+    pod-template-hash: 5f9d8b7c4d
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+  - name: processor
+    image: busybox:1.36
+    command: ["/bin/sh", "/scripts/process.sh"]
+    resources:
+      requests:
+        cpu: 5m
+        memory: 8Mi
+      limits:
+        cpu: 200m
+        memory: 32Mi
+    volumeMounts:
+    - name: script
+      mountPath: /scripts
+  volumes:
+  - name: script
+    secret:
+      secretName: telemetry-processor-script
+      defaultMode: 0755
