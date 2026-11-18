@@ -1,0 +1,10 @@
+{
+  "timezone": "UTC",
+  "batches": ["08:00", "20:00"],
+  "spacing_minutes": 5,
+  "checks": [
+    {"name": "cluster-nodes", "file": "nodes.txt"},
+    {"name": "cluster-pods", "file": "pods.txt"},
+    {"name": "cluster-events", "file": "events.txt"}
+  ]
+}
