@@ -1,0 +1,7 @@
+[
+  {
+    "id": "d41c7e2a-8b5f-4a39-9c06-7e1f2b8d5a93",
+    "symptom": "A step of a Dagster job failed",
+    "title": "Investigating a failed Dagster step"
+  }
+]

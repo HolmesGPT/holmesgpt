@@ -25,7 +25,9 @@ By default, only the toolsets that are **useful exclusively inside a cluster** a
 |---|---|---|
 | `kubernetes/core` | ✅ | kubectl-based inspection |
 | `kubernetes/logs` | ✅ | pod / workload logs |
-| `prometheus` | ✅ *(in-cluster only)* | exposed only when the instance points at an in-cluster URL — see [Prometheus locality](#prometheus-and-other-multi-instance-toolsets) |
+| `kubernetes/live-metrics` | ✅ | `kubectl top` for pods and nodes |
+| `kubernetes/kube-prometheus-stack` | ✅ | in-cluster Prometheus scrape targets |
+| `prometheus/metrics` | ✅ *(in-cluster only)* | exposed only when the instance points at an in-cluster URL — see [Prometheus locality](#prometheus-and-other-multi-instance-toolsets) |
 | `bash` | ✅ | commands that need approval run only after a person approves them — see [Approval](#approval) |
 | Everything else | ❌ | opt-in via `expose_remotely: true` |
 
