@@ -129,10 +129,11 @@ class OAuthTokenCache:
         resource: Optional[str] = None,
     ) -> None:
         now = time.monotonic()
-        # Subtract a small buffer so we refresh before actual expiry. A token that
-        # is already expired (loaded from the store with a refresh token) is
-        # cached as expired so it is refreshed, never served.
-        access_expires_at = now + max(expires_in - 30, 10) if expires_in > 0 else now
+        # Subtract a small buffer so we refresh before actual expiry, but never
+        # keep a token past its real expiry. A token that is already expired
+        # (loaded from the store with a refresh token) is cached as expired so it
+        # is refreshed, never served.
+        access_expires_at = now + max(min(max(expires_in - 30, 10), expires_in), 0)
         refresh_expires_at = None
         if refresh_token:
             # Default to 24 hours if IdP doesn't return refresh_expires_in (not all do)

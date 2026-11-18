@@ -165,6 +165,7 @@ class OAuthTokenManager:
 
         # 2. Try refresh (mints an audience-correct token when the cached one was
         #    issued for a different resource)
+        attempted_refresh_token = self._cache.get_refresh_token(cache_key)
         refreshed = self._refresh_token(cache_key, oauth_config, user_id=user_id)
         if refreshed:
             return refreshed
@@ -183,6 +184,14 @@ class OAuthTokenManager:
                 )
                 return None
             remaining_ttl = stored_token.get("_remaining_ttl", stored_token.get("expires_in", 300))
+            if (
+                remaining_ttl <= 0
+                and attempted_refresh_token
+                and stored_token.get("refresh_token") == attempted_refresh_token
+            ):
+                # Step 2 just failed with this same refresh token; a second request
+                # would only delay the login prompt.
+                return None
             self._cache.set(
                 cache_key,
                 stored_token["access_token"],
@@ -206,18 +215,37 @@ class OAuthTokenManager:
     def invalidate_token(
         self,
         oauth_config: Any,
-        request_context: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """Forget a token the provider no longer accepts, in the cache and the persistent store.
+        request_context: Optional[Dict[str, Any]],
+        rejected_token: Optional[str],
+    ) -> bool:
+        """Forget an access token the provider rejected, in the cache and the persistent store.
 
-        The next get_access_token() for this user returns None, so the caller starts a new login.
+        Only the rejected token is removed: if the user's current token is a newer
+        one (a refresh or a new login landed while the failed call was in flight)
+        it is kept. Returns True when the rejected token is gone, so the next
+        get_access_token() for this user returns None and the caller starts a new
+        login. Returns False when nothing was removed or the stored copy could not
+        be deleted.
         """
         user_id = _get_user_id(request_context)
-        if not user_id:
-            return
-        self._cache.evict(self._build_cache_key(user_id, oauth_config.authorization_url))
-        if self._store:
-            self._store.delete_token(oauth_config.authorization_url or "unknown", user_id=user_id)
+        if not user_id or not rejected_token:
+            return False
+
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
+        current = self._cache.get_valid_access_token(cache_key)
+        if current and current != rejected_token:
+            return False
+        self._cache.evict(cache_key)
+
+        if not self._store:
+            return True
+        provider_name = oauth_config.authorization_url or "unknown"
+        stored = self._store.get_token(provider_name, user_id=user_id)
+        if not stored:
+            return True
+        if stored.get("access_token") != rejected_token:
+            return False
+        return self._store.delete_token(provider_name, user_id=user_id)
 
     @staticmethod
     def _resource_compatible(token_resource: Optional[str], requested_resource: Optional[str]) -> bool:

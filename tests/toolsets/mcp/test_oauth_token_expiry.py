@@ -15,7 +15,7 @@ from holmes.core.oauth_config import MCPOAuthConfig
 from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.mcp.oauth_token_manager import OAuthTokenManager
-from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore
+from holmes.plugins.toolsets.mcp.oauth_token_store import DalTokenStore, OAuthTokenCache
 from holmes.plugins.toolsets.mcp.toolset_mcp import (
     MCPConfig,
     MCPMode,
@@ -136,6 +136,38 @@ class TestExpiredStoredToken:
         assert token == "new-access"
         assert post.call_args.kwargs["data"]["refresh_token"] == "refresh-1"
 
+    def test_failed_refresh_is_not_repeated_in_the_same_lookup(self, oauth):
+        dal, rows = _fake_dal()
+        manager = _manager_on(dal)
+        manager.store_token(
+            oauth,
+            {"access_token": "old-access", "expires_in": 3600, "refresh_token": "refresh-1"},
+            CONTEXT,
+        )
+        _expire_stored_row(rows)
+        cache_key = manager.get_cache_key(oauth, CONTEXT)
+        manager.cache._cache[cache_key].expires_at = time.monotonic() - 1
+
+        failed = MagicMock()
+        failed.status_code = 500
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_manager.httpx.post", return_value=failed
+        ) as post:
+            token = manager.get_access_token(oauth, CONTEXT)
+
+        assert token is None
+        assert post.call_count == 1
+
+    def test_token_about_to_expire_is_not_cached_past_its_expiry(self):
+        cache = OAuthTokenCache()
+        now = time.monotonic()
+        cache.set("key", "short-lived", expires_in=5)
+
+        with patch(
+            "holmes.plugins.toolsets.mcp.oauth_token_store.time.monotonic", return_value=now + 6
+        ):
+            assert cache.get_valid_access_token("key") is None
+
     def test_unexpired_token_is_still_served_after_pod_restart(self, oauth):
         dal, _rows = _fake_dal()
         _manager_on(dal).store_token(oauth, {"access_token": "sha256~live", "expires_in": 86400}, CONTEXT)
@@ -182,13 +214,16 @@ class TestTokenRejectedDuringToolCall:
         return ctx
 
     @staticmethod
-    def _invoke(tool: RemoteMCPTool, text: str, is_error: bool):
+    def _invoke(tool: RemoteMCPTool, text: str, is_error: bool, during_call=None):
+        """Run the tool against a fake MCP session; during_call runs while the call is in flight."""
+
+        async def call_tool(*_args, **_kwargs):
+            if during_call:
+                during_call()
+            return CallToolResult(content=[TextContent(type="text", text=text)], isError=is_error)
+
         session = AsyncMock()
-        session.call_tool = AsyncMock(
-            return_value=CallToolResult(
-                content=[TextContent(type="text", text=text)], isError=is_error
-            )
-        )
+        session.call_tool = call_tool
         session.__aenter__ = AsyncMock(return_value=session)
         session.__aexit__ = AsyncMock(return_value=None)
         with patch(
@@ -197,22 +232,60 @@ class TestTokenRejectedDuringToolCall:
         ):
             return tool._invoke({}, TestTokenRejectedDuringToolCall._context())
 
-    def test_rejected_token_brings_back_the_login_prompt(self, tool, rows):
+    @pytest.mark.parametrize(
+        "error_text",
+        [
+            K8S_401,
+            "failed to list pods in namespace argo: Unauthorized",
+            "request failed: HTTP 401 Unauthorized",
+        ],
+    )
+    def test_rejected_token_brings_back_the_login_prompt(self, tool, rows, error_text):
         assert tool.requires_approval({}, self._context()) is None
 
-        result = self._invoke(tool, K8S_401, is_error=True)
+        result = self._invoke(tool, error_text, is_error=True)
 
         assert result.status == StructuredToolResultStatus.ERROR
-        assert K8S_401 in result.data
+        assert error_text in result.data
         assert (AUTH_URL, USER_ID) not in rows
         approval = tool.requires_approval({}, self._context("tc-2"))
         assert approval is not None and approval.needs_approval
+
+    def test_rejection_of_an_older_token_keeps_the_newer_one(self, tool, rows, oauth):
+        """The user signed in again while a call with the old token was still in flight."""
+
+        def sign_in_again():
+            _get_token_manager().store_token(
+                oauth, {"access_token": "sha256~newer", "expires_in": 86400}, CONTEXT
+            )
+
+        self._invoke(tool, K8S_401, is_error=True, during_call=sign_in_again)
+
+        assert _get_token_manager().get_access_token(oauth, CONTEXT) == "sha256~newer"
+        assert (AUTH_URL, USER_ID) in rows
+
+    def test_no_removal_is_reported_when_no_token_was_sent(self, tool, oauth):
+        _get_token_manager().invalidate_token(oauth, CONTEXT, "sha256~live")
+
+        result = self._invoke(tool, K8S_401, is_error=True)
+
+        assert result.data == K8S_401
+
+    def test_no_removal_is_reported_when_the_stored_token_cannot_be_deleted(self, tool, rows):
+        store = _get_token_manager()._store
+        store._dal.delete_oauth_token.side_effect = RuntimeError("db unavailable")
+
+        result = self._invoke(tool, K8S_401, is_error=True)
+
+        assert (AUTH_URL, USER_ID) in rows
+        assert result.data == K8S_401
 
     @pytest.mark.parametrize(
         "error_text",
         [
             'pods is forbidden: User "jane" cannot list resource "pods" in namespace "argo"',
             'failed to get pod: pods "api-401" not found',
+            'failed to get pod: pods "unauthorized-proxy" not found',
         ],
     )
     def test_other_errors_keep_the_token(self, tool, rows, error_text):
