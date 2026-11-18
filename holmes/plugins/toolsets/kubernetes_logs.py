@@ -59,6 +59,7 @@ class KubernetesLogsToolset(Toolset):
             enabled=True,
             tools=[],  # Initialize with empty tools first
             tags=[ToolsetTag.CORE],
+            expose_remotely=True,
         )
         # Now that parent is initialized and self.name exists, create the tool
         self.tools = [PodLoggingTool(self)]

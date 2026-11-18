@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ledger-sync-code
+  namespace: app-309
+type: Opaque
+stringData:
+  sync.py: |
+    import hashlib
+    import logging
+    import random
+    import time
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+    logger = logging.getLogger("ledger-sync")
+
+    # Working set of account snapshots kept in memory between sync passes.
+    snapshots = [bytearray(random.randbytes(1024 * 1024)) for _ in range(150)]
+
+    batch = 0
+    while True:
+        batch += 1
+        digest = hashlib.sha256()
+        for snapshot in random.sample(snapshots, 20):
+            digest.update(snapshot)
+        logger.info("Reconciled batch %d, checksum %s", batch, digest.hexdigest()[:12])
+        time.sleep(random.uniform(1.0, 3.0))
+---
+# A bare pod, so its name matches the one in conversation_history.json.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ledger-sync-78599b764d-f847h
+  namespace: app-309
+  labels:
+    app: ledger-sync
+spec:
+  containers:
+  - name: ledger-sync
+    image: python:3.12.8-alpine
+    command: ["python", "-u", "/app/sync.py"]
+    volumeMounts:
+    - name: code
+      mountPath: /app
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "50m"
+      limits:
+        memory: "1Gi"
+        cpu: "250m"
+  volumes:
+  - name: code
+    secret:
+      secretName: ledger-sync-code

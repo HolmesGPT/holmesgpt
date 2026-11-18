@@ -1,0 +1,31 @@
+[
+  {
+    "id": "8c0e2a4b-6d8f-4a0c-b2e4-7f9b1d3a5c79",
+    "description": "spec.template.spec.containers[0].image: registry.example.com/data/warehouse:2026-07-10_101512 -> registry.example.com/data/warehouse:2026-07-14_214930",
+    "source": "kubernetes_api_server",
+    "category": null,
+    "priority": "DEBUG",
+    "account_id": "0f3c9a2e-5b71-4d8a-a6c4-91e2d7b3f058",
+    "subject_type": "deployment",
+    "subject_name": "dagster-code-warehouse",
+    "service_key": "dagster/Deployment/dagster-code-warehouse",
+    "subject_namespace": "dagster",
+    "cluster": "prod-eu-1",
+    "creation_date": "2026-07-14 21:57:12.611",
+    "title": "Deployment dagster-code-warehouse updated",
+    "aggregation_key": "ConfigurationChange/KubernetesResource/Change",
+    "finding_type": "configuration_change",
+    "failure": false,
+    "group_id": null,
+    "subject_node": null,
+    "starts_at": "2026-07-14 21:57:12.611+00",
+    "ends_at": null,
+    "updated_at": "2026-07-14 21:57:12.611+00",
+    "fingerprint": "8c0e2a4b6d8f4a0c",
+    "video_links": [],
+    "service_kind": null,
+    "service_name": null,
+    "labels": {},
+    "annotations": {}
+  }
+]
