@@ -9,7 +9,6 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 import httpx
@@ -20,6 +19,7 @@ from holmes.plugins.toolsets.mcp.oauth_token_store import (
     DiskTokenStore,
     OAuthTokenCache,
     TokenStore,
+    seconds_until_expiry,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,14 +99,12 @@ class OAuthTokenManager:
 
             # Compute remaining TTL from the stored token_expiry
             expires_in = 300  # fallback
-            token_expiry_str = entry.get("token_expiry")
-            if token_expiry_str:
-                try:
-                    token_expiry = datetime.fromisoformat(token_expiry_str)
-                    remaining = (token_expiry - datetime.now(timezone.utc)).total_seconds()
-                    expires_in = max(int(remaining), 1)
-                except (ValueError, TypeError):
-                    pass
+            remaining = seconds_until_expiry(entry.get("token_expiry"))
+            if remaining is not None:
+                if remaining <= 0 and not token_data.get("refresh_token"):
+                    # Expired and not refreshable: nothing worth caching.
+                    continue
+                expires_in = max(remaining, 0)
 
             cache_key = self._build_cache_key(user_id, provider_name)
 
@@ -184,10 +182,11 @@ class OAuthTokenManager:
                     stored_resource, requested_resource,
                 )
                 return None
+            remaining_ttl = stored_token.get("_remaining_ttl", stored_token.get("expires_in", 300))
             self._cache.set(
                 cache_key,
                 stored_token["access_token"],
-                expires_in=stored_token.get("_remaining_ttl", stored_token.get("expires_in", 300)),
+                expires_in=remaining_ttl,
                 refresh_token=stored_token.get("refresh_token"),
                 refresh_expires_in=stored_token.get("refresh_expires_in"),
                 token_url=stored_token.get("token_url", oauth_config.token_url),
@@ -197,9 +196,28 @@ class OAuthTokenManager:
                 resource=stored_token.get("resource", requested_resource),
             )
             logger.debug("OAuthTokenManager: loaded token from store (provider=%s)", oauth_config.authorization_url)
+            if remaining_ttl <= 0:
+                # The stored access token is already expired: refresh it instead of serving it.
+                return self._refresh_token(cache_key, oauth_config, user_id=user_id)
             return stored_token["access_token"]
 
         return None
+
+    def invalidate_token(
+        self,
+        oauth_config: Any,
+        request_context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Forget a token the provider no longer accepts, in the cache and the persistent store.
+
+        The next get_access_token() for this user returns None, so the caller starts a new login.
+        """
+        user_id = _get_user_id(request_context)
+        if not user_id:
+            return
+        self._cache.evict(self._build_cache_key(user_id, oauth_config.authorization_url))
+        if self._store:
+            self._store.delete_token(oauth_config.authorization_url or "unknown", user_id=user_id)
 
     @staticmethod
     def _resource_compatible(token_resource: Optional[str], requested_resource: Optional[str]) -> bool:
