@@ -1,8 +1,9 @@
 from typing import Optional
 
+import pytest
 from pydantic import BaseModel, Field
 
-from holmes.utils.pydantic_utils import build_config_example
+from holmes.utils.pydantic_utils import build_config_example, load_model_from_file
 
 
 class NestedModel(BaseModel):
@@ -36,3 +37,12 @@ def test_build_config_example_uses_default_default_factory_examples_nested_and_p
     # Nested recursion
     assert example["nested"] == {"region": "us-east-1", "enabled": True}
 
+
+def test_load_model_from_file_exits_nonzero_on_invalid_config(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("count: not-a-number\napi_key: x\n")
+
+    with pytest.raises(SystemExit) as exc_info:
+        load_model_from_file(ParentModel, config_file)
+
+    assert exc_info.value.code == 1
