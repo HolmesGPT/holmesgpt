@@ -275,6 +275,37 @@ def test_kubeconfig_with_oauth_enabled_is_refused():
     _helm_template(*KUBECONFIG_SET, "--set", "mcpAddons.kubernetes.config.oauth.enabled=false")
 
 
+def _llm_instructions(docs):
+    return _holmes_config(docs)["mcp_servers"]["kubernetes"]["llm_instructions"]
+
+
+def _workflow_steps(instructions):
+    return [line for line in instructions.splitlines() if line[:1].isdigit()]
+
+
+def test_without_kubeconfig_the_llm_is_not_sent_to_the_configuration_tools():
+    # In-cluster there is no kubeconfig, so configuration_view fails on every call.
+    instructions = _llm_instructions(_helm_template())
+    assert "Check cluster context" not in instructions
+    assert "no kubeconfig to inspect, so skip the configuration tools" in instructions
+    steps = _workflow_steps(instructions)
+    assert steps[0].startswith("1. **List namespaces**")
+    assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5"]
+
+
+def test_with_kubeconfig_the_llm_checks_the_cluster_context_first():
+    instructions = _llm_instructions(_helm_template(*KUBECONFIG_SET))
+    assert "skip the configuration tools" not in instructions
+    steps = _workflow_steps(instructions)
+    assert steps[0].startswith("1. **Check cluster context**")
+    assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5", "6"]
+
+
+def test_custom_llm_instructions_replace_the_default():
+    docs = _helm_template("--set", "mcpAddons.kubernetes.llmInstructions=only this")
+    assert _llm_instructions(docs) == "only this"
+
+
 def _args(docs):
     return _pod(docs)["containers"][0]["args"]
 

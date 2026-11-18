@@ -17,13 +17,24 @@ Use the Kubernetes MCP when investigating:
 - Helm release status and management
 
 ## Investigation Workflow
+{{- /* Only a mounted kubeconfig has contexts to check. Without one the server uses
+     in-cluster credentials, and configuration_view fails on every call. */}}
+{{- $steps := list
+      "**List namespaces**: Identify the relevant namespace for the investigation"
+      "**Check events**: Look at Kubernetes events for warnings and errors"
+      "**Inspect pods**: Get pod status, logs, and resource usage"
+      "**Examine resources**: Get detailed resource definitions to identify misconfigurations"
+      "**Check node health**: Review node status and resource consumption"
+}}
+{{- if include "holmes.kubernetesMcp.inHolmesPod" . }}
+{{- $steps = prepend $steps "**Check cluster context**: Use configuration tools to verify which cluster you're connected to" }}
+{{- else }}
 
-1. **Check cluster context**: Use configuration tools to verify which cluster you're connected to
-2. **List namespaces**: Identify the relevant namespace for the investigation
-3. **Check events**: Look at Kubernetes events for warnings and errors
-4. **Inspect pods**: Get pod status, logs, and resource usage
-5. **Examine resources**: Get detailed resource definitions to identify misconfigurations
-6. **Check node health**: Review node status and resource consumption
+This server is connected to a single cluster with in-cluster credentials. There is no kubeconfig to inspect, so skip the configuration tools.
+{{- end }}
+{{ range $i, $step := $steps }}
+{{ add1 $i }}. {{ $step }}
+{{- end }}
 
 ## Important Guidelines
 
