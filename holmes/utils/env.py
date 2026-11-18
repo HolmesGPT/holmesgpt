@@ -30,49 +30,34 @@ def find_unset_env_vars(value: Any) -> list[str]:
     return []
 
 
+def _env_value(match: re.Match[str]) -> str:
+    env_var_key = match.group(1).strip()
+    if env_var_key not in os.environ:
+        msg = f"ENV var replacement {env_var_key} does not exist"
+        logging.error(msg)
+        raise ValueError(msg)
+    return os.environ[env_var_key]
+
+
 def get_env_replacement(value: str) -> Optional[str]:
-    env_patterns = ENV_PLACEHOLDER_PATTERN.findall(value)
+    # One pass, with a callable: a value's backslashes or placeholder-like text
+    # is inserted literally and never substituted again.
+    return ENV_PLACEHOLDER_PATTERN.sub(_env_value, value)
 
-    result = value
 
-    # Replace env patterns with their values or raise exception
-    for env_var_key in env_patterns:
-        env_var_key = env_var_key.strip()
-        pattern_regex = r"{{\s*env\." + re.escape(env_var_key) + r"\s*}}"
-        if env_var_key in os.environ:
-            replacement = os.environ[env_var_key]
-        else:
-            msg = f"ENV var replacement {env_var_key} does not exist"
-            logging.error(msg)
-            raise ValueError(msg)
-        # A callable replacement keeps backslashes in the value literal.
-        result = re.sub(pattern_regex, lambda _, value=replacement: value, result)
-
-    return result
+def _replace_env_vars(value: Any) -> Any:
+    if isinstance(value, str):
+        return get_env_replacement(value)
+    if isinstance(value, SecretStr):
+        return SecretStr(get_env_replacement(value.get_secret_value()) or "")
+    if isinstance(value, dict):
+        return replace_env_vars_values(value)
+    if isinstance(value, list):
+        return [_replace_env_vars(item) for item in value]
+    return value
 
 
 def replace_env_vars_values(values: dict[str, Any]) -> dict[str, Any]:
     for key, value in values.items():
-        if isinstance(value, str):
-            env_var_value = get_env_replacement(value)
-            if env_var_value is not None:
-                values[key] = env_var_value
-        elif isinstance(value, SecretStr):
-            env_var_value = get_env_replacement(value.get_secret_value())
-            if env_var_value is not None:
-                values[key] = SecretStr(env_var_value)
-        elif isinstance(value, dict):
-            replace_env_vars_values(value)
-        elif isinstance(value, list):
-            # can be a list of strings
-            values[key] = [
-                (
-                    replace_env_vars_values(item)
-                    if isinstance(item, dict)
-                    else get_env_replacement(item)
-                    if isinstance(item, str)
-                    else item
-                )
-                for item in value
-            ]
+        values[key] = _replace_env_vars(value)
     return values

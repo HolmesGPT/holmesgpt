@@ -576,7 +576,8 @@ jobs:
             }
 
             // Apply defaults
-            if (!model) model = ${{ toJSON(vars.MODEL) }} || '';
+            // The fallback must be a key in tests/llm/model_list.yaml
+            if (!model) model = ${{ toJSON(vars.MODEL) }} || 'opus-4.6';
             // Only apply regression default for automatic triggers, not for manual /eval or workflow_dispatch
             // Note: markers may be '' (explicitly cleared by evals-id-* label parsing to broaden to all LLM tests)
             if (markers == null && !isManual) markers = 'regression';
@@ -1016,6 +1017,7 @@ jobs:
             });
 
       - name: Verify models
+        id: verify-models
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.model != ''
         uses: ./code/.github/actions/verify-models
         with:
@@ -1025,7 +1027,6 @@ jobs:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
-          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -1255,7 +1256,6 @@ jobs:
           AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
           AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
           AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
-          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           MODEL: ${{ steps.eval-params.outputs.model }}
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
@@ -1444,7 +1444,9 @@ jobs:
             const report = fs.existsSync('code/evals_report.md') ? fs.readFileSync('code/evals_report.md', 'utf8') : '';
             const failures = fs.existsSync('code/regressions.txt') ? fs.readFileSync('code/regressions.txt', 'utf8').trim() : '';
             const hasFailures = failures && failures !== '0';
-            const pytestError = ${{ toJSON(steps.evals.outputs.pytest_error) }} || '';
+            // A failed model verification skips the eval step, which then sets no error
+            const verifyFailed = ${{ toJSON(steps.verify-models.outcome) }} === 'failure';
+            const pytestError = ${{ toJSON(steps.evals.outputs.pytest_error) }} || (verifyFailed ? 'verify' : '');
             const hasPytestError = pytestError !== '';
 
 
@@ -1453,7 +1455,9 @@ jobs:
             const statusText = hasPytestError
               ? pytestError === 'collection'
                 ? '❌ Test collection failed (no tests ran)'
-                : '❌ Pytest internal error (no tests ran)'
+                : pytestError === 'verify'
+                  ? '❌ Model verification failed (no tests ran)'
+                  : '❌ Pytest internal error (no tests ran)'
               : hasFailures
                 ? `⚠️ Completed with ${failures} failure${failures === '1' ? '' : 's'}`
                 : '✅ Completed successfully';

@@ -1194,7 +1194,7 @@ class LLMModelRegistry:
         # backward compatibility - in the past config.model was set by default to gpt-4o.
         # so we need to check if the user has set an OPENAI_API_KEY to load the config model.
         has_openai_key = os.environ.get("OPENAI_API_KEY")
-        if has_openai_key:
+        if has_openai_key and "gpt-5.4" not in self._unavailable_models:
             self.config.model = "gpt-5.4"
             self.config._model_source = "default"
             return True
@@ -1437,13 +1437,15 @@ class LLMModelRegistry:
 
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
         if model_key:
-            unavailable_error = self.unavailable_model_error(model_key)
-            if unavailable_error:
-                raise ValueError(unavailable_error)
             model_params = self._loaded_model(model_key)
             if model_params is not None:
                 display_logger.info(f"Using selected model: {model_key}")
                 return model_params
+            # Checked after the loaded models, so a hosted model of the same
+            # name is served rather than rejected.
+            unavailable_error = self.unavailable_model_error(model_key)
+            if unavailable_error:
+                raise ValueError(unavailable_error)
 
             # The catalog may have gained this model since it was last read.
             # Any name is worth a look: a customer's models carry their own
@@ -1523,6 +1525,9 @@ class LLMModelRegistry:
 
             # Prefer the model set via config/env (e.g. MODEL=sonnet-4.5) over
             # the first entry in the model list file.
+            unavailable_error = self.unavailable_model_error(self.config.model or "")
+            if unavailable_error and self.config.model not in self._llms:
+                raise ValueError(unavailable_error)
             if self.config.model and self.config.model in self._llms:
                 logging.debug(f"Using config model: {self.config.model}")
                 return self._llms[self.config.model].model_copy()

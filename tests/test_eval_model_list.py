@@ -14,10 +14,20 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MODEL_LIST = REPO_ROOT / "tests" / "llm" / "model_list.yaml"
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 VERIFY_ACTION = REPO_ROOT / ".github" / "actions" / "verify-models" / "action.yml"
-# The MODEL repo variable: eval-regression.yaml's default when no model is requested.
-REGRESSION_DEFAULT_MODEL = "opus-4.6"
 # Steps that only read the list's keys and never call a model.
 KEYLESS_STEPS = {"Collect evals to run"}
+# Every step that loads the model list; a step missing here would otherwise
+# fall back silently to the harness default.
+MODEL_LIST_STEPS = {
+    ("eval-regression.yaml", "Verify models"),
+    ("eval-regression.yaml", "Collect evals to run"),
+    ("eval-regression.yaml", "Run tests"),
+    ("eval-master.yaml", "Verify models"),
+    ("eval-master.yaml", "Run regression evals on master HEAD"),
+    ("eval-benchmarks.yaml", "Verify models"),
+    ("eval-benchmarks.yaml", "Run evaluation benchmarks"),
+    ("verify-models.yaml", "Verify models"),
+}
 CREDENTIAL_FIELDS = {
     "api_key",
     "api_base",
@@ -58,7 +68,9 @@ def workflow_default_models() -> set[str]:
     benchmarks = load_yaml(WORKFLOWS / "eval-benchmarks.yaml")
     master = load_yaml(WORKFLOWS / "eval-master.yaml")
     dispatch_inputs = benchmarks[True]["workflow_dispatch"]["inputs"]
-    models = {REGRESSION_DEFAULT_MODEL}
+    regression = (WORKFLOWS / "eval-regression.yaml").read_text()
+    models = set(re.findall(r"toJSON\(vars\.MODEL\) \}\} \|\| '([^']+)'", regression))
+    assert models, "eval-regression.yaml has no fallback for an unset MODEL"
     models.update(csv(benchmarks["env"]["DEFAULT_BENCHMARK_MODELS"]))
     models.update(csv(dispatch_inputs["models"]["default"]))
     models.update(csv(master["env"]["DEFAULT_MASTER_MODELS"]))
@@ -91,21 +103,23 @@ def test_credentials_are_evals_placeholders(name):
 
 def test_workflows_pass_every_key_the_list_needs():
     needed = placeholder_vars()
-    checked = 0
+    found = set()
     for workflow, step in workflow_steps():
         env = step.get("env") or {}
         location = env.get("MODEL_LIST_FILE_LOCATION")
         if location is None:
             continue
-        checked += 1
+        found.add((workflow, step.get("name")))
         where = f"{workflow} / {step.get('name')}"
+        # litellm prefers this token to the list's AWS keys for every Bedrock call
+        assert "AWS_BEARER_TOKEN_BEDROCK" not in env, where
         assert str(location).endswith("/tests/llm/model_list.yaml"), where
         if step.get("name") in KEYLESS_STEPS:
             assert not needed & set(env), f"{where} reads keys only, pass no secrets"
             continue
         for var in sorted(needed):
             assert env.get(var) == f"${{{{ secrets.{var} }}}}", f"{where}: {var}"
-    assert checked >= 7
+    assert found == MODEL_LIST_STEPS
 
 
 def test_no_workflow_reads_the_old_secret():
@@ -120,6 +134,8 @@ def committed_list(monkeypatch):
     monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", str(MODEL_LIST))
     monkeypatch.setattr(test_case_utils, "MODEL_LIST_FILE_LOCATION", str(MODEL_LIST))
     monkeypatch.delenv("MODEL", raising=False)
+    # Makes the registry add a gpt-5.4 default the list doesn't declare
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     for var in placeholder_vars():
         monkeypatch.delenv(var, raising=False)
     return monkeypatch
@@ -203,4 +219,14 @@ def test_create_eval_llm_rejects_an_undefined_model(committed_list):
         test_case_utils.create_eval_llm("gpt-4.1")
 
     assert f"Model 'gpt-4.1' is not defined in {MODEL_LIST}" in str(exc.value)
-    assert "Available models: deepseek-v4-pro, kimi-k3, glm-5.3" in str(exc.value)
+    assert f"Available models: {', '.join(model_list())}" in str(exc.value)
+
+
+def test_models_the_list_does_not_declare_are_not_offered(committed_list):
+    committed_list.setenv("OPENAI_API_KEY", "sk-test")
+    committed_list.setenv("EVALS_OPENROUTER_API_KEY", "or-key")
+    assert "gpt-5.4" in Config().get_models_list()
+
+    assert "gpt-5.4" not in test_case_utils._get_models_from_model_list()
+    with pytest.raises(ValueError, match="Model 'gpt-5.4' is not defined"):
+        test_case_utils.create_eval_llm("gpt-5.4")

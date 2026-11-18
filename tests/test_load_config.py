@@ -147,3 +147,25 @@ def test_find_unset_env_vars(monkeypatch):
     assert find_unset_env_vars(values) == ["EMPTY_VAR", "MISSING_VAR", "OTHER_MISSING"]
     assert find_unset_env_vars("{{ env.SET_VAR }}") == []
     assert find_unset_env_vars({}) == []
+
+
+def test_get_env_replacement_does_not_substitute_inside_inserted_values(monkeypatch):
+    monkeypatch.setenv("FIRST", r"p\1{{ env.SECOND }}")
+    monkeypatch.setenv("SECOND", "tag")
+
+    result = get_env_replacement("{{ env.FIRST }}|{{ env.SECOND }}")
+
+    assert result == r"p\1{{ env.SECOND }}|tag"
+
+
+def test_replace_env_vars_values_recurses_into_nested_lists(monkeypatch):
+    monkeypatch.setenv("LABEL", "team-a")
+    monkeypatch.setenv("TOKEN", "t0k")
+
+    result = replace_env_vars_values(
+        {"matrix": [["{{ env.LABEL }}", 1], [{"k": "{{ env.LABEL }}"}]],
+         "secrets": [SecretStr("{{ env.TOKEN }}")]}
+    )
+
+    assert result["matrix"] == [["team-a", 1], [{"k": "team-a"}]]
+    assert result["secrets"][0].get_secret_value() == "t0k"

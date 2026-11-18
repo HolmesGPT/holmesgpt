@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from holmes.config import Config
+from holmes.core.llm import ModelEntry
 
 OPENROUTER_MODEL = {
     "model": "openrouter/moonshotai/kimi-k3",
@@ -34,8 +35,10 @@ ALL_VARS = [
 
 @pytest.fixture
 def model_list(monkeypatch, tmp_path):
-    for name in ALL_VARS + ["MODEL", "ROBUSTA_AI"]:
+    for name in [*ALL_VARS, "MODEL", "OPENAI_API_KEY"]:
         monkeypatch.delenv(name, raising=False)
+    # Read at import, so clearing the env var alone doesn't reset it.
+    monkeypatch.setattr("holmes.core.llm.ROBUSTA_AI", None)
 
     def write(data):
         path = tmp_path / "model_list.yaml"
@@ -165,3 +168,64 @@ def test_placeholder_in_nested_value_is_checked(model_list, monkeypatch):
     registry = Config().llm_model_registry
 
     assert registry.unavailable_models == {"glm": ["TEST_FALLBACK", "TEST_TEAM"]}
+
+
+def test_configured_unavailable_model_is_not_replaced_by_another(
+    model_list, monkeypatch
+):
+    model_list({"kimi": OPENROUTER_MODEL, "opus": BEDROCK_MODEL})
+    monkeypatch.setenv("TEST_OPENROUTER_KEY", "or-key")
+    registry = Config(model="opus").llm_model_registry
+
+    with pytest.raises(ValueError, match="Model 'opus' is defined in"):
+        registry.get_model_params()
+    assert registry.get_model_params("kimi").model == OPENROUTER_MODEL["model"]
+
+
+def test_no_configured_model_falls_back_to_first_available(model_list, monkeypatch):
+    model_list({"opus": BEDROCK_MODEL, "kimi": OPENROUTER_MODEL})
+    monkeypatch.setenv("TEST_OPENROUTER_KEY", "or-key")
+
+    registry = Config().llm_model_registry
+
+    assert registry.get_model_params().model == OPENROUTER_MODEL["model"]
+
+
+def test_loaded_model_of_the_same_name_wins_over_a_skipped_entry(
+    model_list, monkeypatch
+):
+    # e.g. a hosted Robusta model installed under a name the file also uses
+    model_list({"shared-name": BEDROCK_MODEL})
+    registry = Config().llm_model_registry
+    registry._llms["shared-name"] = ModelEntry(model="openai/hosted")
+
+    assert registry.get_model_params("shared-name").model == "openai/hosted"
+
+
+def test_legacy_openai_default_does_not_replace_a_skipped_entry(
+    model_list, monkeypatch
+):
+    model_list({"gpt-5.4": AZURE_MODEL})
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    registry = Config().llm_model_registry
+
+    assert "gpt-5.4" not in registry.models
+    with pytest.raises(ValueError, match="TEST_AZURE_BASE, TEST_AZURE_KEY not set"):
+        registry.get_model_params("gpt-5.4")
+
+
+def test_placeholder_in_nested_list_is_substituted(model_list, monkeypatch):
+    model_list(
+        {
+            "glm": {
+                "model": "openrouter/z-ai/glm-5.3",
+                "extra_body": {"matrix": [["{{ env.TEST_LABEL }}", "fixed"]]},
+            }
+        }
+    )
+    monkeypatch.setenv("TEST_LABEL", "team-a")
+
+    entry = Config().llm_model_registry.get_model_params("glm")
+
+    assert entry.model_extra["extra_body"] == {"matrix": [["team-a", "fixed"]]}

@@ -612,11 +612,12 @@ To run a model the committed list routes elsewhere (e.g. Claude, which CI runs o
 Bedrock) through OpenRouter, write a local list with two non-obvious requirements
 for the classifier scoring step:
 
-- `api_base: https://openrouter.ai/api/v1` is **required** on every entry that uses
-  the `openai/` prefix. The autoevals/braintrust correctness classifier bypasses
-  litellm and calls the raw OpenAI SDK — without `api_base` it hits `api.openai.com`
-  and 401s with the OpenRouter key. (`openrouter/` entries don't need it: the
-  classifier strips that prefix and defaults to OpenRouter's endpoint.)
+- `api_base: https://openrouter.ai/api/v1` is **required** on every `openai/` entry
+  that routes through OpenRouter (an `openai/` entry with an OpenAI key, like the
+  committed `gpt-5.5`, needs none). The autoevals/braintrust correctness classifier
+  bypasses litellm and calls the raw OpenAI SDK — without `api_base` it hits
+  `api.openai.com` and 401s with the OpenRouter key. (`openrouter/` entries don't
+  need it: the classifier strips that prefix and defaults to OpenRouter's endpoint.)
 - Use the `openai/<provider>/<model>` prefix in the `model:` field for Anthropic
   models routed through OpenRouter. Two problems get solved at once:
   - litellm's native Anthropic provider appends `/v1/messages` to `api_base`, which
@@ -627,16 +628,27 @@ for the classifier scoring step:
     a model ID, and `openrouter/openai/gpt-4.1` is rejected as "not a valid model ID";
     `openai/gpt-4.1` is accepted.
 
-```yaml
+The local list replaces the committed one, so it must also define the judge:
+
+```bash
+cat > /tmp/model_list.yaml << 'EOF'
 opus-4.6-openrouter:
   model: openai/anthropic/claude-opus-4.6
   api_key: "{{ env.OPENROUTER_API_KEY }}"
   api_base: https://openrouter.ai/api/v1
+gpt-4.1:
+  model: openai/gpt-4.1
+  api_key: "{{ env.OPENROUTER_API_KEY }}"
+  api_base: https://openrouter.ai/api/v1
+EOF
+export MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
+export MODEL=opus-4.6-openrouter CLASSIFIER_MODEL=gpt-4.1
 ```
 
 Then run the regression suite using the invocation that `setup-sandbox-k8s.sh`
-prints on success, with `MODEL`, `CLASSIFIER_MODEL` and the model list set as above
-(the script's own example sets raw litellm names instead). Wall time is ~65s for a
+prints on success, keeping the `MODEL_LIST_FILE_LOCATION`, `MODEL` and
+`CLASSIFIER_MODEL` set above (the script's own example sets raw litellm names
+instead). Wall time is ~65s for a
 single k8s eval with gpt-4.1-mini (~$0.03 OpenRouter spend); opus-4.6 is ~90s per run. The full 11-eval
 `llm and regression` suite under opus-4.6 runs in ~256s wall at -n 4 (~$3.30).
 Budget accordingly when looping.
@@ -659,7 +671,7 @@ Budget accordingly when looping.
   cannot enforce here. Skip it via `-m "llm and regression and not network"`
   or `--deselect`
 - `BRAINTRUST_API_KEY` / `BRAINTRUST_SERVICE_TOKEN` set — unset both or the test crashes
-- `openai/`-prefixed `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
+- `openai/`-prefixed `model_list.yaml` entries routed through OpenRouter without `api_base` — classifier 401s against `api.openai.com`
 - `openrouter/openai/<model>` prefix in `model:` — OpenRouter rejects as invalid model ID
 - `anthropic/<model>` prefix in `model:` — litellm's Anthropic provider hits
   `/api/v1/v1/messages` (doubled path) and 404s; use `openai/anthropic/<model>` instead
