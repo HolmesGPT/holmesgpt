@@ -279,27 +279,33 @@ def _llm_instructions(docs):
     return _holmes_config(docs)["mcp_servers"]["kubernetes"]["llm_instructions"]
 
 
-def _workflow_steps(instructions):
-    return [line for line in instructions.splitlines() if line[:1].isdigit()]
+def _workflow_step_titles(instructions):
+    """The numbered steps as "<n>. <title>", without their descriptions."""
+    return [line.split("**:")[0].replace("**", "") for line in instructions.splitlines() if line[:1].isdigit()]
+
+
+SHARED_STEP_TITLES = ["List namespaces", "Check events", "Inspect pods", "Examine resources", "Check node health"]
 
 
 def test_without_kubeconfig_the_llm_is_not_sent_to_the_configuration_tools():
     # In-cluster there is no kubeconfig, so configuration_view fails on every call.
     instructions = _llm_instructions(_helm_template())
-    assert "Use configuration tools to verify" not in instructions
-    steps = _workflow_steps(instructions)
-    assert steps[0].startswith("1. **Cluster context**: This server runs in-cluster")
-    assert "don't call the configuration tools" in steps[0]
-    assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5", "6"]
+    assert "Check cluster context" not in instructions
+    assert "This server runs in-cluster" in instructions
+    assert "don't call the configuration tools" in instructions
+    assert _workflow_step_titles(instructions) == [
+        f"{number}. {title}" for number, title in enumerate(SHARED_STEP_TITLES, start=1)
+    ]
 
 
 def test_with_kubeconfig_the_llm_checks_the_cluster_context_first():
     instructions = _llm_instructions(_helm_template(*KUBECONFIG_SET))
     assert "don't call the configuration tools" not in instructions
-    steps = _workflow_steps(instructions)
-    assert steps[0].startswith("1. **Check cluster context**: This server runs with a kubeconfig")
-    assert "Use configuration tools to verify which cluster you're connected to" in steps[0]
-    assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5", "6"]
+    assert "This server runs with a kubeconfig" in instructions
+    assert "Use configuration tools to verify which cluster you're connected to" in instructions
+    assert _workflow_step_titles(instructions) == [
+        f"{number}. {title}" for number, title in enumerate(["Check cluster context", *SHARED_STEP_TITLES], start=1)
+    ]
 
 
 def test_custom_llm_instructions_replace_the_default():

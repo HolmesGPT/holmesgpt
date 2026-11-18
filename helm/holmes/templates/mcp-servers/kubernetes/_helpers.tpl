@@ -19,17 +19,23 @@ Use the Kubernetes MCP when investigating:
 ## Investigation Workflow
 {{- /* Only a mounted kubeconfig has contexts to check. Without one the server uses
      in-cluster credentials, and configuration_view fails on every call. */}}
+{{- $steps := list
+      "**List namespaces**: Identify the relevant namespace for the investigation"
+      "**Check events**: Look at Kubernetes events for warnings and errors"
+      "**Inspect pods**: Get pod status, logs, and resource usage"
+      "**Examine resources**: Get detailed resource definitions to identify misconfigurations"
+      "**Check node health**: Review node status and resource consumption"
+}}
 
 {{ if include "holmes.kubernetesMcp.inHolmesPod" . -}}
-1. **Check cluster context**: This server runs with a kubeconfig that can hold several clusters. Use configuration tools to verify which cluster you're connected to
+{{- $steps = prepend $steps "**Check cluster context**: Use configuration tools to verify which cluster you're connected to" -}}
+This server runs with a kubeconfig that can hold several clusters.
 {{- else -}}
-1. **Cluster context**: This server runs in-cluster and is connected only to the cluster it is deployed in. There is no kubeconfig, so don't call the configuration tools (`configuration_view` fails in this mode)
+This server runs in-cluster and is connected only to the cluster it is deployed in. There is no kubeconfig, so don't call the configuration tools (`configuration_view` fails in this mode).
 {{- end }}
-2. **List namespaces**: Identify the relevant namespace for the investigation
-3. **Check events**: Look at Kubernetes events for warnings and errors
-4. **Inspect pods**: Get pod status, logs, and resource usage
-5. **Examine resources**: Get detailed resource definitions to identify misconfigurations
-6. **Check node health**: Review node status and resource consumption
+{{ range $i, $step := $steps }}
+{{ add1 $i }}. {{ $step }}
+{{- end }}
 
 ## Important Guidelines
 
