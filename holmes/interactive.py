@@ -2697,76 +2697,79 @@ def run_interactive_loop(
 
                 # --- Main thread: render stream events while monitoring for escape ---
                 progress = AgenticProgressRenderer(console, tool_number_offset, escape_hint)
-                progress.start()
                 all_tool_calls_this_turn: list[dict] = []
                 terminal_data = None
                 interrupted = False
                 accumulated_stats = RequestStats()
                 total_num_llm_calls = 0
 
-                while True:
-                    try:
-                        item = event_queue.get(timeout=0.1)
-                    except queue.Empty:
-                        if cancel_event.is_set():
-                            interrupted = True
+                try:
+                    progress.start()
+                    while True:
+                        try:
+                            item = event_queue.get(timeout=0.1)
+                        except queue.Empty:
+                            if cancel_event.is_set():
+                                interrupted = True
+                                break
+                            continue
+
+                        if item is _SENTINEL:
                             break
-                        continue
 
-                    if item is _SENTINEL:
-                        break
+                        event = item
 
-                    event = item
-
-                    # Render the event
-                    progress.handle_event(
-                        event, all_tool_calls_this_turn, all_tool_calls_history,
-                    )
-
-                    if event.event == StreamEvents.ANSWER_END:
-                        terminal_data = event.data
-                        total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
-                        accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
-                    elif event.event == StreamEvents.APPROVAL_REQUIRED:
-                        # Accumulate stats from the pre-approval segment
-                        # (num_llm_calls is absolute, so assign not accumulate)
-                        total_num_llm_calls = event.data.get("num_llm_calls", 0)
-                        accumulated_stats += RequestStats(**event.data.get("costs", {}))
-                        # Wait for bg thread to signal it's ready
-                        approval_pending_event.wait(timeout=5.0)
-                        approval_pending_event.clear()
-
-                        # 1. Pause Live display
-                        progress.pause_for_approval()
-
-                        # 2. Stop escape listener (it holds terminal in cbreak)
-                        escape_stop.set()
-                        escape_thread.join(timeout=2.0)
-
-                        # 3. Run approval prompt on main thread
-                        pending = approval_data[0] or []
-                        decisions = ai._prompt_for_approval_decisions(
-                            pending, approval_callback
+                        # Render the event
+                        progress.handle_event(
+                            event, all_tool_calls_this_turn, all_tool_calls_history,
                         )
-                        approval_decisions[0] = decisions
-                        approval_done_event.set()
 
-                        # 4. Resume progress renderer and escape listener
-                        progress.resume_after_approval()
+                        if event.event == StreamEvents.ANSWER_END:
+                            terminal_data = event.data
+                            total_num_llm_calls = terminal_data.get("num_llm_calls", 0)
+                            accumulated_stats += RequestStats(**terminal_data.get("costs", {}))
+                        elif event.event == StreamEvents.APPROVAL_REQUIRED:
+                            # Accumulate stats from the pre-approval segment
+                            # (num_llm_calls is absolute, so assign not accumulate)
+                            total_num_llm_calls = event.data.get("num_llm_calls", 0)
+                            accumulated_stats += RequestStats(**event.data.get("costs", {}))
+                            # Wait for bg thread to signal it's ready
+                            approval_pending_event.wait(timeout=5.0)
+                            approval_pending_event.clear()
 
-                        escape_stop = threading.Event()
-                        escape_thread = threading.Thread(
-                            target=_wait_for_completion_or_escape,
-                            args=(ai_thread, cancel_event, escape_stop),
-                            daemon=True,
-                        )
-                        escape_thread.start()
+                            # 1. Pause Live display
+                            progress.pause_for_approval()
 
-                # Clean up live display and wait for threads
-                escape_stop.set()
-                progress.flush()
+                            # 2. Stop escape listener (it holds terminal in cbreak)
+                            escape_stop.set()
+                            escape_thread.join(timeout=2.0)
+
+                            # 3. Run approval prompt on main thread
+                            pending = approval_data[0] or []
+                            decisions = ai._prompt_for_approval_decisions(
+                                pending, approval_callback
+                            )
+                            approval_decisions[0] = decisions
+                            approval_done_event.set()
+
+                            # 4. Resume progress renderer and escape listener
+                            progress.resume_after_approval()
+
+                            escape_stop = threading.Event()
+                            escape_thread = threading.Thread(
+                                target=_wait_for_completion_or_escape,
+                                args=(ai_thread, cancel_event, escape_stop),
+                                daemon=True,
+                            )
+                            escape_thread.start()
+                finally:
+                    # Also runs on Ctrl-C, which exits holmes: the live display
+                    # hides the cursor and the escape listener holds the terminal
+                    # in cbreak mode until they are stopped.
+                    escape_stop.set()
+                    progress.flush()
+                    escape_thread.join(timeout=2.0)
                 ai_thread.join(timeout=5.0)
-                escape_thread.join(timeout=2.0)
 
                 if interrupted or isinstance(call_error[0], LLMInterruptedError):
                     messages = messages_snapshot
