@@ -286,18 +286,19 @@ def _workflow_steps(instructions):
 def test_without_kubeconfig_the_llm_is_not_sent_to_the_configuration_tools():
     # In-cluster there is no kubeconfig, so configuration_view fails on every call.
     instructions = _llm_instructions(_helm_template())
-    assert "Check cluster context" not in instructions
-    assert "no kubeconfig to inspect, so skip the configuration tools" in instructions
+    assert "Use configuration tools to verify" not in instructions
     steps = _workflow_steps(instructions)
-    assert steps[0].startswith("1. **List namespaces**")
-    assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5"]
+    assert steps[0].startswith("1. **Cluster context**: This server runs in-cluster")
+    assert "don't call the configuration tools" in steps[0]
+    assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5", "6"]
 
 
 def test_with_kubeconfig_the_llm_checks_the_cluster_context_first():
     instructions = _llm_instructions(_helm_template(*KUBECONFIG_SET))
-    assert "skip the configuration tools" not in instructions
+    assert "don't call the configuration tools" not in instructions
     steps = _workflow_steps(instructions)
-    assert steps[0].startswith("1. **Check cluster context**")
+    assert steps[0].startswith("1. **Check cluster context**: This server runs with a kubeconfig")
+    assert "Use configuration tools to verify which cluster you're connected to" in steps[0]
     assert [step.split(".")[0] for step in steps] == ["1", "2", "3", "4", "5", "6"]
 
 
