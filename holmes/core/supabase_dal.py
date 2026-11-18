@@ -322,6 +322,10 @@ class SupabaseDal:
         self.account_settings = AccountSettingsCache(
             self._read_account_settings, ttl=account_settings_cache_ttl()
         )
+        # The hierarchy policy parsed from one settings snapshot, so a malformed
+        # value is warned about once per read, not on every chat request.
+        self._hierarchy_snapshot: Optional[Dict[str, Any]] = None
+        self._hierarchy_config = SkillHierarchyConfig()
         self.lock = threading.Lock()
 
     def __connect(self, options: ClientOptions):
@@ -932,7 +936,13 @@ class SupabaseDal:
         settings = self.account_settings.get()
         if settings is None:
             return default
+        if settings is not self._hierarchy_snapshot:
+            self._hierarchy_config = self._parse_skill_hierarchy(settings)
+            self._hierarchy_snapshot = settings
+        return self._hierarchy_config
 
+    @staticmethod
+    def _parse_skill_hierarchy(settings: Dict[str, Any]) -> SkillHierarchyConfig:
         raw_enabled = settings.get("skill_name_hierarchy_enabled", False)
         if isinstance(raw_enabled, bool):
             enabled = raw_enabled

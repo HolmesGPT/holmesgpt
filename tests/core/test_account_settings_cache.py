@@ -188,3 +188,31 @@ def test_concurrent_callers_share_one_failed_read():
         thread.join(5)
 
     assert len(calls) == 1
+
+
+def test_get_serves_the_retained_value_while_a_refresh_is_in_flight():
+    """Only get_fresh() and a caller with nothing to serve wait for a slow read."""
+    clock = Clock()
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def read():
+        calls.append(1)
+        if len(calls) == 2:
+            started.set()
+            release.wait(5)
+        return {"a": len(calls)}
+
+    cache = AccountSettingsCache(read, ttl=60, timer=clock)
+    assert cache.get() == {"a": 1}
+    clock.now += 60
+    refresher = threading.Thread(target=cache.get)
+    refresher.start()
+    assert started.wait(5)
+
+    assert cache.get() == {"a": 1}
+
+    release.set()
+    refresher.join(5)
+    assert cache.get() == {"a": 2}
+    assert len(calls) == 2
