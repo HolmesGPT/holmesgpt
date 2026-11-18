@@ -2,6 +2,69 @@
 
 HolmesGPT supports all AI providers available through [LiteLLM](https://litellm.vercel.app/docs/providers){:target="_blank"}, including 100+ different LLM providers. This guide shows how to configure any LiteLLM-supported provider using DeepSeek via Novita as an example.
 
+## Example: MiniMax M3.1 Flash and M3
+
+Use `MiniMax-M3.1-Flash` for a new MiniMax configuration, with `MiniMax-M3` as
+an alternative. Both use the OpenAI-compatible Chat Completions API in this
+example. Set `MINIMAX_API_KEY` to your API key in the Holmes process environment.
+
+For the standalone Holmes Helm Chart, add the following to `values.yaml` and
+provide the key through a Kubernetes Secret and `extraEnvVarsSecrets`, as described
+in [Using Multiple Providers](using-multiple-providers.md). For the Robusta Helm
+Chart, nest `modelList` under `holmes` in `generated_values.yaml`.
+
+```yaml
+modelList:
+  minimax-m31-flash:
+    model: openai/MiniMax-M3.1-Flash
+    api_key: "{{ env.MINIMAX_API_KEY }}"
+    api_base: "https://api.minimax.io/v1"
+    allowed_openai_params: [reasoning_effort]
+    custom_args:
+      max_context_size: 1000000
+  minimax-m3:
+    model: openai/MiniMax-M3
+    api_key: "{{ env.MINIMAX_API_KEY }}"
+    api_base: "https://api.minimax.io/v1"
+    custom_args:
+      max_context_size: 1000000
+```
+
+For the CLI, save the entries **without the `modelList:` wrapper** in
+`~/.holmes/model_list.yaml`, then select the Flash entry:
+
+```bash
+holmes ask "what pods are failing?" --model minimax-m31-flash
+```
+
+With no explicit model selection, Holmes uses the first entry in this model list.
+An existing configured model or explicit selection still takes precedence; keep
+saved model IDs and custom aliases when updating your configuration.
+
+The example uses the global endpoint, `https://api.minimax.io/v1`. For a China
+API account, use `https://api.minimaxi.com/v1` with that account's API key.
+
+| Model | Context window | API input types | Chat Completions thinking |
+| --- | ---: | --- | --- |
+| MiniMax M3.1 Flash | 1,000,000 | Text, image, video | Adaptive only (enabled by default) |
+| MiniMax M3 | 1,000,000 | Text, image, video | Adaptive by default; can be disabled |
+
+Flash supports up to 524,288 output tokens. Holmes reserves its own output budget;
+you can set `max_completion_tokens` on a model entry to choose a smaller request
+limit. Thinking tokens count toward that limit.
+
+For Flash, omit `thinking` and `reasoning_effort` to use the API defaults. To tune
+thinking depth, add `reasoning_effort: low`, `medium`, `high`, `xhigh`, or `max` to
+the model entry; the API default is `max`. The example's `allowed_openai_params`
+lets the bundled LiteLLM version pass this parameter through for Flash.
+Do not set `thinking.type: disabled`,
+`reasoning_effort: none`, `reasoning_split: false`, or `service_tier` for Flash.
+M3 does not tune thinking depth through `reasoning_effort`.
+
+See the [global MiniMax API documentation](https://platform.minimax.io/docs/api-reference/text-openai-api){:target="_blank"},
+[China MiniMax API documentation](https://platform.minimaxi.com/docs/api-reference/text-openai-api){:target="_blank"},
+and [current API pricing](https://platform.minimax.io/docs/pricing/overview){:target="_blank"}.
+
 ## Example: DeepSeek 3.1 Terminus via Novita
 
 Let's walk through setting up DeepSeek 3.1 Terminus using the Novita AI provider.
