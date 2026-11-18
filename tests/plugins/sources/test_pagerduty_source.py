@@ -1,6 +1,10 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import responses
+from responses import matchers
+
+from holmes.plugins.sources import pagerduty
 
 from holmes.plugins.sources.pagerduty import PagerDutySource
 
@@ -138,9 +142,7 @@ class TestFetchIssues:
         """Backward compatibility: fetch_issues (plural) sets description from incident data."""
         response = MagicMock()
         response.status_code = 200
-        response.json.return_value = {
-            "incidents": [SAMPLE_INCIDENT]
-        }
+        response.json.return_value = {"incidents": [SAMPLE_INCIDENT]}
 
         mock_get.return_value = response
 
@@ -149,3 +151,46 @@ class TestFetchIssues:
 
         assert len(issues) == 1
         assert issues[0].description == "Alert triggered from Grafana"
+
+    def test_fetch_issues_follows_pagination(self):
+        """PagerDuty returns at most `limit` incidents per page and sets `more` when there are more."""
+        source = PagerDutySource(api_key="k", user_email="u@e.com")
+        url = f"{source.api_url}/incidents"
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                url,
+                json={"incidents": [{**SAMPLE_INCIDENT, "id": "P1"}], "more": True},
+                match=[
+                    matchers.query_param_matcher(
+                        {"limit": "100", "offset": "0"}, strict_match=False
+                    )
+                ],
+            )
+            rsps.add(
+                responses.GET,
+                url,
+                json={"incidents": [{**SAMPLE_INCIDENT, "id": "P2"}], "more": False},
+                match=[
+                    matchers.query_param_matcher(
+                        {"limit": "100", "offset": "1"}, strict_match=False
+                    )
+                ],
+            )
+            issues = source.fetch_issues()
+
+        assert [issue.id for issue in issues] == ["P1", "P2"]
+
+    def test_fetch_issues_stops_at_pagination_limit(self, monkeypatch):
+        """Stop before PagerDuty rejects offset + limit over its cap, keeping collected incidents."""
+        monkeypatch.setattr(pagerduty, "PAGERDUTY_MAX_INCIDENTS", 1)
+        source = PagerDutySource(api_key="k", user_email="u@e.com")
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                f"{source.api_url}/incidents",
+                json={"incidents": [{**SAMPLE_INCIDENT, "id": "P1"}], "more": True},
+            )
+            issues = source.fetch_issues()
+
+        assert [issue.id for issue in issues] == ["P1"]
