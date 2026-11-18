@@ -174,7 +174,7 @@ def duration_string_to_seconds(duration_string: str) -> int:
     if duration_string.isdigit():
         return int(duration_string)
 
-    pattern = re.compile(r"(?P<value>\d+)(?P<unit>[wdhms])")
+    pattern = re.compile(r"(?P<value>\d+)(?P<unit>ms|[wdhms])")
     matches = pattern.findall(duration_string)
     if not matches:
         raise ValueError(f"Invalid duration string: {duration_string}")
@@ -185,15 +185,17 @@ def duration_string_to_seconds(duration_string: str) -> int:
         "h": 3600,
         "m": 60,
         "s": 1,
+        "ms": 0.001,
     }
 
-    total_seconds = 0
+    total_seconds = 0.0
     for value, unit in matches:
         if unit not in unit_multipliers:
             raise ValueError(f"Unknown unit: {unit}")
         total_seconds += int(value) * unit_multipliers[unit]
 
-    return total_seconds
+    # callers take whole seconds; round up so a sub-second step never becomes 0
+    return math.ceil(total_seconds)
 
 
 def adjust_step_for_max_points(
