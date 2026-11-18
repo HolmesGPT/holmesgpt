@@ -245,6 +245,24 @@ def _is_bedrock_route(litellm_model_name: str, args: Dict[str, Any]) -> bool:
     return provider == "bedrock"
 
 
+def _missing_provider_message(model: str, api_base: Optional[str]) -> str:
+    """Explain how to fix a model name that litellm cannot map to a provider."""
+    message = (
+        f"Could not determine the LLM provider for model '{model}'. "
+        "Model names need a provider prefix, for example 'anthropic/<model>' or 'openai/<model>'."
+    )
+    if (
+        api_base
+        or os.environ.get("OPENAI_API_BASE")
+        or os.environ.get("OPENAI_BASE_URL")
+    ):
+        return (
+            f"{message} For an OpenAI-compatible endpoint, set the model to 'openai/{model}'. "
+            "See https://holmesgpt.dev/ai-providers/openai-compatible/"
+        )
+    return f"{message} See https://holmesgpt.dev/ai-providers/"
+
+
 def _strip_strict_schema_from_tools(
     tools: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
@@ -666,7 +684,14 @@ class DefaultLLM(LLM):
             return
         args = args or {}
         logging.debug(f"Checking LiteLLM model {model}")
-        lookup = litellm.get_llm_provider(model)
+        try:
+            lookup = litellm.get_llm_provider(model)
+        except litellm.BadRequestError as e:
+            # litellm wraps every lookup failure in BadRequestError; only the
+            # missing-prefix case is fixed by the advice below.
+            if "LLM Provider NOT provided" not in str(e):
+                raise
+            raise Exception(_missing_provider_message(model, api_base)) from e
         if not lookup:
             raise Exception(f"Unknown provider for model {model}")
         provider = lookup[1]

@@ -17,6 +17,9 @@ Point HolmesGPT at your OpenAI-compatible endpoint:
 - Use `openai/<model-name>` format for the model parameter, where `<model-name>` matches what your endpoint expects
 - Optional: Set `CERTIFICATE` to a base64-encoded CA certificate if your endpoint uses a custom CA
 
+!!! note "Seeing `Could not determine the LLM provider for model ...`?"
+    The model name is missing its provider prefix. Put `openai/` in front of the name your endpoint exposes, for example `openai/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8` instead of `Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8`. When `OPENAI_API_BASE`, `OPENAI_BASE_URL` or the model's `api_base` is set, the error message suggests the exact name to use.
+
 ```yaml-toolset-config
 additionalEnvVars:
   - name: OPENAI_API_BASE
