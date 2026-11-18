@@ -275,6 +275,44 @@ def test_kubeconfig_with_oauth_enabled_is_refused():
     _helm_template(*KUBECONFIG_SET, "--set", "mcpAddons.kubernetes.config.oauth.enabled=false")
 
 
+def _llm_instructions(docs):
+    return _holmes_config(docs)["mcp_servers"]["kubernetes"]["llm_instructions"]
+
+
+def _workflow_step_titles(instructions):
+    """The numbered steps as "<n>. <title>", without their descriptions."""
+    return [line.split("**:")[0].replace("**", "") for line in instructions.splitlines() if line[:1].isdigit()]
+
+
+SHARED_STEP_TITLES = ["List namespaces", "Check events", "Inspect pods", "Examine resources", "Check node health"]
+
+
+def test_without_kubeconfig_the_llm_is_not_sent_to_the_configuration_tools():
+    # In-cluster there is no kubeconfig, so configuration_view fails on every call.
+    instructions = _llm_instructions(_helm_template())
+    assert "Check cluster context" not in instructions
+    assert "This server runs in-cluster" in instructions
+    assert "don't call the configuration tools" in instructions
+    assert _workflow_step_titles(instructions) == [
+        f"{number}. {title}" for number, title in enumerate(SHARED_STEP_TITLES, start=1)
+    ]
+
+
+def test_with_kubeconfig_the_llm_checks_the_cluster_context_first():
+    instructions = _llm_instructions(_helm_template(*KUBECONFIG_SET))
+    assert "don't call the configuration tools" not in instructions
+    assert "This server runs with a kubeconfig" in instructions
+    assert "Use configuration tools to verify which cluster you're connected to" in instructions
+    assert _workflow_step_titles(instructions) == [
+        f"{number}. {title}" for number, title in enumerate(["Check cluster context", *SHARED_STEP_TITLES], start=1)
+    ]
+
+
+def test_custom_llm_instructions_replace_the_default():
+    docs = _helm_template("--set", "mcpAddons.kubernetes.llmInstructions=only this")
+    assert _llm_instructions(docs) == "only this"
+
+
 def _args(docs):
     return _pod(docs)["containers"][0]["args"]
 
