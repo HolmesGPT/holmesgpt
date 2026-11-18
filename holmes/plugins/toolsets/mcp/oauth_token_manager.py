@@ -9,7 +9,6 @@ import logging
 import os
 import threading
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 import httpx
@@ -20,6 +19,7 @@ from holmes.plugins.toolsets.mcp.oauth_token_store import (
     DiskTokenStore,
     OAuthTokenCache,
     TokenStore,
+    seconds_until_expiry,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,14 +99,12 @@ class OAuthTokenManager:
 
             # Compute remaining TTL from the stored token_expiry
             expires_in = 300  # fallback
-            token_expiry_str = entry.get("token_expiry")
-            if token_expiry_str:
-                try:
-                    token_expiry = datetime.fromisoformat(token_expiry_str)
-                    remaining = (token_expiry - datetime.now(timezone.utc)).total_seconds()
-                    expires_in = max(int(remaining), 1)
-                except (ValueError, TypeError):
-                    pass
+            remaining = seconds_until_expiry(entry.get("token_expiry"))
+            if remaining is not None:
+                if remaining <= 0 and not token_data.get("refresh_token"):
+                    # Expired and not refreshable: nothing worth caching.
+                    continue
+                expires_in = max(remaining, 0)
 
             cache_key = self._build_cache_key(user_id, provider_name)
 
@@ -167,6 +165,7 @@ class OAuthTokenManager:
 
         # 2. Try refresh (mints an audience-correct token when the cached one was
         #    issued for a different resource)
+        attempted_refresh_token = self._cache.get_refresh_token(cache_key)
         refreshed = self._refresh_token(cache_key, oauth_config, user_id=user_id)
         if refreshed:
             return refreshed
@@ -184,10 +183,19 @@ class OAuthTokenManager:
                     stored_resource, requested_resource,
                 )
                 return None
+            remaining_ttl = stored_token.get("_remaining_ttl", stored_token.get("expires_in", 300))
+            if (
+                remaining_ttl <= 0
+                and attempted_refresh_token
+                and stored_token.get("refresh_token") == attempted_refresh_token
+            ):
+                # Step 2 just failed with this same refresh token; a second request
+                # would only delay the login prompt.
+                return None
             self._cache.set(
                 cache_key,
                 stored_token["access_token"],
-                expires_in=stored_token.get("_remaining_ttl", stored_token.get("expires_in", 300)),
+                expires_in=remaining_ttl,
                 refresh_token=stored_token.get("refresh_token"),
                 refresh_expires_in=stored_token.get("refresh_expires_in"),
                 token_url=stored_token.get("token_url", oauth_config.token_url),
@@ -197,6 +205,9 @@ class OAuthTokenManager:
                 resource=stored_token.get("resource", requested_resource),
             )
             logger.debug("OAuthTokenManager: loaded token from store (provider=%s)", oauth_config.authorization_url)
+            if remaining_ttl <= 0:
+                # The stored access token is already expired: refresh it instead of serving it.
+                return self._refresh_token(cache_key, oauth_config, user_id=user_id)
             return stored_token["access_token"]
 
         return None

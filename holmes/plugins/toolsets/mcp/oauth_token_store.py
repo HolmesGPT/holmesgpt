@@ -23,6 +23,20 @@ from holmes.core.holmes_key import get_signing_key
 logger = logging.getLogger(__name__)
 
 
+def seconds_until_expiry(token_expiry: Optional[str]) -> Optional[int]:
+    """Seconds left before a stored ISO-8601 expiry; zero or negative once it has passed.
+
+    Returns None when the expiry is absent or unparseable (unknown lifetime).
+    """
+    if not token_expiry:
+        return None
+    try:
+        expiry = datetime.fromisoformat(token_expiry)
+    except (ValueError, TypeError):
+        return None
+    return int((expiry - datetime.now(timezone.utc)).total_seconds())
+
+
 # ── In-memory cache ───────────────────────────────────────────────────────
 
 
@@ -115,8 +129,11 @@ class OAuthTokenCache:
         resource: Optional[str] = None,
     ) -> None:
         now = time.monotonic()
-        # Subtract a small buffer so we refresh before actual expiry
-        access_expires_at = now + max(expires_in - 30, 10)
+        # Subtract a small buffer so we refresh before actual expiry, but never
+        # keep a token past its real expiry. A token that is already expired
+        # (loaded from the store with a refresh token) is cached as expired so it
+        # is refreshed, never served.
+        access_expires_at = now + max(min(max(expires_in - 30, 10), expires_in), 0)
         refresh_expires_at = None
         if refresh_token:
             # Default to 24 hours if IdP doesn't return refresh_expires_in (not all do)
@@ -236,15 +253,16 @@ class DalTokenStore(TokenStore):
 
             token_data = self._decrypt_token(db_record["encrypted_token"])
             if token_data:
-                # Compute remaining TTL from stored token_expiry
-                token_expiry_str = db_record.get("token_expiry")
-                if token_expiry_str:
-                    try:
-                        token_expiry = datetime.fromisoformat(token_expiry_str)
-                        remaining = (token_expiry - datetime.now(timezone.utc)).total_seconds()
-                        token_data["_remaining_ttl"] = max(int(remaining), 1)
-                    except (ValueError, TypeError):
-                        pass
+                remaining = seconds_until_expiry(db_record.get("token_expiry"))
+                if remaining is not None:
+                    if remaining <= 0 and not token_data.get("refresh_token"):
+                        # Expired and not refreshable (e.g. OpenShift OAuth issues no
+                        # refresh token): the user has to sign in again.
+                        logger.info(
+                            "Stored OAuth token expired and has no refresh token (provider=%s)", provider
+                        )
+                        return None
+                    token_data["_remaining_ttl"] = max(remaining, 0)
             return token_data
 
         return None
