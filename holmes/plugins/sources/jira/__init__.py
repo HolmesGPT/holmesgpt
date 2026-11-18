@@ -54,9 +54,9 @@ class JiraSource(SourcePlugin):
         """
         Extracts and formats the issue description.
         """
-        description_blocks = (
-            jira_issue.get("fields", {}).get("description", {}).get("content", [])
-        )
+        # Jira returns "description": null for issues without a description
+        description = jira_issue.get("fields", {}).get("description") or {}
+        description_blocks = description.get("content", [])
         description_text = []
 
         for block in description_blocks:
