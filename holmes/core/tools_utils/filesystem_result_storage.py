@@ -22,6 +22,30 @@ from holmes.common.env_vars import (
 )
 
 
+THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
+MAX_FILENAME_BYTES = 200
+
+
+def _safe_filename(
+    tool_name: str, tool_call_id: str, extension: str, suffix: str = ""
+) -> str:
+    safe_name = re.sub(r"[^\w\-]", "_", tool_name)
+    call_id = tool_call_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)[0]
+    safe_id = re.sub(r"[^\w\-]", "_", call_id)
+    base_stem = f"{safe_name}_{safe_id}"
+
+    # Reserve space for the suffix and extension, then truncate only the base
+    # stem so the suffix (e.g. "_img0") is always preserved in full. Truncating
+    # the stem including the suffix could cut the suffix off, giving multiple
+    # images the exact same filename and silently overwriting each other.
+    suffix_bytes = suffix.encode("utf-8")
+    extension_bytes = extension.encode("utf-8")
+    max_base_bytes = MAX_FILENAME_BYTES - len(suffix_bytes) - len(extension_bytes)
+    base_bytes = base_stem.encode("utf-8")[:max_base_bytes]
+
+    return base_bytes.decode("utf-8", errors="ignore") + suffix + extension
+
+
 @contextmanager
 def tool_result_storage() -> Generator[Path, None, None]:
     """Context manager that creates a temp directory for tool results and cleans up after."""
@@ -53,10 +77,10 @@ def save_large_result(
     Returns the file path, or None if storage failed.
     """
     try:
-        safe_name = re.sub(r"[^\w\-]", "_", tool_name)
-        safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
         extension = ".json" if is_json else ".txt"
-        file_path = tool_results_dir / f"{safe_name}_{safe_id}{extension}"
+        file_path = tool_results_dir / _safe_filename(
+            tool_name, tool_call_id, extension
+        )
         file_path.write_text(content, encoding="utf-8")
         logging.info(f"Saved large tool result to filesystem: {file_path}")
         return str(file_path)
@@ -85,8 +109,6 @@ def save_images(
     Returns a list of saved file paths.
     """
     saved: List[str] = []
-    safe_name = re.sub(r"[^\w\-]", "_", tool_name)
-    safe_id = re.sub(r"[^\w\-]", "_", tool_call_id)
     for i, img in enumerate(images):
         try:
             mime_type = img.get("mimeType", "image/png")
@@ -97,7 +119,9 @@ def save_images(
                     f"(supported: {', '.join(MIME_TO_EXT.keys())})"
                 )
                 continue
-            file_path = tool_results_dir / f"{safe_name}_{safe_id}_img{i}{ext}"
+            file_path = tool_results_dir / _safe_filename(
+                tool_name, tool_call_id, ext, suffix=f"_img{i}"
+            )
             image_bytes = base64.b64decode(img["data"])
             file_path.write_bytes(image_bytes)
             saved.append(str(file_path))
