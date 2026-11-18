@@ -13,8 +13,25 @@ def environ_get_safe_int(env_var: str, default: str = "0") -> int:
         return int(default)
 
 
+ENV_PLACEHOLDER_PATTERN = re.compile(r"{{\s*env\.([^}]*)\s*}}")
+
+
+def find_unset_env_vars(value: Any) -> list[str]:
+    """Names of the `{{ env.X }}` placeholders in `value` whose variable is unset or empty."""
+    if isinstance(value, SecretStr):
+        value = value.get_secret_value()
+    if isinstance(value, str):
+        names = (name.strip() for name in ENV_PLACEHOLDER_PATTERN.findall(value))
+        return sorted({name for name in names if not os.environ.get(name)})
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return sorted({name for item in value for name in find_unset_env_vars(item)})
+    return []
+
+
 def get_env_replacement(value: str) -> Optional[str]:
-    env_patterns = re.findall(r"{{\s*env\.([^}]*)\s*}}", value)
+    env_patterns = ENV_PLACEHOLDER_PATTERN.findall(value)
 
     result = value
 
@@ -28,7 +45,8 @@ def get_env_replacement(value: str) -> Optional[str]:
             msg = f"ENV var replacement {env_var_key} does not exist"
             logging.error(msg)
             raise ValueError(msg)
-        result = re.sub(pattern_regex, replacement, result)
+        # A callable replacement keeps backslashes in the value literal.
+        result = re.sub(pattern_regex, lambda _, value=replacement: value, result)
 
     return result
 
@@ -37,11 +55,11 @@ def replace_env_vars_values(values: dict[str, Any]) -> dict[str, Any]:
     for key, value in values.items():
         if isinstance(value, str):
             env_var_value = get_env_replacement(value)
-            if env_var_value:
+            if env_var_value is not None:
                 values[key] = env_var_value
         elif isinstance(value, SecretStr):
             env_var_value = get_env_replacement(value.get_secret_value())
-            if env_var_value:
+            if env_var_value is not None:
                 values[key] = SecretStr(env_var_value)
         elif isinstance(value, dict):
             replace_env_vars_values(value)

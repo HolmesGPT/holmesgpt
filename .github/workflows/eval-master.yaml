@@ -47,12 +47,6 @@ jobs:
           cluster-name: 'kind'
           wait-for-ready: 'true'
 
-      - name: Create model list file
-        run: |
-          cat > /tmp/model_list.yaml << 'EOF'
-          ${{ secrets.MODEL_LIST_YAML }}
-          EOF
-
       - name: Verify models
         uses: ./.github/actions/verify-models
         with:
@@ -68,7 +62,14 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+          MODEL_LIST_FILE_LOCATION: ${{ github.workspace }}/tests/llm/model_list.yaml
+          EVALS_AWS_ACCESS_KEY_ID: ${{ secrets.EVALS_AWS_ACCESS_KEY_ID }}
+          EVALS_AWS_SECRET_ACCESS_KEY: ${{ secrets.EVALS_AWS_SECRET_ACCESS_KEY }}
+          EVALS_AZURE_SWEDEN_API_KEY: ${{ secrets.EVALS_AZURE_SWEDEN_API_KEY }}
+          EVALS_AZURE_SWEDEN_API_BASE: ${{ secrets.EVALS_AZURE_SWEDEN_API_BASE }}
+          EVALS_OPENAI_API_KEY: ${{ secrets.EVALS_OPENAI_API_KEY }}
+          EVALS_GEMINI_API_KEY: ${{ secrets.EVALS_GEMINI_API_KEY }}
+          EVALS_OPENROUTER_API_KEY: ${{ secrets.EVALS_OPENROUTER_API_KEY }}
 
       - name: Run regression evals on master HEAD
         env:
@@ -87,7 +88,14 @@ jobs:
           CONFLUENCE_API_KEY: ${{ secrets.CONFLUENCE_API_KEY }}
           ELASTICSEARCH_URL: ${{ secrets.ELASTICSEARCH_URL }}
           ELASTICSEARCH_API_KEY: ${{ secrets.ELASTICSEARCH_API_KEY }}
-          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+          MODEL_LIST_FILE_LOCATION: ${{ github.workspace }}/tests/llm/model_list.yaml
+          EVALS_AWS_ACCESS_KEY_ID: ${{ secrets.EVALS_AWS_ACCESS_KEY_ID }}
+          EVALS_AWS_SECRET_ACCESS_KEY: ${{ secrets.EVALS_AWS_SECRET_ACCESS_KEY }}
+          EVALS_AZURE_SWEDEN_API_KEY: ${{ secrets.EVALS_AZURE_SWEDEN_API_KEY }}
+          EVALS_AZURE_SWEDEN_API_BASE: ${{ secrets.EVALS_AZURE_SWEDEN_API_BASE }}
+          EVALS_OPENAI_API_KEY: ${{ secrets.EVALS_OPENAI_API_KEY }}
+          EVALS_GEMINI_API_KEY: ${{ secrets.EVALS_GEMINI_API_KEY }}
+          EVALS_OPENROUTER_API_KEY: ${{ secrets.EVALS_OPENROUTER_API_KEY }}
           # This name must match MASTER_EXPERIMENT_PREFIX in braintrust_history.py
           EXPERIMENT_ID: "master-${{ github.run_id }}"
           CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}

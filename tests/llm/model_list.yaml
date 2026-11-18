@@ -1,0 +1,127 @@
+# The model list every eval run reads: CI (eval-regression, eval-master,
+# eval-benchmarks, verify-models), local runs and cloud Claude sessions.
+# Point MODEL_LIST_FILE_LOCATION at this file and set the EVALS_* variables you
+# have keys for. A model whose variables are unset is skipped, and asking for it
+# fails with the names of the missing variables.
+#
+# Keys and the Azure endpoint are {{ env.* }} placeholders: never commit a value.
+# CI passes them from the EVALS_* repo secrets. tests/test_eval_model_list.py
+# checks that every model a workflow defaults to is defined here.
+
+# Benchmark models (DEFAULT_BENCHMARK_MODELS in eval-benchmarks.yaml) + the eval judge.
+# litellm doesn't map the OpenRouter kimi/glm ids, so it rejects reasoning_effort
+# for them unless allowed_openai_params lets it through.
+opus-5.5-medium:
+  aws_access_key_id: '{{ env.EVALS_AWS_ACCESS_KEY_ID }}'
+  aws_region_name: us-east-1
+  aws_secret_access_key: '{{ env.EVALS_AWS_SECRET_ACCESS_KEY }}'
+  model: bedrock/us.anthropic.claude-opus-5-5
+  temperature: 1
+  max_tokens: 64000
+  thinking:
+    type: adaptive
+  reasoning_effort: medium
+sonnet-5.5-medium:
+  aws_access_key_id: '{{ env.EVALS_AWS_ACCESS_KEY_ID }}'
+  aws_region_name: us-east-1
+  aws_secret_access_key: '{{ env.EVALS_AWS_SECRET_ACCESS_KEY }}'
+  model: bedrock/global.anthropic.claude-sonnet-5-5
+  temperature: 1
+  thinking:
+    type: adaptive
+    display: summarized
+  reasoning_effort: medium
+haiku-5.5-medium:
+  aws_access_key_id: '{{ env.EVALS_AWS_ACCESS_KEY_ID }}'
+  aws_region_name: us-east-1
+  aws_secret_access_key: '{{ env.EVALS_AWS_SECRET_ACCESS_KEY }}'
+  model: bedrock/global.anthropic.claude-haiku-5-5
+  temperature: 1
+  thinking:
+    type: adaptive
+    display: summarized
+  reasoning_effort: medium
+haiku-4.5:
+  aws_access_key_id: '{{ env.EVALS_AWS_ACCESS_KEY_ID }}'
+  aws_region_name: eu-south-2
+  aws_secret_access_key: '{{ env.EVALS_AWS_SECRET_ACCESS_KEY }}'
+  model: bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0
+  temperature: 1
+  thinking:
+    budget_tokens: 10000
+    type: enabled
+gpt-6.1-sol-high:
+  api_base: '{{ env.EVALS_AZURE_SWEDEN_API_BASE }}'
+  api_key: '{{ env.EVALS_AZURE_SWEDEN_API_KEY }}'
+  api_version: 2025-04-01-preview
+  model: azure/responses/gpt-6.1-sol
+  temperature: 1
+  reasoning_effort: high
+  allowed_openai_params:
+  - reasoning_effort
+gpt-5.5:
+  api_key: '{{ env.EVALS_OPENAI_API_KEY }}'
+  model: openai/gpt-5.5-2026-04-23
+  temperature: 1
+gemini-3.1-pro-preview:
+  api_key: '{{ env.EVALS_GEMINI_API_KEY }}'
+  model: gemini/gemini-3.1-pro-preview
+  reasoning_effort: high
+deepseek-v4-pro:
+  api_key: '{{ env.EVALS_OPENROUTER_API_KEY }}'
+  model: openrouter/deepseek/deepseek-v4-pro
+  temperature: 1
+  reasoning_effort: high
+  extra_body:
+    provider:
+      order:
+      - deepinfra/fp8
+      - novita/fp8
+      allow_fallbacks: false
+kimi-k3:
+  api_key: '{{ env.EVALS_OPENROUTER_API_KEY }}'
+  model: openrouter/moonshotai/kimi-k3
+  temperature: 1
+  reasoning_effort: high
+  allowed_openai_params:
+  - reasoning_effort
+  extra_body:
+    provider:
+      order:
+      - moonshotai/mxfp4
+      - together
+      allow_fallbacks: false
+glm-5.3:
+  api_key: '{{ env.EVALS_OPENROUTER_API_KEY }}'
+  model: openrouter/z-ai/glm-5.3
+  temperature: 1
+  reasoning_effort: high
+  allowed_openai_params:
+  - reasoning_effort
+  extra_body:
+    provider:
+      order:
+      - z-ai/fp8
+      - together
+      allow_fallbacks: false
+gpt-6.1-sol-medium:
+  api_base: '{{ env.EVALS_AZURE_SWEDEN_API_BASE }}'
+  api_key: '{{ env.EVALS_AZURE_SWEDEN_API_KEY }}'
+  api_version: 2025-04-01-preview
+  model: azure/responses/gpt-6.1-sol
+  temperature: 1
+  reasoning_effort: medium
+  allowed_openai_params:
+  - reasoning_effort
+
+# Regression default (the MODEL repo variable, used by eval-regression.yaml and
+# DEFAULT_MASTER_MODELS in eval-master.yaml).
+opus-4.6:
+  aws_access_key_id: '{{ env.EVALS_AWS_ACCESS_KEY_ID }}'
+  aws_region_name: us-east-1
+  aws_secret_access_key: '{{ env.EVALS_AWS_SECRET_ACCESS_KEY }}'
+  model: bedrock/us.anthropic.claude-opus-4-6-v1
+  temperature: 1
+  thinking:
+    type: adaptive
+  reasoning_effort: high

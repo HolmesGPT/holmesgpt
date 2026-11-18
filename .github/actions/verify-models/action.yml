@@ -19,9 +19,11 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         VERIFY_MODELS: ${{ inputs.models }}
-        CLASSIFIER_MODEL: ${{ env.CLASSIFIER_MODEL || 'gpt-4.1' }}
+        CLASSIFIER_MODEL: ${{ env.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
         RUN_LIVE: "true"
       run: |
+        # The llm conftest pre-checks MODEL, whose default (gpt-4.1) is not in the model list
+        export MODEL="${VERIFY_MODELS:-$CLASSIFIER_MODEL}"
         poetry run pytest tests/llm/test_model_config.py --no-cov -n auto -p no:sugar -rfs \
           --json-report --json-report-file=/tmp/verify-models-report.json
         # The llm conftest skips every test if its API pre-check fails

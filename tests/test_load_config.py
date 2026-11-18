@@ -2,7 +2,13 @@ import os
 
 import pytest
 
-from holmes.utils.env import get_env_replacement
+from pydantic import SecretStr
+
+from holmes.utils.env import (
+    find_unset_env_vars,
+    get_env_replacement,
+    replace_env_vars_values,
+)
 
 
 @pytest.mark.parametrize(
@@ -31,6 +37,7 @@ from holmes.utils.env import get_env_replacement
             "first_val second_val",
         ),
         ("{{ env.EMPTY_VAL_VAR }}", {"EMPTY_VAL_VAR": ""}, ""),
+        (r"{{ env.BACKSLASH }}", {"BACKSLASH": r"a\1b\g<0>c\\d"}, r"a\1b\g<0>c\\d"),
         (
             "{{ env.app.config.host }}",
             {"app.config.host": "localhost.localdomain"},
@@ -95,3 +102,48 @@ def test_get_env_replacement_exceptions(
 
     with pytest.raises(expected_exception_type, match=expected_exception_message_regex):
         get_env_replacement(input_value)
+
+
+def test_replace_env_vars_values_substitutes_empty_value(monkeypatch):
+    monkeypatch.setenv("EMPTY_KEY", "")
+    values = {
+        "api_key": "{{ env.EMPTY_KEY }}",
+        "secret": SecretStr("{{ env.EMPTY_KEY }}"),
+        "nested": {"header": "{{ env.EMPTY_KEY }}"},
+        "items": ["{{ env.EMPTY_KEY }}"],
+    }
+
+    result = replace_env_vars_values(values)
+
+    assert result["api_key"] == ""
+    assert result["secret"].get_secret_value() == ""
+    assert result["nested"]["header"] == ""
+    assert result["items"] == [""]
+
+
+def test_replace_env_vars_values_keeps_backslashes(monkeypatch):
+    monkeypatch.setenv("PASSWORD", r"p\1ss\word")
+
+    result = replace_env_vars_values({"password": "{{ env.PASSWORD }}"})
+
+    assert result["password"] == r"p\1ss\word"
+
+
+def test_find_unset_env_vars(monkeypatch):
+    monkeypatch.setenv("SET_VAR", "value")
+    monkeypatch.setenv("EMPTY_VAR", "")
+    monkeypatch.delenv("MISSING_VAR", raising=False)
+    monkeypatch.delenv("OTHER_MISSING", raising=False)
+    values = {
+        "set": "{{ env.SET_VAR }}",
+        "empty": "{{ env.EMPTY_VAR }}",
+        "secret": SecretStr("{{ env.MISSING_VAR }}"),
+        "nested": {"list": ["x {{env.OTHER_MISSING}} y", "{{ env.MISSING_VAR }}", 3]},
+        "number": 7,
+        "none": None,
+        "plain": "no placeholder",
+    }
+
+    assert find_unset_env_vars(values) == ["EMPTY_VAR", "MISSING_VAR", "OTHER_MISSING"]
+    assert find_unset_env_vars("{{ env.SET_VAR }}") == []
+    assert find_unset_env_vars({}) == []

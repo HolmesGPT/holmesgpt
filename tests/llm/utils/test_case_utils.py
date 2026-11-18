@@ -52,11 +52,12 @@ def _model_list_exists() -> bool:
 
 
 def _get_models_from_model_list() -> Optional[List[str]]:
+    """Every model the list defines, including those whose keys are not set here."""
     if not _model_list_exists():
         return None
     config = Config()
-    models = config.get_models_list()
-    return models or []
+    unavailable = config.llm_model_registry.unavailable_models
+    return config.get_models_list() + list(unavailable)
 
 
 def _filter_models_from_env(
@@ -714,5 +715,14 @@ def load_include_files(
 def create_eval_llm(model: str, tracer=None) -> DefaultLLM:
     if _model_list_exists():
         config = Config()
+        # The registry serves another model for an unknown key, which would
+        # label one model's results (or judge verdicts) with another's name.
+        if model not in config.get_models_list():
+            registry = config.llm_model_registry
+            raise ValueError(
+                registry.unavailable_model_error(model)
+                or f"Model '{model}' is not defined in {MODEL_LIST_FILE_LOCATION}. "
+                f"Available models: {', '.join(config.get_models_list())}"
+            )
         return config._get_llm(model_key=model, tracer=tracer)  # type: ignore[arg-type]
     return DefaultLLM(model, tracer=tracer)

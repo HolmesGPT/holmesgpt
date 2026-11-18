@@ -383,7 +383,10 @@ def check_llm_api_with_test_call():
         litellm.ssl_verify = False
 
     # Get all models that will be tested
-    test_models = MODEL.split(",")
+    test_models = [m.strip() for m in MODEL.split(",") if m.strip()]
+    # With a model list the judge comes from it too, so it needs the same check.
+    if _model_list_exists() and CLASSIFIER_MODEL not in test_models:
+        test_models.append(CLASSIFIER_MODEL)
 
     # Also check the classifier model
     classifier_model = CLASSIFIER_MODEL
@@ -406,8 +409,10 @@ def check_llm_api_with_test_call():
             try:
                 llm = create_eval_llm(model_name)
                 model_name = llm.model
-            except Exception:
-                pass
+            except Exception as e:
+                failed_models.append(model_name)
+                error_messages.append(str(e))
+                continue
 
         # Get provider info for better error messages
         provider_info = litellm.get_llm_provider(model_name)

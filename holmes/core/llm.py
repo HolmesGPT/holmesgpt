@@ -52,7 +52,11 @@ from holmes.core.azure_token import get_azure_ad_token
 from holmes.core.llm_rate_limit import call_with_rate_limit_retry
 from holmes.core.llm_usage import extract_usage_from_response
 from holmes.core.supabase_dal import SupabaseDal
-from holmes.utils.env import environ_get_safe_int, replace_env_vars_values
+from holmes.utils.env import (
+    environ_get_safe_int,
+    find_unset_env_vars,
+    replace_env_vars_values,
+)
 from holmes.utils.file_utils import load_yaml_file
 
 if TYPE_CHECKING:
@@ -1040,10 +1044,29 @@ class DefaultLLM(LLM):
         ]
 
 
+_reported_unavailable_models: set[tuple[str, str, tuple[str, ...]]] = set()
+
+
+def _warn_unavailable_model_once(path: str, model_name: str, unset: list[str]) -> None:
+    # Eval harnesses build a registry per LLM, so repeat warnings would flood the log.
+    key = (path, model_name, tuple(unset))
+    if key in _reported_unavailable_models:
+        return
+    _reported_unavailable_models.add(key)
+    logging.warning(
+        f"Model '{model_name}' from {path} is not loaded: "
+        f"environment variable(s) {', '.join(unset)} not set"
+    )
+
+
 class LLMModelRegistry:
     def __init__(self, config: "Config", dal: SupabaseDal) -> None:
         self.config = config
         self._llms: dict[str, ModelEntry] = {}
+        # Model list entries left out because an `{{ env.X }}` they reference
+        # is unset or empty, mapped to those variable names.
+        self._unavailable_models: dict[str, list[str]] = {}
+        self._model_list_path: Optional[str] = None
         self._default_robusta_model: Optional[str] = None
         # Set when relay says the account opted out of Robusta-hosted models:
         # the registry then serves only what the cluster configured, and an
@@ -1160,6 +1183,9 @@ class LLMModelRegistry:
 
     def _should_load_config_model(self) -> bool:
         if self.config.model is not None:
+            if self.config.model in self._unavailable_models:
+                # Loading it as a raw litellm name would run it without its keys.
+                return False
             if self._llms and self.config.model in self._llms:
                 # model already loaded from file
                 return False
@@ -1404,13 +1430,16 @@ class LLMModelRegistry:
             return False
 
         # if the user has provided a model list, we don't need to load the robusta AI model
-        if self._llms:
+        if self._llms or self._unavailable_models:
             return False
 
         return True
 
     def get_model_params(self, model_key: Optional[str] = None) -> ModelEntry:
         if model_key:
+            unavailable_error = self.unavailable_model_error(model_key)
+            if unavailable_error:
+                raise ValueError(unavailable_error)
             model_params = self._loaded_model(model_key)
             if model_params is not None:
                 display_logger.info(f"Using selected model: {model_key}")
@@ -1462,6 +1491,16 @@ class LLMModelRegistry:
                         "Configure a model on the cluster (MODEL, "
                         "MODEL_LIST_FILE_LOCATION or the model list), or enable "
                         "Robusta-hosted models in Settings > LLM Models."
+                    )
+                if self._unavailable_models:
+                    raise Exception(
+                        "No LLM models were loaded. Every model in "
+                        f"{self._model_list_path} needs an environment variable "
+                        "that is not set: "
+                        + "; ".join(
+                            f"{name}: {', '.join(unset)}"
+                            for name, unset in self._unavailable_models.items()
+                        )
                     )
                 raise Exception(
                     "No LLM models were loaded. Configure a model using one of: "
@@ -1520,14 +1559,35 @@ class LLMModelRegistry:
 
     def _parse_models_file(self, path: str) -> dict[str, ModelEntry]:
         models = load_yaml_file(path, raise_error=False, warn_not_found=False)
-        for _, params in models.items():
-            params = replace_env_vars_values(params)
-
+        self._model_list_path = path
+        self._unavailable_models = {}
         llms = {}
         for model_name, params in models.items():
-            llms[model_name] = ModelEntry.model_validate(params)
+            # One file can serve environments that hold different keys, so an
+            # entry missing its keys must not stop the others from loading.
+            unset = find_unset_env_vars(params)
+            if unset:
+                self._unavailable_models[model_name] = unset
+                _warn_unavailable_model_once(path, model_name, unset)
+                continue
+            llms[model_name] = ModelEntry.model_validate(
+                replace_env_vars_values(params)
+            )
 
         return llms
+
+    @property
+    def unavailable_models(self) -> dict[str, list[str]]:
+        return dict(self._unavailable_models)
+
+    def unavailable_model_error(self, model_key: str) -> Optional[str]:
+        unset = self._unavailable_models.get(model_key)
+        if unset is None:
+            return None
+        return (
+            f"Model '{model_key}' is defined in {self._model_list_path} but was not "
+            f"loaded: environment variable(s) {', '.join(unset)} not set"
+        )
 
     def _create_robusta_model_entry(
         self, model_name: str, model_data: RobustaModel
