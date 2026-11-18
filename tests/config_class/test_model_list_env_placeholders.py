@@ -111,9 +111,8 @@ def test_empty_variable_counts_as_unset(model_list, monkeypatch):
 def test_unavailable_model_is_not_loaded_as_raw_config_model(model_list, monkeypatch):
     model_list({"kimi": OPENROUTER_MODEL, "opus": BEDROCK_MODEL})
     monkeypatch.setenv("TEST_OPENROUTER_KEY", "or-key")
-    monkeypatch.setenv("MODEL", "opus")
 
-    config = Config()
+    config = Config(model="opus")
 
     assert "opus" not in config.llm_model_registry.models
     with pytest.raises(ValueError, match="TEST_AWS_KEY_ID, TEST_AWS_SECRET not set"):
