@@ -13,8 +13,8 @@ Goal: pick the eval judge (`CLASSIFIER_MODEL`) that is most correct, then fastes
 Pick the latest benchmark with the most iterations from `docs/development/evaluations/history/` (its Braintrust links name the `ci-benchmark-<run_id>` experiment).
 
 ```bash
-# Judges are model_list names, e.g. the CI secret MODEL_LIST_YAML
-export MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml
+# Judges are names from the committed model list; set the EVALS_* keys they need
+export MODEL_LIST_FILE_LOCATION="$PWD/tests/llm/model_list.yaml"
 poetry run python .claude/skills/benchmark-judge/benchmark_judge.py <run_id> \
   --judges haiku-5.5-medium,gpt-6.1-sol-medium,deepseek-v4-pro,opus-5.5-medium
 ```

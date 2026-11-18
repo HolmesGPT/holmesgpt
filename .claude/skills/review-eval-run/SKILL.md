@@ -69,18 +69,6 @@ End with one table: `Test | Verdict (eval bug / judge false negative / real fail
 
 ## Running evals locally
 
-CI builds the model list from the `MODEL_LIST_YAML` secret, which can't be read outside Actions. Locally, write your own and point `MODEL_LIST_FILE_LOCATION` at it. Each top-level key is the model name passed in `MODEL` (comma-separated) and its value is litellm parameters; `{{ env.X }}` is filled from the environment:
+CI and local runs read the same committed model list, `tests/llm/model_list.yaml`. Point `MODEL_LIST_FILE_LOCATION` at it and set the `EVALS_*` variables for the providers you have keys for: `EVALS_AWS_ACCESS_KEY_ID` / `EVALS_AWS_SECRET_ACCESS_KEY` (Bedrock Claude models), `EVALS_AZURE_SWEDEN_API_KEY` / `EVALS_AZURE_SWEDEN_API_BASE` (Azure gpt-6.1-sol, also the judge), `EVALS_OPENAI_API_KEY`, `EVALS_GEMINI_API_KEY` and `EVALS_OPENROUTER_API_KEY` (deepseek, kimi, glm). A model whose variables are unset is skipped, and asking for it fails with the variables it needs. Each top-level key is the model name passed in `MODEL` (comma-separated); set `CLASSIFIER_MODEL` to the judge's name (CI uses `gpt-6.1-sol-medium`). Allow each provider's host: `bedrock-runtime.<region>.amazonaws.com`, `*.cognitiveservices.azure.com`, `api.openai.com`, `generativelanguage.googleapis.com`, `openrouter.ai`.
 
-```yaml
-sonnet-5.5-medium:
-  model: bedrock/global.anthropic.claude-sonnet-5-5
-  aws_access_key_id: '{{ env.EVALS_AWS_ACCESS_KEY_ID }}'
-  aws_secret_access_key: '{{ env.EVALS_AWS_SECRET_ACCESS_KEY }}'
-  aws_region_name: us-east-1
-  reasoning_effort: medium
-kimi-k3:
-  model: openrouter/moonshotai/kimi-k3
-  api_key: '{{ env.EVALS_OPENROUTER_API_KEY }}'
-```
-
-By convention the credentials live in `EVALS_`-prefixed variables so they don't collide with the provider SDKs' own: `EVALS_AWS_ACCESS_KEY_ID` / `EVALS_AWS_SECRET_ACCESS_KEY` (Bedrock Claude models), `EVALS_AZURE_SWEDEN_API_KEY` (Azure gpt-6.1-sol, also the judge), `EVALS_OPENAI_API_KEY`, `EVALS_GEMINI_API_KEY` and `EVALS_OPENROUTER_API_KEY` (deepseek, kimi, glm, qwen). Keep only the benchmark models (`DEFAULT_BENCHMARK_MODELS` in `.github/workflows/eval-benchmarks.yaml`) plus the judge (set `CLASSIFIER_MODEL` to its name), and allow each provider's host: `bedrock-runtime.<region>.amazonaws.com`, `*.cognitiveservices.azure.com`, `api.openai.com`, `generativelanguage.googleapis.com`, `openrouter.ai`.
+A model's config (id, region, reasoning effort, provider pins) is changed in that file through a PR, so the change is reviewed and CI, local runs and cloud sessions pick it up together.

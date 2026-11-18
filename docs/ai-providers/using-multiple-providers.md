@@ -94,7 +94,7 @@ cli: |
 
   When using `--model`, specify the model name (key) from your YAML file, not the underlying model identifier. All configuration (API keys, endpoints, temperature, etc.) will be automatically loaded from the model list file.
 
-  **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file.
+  **Note:** Environment variable substitution is supported using `{{ env.VARIABLE_NAME }}` syntax in the model list file. A model whose variable is unset or empty is not loaded (HolmesGPT logs a warning naming the variable); the other models still load, and selecting that model returns an error naming the variable.
 
   **Custom path:** To load the model list from a different location, set `MODEL_LIST_FILE_LOCATION=/path/to/model_list.yaml`.
 ```

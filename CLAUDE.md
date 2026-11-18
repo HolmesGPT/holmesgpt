@@ -588,14 +588,37 @@ cannot pass here — see the limitations section. Skip via `-m "llm and regressi
 
 **LLM provider env (OpenRouter — Anthropic / OpenAI keys are not in env):**
 
-Two non-obvious requirements for the classifier scoring step:
+Use the committed `tests/llm/model_list.yaml`, the same file CI runs. Its keys are
+`{{ env.EVALS_* }}` placeholders; give it the sandbox's OpenRouter key and it loads
+the OpenRouter models (`deepseek-v4-pro`, `kimi-k3`, `glm-5.3`). The Bedrock, Azure,
+OpenAI and Gemini models are skipped, and asking for one fails with the names of the
+variables it needs. CI's judge (`gpt-6.1-sol-medium`) is on Azure, so pick an
+OpenRouter judge here.
 
-- `api_base: https://openrouter.ai/api/v1` is **required** on every `model_list.yaml`
-  entry. The autoevals/braintrust correctness classifier bypasses litellm and calls
-  the raw OpenAI SDK — without `api_base` it hits `api.openai.com` and 401s with the
-  OpenRouter key.
-- Always use the `openai/<provider>/<model>` prefix in the `model:` field — including
-  for Anthropic models routed through OpenRouter. Two problems get solved at once:
+```bash
+# BRAINTRUST_API_KEY / BRAINTRUST_SERVICE_TOKEN must be UNSET — the read-only
+# service token in this env refuses to create experiments and crashes the test.
+unset BRAINTRUST_API_KEY
+unset BRAINTRUST_SERVICE_TOKEN
+
+export EVALS_OPENROUTER_API_KEY="$OPENROUTER_API_KEY"
+export MODEL_LIST_FILE_LOCATION="$PWD/tests/llm/model_list.yaml"
+export MODEL=kimi-k3 CLASSIFIER_MODEL=deepseek-v4-pro RUN_LIVE=true
+# CI's value: the 800 MB default makes kubectl run out of memory under load
+export TOOL_MEMORY_LIMIT_MB=1536
+```
+
+To run a model the committed list routes elsewhere (e.g. Claude, which CI runs on
+Bedrock) through OpenRouter, write a local list with two non-obvious requirements
+for the classifier scoring step:
+
+- `api_base: https://openrouter.ai/api/v1` is **required** on every entry that uses
+  the `openai/` prefix. The autoevals/braintrust correctness classifier bypasses
+  litellm and calls the raw OpenAI SDK — without `api_base` it hits `api.openai.com`
+  and 401s with the OpenRouter key. (`openrouter/` entries don't need it: the
+  classifier strips that prefix and defaults to OpenRouter's endpoint.)
+- Use the `openai/<provider>/<model>` prefix in the `model:` field for Anthropic
+  models routed through OpenRouter. Two problems get solved at once:
   - litellm's native Anthropic provider appends `/v1/messages` to `api_base`, which
     doubles the path to `/api/v1/v1/messages` and 404s. Forcing the `openai/` prefix
     routes through litellm's OpenAI-compatible path (`/chat/completions`) instead,
@@ -604,34 +627,17 @@ Two non-obvious requirements for the classifier scoring step:
     a model ID, and `openrouter/openai/gpt-4.1` is rejected as "not a valid model ID";
     `openai/gpt-4.1` is accepted.
 
-```bash
-cat > /tmp/model_list.yaml << 'EOF'
-opus-4.6:
+```yaml
+opus-4.6-openrouter:
   model: openai/anthropic/claude-opus-4.6
   api_key: "{{ env.OPENROUTER_API_KEY }}"
   api_base: https://openrouter.ai/api/v1
-gpt-4.1:
-  model: openai/gpt-4.1
-  api_key: "{{ env.OPENROUTER_API_KEY }}"
-  api_base: https://openrouter.ai/api/v1
-gpt-4.1-mini:
-  model: openai/gpt-4.1-mini
-  api_key: "{{ env.OPENROUTER_API_KEY }}"
-  api_base: https://openrouter.ai/api/v1
-EOF
-
-# BRAINTRUST_API_KEY / BRAINTRUST_SERVICE_TOKEN must be UNSET — the read-only
-# service token in this env refuses to create experiments and crashes the test.
-unset BRAINTRUST_API_KEY
-unset BRAINTRUST_SERVICE_TOKEN
-
-export MODEL=gpt-4.1-mini MODEL_LIST_FILE_LOCATION=/tmp/model_list.yaml
-export CLASSIFIER_MODEL=gpt-4.1 RUN_LIVE=true OPENAI_API_KEY=dummy
 ```
 
 Then run the regression suite using the invocation that `setup-sandbox-k8s.sh`
-prints on success. Wall time is ~65s for a single k8s eval with gpt-4.1-mini
-(~$0.03 OpenRouter spend); opus-4.6 is ~90s per run. The full 11-eval
+prints on success, with `MODEL`, `CLASSIFIER_MODEL` and the model list set as above
+(the script's own example sets raw litellm names instead). Wall time is ~65s for a
+single k8s eval with gpt-4.1-mini (~$0.03 OpenRouter spend); opus-4.6 is ~90s per run. The full 11-eval
 `llm and regression` suite under opus-4.6 runs in ~256s wall at -n 4 (~$3.30).
 Budget accordingly when looping.
 
@@ -653,7 +659,7 @@ Budget accordingly when looping.
   cannot enforce here. Skip it via `-m "llm and regression and not network"`
   or `--deselect`
 - `BRAINTRUST_API_KEY` / `BRAINTRUST_SERVICE_TOKEN` set — unset both or the test crashes
-- `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
+- `openai/`-prefixed `model_list.yaml` entries without `api_base` — classifier 401s against `api.openai.com`
 - `openrouter/openai/<model>` prefix in `model:` — OpenRouter rejects as invalid model ID
 - `anthropic/<model>` prefix in `model:` — litellm's Anthropic provider hits
   `/api/v1/v1/messages` (doubled path) and 404s; use `openai/anthropic/<model>` instead
