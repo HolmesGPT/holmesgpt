@@ -61,6 +61,10 @@ spec:
           value: {{ .Values.operator.cleanupCompletedChecks | default false | quote }}
         - name: COMPLETED_CHECK_TTL_HOURS
           value: {{ .Values.operator.completedCheckTTLHours | default 24 | quote }}
+        {{- if .Values.operator.namespaced }}
+        - name: HOLMES_OPERATOR_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        {{- end }}
         {{- if .Values.operator.additionalEnvVars }}
         {{- toYaml .Values.operator.additionalEnvVars | nindent 8 }}
         {{- end }}

@@ -236,6 +236,39 @@ additionalEnvVars:
     value: "value"
 ```
 
+## Namespace-Scoped Deployment
+
+By default the operator runs cluster-wide: it watches `ScheduledHealthCheck`, `TriggeredHealthCheck`, and `HealthCheck` resources in every namespace and is granted a `ClusterRole`/`ClusterRoleBinding`. That requires cluster-admin to install, which is not available in multi-tenant or restricted clusters (OPA Gatekeeper, OpenShift restricted SCC, GKE Autopilot, and similar).
+
+Set `operator.namespaced: true` to run the operator scoped to its own release namespace instead:
+
+```yaml
+operator:
+  enabled: true
+  namespaced: true  # Watch only the release namespace; no cluster-scoped RBAC
+```
+
+When `namespaced` is true:
+
+- The chart renders a namespaced `Role`/`RoleBinding` instead of a `ClusterRole`/`ClusterRoleBinding`, and drops the cluster-scoped rules (`namespaces`, `customresourcedefinitions`, `clusterkopfpeerings`).
+- The operator watches resources in `.Release.Namespace` only. The chart injects `HOLMES_OPERATOR_NAMESPACE` into the operator pod to enforce this.
+- Namespace/CRD scanning and operator peering are disabled, so no cluster-scoped watches remain.
+
+Install one operator per tenant namespace:
+
+```bash
+helm install holmes holmes/holmes \
+  --namespace team-a --create-namespace \
+  --set operator.enabled=true \
+  --set operator.namespaced=true
+```
+
+The CRDs themselves are cluster-scoped definitions and still need to be installed once by a cluster admin (Helm installs them from the chart's `crds/` directory). This is a one-time, cluster-level step that is independent of the per-namespace operator RBAC.
+
+**HOLMES_OPERATOR_NAMESPACE** (string)
+
+The namespace the operator watches. Set automatically by the chart when `operator.namespaced: true`; leave unset for cluster-wide operation. With Helm, override it through `additionalEnvVars`; without Helm, set `HOLMES_OPERATOR_NAMESPACE` directly in the operator manifest.
+
 ## RBAC and Permissions
 
 The operator requires specific Kubernetes permissions to function.
@@ -274,7 +307,7 @@ rules:
     verbs: ["get", "update", "patch"]
 ```
 
-These permissions are automatically created by the Helm chart.
+These permissions are automatically created by the Helm chart. With `operator.namespaced: true` the same rules are granted through a namespaced `Role` instead, and the cluster-scoped rules are dropped (see [Namespace-Scoped Deployment](#namespace-scoped-deployment)).
 
 ## Next Steps
 
