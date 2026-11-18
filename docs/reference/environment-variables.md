@@ -2,6 +2,8 @@
 
 This page documents all environment variables that can be used to configure HolmesGPT behavior.
 
+Boolean variables, such as `ENABLE_TELEMETRY` or `DISABLE_PROMETHEUS_TOOLSET`, accept `true`, `false`, `1`, `0`, `yes`, `no`, `on` and `off`, in any letter case. An empty value counts as not set. Any other value stops Holmes at startup with an error that names the variable.
+
 ## AI Provider Configuration
 
 ### OpenAI
