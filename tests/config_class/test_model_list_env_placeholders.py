@@ -215,6 +215,32 @@ def test_legacy_openai_default_does_not_replace_a_skipped_entry(
         registry.get_model_params("gpt-5.4")
 
 
+def test_entries_sharing_a_yaml_anchor_resolve_independently(
+    model_list, monkeypatch, tmp_path
+):
+    path = tmp_path / "model_list.yaml"
+    path.write_text(
+        "first:\n"
+        "  model: openrouter/z-ai/glm-5.3\n"
+        "  extra_body: &shared\n"
+        "    labels: ['{{ env.TEST_LABEL }}']\n"
+        "second:\n"
+        "  model: openrouter/moonshotai/kimi-k3\n"
+        "  extra_body: *shared\n"
+    )
+    monkeypatch.setattr("holmes.core.llm.MODEL_LIST_FILE_LOCATION", str(path))
+    # A value that looks like a placeholder must not be read as one.
+    monkeypatch.setenv("TEST_LABEL", "{{ env.TEST_UNSET_OTHER }}")
+    monkeypatch.delenv("TEST_UNSET_OTHER", raising=False)
+
+    registry = Config().llm_model_registry
+
+    assert registry.unavailable_models == {}
+    for name in ("first", "second"):
+        extra_body = registry.get_model_params(name).model_extra["extra_body"]
+        assert extra_body == {"labels": ["{{ env.TEST_UNSET_OTHER }}"]}
+
+
 def test_placeholder_in_nested_list_is_substituted(model_list, monkeypatch):
     model_list(
         {

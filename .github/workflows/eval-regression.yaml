@@ -625,8 +625,9 @@ jobs:
             echo "Skipping eval: evals-skip-default label is set with no additional evals-tag-* or evals-id-* labels"
             exit 0
           fi
-          # Check one secret as proxy for secrets access (repo has all or none)
-          if [[ -n "${{ secrets.AZURE_API_KEY }}" ]]; then
+          # Check one secret as proxy for secrets access (repo has all or none).
+          # The judge's key: every eval run needs it.
+          if [[ -n "${{ secrets.EVALS_AZURE_SWEDEN_API_KEY }}" ]]; then
             echo "should-run=true" >> $GITHUB_OUTPUT
           else
             echo "should-run=false" >> $GITHUB_OUTPUT
@@ -1546,8 +1547,13 @@ jobs:
       - name: Check test results
         if: always() && steps.check-tests.outputs.should-run == 'true'
         working-directory: code
+        env:
+          VERIFY_OUTCOME: ${{ steps.verify-models.outcome }}
+          EVALS_OUTCOME: ${{ steps.evals.outcome }}
         run: |
-          if [[ -f "regressions.txt" ]]; then
+          if [[ "$VERIFY_OUTCOME" == "failure" || "$EVALS_OUTCOME" == "skipped" ]]; then
+            echo "❌ No evals ran (model verification: ${VERIFY_OUTCOME:-skipped}, evals: ${EVALS_OUTCOME:-skipped})."
+          elif [[ -f "regressions.txt" ]]; then
             echo "⚠️ There are failures in the evals. Please check the file for details."
             cat regressions.txt
           else

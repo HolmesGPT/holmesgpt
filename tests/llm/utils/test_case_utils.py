@@ -60,7 +60,10 @@ def _get_models_from_model_list() -> Optional[List[str]]:
     if not _model_list_exists():
         return None
     with open(MODEL_LIST_FILE_LOCATION, encoding="utf-8") as f:
-        return list(yaml.safe_load(f) or {})
+        catalog = yaml.safe_load(f) or {}
+    if not isinstance(catalog, dict) or not all(isinstance(k, str) for k in catalog):
+        raise ValueError(f"{MODEL_LIST_FILE_LOCATION} must map model names to settings")
+    return list(catalog)
 
 
 def _filter_models_from_env(

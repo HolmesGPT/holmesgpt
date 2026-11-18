@@ -1,6 +1,7 @@
 """The committed eval model list and how evals resolve models from it."""
 
 import re
+from typing import Optional
 from pathlib import Path
 
 import pytest
@@ -64,13 +65,30 @@ def csv(value: str) -> list[str]:
     return [m.strip() for m in value.split(",") if m.strip()]
 
 
+def regression_fallback_model(script: str) -> Optional[str]:
+    """The model `Determine eval parameters` assigns when none was requested."""
+    match = re.search(
+        r"^\s*if \(!model\) model = \$\{\{ toJSON\(vars\.MODEL\) \}\} \|\| '([^']+)';",
+        script,
+        re.MULTILINE,
+    )
+    return match.group(1) if match else None
+
+
+def eval_params_script() -> str:
+    for workflow, step in workflow_steps():
+        if workflow == "eval-regression.yaml" and step.get("name") == "Determine eval parameters":
+            return step["with"]["script"]
+    raise AssertionError("eval-regression.yaml has no 'Determine eval parameters' step")
+
+
 def workflow_default_models() -> set[str]:
     benchmarks = load_yaml(WORKFLOWS / "eval-benchmarks.yaml")
     master = load_yaml(WORKFLOWS / "eval-master.yaml")
     dispatch_inputs = benchmarks[True]["workflow_dispatch"]["inputs"]
-    regression = (WORKFLOWS / "eval-regression.yaml").read_text()
-    models = set(re.findall(r"toJSON\(vars\.MODEL\) \}\} \|\| '([^']+)'", regression))
-    assert models, "eval-regression.yaml has no fallback for an unset MODEL"
+    fallback = regression_fallback_model(eval_params_script())
+    assert fallback, "eval-regression.yaml has no fallback for an unset MODEL"
+    models = {fallback}
     models.update(csv(benchmarks["env"]["DEFAULT_BENCHMARK_MODELS"]))
     models.update(csv(dispatch_inputs["models"]["default"]))
     models.update(csv(master["env"]["DEFAULT_MASTER_MODELS"]))
@@ -79,6 +97,14 @@ def workflow_default_models() -> set[str]:
             re.findall(r"CLASSIFIER_MODEL \|\| '([^']+)'", path.read_text())
         )
     return models
+
+
+def test_regression_fallback_ignores_commented_out_code():
+    live = "  if (!model) model = ${{ toJSON(vars.MODEL) }} || 'opus-4.6';"
+    commented = "  // if (!model) model = ${{ toJSON(vars.MODEL) }} || 'opus-4.6';"
+
+    assert regression_fallback_model(live) == "opus-4.6"
+    assert regression_fallback_model(commented) is None
 
 
 def test_every_workflow_default_model_is_defined():
@@ -220,6 +246,15 @@ def test_create_eval_llm_rejects_an_undefined_model(committed_list):
 
     assert f"Model 'gpt-4.1' is not defined in {MODEL_LIST}" in str(exc.value)
     assert f"Available models: {', '.join(model_list())}" in str(exc.value)
+
+
+def test_model_list_must_map_names_to_settings(committed_list, tmp_path):
+    bad = tmp_path / "model_list.yaml"
+    bad.write_text("- kimi-k3\n- glm-5.3\n")
+    committed_list.setattr(test_case_utils, "MODEL_LIST_FILE_LOCATION", str(bad))
+
+    with pytest.raises(ValueError, match=f"{bad} must map model names to settings"):
+        test_case_utils._get_models_from_model_list()
 
 
 def test_models_the_list_does_not_declare_are_not_offered(committed_list):

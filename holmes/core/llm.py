@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import os
@@ -64,7 +65,7 @@ if TYPE_CHECKING:
 
 MODEL_LIST_FILE_LOCATION = os.environ.get(
     "MODEL_LIST_FILE_LOCATION", "/etc/holmes/config/model_list.yaml"
-)
+).strip()
 
 
 OVERRIDE_MAX_OUTPUT_TOKEN = environ_get_safe_int("OVERRIDE_MAX_OUTPUT_TOKEN")
@@ -1575,8 +1576,9 @@ class LLMModelRegistry:
                 self._unavailable_models[model_name] = unset
                 _warn_unavailable_model_once(path, model_name, unset)
                 continue
+            # A copy: YAML anchors can share one mapping between entries.
             llms[model_name] = ModelEntry.model_validate(
-                replace_env_vars_values(params)
+                replace_env_vars_values(copy.deepcopy(params))
             )
 
         return llms
