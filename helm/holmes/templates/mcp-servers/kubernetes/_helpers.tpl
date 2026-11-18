@@ -5,45 +5,15 @@ Define the LLM instructions for Kubernetes MCP
 {{- if .Values.mcpAddons.kubernetes.llmInstructions -}}
 {{ .Values.mcpAddons.kubernetes.llmInstructions }}
 {{- else -}}
-This MCP server provides direct access to Kubernetes clusters for advanced cluster operations and troubleshooting.
-
-## When to Use This MCP Server
-
-Use the Kubernetes MCP when investigating:
-- Pod failures, crash loops, or scheduling issues
-- Resource consumption and node capacity problems
-- Deployment rollout issues or scaling problems
-- Kubernetes events and cluster-level diagnostics
-- Helm release status and management
-
-## Investigation Workflow
+Use this MCP server to investigate Kubernetes: pods, events, logs, resources, nodes and namespaces.
 {{- /* Only a mounted kubeconfig has contexts to check. Without one the server uses
      in-cluster credentials, and configuration_view fails on every call. */}}
-{{- $steps := list
-      "**List namespaces**: Identify the relevant namespace for the investigation"
-      "**Check events**: Look at Kubernetes events for warnings and errors"
-      "**Inspect pods**: Get pod status, logs, and resource usage"
-      "**Examine resources**: Get detailed resource definitions to identify misconfigurations"
-      "**Check node health**: Review node status and resource consumption"
-}}
 
 {{ if include "holmes.kubernetesMcp.inHolmesPod" . -}}
-{{- $steps = prepend $steps "**Check cluster context**: Use configuration tools to verify which cluster you're connected to" -}}
-This server runs with a kubeconfig that can hold several clusters.
+This server runs with a kubeconfig that can hold several clusters. Use the configuration tools to check which clusters are available and which one you're connected to.
 {{- else -}}
 This server runs in-cluster and is connected only to the cluster it is deployed in. There is no kubeconfig, so don't call the configuration tools (`configuration_view` fails in this mode).
 {{- end }}
-{{ range $i, $step := $steps }}
-{{ add1 $i }}. {{ $step }}
-{{- end }}
-
-## Important Guidelines
-
-- Always specify the namespace when querying namespaced resources
-- Check events first - they often reveal the root cause quickly
-- Use pod logs to understand application-level failures
-- Compare resource requests/limits with actual usage via top commands
-- When investigating scheduling issues, check node capacity and taints
 {{- end -}}
 {{- end -}}
 
