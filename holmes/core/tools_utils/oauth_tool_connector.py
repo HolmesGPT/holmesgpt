@@ -292,7 +292,12 @@ class OAuthToolConnector:
         already failed to refresh — the stored token is genuinely dead.
         """
         try:
-            _get_token_manager().invalidate_token(toolset._mcp_config.oauth, {"user_id": user_id})
+            mgr = _get_token_manager()
+            oauth_config = toolset._mcp_config.oauth
+            cache_key = mgr._get_cache_key(oauth_config, {"user_id": user_id})
+            mgr._cache.evict(cache_key)
+            provider_name = oauth_config.authorization_url or "unknown"
+            mgr._store.delete_token(provider_name, user_id=user_id)
         except Exception:
             logger.debug("Failed to evict expired token for user %s", user_id, exc_info=True)
 
