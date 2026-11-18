@@ -658,6 +658,7 @@ toolsets:
     # e.g. to query company-specific data or run your own commands
 
   kubernetes/live-metrics:
+    expose_remotely: true  # cluster-local; callable cross-cluster via platform-mcp
     description: "Provides real-time metrics for pods and nodes"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
@@ -680,6 +681,7 @@ toolsets:
           kubectl top nodes
 
   kubernetes/kube-prometheus-stack:
+    expose_remotely: true  # cluster-local; callable cross-cluster via platform-mcp
     description: "Fetches prometheus definition"
     docs_url: "https://holmesgpt.dev/data-sources/builtin-toolsets/kubernetes/"
     icon_url: "https://raw.githubusercontent.com/gilbarbara/logos/de2c1f96ff6e74ea7ea979b43202e8d4b863c655/logos/kubernetes.svg"
