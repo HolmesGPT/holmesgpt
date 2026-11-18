@@ -275,15 +275,21 @@ def get_holmes_logs(
                 "error": None,
             }
             try:
-                text = api.read_namespaced_pod_log(
+                response = api.read_namespaced_pod_log(
                     name=pod.metadata.name,
                     namespace=namespace,
                     container=container.name,
                     tail_lines=request.tail_lines,
                     previous=request.previous,
+                    _preload_content=False,
                     _request_timeout=LOG_REQUEST_TIMEOUT_SECONDS,
                 )
-                entry["text"] = text or ""
+                # SDK 36's string deserializer stringifies bytes; decode raw logs.
+                try:
+                    entry["text"] = response.data.decode("utf-8")
+                finally:
+                    response.close()
+                    response.release_conn()
             except Exception as e:
                 entry["error"] = _describe_api_error(
                     f"reading {'previous ' if request.previous else ''}logs of "

@@ -85,7 +85,7 @@ def _api(pods, logs=None, own=None):
         value = (logs or {}).get((name, container), f"{name}/{container} line\n")
         if isinstance(value, Exception):
             raise value
-        return value
+        return MagicMock(data=value.encode("utf-8"))
 
     api.read_namespaced_pod_log.side_effect = _read_log
     return api
@@ -170,6 +170,32 @@ def test_include_logs_false_skips_log_reads():
     assert data["logs"] == []
     assert len(data["pods"]) == 1
     api.read_namespaced_pod_log.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "body, expected_text, expected_error",
+    [
+        (b"caf\xc3\xa9\n", "caf\u00e9\n", None),
+        (b'{"status":"ready"}\n', '{"status":"ready"}\n', None),
+        (b"\xff", "", "UnicodeDecodeError"),
+    ],
+)
+def test_raw_log_response_is_decoded_and_released(body, expected_text, expected_error):
+    api = _api([_pod(OWN)])
+    response = MagicMock(data=body)
+    api.read_namespaced_pod_log.side_effect = None
+    api.read_namespaced_pod_log.return_value = response
+
+    data = get_holmes_logs(HolmesLogsRequest(), core_api_factory=lambda: api)
+
+    assert data["logs"][0]["text"] == expected_text
+    if expected_error:
+        assert expected_error in data["logs"][0]["error"]
+    else:
+        assert data["logs"][0]["error"] is None
+    assert api.read_namespaced_pod_log.call_args.kwargs["_preload_content"] is False
+    response.close.assert_called_once_with()
+    response.release_conn.assert_called_once_with()
 
 
 def test_pod_name_filter_restricts_logs_but_not_pods():
