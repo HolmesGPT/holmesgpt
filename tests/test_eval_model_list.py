@@ -1,4 +1,4 @@
-"""The committed eval model list (tests/llm/model_list.yaml) and how evals resolve models from it."""
+"""The committed eval model list and how evals resolve models from it."""
 
 import re
 from pathlib import Path

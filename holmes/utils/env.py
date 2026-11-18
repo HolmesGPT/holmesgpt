@@ -17,7 +17,7 @@ ENV_PLACEHOLDER_PATTERN = re.compile(r"{{\s*env\.([^}]*)\s*}}")
 
 
 def find_unset_env_vars(value: Any) -> list[str]:
-    """Names of the `{{ env.X }}` placeholders in `value` whose variable is unset or empty."""
+    """`{{ env.X }}` names in `value` whose variable is unset or empty."""
     if isinstance(value, SecretStr):
         value = value.get_secret_value()
     if isinstance(value, str):
