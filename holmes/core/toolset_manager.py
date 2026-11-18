@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Any, List, Optional, Union
 from benedict import benedict
 from pydantic import FilePath
 
+from holmes.common.env_vars import (  # noqa: F401
+    DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS,
+    get_prereq_timeout_seconds,
+)
 from holmes.core.config import config_path_dir
 from holmes.core.init_event import EventCallback, StatusEvent, StatusEventKind, ToolsetStatus
 from holmes.core.supabase_dal import SupabaseDal
@@ -21,34 +25,6 @@ if TYPE_CHECKING:
     pass
 
 display_logger = logging.getLogger("holmes.display.toolset_manager")
-
-# Default per-prerequisite-check timeout. Datasources that fail to respond
-# within this many seconds are marked failed so startup can proceed.
-# Override with the HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS env var.
-DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS = 20.0
-
-
-def get_prereq_timeout_seconds() -> float:
-    """Resolve the prerequisite-check timeout from env or fall back to default."""
-    raw = os.environ.get("HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS")
-    if not raw:
-        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
-    try:
-        value = float(raw)
-    except ValueError:
-        logging.warning(
-            f"Invalid HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r}; "
-            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
-        )
-        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
-    if value <= 0:
-        logging.warning(
-            f"HOLMES_TOOLSET_PREREQ_TIMEOUT_SECONDS={raw!r} is non-positive; "
-            f"falling back to {DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS}s"
-        )
-        return DEFAULT_TOOLSET_PREREQ_TIMEOUT_SECONDS
-    return value
-
 
 DEFAULT_TOOLSET_STATUS_LOCATION = os.path.join(config_path_dir, "toolsets_status.json")
 
