@@ -44,7 +44,7 @@ on:
 
   # Run weekly on Sunday at 2 AM UTC
   schedule:
-    - cron: '0 2 * * 0'
+    - cron: '0 2 * * 1'
 
 env:
   # Default models for benchmarks - single source of truth
@@ -288,7 +288,7 @@ jobs:
           curl -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"channel\": \"#backend\", \"text\": \"${TEXT}\"}"
+            -d "{\"channel\": \"#backend-oncall\", \"text\": \"${TEXT}\"}"
 
       - name: Notify Slack on failure or cancellation
         # github.event.inputs.notify is empty on scheduled runs, so they always notify
