@@ -10,7 +10,6 @@ tags:
   - traces
   - coralogix
   - mcp
-  - benchmark
 
 toolsets_matrix:
   - toolsets.yaml
