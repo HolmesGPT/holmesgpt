@@ -201,6 +201,41 @@ class OAuthTokenManager:
 
         return None
 
+    def invalidate_token(
+        self,
+        oauth_config: Any,
+        request_context: Optional[Dict[str, Any]],
+        rejected_token: Optional[str],
+    ) -> bool:
+        """Forget an access token the provider rejected, in the cache and the persistent store.
+
+        Only the rejected token is removed: if the user's current token is a newer
+        one (a refresh or a new login landed while the failed call was in flight)
+        it is kept. Returns True when the rejected token is gone, so the next
+        get_access_token() for this user returns None and the caller starts a new
+        login. Returns False when nothing was removed or the stored copy could not
+        be deleted.
+        """
+        user_id = _get_user_id(request_context)
+        if not user_id or not rejected_token:
+            return False
+
+        cache_key = self._build_cache_key(user_id, oauth_config.authorization_url)
+        current = self._cache.get_valid_access_token(cache_key)
+        if current and current != rejected_token:
+            return False
+        self._cache.evict(cache_key)
+
+        if not self._store:
+            return True
+        provider_name = oauth_config.authorization_url or "unknown"
+        stored = self._store.get_token(provider_name, user_id=user_id)
+        if not stored:
+            return True
+        if stored.get("access_token") != rejected_token:
+            return False
+        return self._store.delete_token(provider_name, user_id=user_id)
+
     @staticmethod
     def _resource_compatible(token_resource: Optional[str], requested_resource: Optional[str]) -> bool:
         """RFC 8707 audience check for serving a token.
