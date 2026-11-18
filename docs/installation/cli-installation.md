@@ -84,6 +84,16 @@ Run HolmesGPT from your terminal as a standalone CLI tool.
     > **Note:** Use `-e` flags to pass API keys for your provider (e.g., `-e ANTHROPIC_API_KEY`, `-e GEMINI_API_KEY`). See [Environment Variables Reference](../reference/environment-variables.md) for the complete list.
 
 
+## Diagnose your installation
+
+After installing, confirm the CLI can see your credentials and (optionally) your cluster:
+
+```bash
+holmes doctor
+```
+
+Use `--json` to print the same report as JSON, or `--skip-toolsets` for a faster check that does not load toolset status.
+
 ## Quick Start
 
 Choose your AI provider (see [all providers](../ai-providers/index.md) for more options).
