@@ -19,6 +19,7 @@ from holmes.core.tools import (
 from holmes.plugins.toolsets.multi_instance import (
     INSTANCE_PARAM_NAME,
     ListInstancesTool,
+    _parse_instances,
     multi_instance,
 )
 from holmes.utils.pydantic_utils import ToolsetConfig
@@ -364,3 +365,82 @@ class TestLlmInstructionsPropagation:
         )
         assert "http://good" in ts.llm_instructions
         assert "bad" not in ts.llm_instructions
+
+
+class TestInstanceDescriptions:
+    """Optional per-instance `description` (#1216): wrapper metadata shown to the LLM."""
+
+    def _wrap_described(self, toolset_cls=_FakeToolset):
+        ts = multi_instance(toolset_cls)
+        ts.prerequisites_callable(
+            {"instances": [
+                {"name": "eu", "description": "EU production, 30-day retention", "api_url": "http://eu"},
+                {"name": "us", "api_url": "http://us"},
+                {"name": "bad", "description": "Old cluster, being retired"},
+            ]}
+        )
+        return ts
+
+    def test_description_is_not_part_of_child_config(self):
+        assert _parse_instances(
+            {"instances": [{"name": "eu", "description": "EU prod", "api_url": "http://eu"}]}
+        ) == [("eu", {"api_url": "http://eu"})]
+        ts = self._wrap_described()
+        assert "description" not in ts._instance_configs["eu"]
+        assert "description" not in ts._children["eu"].config
+
+    def test_list_instances_returns_descriptions(self):
+        ts = self._wrap_described()
+        tool = next(t for t in ts.tools if isinstance(t, ListInstancesTool))
+        r = tool._invoke({}, create_mock_tool_invoke_context())
+        by_name = {i["name"]: i for i in r.data["instances"]}
+        assert by_name["eu"]["description"] == "EU production, 30-day retention"
+        assert "description" not in by_name["us"]
+        assert r.data["offline_instances"] == [
+            {"name": "bad", "reason": "missing api_url", "description": "Old cluster, being retired"}
+        ]
+
+    def test_meta_instances_include_descriptions(self):
+        ts = self._wrap_described()
+        by_name = {i["name"]: i for i in ts.meta["instances"]}
+        assert by_name["eu"]["description"] == "EU production, 30-day retention"
+        assert "description" not in by_name["us"]
+        assert by_name["bad"]["description"] == "Old cluster, being retired"
+
+    def test_llm_instruction_headings_include_descriptions(self):
+        ts = self._wrap_described(_RuntimeInstructionsToolset)
+        assert "### Instance `eu`: EU production, 30-day retention" in ts.llm_instructions
+        # No description configured for `us`: the heading stays as before.
+        assert "### Instance `us`\n\nBase URL: http://us" in ts.llm_instructions
+
+    def test_blank_or_non_string_descriptions_are_ignored(self):
+        ts = _wrap(
+            {"instances": [
+                {"name": "a", "description": "   ", "api_url": "http://a"},
+                {"name": "b", "description": 42, "api_url": "http://b"},
+            ]}
+        )
+        tool = next(t for t in ts.tools if isinstance(t, ListInstancesTool))
+        r = tool._invoke({}, create_mock_tool_invoke_context())
+        assert all("description" not in i for i in r.data["instances"])
+        assert "description" not in ts._instance_configs["b"]
+
+    def test_unnamed_instance_description_uses_generated_name(self):
+        ts = _wrap(
+            {"instances": [
+                {"description": "first", "api_url": "http://a"},
+                {"name": "b", "api_url": "http://b"},
+            ]}
+        )
+        by_name = {i["name"]: i for i in ts.meta["instances"]}
+        assert by_name["instance-0"]["description"] == "first"
+
+    def test_descriptions_reset_when_config_reloads(self):
+        ts = self._wrap_described()
+        ts.prerequisites_callable(
+            {"instances": [
+                {"name": "eu", "api_url": "http://eu"},
+                {"name": "us", "api_url": "http://us"},
+            ]}
+        )
+        assert all("description" not in i for i in ts.meta["instances"])
