@@ -52,9 +52,11 @@ def account_settings_cache_ttl() -> int:
 
 
 class AccountSettingsCache:
-    """``get``: the settings read within the TTL. After a failed re-read it
-    serves the last value read for another TTL, so a database blip does not
-    change what the settings control. ``None`` only when no read ever succeeded.
+    """``get``: the settings read within the TTL. While another caller is
+    re-reading them it serves the last value read instead of waiting, and after
+    a failed re-read it serves that value for another TTL, so neither a slow
+    nor a failed read changes what the settings control. ``None`` only when no
+    read ever succeeded.
 
     ``get_fresh``: for gates that refuse when unsure. The settings read within
     the TTL, or ``None`` after a failed read; never an older value.
@@ -72,9 +74,10 @@ class AccountSettingsCache:
         self._ttl = ttl
         self._timer = timer
         self._lock = threading.Lock()
-        # One read at a time: callers that find the cache expired wait for the
-        # read in flight instead of starting their own, so an outage costs one
-        # failed read per TTL and an older read never replaces a newer one.
+        # One read at a time, so an outage costs one failed read per TTL and an
+        # older read never replaces a newer one. A get() caller with a value to
+        # serve does not wait for the read in flight; get_fresh() and a caller
+        # with nothing to serve do.
         self._refresh_lock = threading.Lock()
         self._value: Optional[AccountSettings] = None
         self._read_at = -math.inf
@@ -84,11 +87,19 @@ class AccountSettingsCache:
         cached = self._cached(fresh_only=False)
         if cached is not _NOT_CACHED:
             return cached
-        with self._refresh_lock:
+        if not self._refresh_lock.acquire(blocking=False):
+            with self._lock:
+                retained = self._value
+            if retained is not None:
+                return retained
+            self._refresh_lock.acquire()
+        try:
             cached = self._cached(fresh_only=False)
             if cached is not _NOT_CACHED:
                 return cached
             settings = self._refresh()
+        finally:
+            self._refresh_lock.release()
         if settings is not None:
             return settings
         with self._lock:

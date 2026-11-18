@@ -783,6 +783,30 @@ class TestSkillHierarchyConfig:
 
         assert skills_dal.client.table.call_count == 1
 
+    def test_a_malformed_value_is_warned_about_once_per_read(self, skills_dal, caplog):
+        """Read on every chat request: re-parsing the same snapshot must not repeat
+        the warning each time."""
+        self._settings(
+            skills_dal,
+            {"skill_name_hierarchy_enabled": "false", "skill_name_hierarchy_order": "x"},
+        )
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                skills_dal.get_skill_hierarchy_config()
+
+        assert caplog.text.count("non-boolean skill_name_hierarchy_enabled") == 1
+        assert caplog.text.count("malformed skill_name_hierarchy_order") == 1
+
+    def test_a_new_read_is_parsed_again(self, skills_dal):
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": False})
+        assert skills_dal.get_skill_hierarchy_config().enabled is False
+
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": True})
+        skills_dal.account_settings.clear()
+
+        assert skills_dal.get_skill_hierarchy_config().enabled is True
+
 
 class TestSyncSkills:
     """Tests for the HolmesCustomSkills mirror write."""
