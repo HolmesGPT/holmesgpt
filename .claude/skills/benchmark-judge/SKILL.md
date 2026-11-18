@@ -14,7 +14,7 @@ Pick the latest benchmark with the most iterations from `docs/development/evalua
 
 ```bash
 # Judges are names from the committed model list; set the EVALS_* keys they need
-export MODEL_LIST_FILE_LOCATION="$PWD/tests/llm/model_list.yaml"
+export MODEL_LIST_FILE_LOCATION="$(git rev-parse --show-toplevel)/tests/llm/model_list.yaml"
 poetry run python .claude/skills/benchmark-judge/benchmark_judge.py <run_id> \
   --judges haiku-5.5-medium,gpt-6.1-sol-medium,deepseek-v4-pro,opus-5.5-medium
 ```

@@ -602,7 +602,7 @@ unset BRAINTRUST_API_KEY
 unset BRAINTRUST_SERVICE_TOKEN
 
 export EVALS_OPENROUTER_API_KEY="$OPENROUTER_API_KEY"
-export MODEL_LIST_FILE_LOCATION="$PWD/tests/llm/model_list.yaml"
+export MODEL_LIST_FILE_LOCATION="$(git rev-parse --show-toplevel)/tests/llm/model_list.yaml"
 export MODEL=kimi-k3 CLASSIFIER_MODEL=deepseek-v4-pro RUN_LIVE=true
 # CI's value: the 800 MB default makes kubectl run out of memory under load
 export TOOL_MEMORY_LIMIT_MB=1536
