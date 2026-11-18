@@ -1,0 +1,19 @@
+# OpenUI: no filter was asked for, so no control. Guards against the prompt
+# making the model add a Select to every visualization.
+user_prompt: "Show me the pods by phase as a chart."
+
+include_tool_calls: true
+
+openui:
+  expect_visualization: true
+  expect_controls: false
+  min_components: { Chart: 1 }
+
+expected_output:
+  - "The visualization is a chart of the number of pods per phase: Running, Pending and Failed"
+  - "The visualization has no filter, select, switch or text input"
+
+tags:
+  - openui
+  - frontend
+  - fast

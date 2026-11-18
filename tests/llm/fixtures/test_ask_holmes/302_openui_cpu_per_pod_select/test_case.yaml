@@ -1,0 +1,19 @@
+# OpenUI: a CPU line chart whose series the user picks. The chart config comes
+# from transform_tools, so the $variable has to travel through its params.
+user_prompt: "Chart the CPU usage per pod over the last hour as a line chart, and let me pick which pod to show."
+
+include_tool_calls: true
+
+openui:
+  expect_visualization: true
+  expect_controls: true
+  min_components: { Chart: 1 }
+
+expected_output:
+  - "The visualization is a line chart of CPU over time with a series per pod, and a control to pick the pod"
+  - "The answer names both pods, api-gateway and billing"
+
+tags:
+  - openui
+  - frontend
+  - fast

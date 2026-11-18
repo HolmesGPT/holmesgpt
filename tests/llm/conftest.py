@@ -28,6 +28,13 @@ from tests.llm.utils.setup_cleanup import (
     log,
     run_all_test_setup,
 )
+from tests.llm.utils.openui import (
+    OpenUIArtifacts,
+    fetch_checker,
+    fetch_frontend_tools,
+    resolve_check_url,
+    resolve_frontend_tools_url,
+)
 from tests.llm.utils.test_case_utils import _model_list_exists, create_eval_llm
 from tests.llm.utils.test_env_vars import (
     ANTHROPIC_API_KEY,
@@ -95,6 +102,39 @@ def _has_frontend_tests(session: pytest.Session) -> bool:
         if item.get_closest_marker("frontend"):
             return True
     return False
+
+
+def _has_openui_tests(session: pytest.Session) -> bool:
+    return any(
+        item.get_closest_marker("openui") for item in getattr(session, "items", [])
+    )
+
+
+@pytest.fixture(scope="session")
+def openui_artifacts(request) -> Optional[OpenUIArtifacts]:
+    """The frontend's tool definitions and program checker for the OpenUI evals.
+
+    Session scope on purpose: the autouse `responses` mock refuses every
+    `requests` call made inside a test, so both downloads happen here, once.
+    """
+    if not _has_openui_tests(request.session):
+        return None
+
+    tools_url = resolve_frontend_tools_url(
+        request.config.getoption("--frontend-tools-url")
+    )
+    check_url = resolve_check_url(request.config.getoption("--openui-check-url"))
+    with force_pytest_output(request):
+        print(f"\n📥 Fetching OpenUI tool definitions from {tools_url}")
+        print(f"📥 Fetching OpenUI program checker from {check_url}")
+    try:
+        return OpenUIArtifacts(
+            tools=fetch_frontend_tools(tools_url), checker=fetch_checker(check_url)
+        )
+    except Exception as e:
+        raise pytest.UsageError(
+            f"Failed to fetch the OpenUI eval artifacts: {e}"
+        ) from e
 
 
 def is_llm_test(nodeid: str) -> bool:
@@ -876,8 +916,12 @@ def _collect_test_results_from_stats(terminalreporter):
                 "completion_tokens": user_props.get("completion_tokens", 0),
                 "cached_tokens": user_props.get("cached_tokens"),
                 "reasoning_tokens": user_props.get("reasoning_tokens", 0),
-                "max_completion_tokens_per_call": user_props.get("max_completion_tokens_per_call", 0),
-                "max_prompt_tokens_per_call": user_props.get("max_prompt_tokens_per_call", 0),
+                "max_completion_tokens_per_call": user_props.get(
+                    "max_completion_tokens_per_call", 0
+                ),
+                "max_prompt_tokens_per_call": user_props.get(
+                    "max_prompt_tokens_per_call", 0
+                ),
                 "num_compactions": user_props.get("num_compactions", 0),
                 # SuggestSkills / closed-loop replay tracking (see
                 # test_ask_holmes.py and reporting/github_reporter.py)
@@ -887,9 +931,13 @@ def _collect_test_results_from_stats(terminalreporter):
                 "replay_attempted": user_props.get("replay_attempted", False),
                 "replay_correctness": user_props.get("replay_correctness"),
                 "replay_skill_loaded": user_props.get("replay_skill_loaded"),
-                "replay_skills_read_count": user_props.get("replay_skills_read_count", 0),
+                "replay_skills_read_count": user_props.get(
+                    "replay_skills_read_count", 0
+                ),
                 "replay_skill_count": user_props.get("replay_skill_count", 0),
-                "replay_braintrust_span_id": user_props.get("replay_braintrust_span_id"),
+                "replay_braintrust_span_id": user_props.get(
+                    "replay_braintrust_span_id"
+                ),
                 "replay_braintrust_root_span_id": user_props.get(
                     "replay_braintrust_root_span_id"
                 ),
@@ -899,7 +947,9 @@ def _collect_test_results_from_stats(terminalreporter):
                 "replay_total_cost": user_props.get("replay_total_cost"),
                 "replay_total_tokens": user_props.get("replay_total_tokens", 0),
                 "replay_prompt_tokens": user_props.get("replay_prompt_tokens", 0),
-                "replay_completion_tokens": user_props.get("replay_completion_tokens", 0),
+                "replay_completion_tokens": user_props.get(
+                    "replay_completion_tokens", 0
+                ),
                 "replay_cached_tokens": user_props.get("replay_cached_tokens"),
                 "replay_reasoning_tokens": user_props.get("replay_reasoning_tokens", 0),
                 "replay_max_completion_tokens_per_call": user_props.get(
