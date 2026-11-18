@@ -1237,10 +1237,10 @@ class YAMLToolset(Toolset):
 class ToolsetYamlFromConfig(Toolset):
     """
     ToolsetYamlFromConfig represents a toolset loaded from a YAML configuration file.
-    To override a build-in toolset fields, we don't have to explicitly set all required fields,
+    To override a built-in toolset fields, we don't have to explicitly set all required fields,
     instead, we only put the fields we want to override in the YAML file.
     ToolsetYamlFromConfig helps py-pass the pydantic validation of the required fields and together with
-    `override_with` method, a build-in toolset object with new configurations is created.
+    `override_with` method, a built-in toolset object with new configurations is created.
     """
 
     name: str

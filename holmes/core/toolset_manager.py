@@ -182,7 +182,7 @@ class ToolsetManager:
                         f"requires configuration that was not provided"
                     )
 
-        # build-in toolset is enabled when it's explicitly enabled in the toolset or custom toolset config
+        # built-in toolset is enabled when it's explicitly enabled in the toolset or custom toolset config
         if self.toolsets is not None:
             toolsets_from_config = self._load_toolsets_from_config(
                 self.toolsets, builtin_toolsets_names, dal
@@ -454,7 +454,7 @@ class ToolsetManager:
         Loading cached toolsets status saves the time for runtime tool executor checking the status of each toolset
 
         enabled toolset when:
-        - build-in toolset specified in the config and not explicitly disabled
+        - built-in toolset specified in the config and not explicitly disabled
         - custom toolset not explicitly disabled
         """
 
