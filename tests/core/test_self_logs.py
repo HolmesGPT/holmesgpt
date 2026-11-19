@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 from kubernetes.client import (
@@ -20,6 +20,7 @@ from kubernetes.client import (
 )
 from kubernetes.client import V1Container
 from kubernetes.client.rest import ApiException
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
 from holmes.core import self_logs
 from holmes.utils import holmes_status
@@ -194,8 +195,53 @@ def test_raw_log_response_is_decoded_and_released(body, expected_text, expected_
     else:
         assert data["logs"][0]["error"] is None
     assert api.read_namespaced_pod_log.call_args.kwargs["_preload_content"] is False
+    api.read_namespaced_pod_log.assert_called_once()
     response.close.assert_called_once_with()
     response.release_conn.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ProtocolError("interrupted body"), ReadTimeoutError(None, None, "body timed out")],
+)
+def test_interrupted_log_body_retries_after_releasing_response(error):
+    api = _api([_pod(OWN)])
+    interrupted = MagicMock()
+    type(interrupted).data = PropertyMock(side_effect=error)
+    recovered = MagicMock(data=b"recovered\n")
+
+    def _read_log(**kwargs):
+        if api.read_namespaced_pod_log.call_count == 1:
+            return interrupted
+        interrupted.close.assert_called_once_with()
+        interrupted.release_conn.assert_called_once_with()
+        return recovered
+
+    api.read_namespaced_pod_log.side_effect = _read_log
+    data = get_holmes_logs(HolmesLogsRequest(), core_api_factory=lambda: api)
+
+    assert data["logs"][0]["text"] == "recovered\n"
+    assert data["logs"][0]["error"] is None
+    assert api.read_namespaced_pod_log.call_count == 2
+    recovered.close.assert_called_once_with()
+    recovered.release_conn.assert_called_once_with()
+
+
+def test_interrupted_log_body_stops_retrying_and_reports_error():
+    api = _api([_pod(OWN)])
+    responses = [MagicMock() for _ in range(3)]
+    for response in responses:
+        type(response).data = PropertyMock(side_effect=ProtocolError("interrupted body"))
+    api.read_namespaced_pod_log.side_effect = responses
+
+    data = get_holmes_logs(HolmesLogsRequest(), core_api_factory=lambda: api)
+
+    assert data["logs"][0]["text"] == ""
+    assert "ProtocolError" in data["logs"][0]["error"]
+    assert api.read_namespaced_pod_log.call_count == 3
+    for response in responses:
+        response.close.assert_called_once_with()
+        response.release_conn.assert_called_once_with()
 
 
 def test_pod_name_filter_restricts_logs_but_not_pods():
@@ -221,17 +267,19 @@ def test_no_usable_labels_reports_own_pod_only():
     assert [p["name"] for p in data["pods"]] == [OWN]
 
 
-def test_previous_log_missing_is_reported_per_container():
+@pytest.mark.parametrize("status, reason", [(400, "Bad Request"), (403, "Forbidden")])
+def test_log_api_error_is_reported_per_container_without_retry(status, reason):
     api = _api(
         [_pod(OWN), _pod(OTHER)],
-        logs={(OWN, "holmes"): ApiException(status=400, reason="Bad Request")},
+        logs={(OWN, "holmes"): ApiException(status=status, reason=reason)},
     )
     data = get_holmes_logs(HolmesLogsRequest(previous=True), core_api_factory=lambda: api)
     own_entry = next(e for e in data["logs"] if e["pod"] == OWN)
     assert own_entry["text"] == ""
-    assert "HTTP 400" in own_entry["error"] and "previous logs" in own_entry["error"]
+    assert f"HTTP {status}" in own_entry["error"] and "previous logs" in own_entry["error"]
     other_entry = next(e for e in data["logs"] if e["pod"] == OTHER)
     assert other_entry["error"] is None
+    assert api.read_namespaced_pod_log.call_count == 2
 
 
 def _encoded_size(data):

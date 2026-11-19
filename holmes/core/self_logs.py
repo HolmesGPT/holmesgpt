@@ -10,6 +10,7 @@ the newest lines of each stream.
 """
 
 import json
+import logging
 import os
 import socket
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -18,6 +19,14 @@ from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
 from pydantic import BaseModel, ConfigDict, field_validator
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
 from holmes.common.env_vars import (
     HOLMES_LOGS_DEFAULT_TAIL_LINES,
@@ -191,6 +200,37 @@ def _result(
 # ---- entry point ----
 
 
+@retry(
+    retry=retry_if_exception_type((ProtocolError, ReadTimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(0.1),
+    before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING),
+    reraise=True,
+)
+def _read_pod_log(
+    api: Any,
+    namespace: str,
+    pod_name: str,
+    container: str,
+    request: HolmesLogsRequest,
+) -> str:
+    response = api.read_namespaced_pod_log(
+        name=pod_name,
+        namespace=namespace,
+        container=container,
+        tail_lines=request.tail_lines,
+        previous=request.previous,
+        _preload_content=False,
+        _request_timeout=LOG_REQUEST_TIMEOUT_SECONDS,
+    )
+    # SDK 36's string deserializer stringifies bytes; decode raw logs.
+    try:
+        return response.data.decode("utf-8")
+    finally:
+        response.close()
+        response.release_conn()
+
+
 def get_holmes_logs(
     request: HolmesLogsRequest,
     core_api_factory: Callable[[], Any] = _default_core_api,
@@ -275,21 +315,9 @@ def get_holmes_logs(
                 "error": None,
             }
             try:
-                response = api.read_namespaced_pod_log(
-                    name=pod.metadata.name,
-                    namespace=namespace,
-                    container=container.name,
-                    tail_lines=request.tail_lines,
-                    previous=request.previous,
-                    _preload_content=False,
-                    _request_timeout=LOG_REQUEST_TIMEOUT_SECONDS,
+                entry["text"] = _read_pod_log(
+                    api, namespace, pod.metadata.name, container.name, request
                 )
-                # SDK 36's string deserializer stringifies bytes; decode raw logs.
-                try:
-                    entry["text"] = response.data.decode("utf-8")
-                finally:
-                    response.close()
-                    response.release_conn()
             except Exception as e:
                 entry["error"] = _describe_api_error(
                     f"reading {'previous ' if request.previous else ''}logs of "

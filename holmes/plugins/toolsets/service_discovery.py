@@ -7,13 +7,15 @@ from kubernetes import config  # type: ignore
 from kubernetes.client import V1ServiceList  # type: ignore
 from kubernetes.client.models.v1_service import V1Service  # type: ignore
 
+from holmes.utils.kubernetes_utils import load_kube_config_with_certifi
+
 CLUSTER_DOMAIN = os.environ.get("CLUSTER_DOMAIN", "cluster.local")
 
 try:
     if os.getenv("KUBERNETES_SERVICE_HOST"):
         config.load_incluster_config()
     else:
-        config.load_kube_config()
+        load_kube_config_with_certifi()
 except config.config_exception.ConfigException as e:
     logging.warning(f"Running without kube-config! e={e}")
 
