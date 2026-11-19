@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       should_test: ${{ steps.changes.outputs.should_test }}
+      should_test_docs: ${{ steps.changes.outputs.should_test_docs }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +42,7 @@ jobs:
           if [[ "$HEAD_REF" == automated/benchmark-* && "$HEAD_REPO" == "$BASE_REPO" ]]; then
             echo "Automated benchmark branch — skipping tests"
             echo "should_test=false" >> $GITHUB_OUTPUT
+            echo "should_test_docs=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -56,12 +58,32 @@ jobs:
             "docs/reference/http-api.md"   # contains curl tests validated by tests/test_http_docs.py
           )
 
+          # Paths tests/docs reads: a change to any of them runs tests/docs even
+          # when the rest of the test matrix is skipped
+          DOCS_TEST_PATTERNS=(
+            "docs/*"
+            "mkdocs.yml"
+            "helm/holmes/*"
+            "tests/docs/*"
+          )
+
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "should_test=true" >> $GITHUB_OUTPUT
+            echo "should_test_docs=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           CHANGED_FILES=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+
+          SHOULD_TEST_DOCS=false
+          while IFS= read -r file; do
+            for pattern in "${DOCS_TEST_PATTERNS[@]}"; do
+              case "$file" in
+                $pattern) SHOULD_TEST_DOCS=true; break 2 ;;
+              esac
+            done
+          done <<< "$CHANGED_FILES"
+          echo "should_test_docs=$SHOULD_TEST_DOCS" >> $GITHUB_OUTPUT
 
           SHOULD_TEST=false
           while IFS= read -r file; do
@@ -133,6 +155,12 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-root --with dev
 
+      # tests/docs renders the Helm values of every docs example with helm/holmes.
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
+
       - name: Run tests
         shell: bash
         run: |
@@ -169,6 +197,53 @@ jobs:
               for t in failed[:10]:
                   print(f'  - {t}')
           "
+
+  # tests/docs checks the docs pages against the chart, so it also runs on a
+  # PR that changes only docs, where the full test matrix is skipped.
+  test-docs:
+    needs: check-changes
+    if: needs.check-changes.outputs.should_test_docs == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Poetry installation and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local
+            ~/.cache/pip
+            ~/.cache/pypoetry
+          key: poetry-3.11-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-3.11-
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip setuptools
+          if ! command -v poetry &> /dev/null; then
+            curl -sSL https://install.python-poetry.org | python3 - --version 1.4.0
+          fi
+          poetry config virtualenvs.create false
+
+      - name: Install dependencies
+        run: poetry install --no-root --with dev
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
+
+      - name: Run docs tests
+        run: poetry run pytest tests/docs --no-cov -q --no-header -p no:sugar
 
   build-binary:
     needs: check-changes
@@ -244,7 +319,7 @@ jobs:
   # Require this check ("Build and test HolmesGPT / build-and-test-gate") in
   # branch protection instead of the individual build matrix jobs.
   build-and-test-gate:
-    needs: [check-changes, test, build-binary]
+    needs: [check-changes, test, test-docs, build-binary]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -252,11 +327,29 @@ jobs:
         env:
           CHECK_CHANGES_RESULT: ${{ needs.check-changes.result }}
           SHOULD_TEST: ${{ needs.check-changes.outputs.should_test }}
+          SHOULD_TEST_DOCS: ${{ needs.check-changes.outputs.should_test_docs }}
           TEST_RESULT: ${{ needs.test.result }}
+          TEST_DOCS_RESULT: ${{ needs.test-docs.result }}
           BUILD_RESULT: ${{ needs.build-binary.result }}
         run: |
           if [ "$CHECK_CHANGES_RESULT" != "success" ]; then
             echo "check-changes job failed!"
+            exit 1
+          fi
+          # tests/docs runs exactly when its inputs changed; a missing or
+          # unexpected verdict, a skip when it was due, or a failure fails the gate.
+          if [ "$SHOULD_TEST_DOCS" = "true" ]; then
+            if [ "$TEST_DOCS_RESULT" != "success" ]; then
+              echo "Docs tests failed! (test-docs=$TEST_DOCS_RESULT)"
+              exit 1
+            fi
+          elif [ "$SHOULD_TEST_DOCS" = "false" ]; then
+            if [ "$TEST_DOCS_RESULT" != "skipped" ]; then
+              echo "No docs-test inputs changed, but test-docs=$TEST_DOCS_RESULT"
+              exit 1
+            fi
+          else
+            echo "Unexpected should_test_docs value: '$SHOULD_TEST_DOCS'"
             exit 1
           fi
           # Accept a skip only on an explicit docs-only verdict, and only when

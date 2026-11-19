@@ -14,96 +14,20 @@ By enabling this toolset, HolmesGPT can access MongoDB Atlas projects and proces
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    Set the environment variables:
-
-    ```bash
-    export MONGODB_ATLAS_PUBLIC_KEY="<your-public-api-key>"
-    export MONGODB_ATLAS_PRIVATE_KEY="<your-private-api-key>"
-    export MONGODB_ATLAS_PROJECT_ID="<your-project-id>"
-    ```
-
-    Add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-
-    ```yaml
-    toolsets:
-      MongoDBAtlas:
-        enabled: true
-        config:
-          public_key: "{{ env.MONGODB_ATLAS_PUBLIC_KEY }}"
-          private_key: "{{ env.MONGODB_ATLAS_PRIVATE_KEY }}"
-          project_id: "{{ env.MONGODB_ATLAS_PROJECT_ID }}"
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Holmes Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-mongodb-atlas \
-      --from-literal=MONGODB_ATLAS_PUBLIC_KEY="<your-public-api-key>" \
-      --from-literal=MONGODB_ATLAS_PRIVATE_KEY="<your-private-api-key>" \
-      --from-literal=MONGODB_ATLAS_PROJECT_ID="<your-project-id>" \
-      -n <namespace>
-    ```
-
-    When using the **standalone Holmes Helm Chart**, update your `values.yaml`:
-
-    ```yaml
-    extraEnvVarsSecrets:
-      - holmes-mongodb-atlas
-
-    toolsets:
-      MongoDBAtlas:
-        enabled: true
-        config:
-          public_key: "{{ env.MONGODB_ATLAS_PUBLIC_KEY }}"
-          private_key: "{{ env.MONGODB_ATLAS_PRIVATE_KEY }}"
-          project_id: "{{ env.MONGODB_ATLAS_PROJECT_ID }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Create a Kubernetes secret in the namespace Holmes runs in:
-
-    ```bash
-    kubectl create secret generic holmes-mongodb-atlas \
-      --from-literal=MONGODB_ATLAS_PUBLIC_KEY="<your-public-api-key>" \
-      --from-literal=MONGODB_ATLAS_PRIVATE_KEY="<your-private-api-key>" \
-      --from-literal=MONGODB_ATLAS_PROJECT_ID="<your-project-id>" \
-      -n <namespace>
-    ```
-
-    When using the **Robusta Helm Chart** (which includes HolmesGPT), update your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      extraEnvVarsSecrets:
-        - holmes-mongodb-atlas
-
-      toolsets:
-        MongoDBAtlas:
-          enabled: true
-          config:
-            public_key: "{{ env.MONGODB_ATLAS_PUBLIC_KEY }}"
-            private_key: "{{ env.MONGODB_ATLAS_PRIVATE_KEY }}"
-            project_id: "{{ env.MONGODB_ATLAS_PROJECT_ID }}"
-    ```
-
-    Apply the configuration:
-
-    ```bash
-    helm upgrade robusta robusta/robusta -f generated_values.yaml --set clusterName=<YOUR_CLUSTER_NAME>
-    ```
+```yaml-toolset-config
+toolsets:
+  MongoDBAtlas:
+    enabled: true
+    config:
+      public_key: "{{ env.MONGODB_ATLAS_PUBLIC_KEY }}"
+      private_key: "{{ env.MONGODB_ATLAS_PRIVATE_KEY }}"
+      project_id: "{{ env.MONGODB_ATLAS_PROJECT_ID }}"
+---
+secret:
+  - --from-literal=MONGODB_ATLAS_PUBLIC_KEY="<your-public-api-key>"
+  - --from-literal=MONGODB_ATLAS_PRIVATE_KEY="<your-private-api-key>"
+  - --from-literal=MONGODB_ATLAS_PROJECT_ID="<your-project-id>"
+```
 
 ## Multiple Instances
 

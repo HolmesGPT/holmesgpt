@@ -1,0 +1,379 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shop-src
+type: Opaque
+stringData:
+  tracing.py: |
+    import logging
+    import os
+
+    from flask import Flask
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+
+    def create_app(service_name):
+        resource = Resource.create(
+            {
+                "service.name": service_name,
+                "k8s.namespace.name": os.environ.get("K8S_NAMESPACE", "unknown"),
+                "k8s.deployment.name": service_name,
+                "k8s.pod.name": os.environ.get("K8S_POD_NAME", "unknown"),
+                "k8s.node.name": os.environ.get("K8S_NODE_NAME", "unknown"),
+                "k8s.container.name": "app",
+            }
+        )
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(
+            BatchSpanProcessor(
+                OTLPSpanExporter(endpoint=os.environ["OTLP_ENDPOINT"], insecure=True)
+            )
+        )
+        trace.set_tracer_provider(provider)
+        RequestsInstrumentor().instrument()
+
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
+        )
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+
+        app = Flask(service_name)
+        FlaskInstrumentor().instrument_app(app, excluded_urls="healthz")
+
+        @app.get("/healthz")
+        def healthz():
+            return {"ok": True, "service": service_name}
+
+        return app, trace.get_tracer(service_name), logging.getLogger(service_name)
+
+  checkout.py: |
+    import os
+    import sqlite3
+    import uuid
+
+    import requests
+    from flask import jsonify, request
+
+    from tracing import create_app
+
+    app, tracer, log = create_app("checkout")
+    INVENTORY_URL = os.environ["INVENTORY_BASE_URL"] + "/inventory/check"
+    RISK_URL = os.environ["RISK_BASE_URL"] + "/risk/score"
+
+    db = sqlite3.connect("/tmp/orders.db", check_same_thread=False)
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS orders (order_id TEXT PRIMARY KEY, user_id TEXT, "
+        "item_id TEXT, qty INTEGER, amount REAL, status TEXT)"
+    )
+
+
+    @app.post("/orders")
+    def process_order():
+        body = request.get_json(silent=True) or {}
+        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        fwd = {"x-request-id": request_id}
+        user_id = body.get("userId", "anon")
+        item_id = body.get("itemId", "sku-1")
+        qty = int(body.get("qty", 1))
+        amount = float(body.get("amount", 0))
+        log.info("received request_id=%s user_id=%s item_id=%s", request_id, user_id, item_id)
+
+        inv = requests.post(
+            INVENTORY_URL, json={"itemId": item_id, "qty": qty}, headers=fwd, timeout=5
+        )
+        if inv.status_code != 200 or not inv.json().get("available"):
+            return jsonify(ok=False, stage="inventory", reason="not_available"), 409
+
+        risk = requests.post(
+            RISK_URL,
+            json={"userId": user_id, "amount": amount, "itemId": item_id, "qty": qty},
+            headers=fwd,
+            timeout=5,
+        )
+        score = risk.json().get("score")
+        if risk.status_code != 200 or risk.json().get("isFraud"):
+            return jsonify(ok=False, stage="risk", reason="suspected_fraud", score=score), 403
+
+        statement = (
+            "INSERT INTO orders (order_id, user_id, item_id, qty, amount, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        with tracer.start_as_current_span("INSERT orders") as span:
+            span.set_attribute("db.system", "sqlite")
+            span.set_attribute("db.operation", "INSERT")
+            span.set_attribute("db.statement", statement)
+            db.execute(statement, (request_id, user_id, item_id, qty, amount, "PLACED"))
+            db.commit()
+        log.info("order inserted order_id=%s", request_id)
+        return jsonify(ok=True, orderId=request_id, status="PLACED", score=score)
+
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=3000, threaded=True)
+
+  inventory.py: |
+    from flask import jsonify, request
+
+    from tracing import create_app
+
+    app, tracer, log = create_app("inventory")
+
+
+    @app.post("/inventory/check")
+    def inventory_check():
+        body = request.get_json(silent=True) or {}
+        item_id = body.get("itemId", "sku-1")
+        qty = int(body.get("qty", 1))
+        available = qty <= 5
+        log.info("inventory.check item_id=%s qty=%s available=%s", item_id, qty, available)
+        return jsonify(available=available)
+
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=7000, threaded=True)
+
+  risk.py: |
+    from flask import jsonify, request
+
+    from tracing import create_app
+
+    app, tracer, log = create_app("risk")
+
+
+    @app.post("/risk/score")
+    def risk_score():
+        body = request.get_json(silent=True) or {}
+        user_id = body.get("userId", "anon")
+        amount = float(body.get("amount", 0))
+        qty = int(body.get("qty", 1))
+        score = min(100, int(amount // 10) + qty * 5)
+        is_fraud = score >= 70
+        log.info(
+            "score user_id=%s amount=%s qty=%s score=%s is_fraud=%s",
+            user_id, amount, qty, score, is_fraud,
+        )
+        return jsonify(isFraud=is_fraud, score=score, policy="retail_default_v2")
+
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=8000, threaded=True)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory
+  template:
+    metadata:
+      labels:
+        app: inventory
+    spec:
+      containers:
+      - name: app
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/inventory.py"]
+        ports:
+        - containerPort: 7000
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OTLP_ENDPOINT
+          value: tempo.app-299.svc.cluster.local:4317
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 7000
+          periodSeconds: 5
+        volumeMounts:
+        - name: src
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: src
+        secret:
+          secretName: shop-src
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+spec:
+  selector:
+    app: inventory
+  ports:
+  - name: http
+    port: 7000
+    targetPort: 7000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: risk
+  template:
+    metadata:
+      labels:
+        app: risk
+    spec:
+      containers:
+      - name: app
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/risk.py"]
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OTLP_ENDPOINT
+          value: tempo.app-299.svc.cluster.local:4317
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          periodSeconds: 5
+        volumeMounts:
+        - name: src
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: src
+        secret:
+          secretName: shop-src
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk
+spec:
+  selector:
+    app: risk
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+      - name: app
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/checkout.py"]
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OTLP_ENDPOINT
+          value: tempo.app-299.svc.cluster.local:4317
+        - name: INVENTORY_BASE_URL
+          value: http://inventory.app-299.svc.cluster.local:7000
+        - name: RISK_BASE_URL
+          value: http://risk.app-299.svc.cluster.local:8000
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 3000
+          periodSeconds: 5
+        volumeMounts:
+        - name: src
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: src
+        secret:
+          secretName: shop-src
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+spec:
+  selector:
+    app: checkout
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000

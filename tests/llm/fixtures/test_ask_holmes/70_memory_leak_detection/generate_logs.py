@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import sys
 import time
 from datetime import datetime
 
@@ -35,9 +36,9 @@ def main():
     # Start at 100MB, grow to 4096MB (OOM)
 
     base_memory = 100
-    records_per_gb = 25000  # Distribute memory growth across logs
+    records_per_gb = 8250  # Distribute memory growth across logs
 
-    for i in range(100000):
+    for i in range(33000):
         # Calculate current memory usage (exponential growth)
         memory_mb = int(base_memory + (i / records_per_gb) * 1000)
 
@@ -67,7 +68,7 @@ def main():
             )
 
         # OutOfMemoryError at the end
-        if memory_mb == 4096 and i > 99000:
+        if memory_mb == 4096 and i > 32670:
             print(
                 generate_log_entry(
                     memory_mb, error="java.lang.OutOfMemoryError: Java heap space"
@@ -86,6 +87,7 @@ def main():
             )
             break
 
+    sys.stdout.flush()
     # Keep pod running
     while True:
         time.sleep(3600)
