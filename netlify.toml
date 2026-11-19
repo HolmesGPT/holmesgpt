@@ -1,0 +1,4 @@
+[build]
+  command = "pip install mkdocs-material mkdocs-glightbox mkdocs-awesome-nav && python -m mkdocs build"
+  publish = "site"
+  ignore = "git fetch origin master && git diff --quiet $(git merge-base HEAD origin/master) HEAD -- docs/ mkdocs.yml"
