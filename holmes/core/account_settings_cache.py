@@ -131,7 +131,9 @@ class AccountSettingsCache:
         return _NOT_CACHED
 
     def clear(self) -> None:
-        with self._lock:
+        # Waits for a read in flight, so it cannot publish pre-clear values or a
+        # failure stamp after the reset.
+        with self._refresh_lock, self._lock:
             self._value = None
             self._read_at = -math.inf
             self._failed_at = -math.inf

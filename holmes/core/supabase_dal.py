@@ -333,9 +333,12 @@ class SupabaseDal:
             self._read_account_settings, ttl=account_settings_cache_ttl()
         )
         # The hierarchy policy parsed from one settings snapshot, so a malformed
-        # value is warned about once per read, not on every chat request.
-        self._hierarchy_snapshot: Optional[Dict[str, Any]] = None
-        self._hierarchy_config = SkillHierarchyConfig()
+        # value is warned about once per read, not on every chat request. One
+        # tuple, so concurrent callers never pair a snapshot with another's policy.
+        self._hierarchy_record: Tuple[Optional[Dict[str, Any]], SkillHierarchyConfig] = (
+            None,
+            SkillHierarchyConfig(),
+        )
         self.lock = threading.Lock()
 
     def __connect(self, options: ClientOptions):
@@ -990,10 +993,12 @@ class SupabaseDal:
         settings = self.account_settings.get()
         if settings is None:
             return default
-        if settings is not self._hierarchy_snapshot:
-            self._hierarchy_config = self._parse_skill_hierarchy(settings)
-            self._hierarchy_snapshot = settings
-        return self._hierarchy_config
+        snapshot, config = self._hierarchy_record
+        if settings is snapshot:
+            return config
+        config = self._parse_skill_hierarchy(settings)
+        self._hierarchy_record = (settings, config)
+        return config
 
     @staticmethod
     def _parse_skill_hierarchy(settings: Dict[str, Any]) -> SkillHierarchyConfig:

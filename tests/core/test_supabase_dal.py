@@ -798,6 +798,15 @@ class TestSkillHierarchyConfig:
         assert caplog.text.count("non-boolean skill_name_hierarchy_enabled") == 1
         assert caplog.text.count("malformed skill_name_hierarchy_order") == 1
 
+    def test_a_snapshot_and_its_policy_are_stored_together(self, skills_dal):
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": True})
+
+        config = skills_dal.get_skill_hierarchy_config()
+
+        snapshot, stored = skills_dal._hierarchy_record
+        assert snapshot is skills_dal.account_settings.get()
+        assert stored is config
+
     def test_a_new_read_is_parsed_again(self, skills_dal):
         self._settings(skills_dal, {"skill_name_hierarchy_enabled": False})
         assert skills_dal.get_skill_hierarchy_config().enabled is False
