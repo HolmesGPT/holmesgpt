@@ -76,6 +76,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.confluenceMcp.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.confluenceMcp.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.mcpAddons.confluenceMcp.dnsConfig.enabled }}
       {{- $policy := .Values.mcpAddons.confluenceMcp.dnsConfig.policy }}
       {{- $hasConfig := or .Values.mcpAddons.confluenceMcp.dnsConfig.nameservers .Values.mcpAddons.confluenceMcp.dnsConfig.searches .Values.mcpAddons.confluenceMcp.dnsConfig.options }}
@@ -147,6 +151,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.confluenceMcp.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.confluenceMcp.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         readinessProbe:
           httpGet:
             path: /healthz

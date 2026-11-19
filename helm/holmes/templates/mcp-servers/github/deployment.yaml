@@ -79,6 +79,10 @@ spec:
       affinity:
         {{- toYaml .Values.mcpAddons.github.affinity | nindent 8 }}
       {{- end }}
+      {{- with .Values.mcpAddons.github.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: github-mcp
         {{- if .Values.mcpAddons.github.auth.githubApp.secretName }}
@@ -172,6 +176,10 @@ spec:
         {{- end }}
         resources:
           {{- toYaml .Values.mcpAddons.github.resources | nindent 10 }}
+        {{- with .Values.mcpAddons.github.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         {{- if and .Values.mcpAddons.github.auth.githubApp.secretName .Values.mcpAddons.github.auth.githubApp.multiOrg }}
         {{- /* The multi-org proxy serves /healthz (process up) and /readyz
              (at least one GitHub App installation discovered). */}}
