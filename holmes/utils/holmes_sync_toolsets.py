@@ -186,9 +186,10 @@ def build_remote_tools_meta(toolset: Toolset, tool_executor: Any = None) -> Any:
     None when the toolset must not be published (not exposed, is_core, not
     enabled, or no publishable tools).
 
-    Excluded tools: tools that as a whole match approval_required_tools
-    patterns (bash is NOT excluded — its approval decision is per command
-    and enforced at execution time)."""
+    Tools that as a whole match approval_required_tools patterns are
+    published with ``requires_approval: true``: the executor still asks for
+    approval on every call, and relay runs it only with a human approval it
+    verified. Bash carries no flag — its approval decision is per command."""
     if not toolset.expose_remotely or toolset.is_core:
         return None
     if toolset.status != ToolsetStatusEnum.ENABLED:
@@ -201,13 +202,17 @@ def build_remote_tools_meta(toolset: Toolset, tool_executor: Any = None) -> Any:
         if exposed_instances is not None and not exposed_instances:
             return None  # multi-instance toolset with zero exposed instances
 
-    tools = [
-        {**tool.get_openai_format(), "contract_hash": remote_tool_contract_hash(tool)}
-        for tool in _exposed_tools(toolset, tool_executor)
-        if not _tool_requires_approval(
+    tools = []
+    for tool in _exposed_tools(toolset, tool_executor):
+        entry = {
+            **tool.get_openai_format(),
+            "contract_hash": remote_tool_contract_hash(tool),
+        }
+        if _tool_requires_approval(
             _mcp_tool_name(tool) or tool.name, toolset.approval_required_tools
-        )
-    ]
+        ):
+            entry["requires_approval"] = True
+        tools.append(entry)
     if not tools:
         return None
 

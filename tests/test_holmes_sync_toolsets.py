@@ -445,14 +445,58 @@ def test_build_remote_tools_meta_publishes_yaml_tools():
     assert tool_names == {"list_buckets", "delete_bucket"}
 
 
-def test_build_remote_tools_meta_excludes_approval_required_tools():
+def test_build_remote_tools_meta_publishes_approval_required_tools_flagged():
     meta = build_remote_tools_meta(
         _exposed_toolset(approval_required_tools=["delete_*"])
     )
 
     assert meta is not None
-    tool_names = {t["function"]["name"] for t in meta["tools"]}
-    assert tool_names == {"list_buckets"}
+    by_name = {t["function"]["name"]: t for t in meta["tools"]}
+    assert set(by_name) == {"list_buckets", "delete_bucket"}
+    assert by_name["delete_bucket"]["requires_approval"] is True
+    assert "requires_approval" not in by_name["list_buckets"]
+
+
+def test_build_remote_tools_meta_flag_does_not_change_the_contract_hash():
+    plain = build_remote_tools_meta(_exposed_toolset())
+    gated = build_remote_tools_meta(_exposed_toolset(approval_required_tools=["*"]))
+
+    assert {t["contract_hash"] for t in plain["tools"]} == {
+        t["contract_hash"] for t in gated["tools"]
+    }
+    assert all(t["requires_approval"] for t in gated["tools"])
+
+
+def test_build_remote_tools_meta_flags_an_mcp_tool_by_its_real_name():
+    toolset = RemoteMCPToolset(
+        name="kubernetes_remediation",
+        description="remediation",
+        config={"url": "http://localhost:1/mcp", "mode": "streamable-http"},
+        expose_remotely=True,
+        approval_required_tools=["run_kubectl_command"],
+    )
+    toolset.tools = [
+        RemoteMCPTool.create(
+            MCP_Tool(
+                name=name,
+                description=name,
+                inputSchema={"type": "object", "properties": {"args": {"type": "array"}}},
+            ),
+            toolset,
+        )
+        for name in ("run_kubectl_command", "get_remediation_mcp_config")
+    ]
+    toolset.status = ToolsetStatusEnum.ENABLED
+
+    meta = build_remote_tools_meta(toolset)
+
+    flags = {
+        t["function"]["name"]: t.get("requires_approval", False) for t in meta["tools"]
+    }
+    assert flags == {
+        "run_kubectl_command": True,
+        "get_remediation_mcp_config": False,
+    }
 
 
 def test_build_remote_tools_meta_none_when_not_exposed():

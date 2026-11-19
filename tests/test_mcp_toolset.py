@@ -1231,10 +1231,10 @@ class TestStreamableHttp:
         assert names == {"call_az"}
         assert "call_az" in ex.tools_by_name
 
-    def test_remote_publish_excludes_approval_tool_on_collision(
+    def test_remote_publish_flags_approval_tool_on_collision(
         self, monkeypatch, suppress_migration_warnings
     ):
-        # Approval filter must match the raw name, not the namespaced one.
+        # The approval flag must match the raw name, not the namespaced one.
         from holmes.core.tools_utils.tool_executor import ToolExecutor
         from holmes.utils.holmes_sync_toolsets import build_remote_tools_meta
 
@@ -1255,8 +1255,8 @@ class TestStreamableHttp:
 
         ex = ToolExecutor([ts_a, ts_b])
 
-        # Only tool is approval-gated -> excluded -> nothing to publish.
-        assert build_remote_tools_meta(ts_a, ex) is None
+        meta = build_remote_tools_meta(ts_a, ex)
+        assert [t["requires_approval"] for t in meta["tools"]] == [True]
 
     def test_collision_preserves_approval_gate_and_warns(
         self, monkeypatch, suppress_migration_warnings

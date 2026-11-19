@@ -179,6 +179,7 @@ data:
         "config" $k8sRemediationConfig
         "llm_instructions" (include "holmes.kubernetesRemediationMcp.llmInstructions" . | trim)
         "approval_required_tools" .Values.mcpAddons.kubernetesRemediation.approvalRequiredTools
+        "expose_remotely" (.Values.mcpAddons.kubernetesRemediation.exposeRemotely | default false)
       )
     }}
     {{- $mcpServers = merge $mcpServers $k8sRemediationMcpServers }}

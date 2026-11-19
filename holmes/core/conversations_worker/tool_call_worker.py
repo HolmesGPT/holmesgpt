@@ -224,6 +224,40 @@ def _serializable_images(images: Any) -> List[Dict[str, str]]:
     return [image for image in whole if image is not None]
 
 
+# The approval for a call, from metadata only: the call itself
+# (approval_request_id, approved_by) and/or the session prefixes saved for this
+# cluster. Only relay can write the row, and no relay before ROB-1671 writes
+# this field (an older one forwarded the caller's claim as
+# metadata.remote_tool_approved and tool_request.session_approved_prefixes,
+# both ignored here).
+APPROVAL_METADATA_KEY = "remote_tool_approval"
+_APPROVAL_KEYS = ("approval_request_id", "approved_by")
+
+
+def _call_approval(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    approval = metadata.get(APPROVAL_METADATA_KEY)
+    return approval if isinstance(approval, dict) else {}
+
+
+def _approval_refusal(approval: Dict[str, Any], row_id: Any) -> Optional[str]:
+    """Why an approval that is present cannot be used, or None."""
+    request_id = approval.get("approval_request_id")
+    if not isinstance(request_id, str) or not request_id or request_id == row_id:
+        return "it names no earlier request"
+    approved_by = approval.get("approved_by")
+    if not isinstance(approved_by, str) or not approved_by:
+        return "it names no approver"
+    return None
+
+
+def _session_prefixes(approval: Dict[str, Any]) -> List[str]:
+    prefixes = approval.get("session_prefixes") or []
+    if not isinstance(prefixes, list) or not all(isinstance(p, str) for p in prefixes):
+        logging.warning("ToolCallWorker: ignoring malformed session prefixes")
+        return []
+    return prefixes
+
+
 INTERNAL_KIND_OAUTH_CALLBACK = "oauth_callback"
 INTERNAL_KIND_HOLMES_LOGS = "holmes_logs"
 
@@ -505,8 +539,22 @@ class ToolCallWorker:
             )
 
         tool_call_id = str(tool_request.get("tool_call_id") or row.get("id") or "")
-        user_approved = bool(metadata.get("remote_tool_approved"))
-        session_approved_prefixes = tool_request.get("session_approved_prefixes") or []
+        approval = _call_approval(metadata)
+        user_approved = any(key in approval for key in _APPROVAL_KEYS)
+        if user_approved:
+            refusal = _approval_refusal(approval, row.get("id"))
+            if refusal:
+                logging.warning(
+                    "ToolCallWorker: refusing approved call %s to '%s': %s",
+                    row.get("id"),
+                    tool_name,
+                    refusal,
+                )
+                return _error_response(
+                    f"the approval for '{tool_name}' is incomplete ({refusal}); "
+                    "the tool was not run"
+                )
+        session_approved_prefixes = _session_prefixes(approval)
 
         # 4. Tool invocation context.
         context = ToolInvokeContext(
