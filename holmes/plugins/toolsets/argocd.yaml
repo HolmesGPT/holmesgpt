@@ -53,7 +53,7 @@ toolsets:
         command: "argocd app manifests {{app_name}}{% if revision %} --revision {{ revision }}{% endif %}{% if source %} --source {{ source }}{% endif %}"
 
       - name: "argocd_app_history"
-        description: "List the deployment history of an application in ArgoCD"
+        description: "List the deployment history of an application in ArgoCD. Requires both the application name and its namespace (the namespace the Application resource lives in)."
         command: "argocd app history {{app_name}} --app-namespace {{namespace}}"
 
       - name: "argocd_repo_list"
