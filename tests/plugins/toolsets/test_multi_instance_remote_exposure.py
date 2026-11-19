@@ -468,3 +468,28 @@ def test_an_empty_value_is_treated_as_not_set(empty):
 
     assert toolset.status == ToolsetStatusEnum.ENABLED, toolset.error
     assert toolset.remote_exposed_instances() == ["in"]
+
+
+@pytest.mark.parametrize(
+    "instance_value, exposed",
+    [
+        pytest.param(None, ["in2"], id="null-keeps-shared-false"),
+        pytest.param("", ["in2"], id="empty-keeps-shared-false"),
+        pytest.param(True, ["in", "in2"], id="true-overrides-shared-false"),
+    ],
+)
+def test_an_empty_instance_value_falls_back_to_the_shared_value(instance_value, exposed):
+    toolset = _prometheus(
+        {
+            "config": {
+                "expose_remotely": False,
+                "instances": [
+                    {"name": "in", "prometheus_url": IN_CLUSTER, "expose_remotely": instance_value},
+                    {"name": "in2", "prometheus_url": IN_CLUSTER_2, "expose_remotely": True},
+                ],
+            }
+        }
+    )
+
+    assert toolset.status == ToolsetStatusEnum.ENABLED, toolset.error
+    assert toolset.remote_exposed_instances() == exposed

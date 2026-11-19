@@ -287,12 +287,13 @@ class MultiInstanceToolset(Toolset):
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
-            # An instance's own value replaces the shared one, so check it first.
-            _pop_exposure("config", dict(config or {}))
-            instances = [
-                (name, flat, _pop_exposure(f"instance '{name}'", flat))
-                for name, flat in _parse_instances(config or {})
-            ]
+            # Read the shared value before instance entries replace it in the
+            # merge; an instance left empty falls back to it.
+            shared = _pop_exposure("config", dict(config or {}))
+            instances = []
+            for name, flat in _parse_instances(config or {}):
+                own = _pop_exposure(f"instance '{name}'", flat)
+                instances.append((name, flat, shared if own is None else own))
         except Exception as e:
             return False, f"Invalid {self.name} configuration: {e}"
 
