@@ -463,6 +463,23 @@ Correlate the outputs from each step to identify the root cause.
 - **Synthesize Findings** — how to interpret combined results
 - **Recommended Remediation Steps** — actions based on findings
 
+### Bundling Files with a Skill
+
+Keep `SKILL.md` short and move large reference material into files next to it. Holmes lists them at the end of the `fetch_skill` result and reads one with the `read_skill_file` tool only when the skill points to it:
+
+```text
+my-skill/
+  SKILL.md                  # "For datasource UIDs, see references/labels.md"
+  references/labels.md
+  references/recipes.md
+```
+
+- Only skills loaded from the filesystem can bundle files. Skills stored in the Robusta platform have no directory.
+- Files must be UTF-8 text and at most 256 KiB. Set the `SKILL_FILE_MAX_BYTES` environment variable to change the limit.
+- Holmes looks at up to 100 files per skill, up to 5 directory levels deep.
+- Hidden files and directories, subdirectories containing their own `SKILL.md`, and symlinks leading outside the skill's directory are ignored.
+- Holmes only reads these files. It never runs them, so a `scripts/` directory is treated as reference text.
+
 ## Built-in Skills
 
 Holmes ships with built-in skills at `holmes/plugins/skills/builtin/`. They are loaded automatically — no configuration needed. Custom skills with the same name override built-ins.
