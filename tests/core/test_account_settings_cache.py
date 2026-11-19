@@ -33,6 +33,43 @@ class Reads:
         return result
 
 
+class WaitCountingLock:
+    """A lock that counts the callers blocked on it, so a test can hold a read
+    in flight until every competing caller is waiting for it."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._cond = threading.Condition()
+        self.waiting = 0
+
+    def acquire(self, blocking=True):
+        if self._lock.acquire(blocking=False):
+            return True
+        if not blocking:
+            return False
+        with self._cond:
+            self.waiting += 1
+            self._cond.notify_all()
+        self._lock.acquire()
+        with self._cond:
+            self.waiting -= 1
+        return True
+
+    def release(self):
+        self._lock.release()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+    def wait_for_waiters(self, count, timeout=5):
+        with self._cond:
+            return self._cond.wait_for(lambda: self.waiting >= count, timeout)
+
+
 def _cache(*results, ttl=60):
     clock, reads = Clock(), Reads(*results)
     return AccountSettingsCache(reads, ttl=ttl, timer=clock), clock, reads
@@ -152,6 +189,7 @@ def test_concurrent_callers_share_one_read(accessor):
         return {"a": len(calls)}
 
     cache = AccountSettingsCache(slow_read, ttl=60, timer=Clock())
+    cache._refresh_lock = lock = WaitCountingLock()
     results = []
     threads = [
         threading.Thread(target=lambda: results.append(getattr(cache, accessor)()))
@@ -160,6 +198,7 @@ def test_concurrent_callers_share_one_read(accessor):
     for thread in threads:
         thread.start()
     assert started.wait(5)
+    assert lock.wait_for_waiters(4)
     release.set()
     for thread in threads:
         thread.join(5)
@@ -179,10 +218,12 @@ def test_concurrent_callers_share_one_failed_read():
         raise RuntimeError("502")
 
     cache = AccountSettingsCache(failing_read, ttl=60, timer=Clock())
+    cache._refresh_lock = lock = WaitCountingLock()
     threads = [threading.Thread(target=cache.get_fresh) for _ in range(5)]
     for thread in threads:
         thread.start()
     assert started.wait(5)
+    assert lock.wait_for_waiters(4)
     release.set()
     for thread in threads:
         thread.join(5)
@@ -214,5 +255,34 @@ def test_get_serves_the_retained_value_while_a_refresh_is_in_flight():
 
     release.set()
     refresher.join(5)
+    assert cache.get() == {"a": 2}
+    assert len(calls) == 2
+
+
+def test_clear_waits_for_a_read_in_flight():
+    """A read that started before clear() must not publish its values after it."""
+    started, release = threading.Event(), threading.Event()
+    calls = []
+
+    def read():
+        calls.append(1)
+        if len(calls) == 1:
+            started.set()
+            release.wait(5)
+        return {"a": len(calls)}
+
+    cache = AccountSettingsCache(read, ttl=60, timer=Clock())
+    reader = threading.Thread(target=cache.get)
+    reader.start()
+    assert started.wait(5)
+    clearer = threading.Thread(target=cache.clear)
+    clearer.start()
+    clearer.join(0.2)
+    assert clearer.is_alive()
+
+    release.set()
+    reader.join(5)
+    clearer.join(5)
+
     assert cache.get() == {"a": 2}
     assert len(calls) == 2
