@@ -66,4 +66,14 @@ spec:
         cidr: 0.0.0.0/0
         except:
         - 169.254.169.254/32  # Block GCP metadata service (use Workload Identity instead)
+  {{- if or .Values.mcpAddons.gcp.workloadIdentity.enabled (get (.Values.mcpAddons.gcp.serviceAccount.annotations | default dict) "iam.gke.io/gcp-service-account") }}
+  - to:
+    - ipBlock:
+        cidr: 169.254.169.254/32
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 8080
+  {{- end }}
 {{- end }}
