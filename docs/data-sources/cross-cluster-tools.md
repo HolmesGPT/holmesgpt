@@ -8,12 +8,12 @@ The mechanism is opt-in per toolset via the `expose_remotely` flag, and gated pe
 
 ## Two ways to use it
 
-Once a toolset is exposed remotely, its tools can be reached in two ways. Each is controlled by its **own, independent** account setting (both off by default):
+Once a toolset is exposed remotely, its tools can be reached in two ways. Each is controlled by its **own, independent** account setting:
 
-| Use case | Who calls the tools | Account setting | Enable in the UI |
-|---|---|---|---|
-| **Multi-agent investigations** | Another Holmes agent, during an investigation | `multi_agent_investigation_enabled` | **Settings → Enable Multi Agent Investigations** |
-| **External MCP clients** | Any MCP client (Claude Code, Claude Desktop, …) via an API key | `expose_remote_tool_calls_externally` | **Settings → Robusta MCP Server** |
+| Use case | Who calls the tools | Account setting | Default | Change it in the UI |
+|---|---|---|---|---|
+| **Multi-agent investigations** | Another Holmes agent, during an investigation | `multi_agent_investigation_enabled` | **On** | **Settings → Multi-Agent → Enable Multi Agent Investigations** |
+| **External MCP clients** | Any MCP client (Claude Code, Claude Desktop, …) via an API key | `expose_remote_tool_calls_externally` | Off | **Settings → MCP Server → Robusta MCP Server Enabled** |
 
 The two switches are independent — turning one on does not turn on the other.
 
@@ -34,6 +34,8 @@ By default, only the toolsets that are **useful exclusively inside a cluster** a
 Notable opt-in toolsets — `inspektor-gadget`, `cilium`, `openshift`, `kubevela` — default to **not exposed**. Enable them explicitly if you want them callable across clusters.
 
 Location-agnostic toolsets (a Grafana Cloud or Datadog endpoint reachable from anywhere) are **not** exposed by default: the caller can query those directly, so proxying them through another cluster only adds latency. You can still opt one in.
+
+[MCP servers](remote-mcp-servers.md) are toolsets too: set `expose_remotely: true` on an `mcp_servers` entry to let other clusters call its tools.
 
 Internal agent-machinery toolsets (`robusta_platform_mcp`, the `TodoWrite` / `core_investigation` toolset, and `skills`) are **never** exposed, regardless of configuration.
 
@@ -85,29 +87,38 @@ The `expose_remotely` flag lives alongside the toolset's other config. Set it to
         expose_remotely: false
     ```
 
-Tool lists are read when Holmes starts, so apply changes with a Holmes restart / Helm upgrade.
+Tool lists are read when Holmes starts, so apply changes with a Holmes restart / Helm upgrade. Other clusters pick up the change within about 6 minutes: each Holmes refreshes its list of remote tools every 5 minutes (`TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS`), and the Robusta platform caches it for 1 minute.
 
 ### Prometheus and other multi-instance toolsets
 
-Toolsets that support [multiple instances](multi-instance-toolsets.md) resolve `expose_remotely` **per instance**, and each `instances:` entry may set its own override. For `prometheus`, the default is derived from the instance URL:
+Toolsets that support [multiple instances](multi-instance-toolsets.md) decide `expose_remotely` **per instance**. For each instance, the first of these that applies wins:
 
-- **In-cluster URL** (`*.svc`, `*.cluster.local`, `localhost`, a single-label service name, or an RFC1918 IP) — **exposed**.
-- **Auto-detected URL** (no `prometheus_url` set) — **exposed** (auto-detection only finds in-cluster servers).
-- **Public / SaaS URL** (Grafana Cloud, Azure Monitor, any public DNS host) — **not exposed**.
+1. `expose_remotely` on the instance's `instances:` entry.
+2. `expose_remotely` on the toolset, next to `enabled`.
+3. For `prometheus/metrics`, the instance URL:
+    - **In-cluster URL** (`*.svc`, `*.cluster.local`, `localhost`, a single-label service name, or an RFC1918 IP) — **exposed**.
+    - **Auto-detected URL** (no `prometheus_url` set) — **exposed** (auto-detection only finds in-cluster servers).
+    - **Public / SaaS URL** (Grafana Cloud, Azure Monitor, any public DNS host) — **not exposed**.
+4. The toolset's default from the table above.
 
-An explicit `expose_remotely:` on the instance entry (or on the toolset) always wins over the heuristic:
+Only healthy instances are exposed. `expose_remotely` under `config:` applies to every instance that doesn't set its own.
 
-    toolsets:
-      prometheus:
-        enabled: true
-        config:
-          instances:
-            - name: in-cluster
-              prometheus_url: http://prometheus.monitoring.svc:9090
-              # in-cluster → exposed automatically
-            - name: grafana-cloud
-              prometheus_url: https://prometheus-prod.grafana.net/api/prom
-              expose_remotely: true   # force-expose a SaaS endpoint (not the default)
+```yaml
+toolsets:
+  prometheus/metrics:
+    enabled: true
+    config:
+      instances:
+        - name: in-cluster
+          prometheus_url: http://prometheus.monitoring.svc:9090
+          # in-cluster → exposed automatically
+        - name: staging
+          prometheus_url: http://prometheus.staging.svc:9090
+          expose_remotely: false  # in-cluster, but withheld
+        - name: grafana-cloud
+          prometheus_url: https://prometheus-prod.grafana.net/api/prom
+          expose_remotely: true   # SaaS endpoint, exposed on purpose
+```
 
 ## Connecting an external MCP client
 
@@ -154,8 +165,20 @@ Your client can now investigate any cluster in your fleet. Each remote tool take
 - **Robusta platform required.** Each executor cluster runs a Holmes instance connected to the Robusta platform; the platform routes the calls. This is not available for standalone / CLI-only Holmes.
 - **Matching Holmes versions.** A tool is callable only between clusters running the **same** Holmes version — identical versions guarantee identical tool schemas. A cluster on a different version simply won't appear as a callable target.
 - **Permissions.** On accounts with RBAC enabled, a user must hold **`MA_HOLMES_CHAT`** on the target cluster; clusters the user can't access never appear as targets.
-- **Read-only and pre-approved.** Only read-only tools run remotely. There is no remote approval prompt: `bash` runs **pre-approved** commands only, and any tool that would require approval is denied.
+- **No approval prompt.** Tools listed in a toolset's `approval_required_tools` are never offered to other clusters, and `bash` runs **pre-approved** commands only; any other command is denied. Holmes doesn't otherwise check what a tool does, so only expose toolsets whose tools you're willing to let every cluster in the account run — and, with Robusta MCP Server on, any API key with `Robusta AI:Write`.
 - **Result size.** Remote tool results are returned inline and capped at **1&nbsp;MB**. Oversized results fail with a "narrow the query" error — reduce the time range, tighten filters, or lower the limit.
+
+## Troubleshooting
+
+A cluster or tool you expect is missing from the caller's `remote_*` tools, or from `list_available_clusters`:
+
+- **The toolset isn't healthy on the executor.** Only enabled toolsets whose prerequisites pass are exposed — for example, `kubernetes/live-metrics` needs metrics-server. Check the executor's toolset status in the Robusta UI or its Holmes logs.
+- **The executor runs a different Holmes version** from the caller. Upgrade both to the same version.
+- **The account setting is off** for the way you're calling (see [Two ways to use it](#two-ways-to-use-it)), or the user lacks `MA_HOLMES_CHAT` on the executor cluster.
+- **The tool is in `approval_required_tools`**, or the instance isn't exposed (see [Prometheus and other multi-instance toolsets](#prometheus-and-other-multi-instance-toolsets)).
+- **The change hasn't propagated yet.** Allow about 6 minutes after the executor restarts.
+
+A call to an instance that isn't exposed fails with `instance '<name>' is not exposed on this cluster`, and lists the instances that are.
 
 ## Related
 
