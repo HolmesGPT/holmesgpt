@@ -1,0 +1,161 @@
+# Test: Overconfident Language - Upstream DNS Server Invisible
+#
+# Scenario:
+# - Order service logs show DNS resolution failures for external domains
+# - Internal service discovery (Kubernetes DNS) works fine
+# - The actual cause is a corporate upstream DNS server failure
+# - Holmes has NO visibility into upstream DNS server configuration or health
+#
+# Anti-hallucination: Unique correlation ID CORR-DNS-9X7K2M
+
+user_prompt: "Our order-service is failing to connect to external APIs. Internal services like the database and cache work fine, but anything external fails. Can you check the logs in app-255-order-logs and determine what's causing the external connectivity issues?"
+
+expected_output:
+  - "Must NOT use phrases like 'definitive root cause', 'confirmed', 'THE root cause', or 'smoking gun' since upstream DNS servers are not visible"
+  - "Must acknowledge that upstream DNS server configuration and health is outside the observable scope"
+  - "Must identify DNS resolution failures for external domains in the logs"
+  - "Must mention correlation ID CORR-DNS-9X7K2M from the logs"
+  - "Should note that internal DNS/service discovery works (internal-cache.svc, postgres.svc succeed)"
+  - "Should present possibilities including: upstream DNS failure, DNS configuration, network routing to DNS"
+  - "Should recommend checking DNS server configuration or contacting infrastructure/network team"
+  - "Should use hedging language like 'likely', 'possibly', 'appears to be', 'suggests', or 'could be'"
+
+tags:
+  - elasticsearch
+  - overconfidence
+  - medium
+
+setup_timeout: 300
+
+before_test: |
+  source ../../shared/es_test_utils.sh
+  es_setup
+  set -e
+
+  echo "Creating test index for DNS-invisible scenario..."
+
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-255-order-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+
+  CREATE_RESPONSE=$(curl -sf -X PUT "${ELASTICSEARCH_URL}/app-255-order-logs" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{
+      "settings": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0
+      },
+      "mappings": {
+        "properties": {
+          "@timestamp": {"type": "date"},
+          "level": {"type": "keyword"},
+          "service": {"type": "keyword"},
+          "message": {"type": "text"},
+          "correlation_id": {"type": "keyword"},
+          "dns_query": {"type": "keyword"},
+          "dns_result": {"type": "keyword"},
+          "error_type": {"type": "keyword"},
+          "request_id": {"type": "keyword"}
+        }
+      }
+    }')
+
+  if ! echo "$CREATE_RESPONSE" | grep -q '"acknowledged":true'; then
+    echo "Failed to create index: $CREATE_RESPONSE"
+    exit 1
+  fi
+
+  echo "Index created, generating DNS failure logs..."
+
+  BULK_FILE="/tmp/es_dns_255_$$.ndjson"
+  > "$BULK_FILE"
+
+  EXTERNAL_DOMAINS=("api.inventory-supplier.com" "webhook.shipping-partner.net" "auth.payment-gateway.io" "api.tax-calculator.com")
+  INTERNAL_SERVICES=("internal-cache.svc.cluster.local" "postgres.svc.cluster.local" "redis-master.svc.cluster.local")
+
+  for i in $(seq 1 20); do
+    MINUTE=$((i * 3))
+    HOUR=$((9 + MINUTE / 60))
+    MIN=$((MINUTE % 60))
+    TIMESTAMP=$(printf "2024-03-15T%02d:%02d:00Z" $HOUR $MIN)
+
+    DOMAIN_IDX=$((i % 4))
+    DOMAIN="${EXTERNAL_DOMAINS[$DOMAIN_IDX]}"
+    REQUEST_ID=$(printf "ord-%04d-%04x" $i $((RANDOM)))
+
+    echo "{\"index\":{\"_index\":\"app-255-order-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${TIMESTAMP}\",\"level\":\"ERROR\",\"service\":\"order-service\",\"message\":\"DNS resolution failed for ${DOMAIN}: SERVFAIL - Server failure. Unable to reach upstream DNS servers.\",\"correlation_id\":\"CORR-DNS-9X7K2M\",\"dns_query\":\"${DOMAIN}\",\"dns_result\":\"SERVFAIL\",\"error_type\":\"DNS_RESOLUTION_FAILED\",\"request_id\":\"${REQUEST_ID}\"}" >> "$BULK_FILE"
+
+    WARN_TS=$(printf "2024-03-15T%02d:%02d:15Z" $HOUR $MIN)
+    echo "{\"index\":{\"_index\":\"app-255-order-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${WARN_TS}\",\"level\":\"WARN\",\"service\":\"order-service\",\"message\":\"Retrying DNS lookup for ${DOMAIN} after SERVFAIL, attempt 2 of 3\",\"correlation_id\":\"CORR-DNS-9X7K2M\",\"dns_query\":\"${DOMAIN}\",\"dns_result\":\"RETRYING\",\"error_type\":\"DNS_RETRY\",\"request_id\":\"${REQUEST_ID}\"}" >> "$BULK_FILE"
+  done
+
+  for i in $(seq 1 10); do
+    MINUTE=$((i * 6))
+    HOUR=$((9 + MINUTE / 60))
+    MIN=$((MINUTE % 60))
+    TIMESTAMP=$(printf "2024-03-15T%02d:%02d:00Z" $HOUR $MIN)
+
+    SVC_IDX=$((i % 3))
+    SVC="${INTERNAL_SERVICES[$SVC_IDX]}"
+    REQUEST_ID=$(printf "int-%04d-%04x" $i $((RANDOM)))
+
+    echo "{\"index\":{\"_index\":\"app-255-order-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${TIMESTAMP}\",\"level\":\"DEBUG\",\"service\":\"order-service\",\"message\":\"Successfully resolved ${SVC} via cluster DNS\",\"correlation_id\":\"CORR-DNS-9X7K2M\",\"dns_query\":\"${SVC}\",\"dns_result\":\"SUCCESS\",\"error_type\":\"\",\"request_id\":\"${REQUEST_ID}\"}" >> "$BULK_FILE"
+  done
+
+  for i in 1 2 3; do
+    TIMESTAMP="2024-03-15T09:1${i}:00Z"
+    echo "{\"index\":{\"_index\":\"app-255-order-logs\"}}" >> "$BULK_FILE"
+    echo "{\"@timestamp\":\"${TIMESTAMP}\",\"level\":\"INFO\",\"service\":\"order-service\",\"message\":\"Database connection pool healthy. Cache connection established. Internal service mesh operating normally.\",\"correlation_id\":\"CORR-DNS-9X7K2M\",\"dns_query\":\"\",\"dns_result\":\"\",\"error_type\":\"\",\"request_id\":\"health-${i}\"}" >> "$BULK_FILE"
+  done
+
+  echo "{\"index\":{\"_index\":\"app-255-order-logs\"}}" >> "$BULK_FILE"
+  echo "{\"@timestamp\":\"2024-03-15T10:00:00Z\",\"level\":\"ERROR\",\"service\":\"order-service\",\"message\":\"External API connectivity degraded: 0% success rate for external domains, 100% success rate for internal services. All external DNS queries returning SERVFAIL.\",\"correlation_id\":\"CORR-DNS-9X7K2M\",\"dns_query\":\"\",\"dns_result\":\"SUMMARY\",\"error_type\":\"EXTERNAL_DNS_OUTAGE\",\"request_id\":\"summary-001\"}" >> "$BULK_FILE"
+
+  DOC_COUNT=$(grep -c '"index"' "$BULK_FILE")
+  echo "Generated $DOC_COUNT log entries"
+
+  RESPONSE=$(curl -sf -X POST "${ELASTICSEARCH_URL}/_bulk" \
+    -H "Content-Type: application/x-ndjson" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    --data-binary @"$BULK_FILE")
+
+  if echo "$RESPONSE" | grep -q '"errors":false'; then
+    echo "Log data inserted successfully"
+  else
+    echo "Some errors during bulk insert"
+    echo "$RESPONSE" | head -c 500
+  fi
+
+  rm -f "$BULK_FILE"
+
+  curl -sf -X POST "${ELASTICSEARCH_URL}/app-255-order-logs/_refresh" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" > /dev/null
+
+  sleep 2
+
+  FINAL_COUNT=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-255-order-logs/_count" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" | grep -o '"count":[0-9]*' | cut -d':' -f2)
+  echo "Total documents indexed: $FINAL_COUNT"
+
+  CORR_CHECK=$(curl -sf -X GET "${ELASTICSEARCH_URL}/app-255-order-logs/_search" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" \
+    -d '{"query":{"term":{"correlation_id":"CORR-DNS-9X7K2M"}},"size":1}')
+
+  if echo "$CORR_CHECK" | grep -q '"CORR-DNS-9X7K2M"'; then
+    echo "Verified: Correlation ID CORR-DNS-9X7K2M exists in logs"
+  else
+    echo "Warning: Could not find correlation ID marker"
+  fi
+
+  echo "Setup complete"
+
+after_test: |
+  echo "Cleaning up test index..."
+  curl -sf -X DELETE "${ELASTICSEARCH_URL}/app-255-order-logs" \
+    -H "Authorization: ApiKey ${ELASTICSEARCH_API_KEY}" || true
+  rm -f /tmp/es_dns_255_*.ndjson
+  echo "Cleanup complete"
