@@ -354,6 +354,9 @@ class ToolInvokeContext(BaseModel):
 
 
 class Tool(ABC, BaseModel):
+    # False keeps a tool out of cross-cluster publication and remote execution.
+    remotely_callable: ClassVar[bool] = True
+
     name: str
     description: str
     parameters: Dict[str, ToolParameter] = {}
@@ -865,12 +868,12 @@ class Toolset(BaseModel):
     ) -> Optional[bool]:
         """Per-instance locality heuristic for remote exposure.
 
-        Returns True/False to force/forbid remote exposure of a given
-        instance regardless of the toolset-level ``expose_remotely``, or
-        None for "no opinion" (fall back to ``expose_remotely``). Default:
-        no opinion. Toolsets that are only useful in-cluster for some
-        configs (e.g. prometheus: in-cluster URL vs external SaaS) override
-        this. See design doc Business Logic B.
+        A fallback: it applies only when neither the instance nor the user's
+        toolset-level config sets ``expose_remotely``. Returns True/False to
+        expose or withhold the instance, or None for "no opinion" (use the
+        toolset's default ``expose_remotely``). Toolsets that are only useful
+        in-cluster for some configs (e.g. prometheus: in-cluster URL vs
+        external SaaS) override this.
         """
         return None
 

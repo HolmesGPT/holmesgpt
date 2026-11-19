@@ -415,3 +415,56 @@ def test_executor_refuses_a_withheld_instance_named_inside_the_tool_params(expos
 
     assert resp["status"] == StructuredToolResultStatus.ERROR.value, resp
     assert "instance 'a' is not exposed on this cluster" in resp["error"]
+
+
+def test_list_instances_is_never_published_or_run_remotely():
+    toolset = _prometheus(
+        _instances(
+            {"name": "in", "prometheus_url": IN_CLUSTER, "expose_remotely": False},
+            {"name": "in2", "prometheus_url": IN_CLUSTER_2},
+        )
+    )
+    list_tool = "prometheus_metrics_list_instances"
+    assert list_tool in {t.name for t in toolset.tools}
+
+    published = {t["function"]["name"] for t in build_remote_tools_meta(toolset)["tools"]}
+    resp = _call(_worker(toolset), list_tool, None)
+
+    assert list_tool not in published
+    assert "execute_prometheus_instant_query" in published
+    assert resp["status"] == StructuredToolResultStatus.ERROR.value
+    assert f"tool '{list_tool}' is not available for remote execution" in resp["error"]
+
+
+def test_invalid_shared_value_fails_even_when_every_instance_sets_its_own():
+    toolset = _prometheus(
+        {
+            "config": {
+                "expose_remotely": "maybe",
+                "instances": [
+                    {"name": "in", "prometheus_url": IN_CLUSTER, "expose_remotely": True},
+                ],
+            }
+        }
+    )
+
+    assert toolset.status == ToolsetStatusEnum.FAILED
+    assert "expose_remotely must be true or false, got 'maybe'" in toolset.error
+
+
+@pytest.mark.parametrize("empty", [None, ""], ids=["null", "empty-string"])
+def test_an_empty_value_is_treated_as_not_set(empty):
+    toolset = _prometheus(
+        {
+            "config": {
+                "expose_remotely": empty,
+                "instances": [
+                    {"name": "in", "prometheus_url": IN_CLUSTER, "expose_remotely": empty},
+                    {"name": "cloud", "prometheus_url": SAAS},
+                ],
+            }
+        }
+    )
+
+    assert toolset.status == ToolsetStatusEnum.ENABLED, toolset.error
+    assert toolset.remote_exposed_instances() == ["in"]

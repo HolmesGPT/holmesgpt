@@ -32,7 +32,7 @@ mTLS-as-a-pair global fall-through (see `_ATOMIC_GROUPS`).
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
@@ -120,16 +120,16 @@ EXPOSE_REMOTELY_KEY = "expose_remotely"
 _BOOL = TypeAdapter(bool)
 
 
-def _pop_exposure(name: str, flat: Dict[str, Any]) -> Optional[bool]:
-    """Remove an instance's `expose_remotely` from its child config and return it."""
-    if EXPOSE_REMOTELY_KEY not in flat:
+def _pop_exposure(where: str, flat: Dict[str, Any]) -> Optional[bool]:
+    """Remove `expose_remotely` from a config and return it; empty means not set."""
+    value = flat.pop(EXPOSE_REMOTELY_KEY, None)
+    if value is None or value == "":
         return None
-    value = flat.pop(EXPOSE_REMOTELY_KEY)
     try:
         return _BOOL.validate_python(value)
     except ValidationError:
         raise ValueError(
-            f"instance '{name}': {EXPOSE_REMOTELY_KEY} must be true or false, got {value!r}"
+            f"{where}: {EXPOSE_REMOTELY_KEY} must be true or false, got {value!r}"
         )
 
 
@@ -201,6 +201,9 @@ class _RoutingTool(Tool):
 
 class ListInstancesTool(Tool):
     """Lets the LLM discover configured instances. Added only when >1 instance."""
+
+    # Lists every instance, including ones withheld from other clusters.
+    remotely_callable: ClassVar[bool] = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -284,8 +287,10 @@ class MultiInstanceToolset(Toolset):
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
+            # An instance's own value replaces the shared one, so check it first.
+            _pop_exposure("config", dict(config or {}))
             instances = [
-                (name, flat, _pop_exposure(name, flat))
+                (name, flat, _pop_exposure(f"instance '{name}'", flat))
                 for name, flat in _parse_instances(config or {})
             ]
         except Exception as e:

@@ -475,6 +475,11 @@ class ToolCallWorker:
                 f"tool '{tool_name}' belongs to internal toolset '{toolset.name}' "
                 "and cannot run remotely"
             )
+        if not getattr(tool, "remotely_callable", True):
+            return _error_response(
+                f"tool '{tool_name}' is not available for remote execution"
+            )
+
         # Instance resolution: given -> must be exposed; omitted with exactly
         # one exposed instance -> default; omitted with several -> error.
         get_instances = getattr(toolset, "remote_exposed_instances", None)

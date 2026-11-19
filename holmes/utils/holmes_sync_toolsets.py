@@ -205,7 +205,8 @@ def build_remote_tools_meta(toolset: Toolset, tool_executor: Any = None) -> Any:
     tools = [
         {**tool.get_openai_format(), "contract_hash": remote_tool_contract_hash(tool)}
         for tool in _exposed_tools(toolset, tool_executor)
-        if not _tool_requires_approval(
+        if tool.remotely_callable
+        and not _tool_requires_approval(
             _mcp_tool_name(tool) or tool.name, toolset.approval_required_tools
         )
     ]
