@@ -806,8 +806,16 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 # path does the same via _inject_request_id in the stream wrapper.
                 response_metadata = dict(llm_call.metadata or {})
                 response_metadata["request_id"] = recorder_state.request_id
+                if llm_call.result is None:
+                    # Seen with local models whose reasoning parser files the whole
+                    # answer as reasoning. Returning a 500 here hides the tool calls
+                    # that did run, so return them with an empty analysis instead.
+                    logging.warning(
+                        f"Model returned no final answer text for {req_info}; "
+                        "returning an empty analysis"
+                    )
                 response = ChatResponse(
-                    analysis=llm_call.result,
+                    analysis=llm_call.result or "",
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
                     metadata=response_metadata,

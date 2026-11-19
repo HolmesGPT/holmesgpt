@@ -87,6 +87,13 @@ def process_timestamps_to_rfc3339(
     return (parsed_start_timestamp, parsed_end_timestamp)
 
 
+_PLACEHOLDER_TIMESTAMPS = frozenset({"", "none", "null", "nil", "undefined"})
+
+
+def _is_placeholder_timestamp(value: Optional[Union[int, str]]) -> bool:
+    return isinstance(value, str) and value.strip().lower() in _PLACEHOLDER_TIMESTAMPS
+
+
 def process_timestamps_to_int(
     start: Optional[Union[int, str]],
     end: Optional[Union[int, str]],
@@ -104,8 +111,20 @@ def process_timestamps_to_int(
     Returns:
     Tuple of (start_timestamp, end_timestamp)
     """
+    # Models often send a placeholder string instead of omitting an optional
+    # parameter (e.g. end="None"); treat those as not provided.
+    if _is_placeholder_timestamp(end):
+        end = None
+    if _is_placeholder_timestamp(start):
+        start = None
+
     # If no end_timestamp provided, use current time
-    if not end or end == "0" or end == 0:
+    if (
+        not end
+        or end == "0"
+        or end == 0
+        or (isinstance(end, str) and end.strip().lower() == "now")
+    ):
         end = int(time.time())
 
     # If no start provided, default to one hour before end

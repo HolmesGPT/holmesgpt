@@ -1,6 +1,8 @@
 from holmes.core.safeguards import (
+    MAX_CONSECUTIVE_DUPLICATE_CALLS,
     _has_previous_exact_same_tool_call,
     prevent_overly_repeated_tool_call,
+    should_force_final_answer,
 )
 from holmes.core.tool_calling_llm import ToolCallResult
 from holmes.core.tools import StructuredToolResult, StructuredToolResultStatus
@@ -169,3 +171,61 @@ class TestEdgeCases:
             )
             is True
         )
+
+
+def _client_dict(tool_name, params, status=StructuredToolResultStatus.SUCCESS, **kw):
+    return ToolCallResult(
+        tool_call_id="x",
+        tool_name=tool_name,
+        description="",
+        result=StructuredToolResult(status=status, params=params, **kw),
+    ).to_client_dict()
+
+
+class TestIdempotentStateTools:
+    def test_repeated_todowrite_succeeds_instead_of_erroring(self):
+        params = {"todos": [{"id": "1", "content": "check", "status": "completed"}]}
+        result = prevent_overly_repeated_tool_call(
+            "TodoWrite", params, [_client_dict("TodoWrite", params)]
+        )
+
+        assert result is not None
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert "final answer" in result.data
+
+    def test_rejection_message_offers_final_answer(self):
+        params = {"pod": "a"}
+        result = prevent_overly_repeated_tool_call(
+            "my_tool", params, [_client_dict("my_tool", params)]
+        )
+
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "final answer" in result.error
+
+
+class TestShouldForceFinalAnswer:
+    def _guarded(self, tool_name="my_tool"):
+        params = {"p": 1}
+        guard = prevent_overly_repeated_tool_call(
+            tool_name, params, [_client_dict(tool_name, params)]
+        )
+        return ToolCallResult(
+            tool_call_id="g", tool_name=tool_name, description="", result=guard
+        ).to_client_dict()
+
+    def test_true_after_consecutive_duplicates(self):
+        calls = [_client_dict("other", {"q": 1})] + [
+            self._guarded() for _ in range(MAX_CONSECUTIVE_DUPLICATE_CALLS)
+        ]
+        assert should_force_final_answer(calls) is True
+
+    def test_counts_idempotent_noops_too(self):
+        calls = [self._guarded("TodoWrite") for _ in range(MAX_CONSECUTIVE_DUPLICATE_CALLS)]
+        assert should_force_final_answer(calls) is True
+
+    def test_false_when_a_real_call_interrupts(self):
+        calls = [self._guarded(), _client_dict("other", {"q": 1}), self._guarded()]
+        assert should_force_final_answer(calls) is False
+
+    def test_false_for_short_history(self):
+        assert should_force_final_answer([self._guarded()]) is False

@@ -42,7 +42,11 @@ from holmes.core.models import (
 from holmes.core.oauth_config import OAuthTokenExchangeError, _get_exchange_manager, parse_oauth_decision
 from holmes.core.oauth_utils import _get_token_manager
 from holmes.core.relay_refusal import RELAY_REFUSAL_ERROR_CODES, RelayRefusal
-from holmes.core.safeguards import prevent_overly_repeated_tool_call
+from holmes.core.safeguards import (
+    MAX_CONSECUTIVE_DUPLICATE_CALLS,
+    prevent_overly_repeated_tool_call,
+    should_force_final_answer,
+)
 from holmes.core.tools import (
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -1304,6 +1308,27 @@ class ToolCallingLLM:
             logging.debug(f"running iteration {i}")
 
             tools = None if i == max_steps else tools
+
+            if tools and should_force_final_answer(tool_calls):
+                # The model keeps re-sending calls it already made instead of
+                # answering. Without this, the loop runs until max_steps.
+                logging.warning(
+                    "Model repeated %d identical tool calls in a row; "
+                    "requesting the final answer without tools",
+                    MAX_CONSECUTIVE_DUPLICATE_CALLS,
+                )
+                tools = None
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "You have repeated tool calls you already made. Tools are no "
+                            "longer available. Write your final answer now, based on the "
+                            "information already gathered above."
+                        ),
+                    }
+                )
+
             tool_choice = "auto" if tools else None
 
             compaction_start_event = check_compaction_needed(self.llm, messages, tools)
