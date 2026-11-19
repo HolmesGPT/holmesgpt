@@ -1,6 +1,7 @@
 nav:
   - index.md
   - Recommended Setup: recommended-setup.md
+  - CLI vs Server Toolsets: cli-vs-server-toolsets.md
   - Built-in Toolsets: builtin-toolsets
   - Multiple Instances: multi-instance-toolsets.md
   - HTTP Connectors: api-toolsets.md
