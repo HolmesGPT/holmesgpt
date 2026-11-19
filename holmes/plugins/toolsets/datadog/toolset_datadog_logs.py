@@ -219,7 +219,9 @@ class GetLogs(Tool):
             config_limit = self.toolset.dd_config.default_limit
             limit = min(params.get("limit", config_limit), config_limit)
             params["limit"] = limit
-            sort = "timestamp" if params.get("sort_desc", False) else "-timestamp"
+            # Datadog Logs API: "-timestamp" = descending (newest first),
+            # "timestamp" = ascending (oldest first). Default to descending.
+            sort = "-timestamp" if params.get("sort_desc", True) else "timestamp"
 
             url = f"{self.toolset.dd_config.api_url}/api/v2/logs/events/search"
             headers = get_headers(self.toolset.dd_config)
