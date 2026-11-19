@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+import certifi
 from kubernetes import client
 from kubernetes import config as k8s_config
 
@@ -52,7 +53,12 @@ async def initialize() -> OperatorConfig:
         logger.info("Loaded in-cluster Kubernetes configuration")
     except k8s_config.ConfigException:
         # Fall back to kubeconfig (for local development)
-        k8s_config.load_kube_config()
+        # The standalone operator image does not include the holmes package.
+        configuration = client.Configuration()
+        k8s_config.load_kube_config(client_configuration=configuration)
+        if not configuration.ssl_ca_cert:
+            configuration.ssl_ca_cert = certifi.where()
+        client.Configuration.set_default(configuration)
         logger.info("Loaded kubeconfig Kubernetes configuration")
 
     k8s_api = client.CustomObjectsApi()
