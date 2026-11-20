@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import List, Optional
 
 import colorlog
-import litellm
 from pydantic import BaseModel
 from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_oauth_callback
@@ -54,6 +53,7 @@ from holmes.common.env_vars import (
 )
 from holmes.config import DEFAULT_CONFIG_LOCATION, Config
 from holmes.core.llm import MODEL_LIST_FILE_LOCATION
+from holmes.core.llm_rate_limit import is_rate_limit_error
 from holmes.core.conversation_links import resolve_conversation_link
 from holmes.core.conversations import (
     build_chat_messages,
@@ -61,7 +61,6 @@ from holmes.core.conversations import (
 from holmes.core.models import (
     ChatRequest,
     ChatResponse,
-    FollowUpAction,
     OAuthCallbackRequest,
     OAuthCallbackResponse,
 )
@@ -86,6 +85,7 @@ from holmes.utils.log import (
     JSON_LOG_FMT,
     JSON_LOG_RENAME_FIELDS,
     build_json_formatter,
+    suppress_noisy_third_party_logs,
 )
 from holmes.admin.admin_api import init_admin_app
 from holmes.checks.checks_api import init_checks_app
@@ -128,9 +128,7 @@ def init_logging():
         )
     logging.getLogger().setLevel(logging_level)
 
-    httpx_logger = logging.getLogger("httpx")
-    if httpx_logger:
-        httpx_logger.setLevel(logging.WARNING)
+    suppress_noisy_third_party_logs()
 
     litellm_logger = logging.getLogger("LiteLLM")
     if litellm_logger:
@@ -261,19 +259,20 @@ def sync_before_server_start():
         logging.error("Failed to start scheduled prompts executor", exc_info=True)
 
 
-def _has_failed_mcp_toolsets() -> bool:
-    """Check if any MCP toolsets that the shortened backoff cycles would
-    re-check are in FAILED state. A toolset with its own status refresh
-    interval is re-checked on that interval, not on backoff cycles."""
+def _failed_mcp_toolset_names() -> List[str]:
+    """Names of the MCP toolsets in FAILED state that the shortened backoff
+    cycles would re-check. A toolset with its own status refresh interval is
+    re-checked on that interval, not on backoff cycles."""
     executor = config.cached_tool_executor  # thread-safe property
     if not executor:
-        return False
-    return any(
-        t.type == ToolsetType.MCP
+        return []
+    return [
+        t.name
+        for t in executor.toolsets
+        if t.type == ToolsetType.MCP
         and t.status == ToolsetStatusEnum.FAILED
         and t.status_refresh_interval_seconds is None
-        for t in executor.toolsets
-    )
+    ]
 
 
 def _get_next_refresh_interval(
@@ -305,12 +304,13 @@ def _toolset_status_refresh_loop():
 
         while True:
             # Use shorter intervals when MCP servers are failing
+            failed_mcp = _failed_mcp_toolset_names()
             sleep_time, backoff_index = _get_next_refresh_interval(
-                _has_failed_mcp_toolsets(), backoff_index, interval
+                bool(failed_mcp), backoff_index, interval
             )
             if sleep_time < interval:
                 logging.info(
-                    f"Failed MCP server(s) detected, retrying in {sleep_time} seconds"
+                    f"Failed MCP server(s) detected: {', '.join(failed_mcp)}, retrying in {sleep_time} seconds"
                 )
 
             time.sleep(sleep_time)
@@ -522,16 +522,6 @@ def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def already_answered(conversation_history: Optional[List[dict]]) -> bool:
-    if conversation_history is None:
-        return False
-
-    for message in conversation_history:
-        if message["role"] == "assistant":
-            return True
-    return False
-
-
 def extract_passthrough_headers(request: Request) -> dict:
     """
     Extract pass-through headers from the request, excluding sensitive auth headers.
@@ -614,29 +604,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                 except ValueError:
                     logging.warning(f"Unknown behavior_controls key '{k}', ignoring")
 
-        follow_up_actions = []
-        if not already_answered(chat_request.conversation_history):
-            follow_up_actions = [
-                FollowUpAction(
-                    id="logs",
-                    action_label="Logs",
-                    prompt="Show me the relevant logs",
-                    pre_action_notification_text="Fetching relevant logs...",
-                ),
-                FollowUpAction(
-                    id="graphs",
-                    action_label="Graphs",
-                    prompt="Show me the relevant graphs. Use prometheus and make sure you embed the results with `<< >>` to display a graph",
-                    pre_action_notification_text="Drawing some graphs...",
-                ),
-                FollowUpAction(
-                    id="articles",
-                    action_label="Articles",
-                    prompt="List the relevant runbooks and links used. Write a short summary for each",
-                    pre_action_notification_text="Looking up and summarizing runbooks and links...",
-                ),
-            ]
-
         request_context = extract_passthrough_headers(http_request)
         if chat_request.user_id:
             request_context.setdefault("headers", {})
@@ -653,6 +620,8 @@ def chat(chat_request: ChatRequest, http_request: Request):
         storage = tool_result_storage()
         tool_results_dir = storage.__enter__()
 
+        # No conversation_id: here it is caller-supplied (a ChatHistory id, a
+        # Teams activity id, or anything); see ROBUSTA_CONVERSATION_ID_HEADER.
         ai = config.create_toolcalling_llm(
             dal=dal,
             toolset_tag_filter=SERVER_TOOLSET_TAGS,
@@ -755,7 +724,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
             )
             stream = stream_chat_formatter(
                 recorded_stream,
-                [f.model_dump() for f in follow_up_actions],
                 model=chat_request.model or config.model,
             )
             return StreamingResponse(
@@ -842,7 +810,6 @@ def chat(chat_request: ChatRequest, http_request: Request):
                     analysis=llm_call.result,
                     tool_calls=llm_call.tool_calls,
                     conversation_history=llm_call.messages,
-                    follow_up_actions=follow_up_actions,
                     metadata=response_metadata,
                 )
                 return response
@@ -866,9 +833,9 @@ def chat(chat_request: ChatRequest, http_request: Request):
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except AuthenticationError as e:
         raise HTTPException(status_code=401, detail=e.message)
-    except litellm.exceptions.RateLimitError as e:
-        raise HTTPException(status_code=429, detail=e.message)
     except Exception as e:
+        if is_rate_limit_error(e):
+            raise HTTPException(status_code=429, detail=getattr(e, "message", str(e)))
         logging.error(f"Error in /api/chat: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -976,8 +943,10 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     return resp
 
 
+# async so it runs on the event loop: the threadpool can be full of chats
+# waiting on the LLM, and a liveness probe that times out restarts the pod.
 @app.get("/healthz")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
 

@@ -174,10 +174,7 @@ Check that:
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|------------|---------|
-| `ROBUSTA_AI` | Enable/disable Robusta AI | Auto-detected |
-| `ROBUSTA_API_ENDPOINT` | Robusta API endpoint. Set per region (`https://api.robusta.dev`, `https://api.eu.robusta.dev`, `https://api.ap.robusta.dev`) or to your on-premise URL. See [Selecting a Region](#selecting-a-region). | `https://api.robusta.dev` |
+`ROBUSTA_AI` and `ROBUSTA_API_ENDPOINT` are documented in [Environment Variables](../reference/environment-variables.md#robusta-ai).
 
 ## See Also
 

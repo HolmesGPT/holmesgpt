@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
+from holmes.core.llm import ModelLimits
 from holmes.utils.holmes_status import HolmesMetadata, update_holmes_status_in_db
 from tests.core.test_holmes_key import PUBLIC_KEY
 
@@ -65,7 +66,40 @@ def test_metadata_keys_are_additive():
         "supports_oauth_via_realtime",
         "supports_holmes_logs",
         "holmes_public_key",
+        "models_limits",
     } == keys
+
+
+def test_models_limits_published_per_model():
+    config = _config()
+    config.llm_model_registry.get_models_limits.return_value = {
+        "m": ModelLimits(
+            context_window=200000,
+            context_window_source="default",
+            max_output_tokens=64000,
+            max_output_tokens_source="default",
+        )
+    }
+    dal = MagicMock()
+    update_holmes_status_in_db(dal, config)
+    metadata = json.loads(dal.upsert_holmes_status.call_args[0][0]["metadata"])
+    assert metadata["models_limits"] == {
+        "m": {
+            "context_window": 200000,
+            "context_window_source": "default",
+            "max_output_tokens": 64000,
+            "max_output_tokens_source": "default",
+        }
+    }
+
+
+def test_models_limits_failure_does_not_stop_heartbeat():
+    config = _config()
+    config.llm_model_registry.get_models_limits.side_effect = RuntimeError("boom")
+    dal = MagicMock()
+    update_holmes_status_in_db(dal, config)
+    metadata = json.loads(dal.upsert_holmes_status.call_args[0][0]["metadata"])
+    assert metadata["models_limits"] is None
 
 
 def test_public_key_published_from_the_signing_key():

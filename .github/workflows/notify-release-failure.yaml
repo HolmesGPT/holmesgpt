@@ -1,0 +1,23 @@
+name: Notify Release Failure
+
+on:
+  workflow_run:
+    workflows: ["Docker Build on Tag", "Build and Release", "Publish to PyPI"]
+    types: [completed]
+
+jobs:
+  notify:
+    if: github.event.workflow_run.event == 'release' && github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack on failure
+        env:
+          SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RELEASE_TAG: ${{ github.event.workflow_run.head_branch }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          curl -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"channel\": \"#backend-oncall\", \"text\": \"HolmesGPT release ${RELEASE_TAG} failed in ${WORKFLOW_NAME}! See the run: ${RUN_URL}\"}"

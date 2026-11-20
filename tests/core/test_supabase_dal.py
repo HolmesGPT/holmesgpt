@@ -38,7 +38,7 @@ class TestSignIn:
             return dal
 
     def test_connection_reset_raises_firewall_exception(self, mock_dal, caplog):
-        # The exact error Aviva hit at startup (ROB-273): httpx surfaces the
+        # The exact error a customer hit at startup (ROB-273): httpx surfaces the
         # firewall block as "[Errno 104] Connection reset by peer".
         mock_dal.client.auth.sign_in_with_password.side_effect = Exception(
             "[Errno 104] Connection reset by peer"

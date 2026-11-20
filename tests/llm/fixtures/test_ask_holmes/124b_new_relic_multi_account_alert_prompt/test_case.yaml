@@ -25,7 +25,7 @@ user_prompt: |
       "tag": {
         "nr": {
           "endpoint": [
-            "sit-aem.ryanair.com"
+            "sit-aem.example.com"
           ],
           "alerts": {
             "enabled": [
@@ -249,7 +249,7 @@ user_prompt: |
 
         "nr.endpoint": [
 
-          "sit-aem.ryanair.com"
+          "sit-aem.example.com"
 
         ],
         "accountId": [

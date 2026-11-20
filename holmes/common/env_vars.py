@@ -168,6 +168,12 @@ LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS = int(
     os.environ.get("LITELLM_COST_MAP_REFRESH_INTERVAL_SECONDS", str(24 * 60 * 60))
 )
 
+# Max time one LLM call may spend backing off from rate-limit / overloaded /
+# 503 errors before the error is raised. 0 disables these retries.
+LLM_RATE_LIMIT_MAX_WAIT_SECONDS = float(
+    os.environ.get("LLM_RATE_LIMIT_MAX_WAIT_SECONDS", "30")
+)
+
 # Extra message fields to strip before sending messages to the provider API.
 # Comma-separated. Set this if a provider rejects a field with an error like:
 #   "messages.N.<field>: Extra inputs are not permitted"

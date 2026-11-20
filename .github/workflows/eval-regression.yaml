@@ -46,6 +46,14 @@ permissions:
   contents: read
   issues: write
 
+env:
+  # Tool commands run under `ulimit -v`, which caps virtual address space,
+  # so Go binaries (kubectl, helm) can crash at startup before using any
+  # memory. Under parallel eval load the 800 MB default crashed ~20% of
+  # kubectl calls and 1200 MB crashed every one; 1536 MB crashed none in
+  # 1,600 runs. ROB-819 replaces the ulimit itself.
+  TOOL_MEMORY_LIMIT_MB: "1536"
+
 jobs:
   # Handle /list command - outputs available eval names
   list_evals:
@@ -761,6 +769,12 @@ jobs:
             docker load -i "$CACHE_DIR/images/kind-node.tar"
           fi
 
+          # Same inotify limits as .github/actions/setup-kind-cluster: every
+          # pod on the KIND node shares them, and the runner default of 128
+          # instances runs out under a full eval set (promtail then exits).
+          sudo sysctl -w fs.inotify.max_user_instances=512
+          sudo sysctl -w fs.inotify.max_user_watches=524288
+
           # === Create KIND cluster ===
           cat > /tmp/kind-config.yaml << 'EOF'
           kind: Cluster
@@ -1245,7 +1259,7 @@ jobs:
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           MODEL: ${{ steps.eval-params.outputs.model }}
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
-          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -1277,6 +1291,8 @@ jobs:
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
+          # Keeps the log streaming live while stdout is a pipe into tee.
+          PYTHONUNBUFFERED: "1"
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
@@ -1303,8 +1319,8 @@ jobs:
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           echo "  pytest args: ${PYTEST_ARGS[*]}"
           set +e
-          poetry run pytest "${PYTEST_ARGS[@]}"
-          PYTEST_EXIT=$?
+          poetry run pytest "${PYTEST_ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/eval-output.log"
+          PYTEST_EXIT=${PIPESTATUS[0]}
           set -e
           echo "pytest_exit=$PYTEST_EXIT" >> $GITHUB_OUTPUT
 
@@ -1378,6 +1394,23 @@ jobs:
             echo "duration=$((DURATION/60))m $((DURATION%60))s" >> $GITHUB_OUTPUT
           else
             echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
+          fi
+
+      # The Braintrust SDK drops a whole upload batch when the API rejects one
+      # record in it, so results vanish from the experiment while every test
+      # still reports normally. Warn rather than fail: the pytest output and
+      # report still hold every result.
+      - name: Check for dropped Braintrust uploads
+        if: always() && steps.check-tests.outputs.should-run == 'true'
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/eval-output.log"
+          [[ -f "$LOG" ]] || exit 0
+          DROPS=$(grep -c "Dropping batch" "$LOG" || true)
+          if [[ "$DROPS" -gt 0 ]]; then
+            echo "::warning title=Braintrust uploads dropped::Braintrust dropped $DROPS upload batches, so the experiment is missing results. Search the eval step's log for 'Dropping batch' to see the rejected records."
+            echo "> [!WARNING]" >> "$GITHUB_STEP_SUMMARY"
+            echo "> Braintrust dropped $DROPS upload batches; the experiment is missing results." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Post evaluation results

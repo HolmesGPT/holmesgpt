@@ -2,7 +2,8 @@
 # Apply with: kubectl apply -f loki.yaml -n <namespace>
 # Note: Namespace must be created separately
 ---
-# Loki deployment - lightweight, no persistence
+# Loki deployment - lightweight. Data lives in an emptyDir, so it survives
+# container restarts but not pod deletion.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,17 +31,21 @@ spec:
         volumeMounts:
         - name: config
           mountPath: /etc/loki
+        - name: data
+          mountPath: /loki
         resources:
           requests:
             memory: "64Mi"
             cpu: "10m"
           limits:
-            memory: "128Mi"
-            cpu: "50m"
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
       - name: config
         configMap:
           name: loki-config
+      - name: data
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -59,40 +64,47 @@ metadata:
   name: loki-config
 data:
   loki-config.yaml: |
+    # Evals seed logs with timestamps years in the past and query them for
+    # hours. The deprecated boltdb index never served flushed chunks back, so
+    # all data vanished at the first flush (~30 min); tsdb reads them from disk.
     auth_enabled: false
     server:
       http_listen_port: 3100
+    common:
+      path_prefix: /loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
     ingester:
-      query_store_max_look_back_period: -1
       max_chunk_age: 17520h  # 2 years
       wal:
-        enabled: false
-      lifecycler:
-        address: 127.0.0.1
-        ring:
-          kvstore:
-            store: inmemory
-          replication_factor: 1
-        final_sleep: 0s
-    chunk_store_config:
-      max_look_back_period: 17520h  # 2 years
+        enabled: true
+        dir: /loki/wal
     schema_config:
       configs:
         - from: 2020-01-01
-          store: boltdb
+          store: tsdb
           object_store: filesystem
-          schema: v11
+          schema: v13
           index:
             prefix: index_
-            period: 168h
+            period: 24h
     storage_config:
-      boltdb:
-        directory: /tmp/loki/index
+      tsdb_shipper:
+        active_index_directory: /loki/tsdb-index
+        cache_location: /loki/tsdb-cache
       filesystem:
-        directory: /tmp/loki/chunks
+        directory: /loki/chunks
+    # Models query years-wide ranges in parallel; small splits and the default
+    # queue of 100 per tenant turned those into 429s and timeouts.
+    query_scheduler:
+      max_outstanding_requests_per_tenant: 2048
+    frontend:
+      max_outstanding_per_tenant: 2048
     limits_config:
-      enforce_metric_name: false
       reject_old_samples: false
-      reject_old_samples_max_age: 104w  # 2 years
       max_entries_limit_per_query: 5000
       max_query_lookback: 17520h  # 2 years
+      split_queries_by_interval: 24h
+      allow_structured_metadata: false

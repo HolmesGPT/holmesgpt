@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import random
+import sys
 import time
 from datetime import datetime
 
@@ -54,7 +55,7 @@ def main():
         )
     )
 
-    for i in range(25000):
+    for i in range(7800):
         total_requests += 1
         if i % 1000 == 500:  # 1 in 1000
             total_timeouts += 1
@@ -85,7 +86,7 @@ def main():
         )
     )
 
-    for i in range(25000):
+    for i in range(7800):
         total_requests += 1
         if i % 100 == 50:  # 1 in 100
             total_timeouts += 1
@@ -118,7 +119,7 @@ def main():
         )
     )
 
-    for i in range(25000):
+    for i in range(7800):
         total_requests += 1
         if i % 10 == 5:  # 1 in 10
             total_timeouts += 1
@@ -151,7 +152,7 @@ def main():
         )
     )
 
-    for i in range(25000):
+    for i in range(7800):
         total_requests += 1
         if random.random() < 0.6:  # 60% failure rate
             total_timeouts += 1
@@ -172,6 +173,7 @@ def main():
                 )
             )
 
+    sys.stdout.flush()
     # Keep pod running
     while True:
         time.sleep(3600)
