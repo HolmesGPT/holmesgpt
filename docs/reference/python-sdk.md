@@ -398,9 +398,10 @@ export ANTHROPIC_API_KEY="your-anthropic-key"
 export OPENAI_API_KEY="your-openai-key"
 
 # Optional
-export HOLMES_CONFIG_PATH="/path/to/config.yaml"
 export LOG_LEVEL="INFO"
 ```
+
+To load a YAML file in the SDK, call `Config.load_from_file(config_file=Path("/path/to/config.yaml"))` as shown above. Setting `HOLMES_CONFIG_PATH` selects the default file for the CLI and server; it does not make `Config()` automatically read a file or override an explicit path passed to `Config.load_from_file`.
 
 See the [Environment Variables Reference](environment-variables.md) for complete documentation.
 
