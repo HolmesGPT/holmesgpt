@@ -1,0 +1,105 @@
+user_prompt: "The coral-reef pod in namespace app-302 had critical issues about 9 hours ago. What happened?"
+
+description: |
+  Self-hosted port of 91f_datadog_logs_historical_pod. The coral-reef pod never
+  exists in the cluster: a one-shot Job writes its logs to Loki with timestamps
+  ~9 hours in the past and is then deleted. The Kubernetes toolsets are
+  disabled, so Holmes must find the pod's history in Loki, which means querying
+  a time range outside the default lookback.
+
+expected_output:
+  - The coral-reef pod experienced memory exhaustion and OOM kills
+  - Database connection pool was exhausted leading to request failures
+  - Memory usage spiked due to a memory leak in the request handler
+
+tags:
+  - logs
+  - loki
+  - kubernetes
+
+toolsets_matrix:
+  - toolsets.yaml
+  - toolsets_http.yaml
+
+port_forwards:
+  - namespace: app-302
+    service: loki
+    local_port: 3302
+    remote_port: 3100
+
+before_test: |
+  set -e
+  kubectl create namespace app-302 --dry-run=client -o yaml | kubectl apply -f -
+  kubectl apply -f ../../shared/loki.yaml -n app-302
+
+  LOKI_READY=false
+  for i in {1..90}; do
+    if kubectl exec -n app-302 deployment/loki -- wget -q -O- http://localhost:3100/ready 2>/dev/null | grep -q "ready"; then
+      LOKI_READY=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$LOKI_READY" = false ]; then
+    echo "ERROR: Loki not ready after 180s"
+    kubectl get pods -n app-302 -l app=loki
+    exit 1
+  fi
+
+  # {namespace="app-302", pod="coral-reef-7b9f4fd5c9-xk2lm"} |= "OutOfMemoryError", 8-10h ago
+  QUERY='%7Bnamespace%3D%22app-302%22%2Cpod%3D%22coral-reef-7b9f4fd5c9-xk2lm%22%7D%20%7C%3D%20%22OutOfMemoryError%22'
+  logs_present() {
+    START=$(date -u -d '-10 hours' +%s)
+    END=$(date -u -d '-8 hours' +%s)
+    kubectl exec -n app-302 deployment/loki -- wget -q -O- "http://localhost:3100/loki/api/v1/query_range?query=${QUERY}&start=${START}&end=${END}&limit=10" 2>/dev/null | grep -q "Java heap space"
+  }
+
+  # A re-run against a live namespace must not write the incident twice.
+  if logs_present; then
+    echo "coral-reef logs already in Loki, skipping export"
+  else
+    kubectl delete job log-export-302 -n app-302 --ignore-not-found --cascade=foreground --wait=true
+    kubectl create secret generic log-export-302-script \
+      --from-file=export_logs.py=./export_logs.py \
+      -n app-302 --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f log-export-job.yaml
+
+    JOB_DONE=false
+    for i in {1..90}; do
+      if kubectl wait --for=condition=complete job/log-export-302 -n app-302 --timeout=2s >/dev/null 2>&1; then
+        JOB_DONE=true
+        break
+      fi
+      sleep 1
+    done
+    if [ "$JOB_DONE" = false ]; then
+      echo "ERROR: log export Job did not complete"
+      kubectl logs -n app-302 job/log-export-302 --tail=20 || true
+      exit 1
+    fi
+    kubectl logs -n app-302 job/log-export-302
+
+    LOGS_READY=false
+    for i in {1..60}; do
+      if logs_present; then
+        LOGS_READY=true
+        break
+      fi
+      sleep 2
+    done
+    if [ "$LOGS_READY" = false ]; then
+      echo "ERROR: coral-reef logs from ~9h ago are not queryable in Loki"
+      exit 1
+    fi
+  fi
+  echo "Historical coral-reef logs are queryable in Loki"
+
+  kubectl delete job log-export-302 -n app-302 --ignore-not-found --cascade=foreground --wait=true
+  if kubectl get pods -n app-302 --no-headers 2>/dev/null | grep -qv '^loki-'; then
+    echo "ERROR: pods other than Loki remain in app-302"
+    kubectl get pods -n app-302
+    exit 1
+  fi
+
+after_test: |
+  kubectl delete namespace app-302 --ignore-not-found --wait=false || true

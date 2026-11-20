@@ -1,0 +1,17 @@
+# No Kubernetes access: the eval harness merges tests/llm/utils/default_toolsets.yaml
+# into this file, so every toolset that can reach the cluster (including bash,
+# whose allowlist includes kubectl) is disabled explicitly. Holmes must answer
+# from Prometheus alone.
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  prometheus/metrics:
+    enabled: true
+    config:
+      prometheus_url: http://localhost:10304

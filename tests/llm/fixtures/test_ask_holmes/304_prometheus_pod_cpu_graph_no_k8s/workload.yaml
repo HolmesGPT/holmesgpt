@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: launch-counter-script
+  namespace: app-304
+type: Opaque
+stringData:
+  run.sh: |
+    #!/bin/sh
+    echo "launch counter started"
+    count=0
+    while true; do
+      head -c 3000000 /dev/urandom | md5sum > /dev/null
+      count=$((count + 1))
+      echo "processed batch $count"
+      sleep 2
+    done
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: spaceship-launch-counter
+  namespace: app-304
+  labels:
+    app: spaceship-launch-counter
+spec:
+  containers:
+  - name: launch-counter
+    image: busybox:1.36
+    command: ["/bin/sh", "/scripts/run.sh"]
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        cpu: 200m
+        memory: 64Mi
+    volumeMounts:
+    - name: script
+      mountPath: /scripts
+  volumes:
+  - name: script
+    secret:
+      secretName: launch-counter-script
+      defaultMode: 0755

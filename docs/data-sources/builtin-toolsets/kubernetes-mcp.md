@@ -11,6 +11,7 @@ The [Kubernetes MCP server](https://github.com/containers/kubernetes-mcp-server)
 | **[Multiple Clusters](#multiple-clusters-mounted-kubeconfig)** | Many clusters from one Holmes pod | Pre-issued tokens in a mounted kubeconfig | Investigating prod + staging + dev from one place |
 | **[Per-User Auth](#per-user-auth-oauth-or-oidc)** | One cluster, per-user identity | Each user's own SSO token (Microsoft Entra ID) | Enterprise SSO with per-user RBAC enforced on the API server |
 | **[Per-User Auth with Dex](#per-user-auth-with-dex-oidc)** | One cluster, per-user identity | Each user's own token issued by Dex | Clusters whose API server trusts Dex, federating LDAP, GitHub, Google, SAML or another IdP |
+| **[Per-User Auth with OpenShift OAuth](#per-user-auth-with-openshift-oauth-pingfederate)** | One cluster, per-user identity | Each user's own OpenShift token, signed in through PingFederate or another IdP | OpenShift clusters whose users already sign in through an identity provider |
 
 ## Multiple Clusters (Mounted Kubeconfig)
 
@@ -133,7 +134,7 @@ kubectl get secret k8s-mcp-kubeconfig -n YOUR_NAMESPACE \
 
 ### Step 4: Deploy
 
-Configure Holmes in the "hub" cluster where you want multi-cluster access:
+Configure Holmes in the "hub" cluster where you want multi-cluster access. In Holmes chart releases after 0.46.0, a mounted kubeconfig runs the MCP server inside the Holmes pod, as a subprocess Holmes starts for each call, so no other pod in the cluster can reach the credentials in the kubeconfig. The kubeconfig then sits in the Holmes container, so the chart requires the bash toolset to be disabled, as the examples below do. The comment on `mcpAddons.kubernetes.config.kubeconfig` in the chart's `values.yaml` lists the settings that stop applying. The `serviceAccount` block and the `--kubeconfig` / `--cluster-provider` arguments below are needed only on chart 0.46.0 and earlier, where the server runs as its own Deployment.
 
 ```yaml-helm-values
 # Disable built-in k8s toolsets to avoid overlap
@@ -222,7 +223,7 @@ mcpAddons:
         secretName: "k8s-mcp-kubeconfig"
         secretKey: "kubeconfig"
 
-      # Required — overrides in-cluster auto-detection
+      # Required on chart 0.46.0 and earlier — overrides in-cluster auto-detection
       extraArgs:
         - "--kubeconfig"
         - "/etc/kubernetes/kubeconfig"
@@ -510,6 +511,110 @@ mcpAddons:
         oauth_audience = "mcp-k8s"
         certificate_authority = "/etc/kubernetes-mcp-ca/ca.crt"
 ```
+
+## Per-User Auth with OpenShift OAuth (PingFederate)
+
+Use this on OpenShift when your users already sign in to the cluster through an identity provider such as PingFederate, and their groups already have RBAC bindings. Holmes never talks to PingFederate directly: it signs each user in through OpenShift's OAuth server, which sends them on to PingFederate. OpenShift then issues its own opaque `sha256~` token, and the MCP server passes that token through to the API server, so every call runs with the user's own permissions.
+
+Check that PingFederate is an identity provider on the cluster:
+
+```bash
+oc get oauth cluster -o jsonpath='{.spec.identityProviders[*].name}{"\n"}'
+```
+
+### Step 1: Register Holmes as an OpenShift OAuth client
+
+Create an `OAuthClient` for Holmes. Generate the secret with `openssl rand -base64 32`, and use the redirect URI for your Robusta region:
+
+```robusta-region {lang=yaml}
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: mcp-openshift
+secret: "<CLIENT_SECRET>"
+redirectURIs:
+  - "https://platform.robusta.dev/oauth/callback.html"
+grantMethod: auto
+```
+
+Save it as `oauthclient-mcp.yaml` and apply it. `grantMethod: prompt` instead shows users a consent screen on their first sign-in.
+
+```bash
+oc apply -f oauthclient-mcp.yaml
+```
+
+### Step 2: Store the OAuth client secret
+
+Create a Kubernetes secret, in the namespace Holmes runs in, with the client secret from Step 1:
+
+```bash
+oc create secret generic mcp-openshift-credentials \
+  --from-literal=client-secret='<CLIENT_SECRET>' \
+  -n <holmes-namespace> \
+  --dry-run=client -o yaml | oc apply -f -
+```
+
+### Step 3: Deploy
+
+Replace `<CLUSTER_APPS_DOMAIN>` with your cluster's apps domain, which this prints:
+
+```bash
+oc get ingresses.config cluster -o jsonpath='{.spec.domain}{"\n"}'
+```
+
+```yaml-helm-values
+# Inject the OAuth client secret as an env var so the OAuth flow can read it.
+additionalEnvVars:
+  - name: MCP_OAUTH_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: mcp-openshift-credentials
+        key: client-secret
+
+# Disable built-in Kubernetes toolsets — they run with the Holmes pod's
+# ServiceAccount, which would bypass per-user RBAC.
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  bash:
+    enabled: false
+
+mcpAddons:
+  kubernetes:
+    enabled: true
+
+    serviceAccount:
+      create: true
+      name: "k8s-mcp-sa"
+      createClusterRoleBinding: false  # permissions come from the user's token
+
+    config:
+      readOnly: true
+
+      # Server-side: pass the user's opaque OpenShift token through to the API server.
+      serverConfig: |
+        require_oauth = true
+        accept_opaque_tokens = true
+        cluster_auth_mode = "passthrough"
+
+      # Holmes-side: tells Holmes which OAuth endpoints to drive in the browser.
+      oauth:
+        enabled: true
+        authorization_url: "https://oauth-openshift.<CLUSTER_APPS_DOMAIN>/oauth/authorize"
+        token_url:         "https://oauth-openshift.<CLUSTER_APPS_DOMAIN>/oauth/token"
+        client_id: "mcp-openshift"
+        client_secret: "{{ env.MCP_OAUTH_CLIENT_SECRET }}"
+        scopes:
+          - "user:full"
+```
+
+OpenShift doesn't issue refresh tokens, so users sign in again when their token expires (after 24 hours by default; set `accessTokenMaxAgeSeconds` on the `OAuthClient` to change it).
+
+### Step 4: Verify
+
+Ask Holmes a Kubernetes question in the Robusta UI. A popup opens the OpenShift login page; pick PingFederate and sign in. Then ask about a namespace the user has no access to: the tool output should show a `forbidden` error from the API server.
 
 ## Choose Toolsets and Disable Tools
 
