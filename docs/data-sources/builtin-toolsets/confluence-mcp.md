@@ -96,6 +96,8 @@ cli: |
             value: "confluence_search,confluence_get_page,confluence_get_page_content,confluence_get_comments"
           - name: READ_ONLY_MODE
             value: "true"
+          - name: ALLOW_GLOBAL_CRED_FALLBACK
+            value: "true"
           resources:
             requests:
               memory: "128Mi"

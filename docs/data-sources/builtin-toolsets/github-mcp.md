@@ -303,7 +303,7 @@ cli: |
         containers:
         - name: github-mcp
           # For multi-org (alpha) use github-app-mcp:2.0.0 and drop the args below
-          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.7
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/github-app-mcp:1.0.8
           ports:
           - containerPort: 8000
           args:

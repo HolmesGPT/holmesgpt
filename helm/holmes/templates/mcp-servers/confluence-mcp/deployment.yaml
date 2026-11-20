@@ -142,6 +142,15 @@ spec:
         - name: READ_ONLY_MODE
           value: "true"
         {{- end }}
+        {{- $userEnvNames := list }}
+        {{- range .Values.mcpAddons.confluenceMcp.additionalEnvVars }}
+        {{- $userEnvNames = append $userEnvNames .name }}
+        {{- end }}
+        {{- if not (has "ALLOW_GLOBAL_CRED_FALLBACK" $userEnvNames) }}
+        # v0.22+ refuses the pod's credentials without this
+        - name: ALLOW_GLOBAL_CRED_FALLBACK
+          value: "true"
+        {{- end }}
         {{- if .Values.mcpAddons.confluenceMcp.additionalEnvVars }}
         {{- toYaml .Values.mcpAddons.confluenceMcp.additionalEnvVars | nindent 8 }}
         {{- end }}
