@@ -7,6 +7,7 @@ from typing import Optional
 
 import markdown
 import pytest
+import yaml
 from mkdocs.commands.build import build
 from mkdocs.config import load_config
 from pydantic import BaseModel, ConfigDict, Field
@@ -78,22 +79,28 @@ def test_expanding_the_fences_imports_nothing_from_holmes(load):
 def test_two_builds_of_the_site_are_byte_identical(tmp_path):
     """Each build also runs the on_post_page check over every page."""
     sites = [tmp_path / "first", tmp_path / "second"]
-    for site in sites:
-        build(load_config(str(REPO / "mkdocs.yml"), site_dir=str(site)))
+    # Two processes at once: a build is about twenty seconds of the Markdown pipeline and Material, not of our code.
+    builds = [
+        subprocess.Popen([sys.executable, "-m", "mkdocs", "build", "-q", "-d", str(site)], cwd=REPO, stderr=subprocess.PIPE, text=True)
+        for site in sites
+    ]
+    for process in builds:
+        _, stderr = process.communicate()
+        assert process.returncode == 0, stderr
     files = [sorted(path.relative_to(site) for path in site.rglob("*") if path.is_file()) for site in sites]
     assert files[0] == files[1]
     assert [path for path in files[0] if (sites[0] / path).read_bytes() != (sites[1] / path).read_bytes()] == []
 
 
 @pytest.mark.parametrize(
-    "body",
+    "body, line",
     [
-        "toolsets:\n  newrelic: [enabled\n",
-        "toolsets:\n  newrelic:\n    enabled: true\n---\ncli: [\n",
+        ("toolsets:\n  newrelic: [enabled\n", 5),
+        ("toolsets:\n  newrelic:\n    enabled: true\n---\ncli: [\n", 8),
     ],
     ids=["values", "fields"],
 )
-def test_a_fence_body_that_is_not_valid_yaml_fails_the_build(tmp_path, monkeypatch, body):
+def test_a_fence_body_that_is_not_valid_yaml_fails_the_build_at_the_line_of_the_error(tmp_path, monkeypatch, body, line):
     monkeypatch.chdir(REPO)
     docs = tmp_path / "docs"
     docs.mkdir()
@@ -101,7 +108,7 @@ def test_a_fence_body_that_is_not_valid_yaml_fails_the_build(tmp_path, monkeypat
     config = load_config(
         str(REPO / "mkdocs.yml"), docs_dir=str(docs), site_dir=str(tmp_path / "site")
     )
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: the fence body is not valid YAML"):
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: the fence body is not valid YAML"):
         build(config)
 
 
@@ -188,9 +195,9 @@ FRONT_MATTER = "---\ntitle: Page\n---\n"
 @pytest.mark.parametrize(
     "text, line, error",
     [
-        (f"# Page\n\n{INCLUDE}```yaml-helm-values\nmodelList:\n```\n", 5, "`modelList` has no value"),
+        (f"# Page\n\n{INCLUDE}```yaml-helm-values\nmodelList:\n```\n", 6, "`modelList` has no value"),
         (f"# Page\n\n{INCLUDE}```multi-instance\ntoolset: x\n```\n", 5, "unsupported form"),
-        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\nmodelList:\n```\n", 6, "`modelList` has no value"),
+        (f"{FRONT_MATTER}# Page\n\n```yaml-helm-values\nmodelList:\n```\n", 7, "`modelList` has no value"),
         (f"{FRONT_MATTER}# Page\n\n```multi-instance\ntoolset: x\n```\n", 6, "unsupported form"),
         (
             "# Page\n\n```yaml-helm-values\nextraEnvVarsSecrets:\n  - mine\nmodelList:\n  m:\n    api_key: \"{{{{ env.KEY }}}}\"\n```\n",
@@ -285,20 +292,21 @@ TOOLSET = "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      nr_acco
 
 
 @pytest.mark.parametrize(
-    "fence",
+    "fence, line, message",
     [
-        f"```yaml-toolset-config\n{TOOLSET}---\ncli:\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\ntest:\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n",
-        "```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n",
-        f"```yaml-toolset-config\n{TOOLSET}---\ntest: |\n  holmes toolset list\n  holmes ask hi\n```\n",
+        (f"```yaml-toolset-config\n{TOOLSET}---\ncli:\n```\n", 10, "`cli` has no value"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\ntest:\n```\n", 10, "`test` has no value"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\nnamed-secrets: []\n```\n", 10, "`named-secrets` has no value"),
+        ("```yaml-helm-values\nmodelList:\n  gpt:\n    model: openai/gpt-4.1\n---\ndeployment-values:\n```\n", 8, "`deployment-values` has no value"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\nsecrets:\n  - --from-literal=X=y\n```\n", 10, "`secrets`: Extra inputs are not permitted"),
+        (f"```yaml-toolset-config\n{TOOLSET}---\ntest: |\n  holmes toolset list\n  holmes ask hi\n```\n", 10, "`test`: "),
     ],
     ids=["cli", "test", "named-secrets", "deployment-values", "unknown-field", "multi-line-test"],
 )
-def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build(tmp_path, monkeypatch, fence):
+def test_a_field_written_with_no_value_or_outside_the_list_fails_the_build_at_its_line(tmp_path, monkeypatch, fence, line, message):
     monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=r"^index\.md:3: unsupported form of a custom fence"):
+    # The fence opens on line 3 of the page.
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: {re.escape(message)}"):
         build_page(tmp_path, fence)
 
 
@@ -307,29 +315,34 @@ RULE = 'customClusterRoleRules:\n  - apiGroups: [""]\n    resources: ["pods"]\n 
 
 
 @pytest.mark.parametrize(
-    "values, path",
+    "values, path, line",
     [
-        ("toolsets:\n", "toolsets"),
-        ("toolsets: {}\n", "toolsets"),
-        ("toolsets:\n  newrelic:\n", "toolsets.newrelic"),
-        ("modelList:\n", "modelList"),
-        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n    api_key: \"\"\n", "modelList.gpt.api_key"),
-        ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations"),
-        ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations"),
-        ("additionalEnvVars:\n  - name: TIMEOUT_SECONDS\n    value: \"\"\n", "additionalEnvVars[0].value"),
-        (f"{RULE}      - get\n      -\n", "customClusterRoleRules[0].verbs[1]"),
-        (f"{RULE}      - get\n      - null\n", "customClusterRoleRules[0].verbs[1]"),
-        (f"{RULE}      - get\n  - {{}}\n", "customClusterRoleRules[1]"),
-        (f"{RULE}      - get\n  - []\n", "customClusterRoleRules[1]"),
+        ("toolsets:\n", "toolsets", 4),
+        ("toolsets: {}\n", "toolsets", 4),
+        ("toolsets:\n  newrelic:\n", "toolsets.newrelic", 5),
+        ("modelList:\n", "modelList", 4),
+        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n    api_key: \"\"\n", "modelList.gpt.api_key", 7),
+        ("serviceAccount:\n  annotations: {}\n", "serviceAccount.annotations", 5),
+        ("mcpAddons:\n  aws:\n    enabled: true\n    tolerations: []\n", "mcpAddons.aws.tolerations", 7),
+        ("additionalEnvVars:\n  - name: TIMEOUT_SECONDS\n    value: \"\"\n", "additionalEnvVars[0].value", 6),
+        (f"{RULE}      - get\n      -\n", "customClusterRoleRules[0].verbs[1]", 9),
+        (f"{RULE}      - get\n      - null\n", "customClusterRoleRules[0].verbs[1]", 9),
+        (f"{RULE}      - get\n  - {{}}\n", "customClusterRoleRules[1]", 9),
+        (f"{RULE}      - get\n  - []\n", "customClusterRoleRules[1]", 9),
+        ("replicas: 1\n42:\n", "[42]", 5),
+        ("serviceAccount: &sa\n  create: true\nholmes:\n  <<: *sa\n  name:\n", "holmes.name", 8),
+        # `safe_load` puts merged keys first, so the empty key is `holmes.b`, written at the anchor.
+        ("holmes:\n  a: &x\n    b:\n  <<: *x\n", "holmes.b", 6),
     ],
     ids=[
         "toolsets", "toolsets-{}", "toolset-block", "modelList", "free-form-map-value", "nested-{}", "nested-[]",
-        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]",
+        "list-entry", "list-item", "list-item-null", "list-item-{}", "list-item-[]", "int-key", "merge-key", "merged-key",
     ],
 )
-def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path):
+def test_a_value_written_with_no_value_fails_the_build(tmp_path, monkeypatch, values, path, line):
     monkeypatch.chdir(REPO)
-    with pytest.raises(TabFenceError, match=rf"^index\.md:3: `{re.escape(path)}` has no value"):
+    # The fence opens on line 3 of the page, so its first values line is 4.
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: `{re.escape(path)}` has no value"):
         build_page(tmp_path, f"```yaml-toolset-config\n{values}```\n")
 
 
@@ -354,6 +367,22 @@ def test_a_reuse_fence_with_a_field_other_than_cli_fails_the_build(tmp_path, mon
 
 
 
+@pytest.mark.parametrize(
+    "fields, line, message",
+    [
+        ("secret: invalid\n", 10, "`secret`: "),
+        ("named-secrets:\n  - name: dd-ca\n    keys: 5\n", 12, "`named-secrets[0].keys`: "),
+        ("cli: holmes toolset list\ntest: holmes toolset list\n", 10, "Value error, `test` ends a derived CLI tab"),
+    ],
+    ids=["field", "nested-field", "fields-together"],
+)
+def test_refused_fields_fail_the_build_at_the_refused_line(tmp_path, monkeypatch, fields, line, message):
+    monkeypatch.chdir(REPO)
+    # The fence opens on line 3 of the page and its `---` is on line 9.
+    with pytest.raises(TabFenceError, match=rf"^index\.md:{line}: {re.escape(message)}"):
+        build_page(tmp_path, f"```yaml-toolset-config\n{DATADOG}---\n{fields}```\n")
+
+
 CHART = REPO / "helm" / "holmes"
 
 
@@ -365,7 +394,7 @@ CHART = REPO / "helm" / "holmes"
 def test_the_chart_the_kubernetes_schemas_and_holmes_take_every_helm_tab_of_a_page(path):
     page = path.relative_to(DOCS).as_posix()
     errors = [
-        f"{page}:{fence.line}: {error}"
+        f"{page}:{fence.line_of(error.path)}: {error}"
         for fence in custom_fences.deployment_fences(path.read_text(), page)
         if fence.values
         for error in fence_checks.check_fence(fence.values, fence.environment, CHART)
@@ -693,3 +722,94 @@ def test_a_non_string_environment_value_is_set_as_a_string_and_the_process_envir
     with fence_checks._environment({"RETRIES": 30, "DEBUG": True}):
         assert dict(os.environ) == {"RETRIES": "30", "DEBUG": "True"}
     assert dict(os.environ) == before
+
+
+@pytest.mark.parametrize(
+    "values, line, message",
+    [
+        ("podAnnotations:\n  team: sre\npodLabelz:\n  team: sre\n", 6, "`podLabelz` is not a key path"),
+        (
+            "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      api_key: x\n      account_id: \"1\"\n      timeout_secondz: 3\n",
+            10,
+            "`timeout_secondz` is not a field of NewrelicConfig",
+        ),
+        ("modelList:\n  gpt:\n    model: openai/gpt-4.1\n  bad:\n    modle: x\n", 7, "model_list.yaml `bad`: Holmes refuses it"),
+        # A field the model refuses is blamed, not the entry or the config.
+        ("modelList:\n  gpt:\n    model: 5\n", 6, "model_list.yaml `gpt`: Holmes refuses it"),
+        (
+            "toolsets:\n  newrelic:\n    enabled: true\n    config:\n      api_key: x\n      account_id: \"1\"\n      timeout_seconds: abc\n",
+            10,
+            "no config class of the toolset takes it",
+        ),
+        # Helm's message names `tls.enabled` and `tls.secretName`; only the first is written.
+        ("tls:\n  enabled: true\n", 5, "helm template fails"),
+        # The Deployment's env entry is the values' entry, passed through.
+        ("additionalEnvVars:\n  - name: A\n    value: a\n  - value: \"30\"\n", 7, "'name' is a required property"),
+        ("additionalVolumeMounts:\n  - name: x\n    mountPath: /x\n    mountPth: /x\n", 5, "Additional properties are not allowed"),
+        # The chart generates the `kubernetes` server for the addon.
+        (
+            "mcpAddons:\n  aws:\n    enabled: false\n  kubernetes:\n    enabled: true\n    config:\n      oauth:\n        enabled: true\n        client-id: c\n",
+            7,
+            "`oauth.client-id` is not a field of MCPOAuthConfig",
+        ),
+        # The second instance's own key, and a key every instance shares.
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      instances:\n"
+            "        - name: prod\n          prometheus_url: http://p:9090\n"
+            "        - name: dev\n          prometheus_url: http://d:9090\n          timout: 30\n",
+            13,
+            "`timout` is not a field",
+        ),
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      timout: 30\n      instances:\n"
+            "        - name: prod\n          prometheus_url: http://p:9090\n",
+            8,
+            "`timout` is not a field",
+        ),
+        (
+            "toolsets:\n  prometheus/metrics:\n    enabled: true\n    config:\n      instances:\n"
+            "        - name: prod\n          prometheus_url: http://p:9090\n"
+            "        - name: dev\n          prometheus_url: [x]\n",
+            12,
+            "instance `dev`",
+        ),
+    ],
+    ids=[
+        "chart-key", "toolset-config-key", "model-entry", "model-entry-field", "config-field", "helm-names-a-key", "kubernetes-schema-env-entry",
+        "kubernetes-schema-undeclared-field", "addon-mcp-server", "instance-key", "key-shared-by-instances", "instance-field",
+    ],
+)
+def test_an_error_names_the_line_of_the_key_it_refuses(values, line, message):
+    """The fence opens on line 3 of the page."""
+    fence = fence_of(f"```yaml-helm-values\n{values}```\n")
+    (error,) = fence_checks.check_fence(fence.values, fence.environment, CHART)
+    assert message in error
+    assert fence.line_of(error.path) == line
+
+
+def test_a_helm_message_that_names_no_key_of_the_values_names_none():
+    assert fence_checks._named_path({"tls": {"enabled": True}}, "Error: boom at holmes/templates/holmes.yaml:3:4") == ()
+    assert fence_checks._named_path({"tls": {"enabled": True}}, "tls.enabled and tls.secretName") == ("tls", "enabled")
+
+
+def test_the_chart_generates_each_mcp_server_for_the_addon_the_blame_names():
+    """`_addon_path` matches server names to addon names; every server the chart renders for an
+    addon must match that addon."""
+    addons = yaml.safe_load((CHART / "values.yaml").read_text())["mcpAddons"]
+    required = {"prefect": {"config": {"apiUrl": "http://prefect:4200/api"}}, "confluenceMcp": {"config": {"url": "http://c"}}}
+
+    def needs(addon):
+        return {**({"auth": {"secretName": "s"}} if "auth" in addons[addon] else {}), **required.get(addon, {})}
+
+    for addon in addons:
+        values = {"mcpAddons": {addon: {"enabled": True, **needs(addon)}}}
+        render = fence_checks._render(values, CHART)
+        assert render.returncode == 0, (addon, render.stderr)
+        (configmap,) = [
+            document
+            for document in yaml.safe_load_all(render.stdout)
+            if document and document["kind"] == "ConfigMap" and document["metadata"]["name"] == "custom-toolsets-configmap"
+        ]
+        servers = yaml.safe_load(configmap["data"]["custom_toolset.yaml"]).get("mcp_servers") or {}
+        assert servers, addon
+        assert {fence_checks._addon_path(values, server) for server in servers} == {("mcpAddons", addon)}, (addon, list(servers))
