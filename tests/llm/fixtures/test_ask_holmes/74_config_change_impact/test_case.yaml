@@ -2,6 +2,7 @@ user_prompt: "Why is the cache-service pod in namespace-74 performing poorly?"
 tags:
   - logs
   - context_window
+  - benchmark
 expected_output:
   - Cache service experiencing performance degradation after configuration reload event
   - Cache hit rate dropped significantly (from ~85% to ~25%)
@@ -14,7 +15,32 @@ before_test: |
   --from-file=generate_logs.py=./generate_logs.py \
   -n namespace-74 --dry-run=client -o yaml | kubectl apply -f -
   kubectl apply -f ./manifest.yaml
-  sleep 40
+  # kubectl logs reads only the current log file; the script must stay under kubelet's 10Mi rotation.
+  # 36001 lines always, plus up to 17 random "Performance degradation" lines.
+  MIN_LINES=36001
+  MAX_LINES=36018
+  READY=false
+  for i in $(seq 1 120); do
+    if kubectl exec -n namespace-74 deploy/cache-service -- test -f /tmp/ready 2>/dev/null; then
+      READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$READY" = false ]; then
+    echo "❌ cache-service did not finish writing its logs"
+    exit 1
+  fi
+  # The container runtime copies stdout to the log file asynchronously.
+  for i in $(seq 1 10); do
+    LINES=$(kubectl logs -n namespace-74 deploy/cache-service | wc -l)
+    [ "$LINES" -ge "$MIN_LINES" ] && break
+    sleep 1
+  done
+  if [ "$LINES" -lt "$MIN_LINES" ] || [ "$LINES" -gt "$MAX_LINES" ]; then
+    echo "❌ kubectl logs shows $LINES log lines, expected $MIN_LINES-$MAX_LINES"
+    exit 1
+  fi
 after_test: |
   kubectl delete -f ./manifest.yaml
   kubectl delete secret cache-service-logs-script -n namespace-74 --ignore-not-found

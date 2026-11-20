@@ -36,7 +36,8 @@
 #   Also replaced: grpc -> v1.83.2 (GHSA-hrxh-6v49-42gf, plus CVE-2026-84304
 #   HTTP/2 DATA-frame heap exhaustion fixed 1.83.1 and CVE-2026-84445 xDS
 #   server panic fixed 1.83.2), oras-go -> v2.6.2 (CVE-2026-50151/50163),
-#   mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d).
+#   mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d), klauspost/compress
+#   -> v1.18.7 (CVE-2026-63209, High: integer overflow in dictionary processing).
 #   Revert to plain upstream binary when ArgoCD ships go-git >= 5.19.2 and
 #   go-billy >= 5.9.0 (blocked on go-git/go-git#1551 upstream).
 #
@@ -144,6 +145,7 @@ KUBECTL_VERSION=v1.37.1
 X_CRYPTO_PATCHED_VERSION=v0.56.0
 ORAS_GO_PATCHED_VERSION=v2.6.2
 MONGO_DRIVER_PATCHED_VERSION=v1.17.7
+KLAUSPOST_COMPRESS_PATCHED_VERSION=v1.18.7
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTDIR="$REPO_ROOT/bin/go-cve-rebuild"
@@ -168,6 +170,8 @@ go mod edit -replace="google.golang.org/grpc=google.golang.org/grpc@$GRPC_PATCHE
 go mod edit -replace="oras.land/oras-go/v2=oras.land/oras-go/v2@$ORAS_GO_PATCHED_VERSION"
 # mongo-driver v1.17.6 has CVE-2026-2303 (Medium, published 2026-02-10); fixed in v1.17.7
 go mod edit -replace="go.mongodb.org/mongo-driver=go.mongodb.org/mongo-driver@$MONGO_DRIVER_PATCHED_VERSION"
+# klauspost/compress v1.18.0 has CVE-2026-63209 (High); fixed in v1.18.7
+go mod edit -replace="github.com/klauspost/compress=github.com/klauspost/compress@$KLAUSPOST_COMPRESS_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-git/v5" "$GO_GIT_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-billy/v5" "$GO_BILLY_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/slack-go/slack" "$SLACK_GO_PATCHED_VERSION"
@@ -175,6 +179,7 @@ GOFLAGS=-mod=mod assert_x_replaces
 GOFLAGS=-mod=mod assert_module_version "google.golang.org/grpc" "$GRPC_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "oras.land/oras-go/v2" "$ORAS_GO_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "go.mongodb.org/mongo-driver" "$MONGO_DRIVER_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "github.com/klauspost/compress" "$KLAUSPOST_COMPRESS_PATCHED_VERSION"
 
 ARGOCD_LDFLAGS="-X github.com/argoproj/argo-cd/v3/common.version=$ARGOCD_VERSION_NO_V"
 

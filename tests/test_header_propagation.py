@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from holmes.core.tools import (
+    ShellInjectionError,
     StructuredToolResultStatus,
     ToolInvokeContext,
     YAMLTool,
@@ -458,18 +459,17 @@ class TestRequestContextShellInjection:
         assert "uid=" not in (result.error or "")
         assert "uid=" not in (result.data or "")
 
-    def test_build_context_raises_on_metacharacter_header(self):
-        """_build_context refuses a metacharacter header at the source."""
-        from holmes.core.tools import ShellInjectionError
-
+    def test_reading_a_metacharacter_header_from_context_raises(self):
+        """Reading a metacharacter header from the context refuses it."""
         tool = YAMLTool(
             name="t", description="t",
             command="echo {{ request_context.headers['X-Val'] }}",
         )
+        context = tool._build_context(
+            {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
+        )
         with pytest.raises(ShellInjectionError):
-            tool._build_context(
-                {}, request_context={"headers": {"X-Val": "; rm -rf /"}}
-            )
+            context["request_context"]["headers"]["x-val"]
 
     def test_benign_header_with_whitespace_is_allowed(self):
         """A legitimate multi-word token (e.g. `Bearer <jwt>`) is permitted."""
@@ -482,6 +482,71 @@ class TestRequestContextShellInjection:
         )
         assert result.status == StructuredToolResultStatus.SUCCESS
         assert result.data == "Bearer abc.def-ghi_jkl"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo {{ request_context.headers['x-auth'] }}",
+            "echo {{ request_context.headers.get('X-Auth') }}",
+            "echo {{ request_context.headers }}",
+            "{% for k, v in request_context.headers.items() %}echo {{ v }}{% endfor %}",
+            "{% for v in request_context.headers.values() %}echo {{ v }}{% endfor %}",
+        ],
+    )
+    def test_every_way_of_reading_a_header_is_checked(self, command):
+        tool = YAMLTool(name="t", description="t", command=command)
+        result = tool._invoke({}, self._ctx({"headers": {"X-Auth": "$(id)"}}))
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "metacharacter" in (result.error or "")
+        assert "uid=" not in (result.data or "")
+
+    @pytest.mark.parametrize("use_script", [False, True])
+    def test_template_cannot_read_the_unchecked_storage(self, use_script):
+        """The sandbox blocks `_data`, the only path around the read check."""
+        template = "echo {{ request_context.headers._data['x-auth'][1] }}"
+        tool = YAMLTool(
+            name="t", description="t",
+            **({"script": "#!/bin/bash\n" + template} if use_script else {"command": template}),
+        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Auth": "$(id)"}}))
+        assert result.status == StructuredToolResultStatus.ERROR
+        assert "uid=" not in (result.data or "")
+
+    def test_mixed_case_headers_key_cannot_replace_checked_headers(self):
+        tool = YAMLTool(
+            name="t", description="t",
+            command="echo {{ request_context.headers['X-Auth'] }}",
+        )
+        result = tool._invoke(
+            {}, self._ctx({"headers": {}, "Headers": {"X-Auth": "$(id)"}})
+        )
+        assert "uid=" not in (result.data or "")
+
+    def test_membership_check_does_not_read_the_value(self):
+        tool = YAMLTool(
+            name="t", description="t",
+            command="{% if 'accept' in request_context.headers %}echo yes{% endif %}",
+        )
+        result = tool._invoke({}, self._ctx({"headers": {"Accept": "*/*"}}))
+        assert result.data == "yes"
+
+    def test_header_names_keep_their_case(self):
+        tool = YAMLTool(
+            name="t", description="t",
+            command="{% for k in request_context.headers %}echo {{ k }}{% endfor %}",
+        )
+        result = tool._invoke({}, self._ctx({"headers": {"X-Tenant-Id": "abc"}}))
+        assert result.data == "X-Tenant-Id"
+
+    def test_unused_header_with_metacharacters_is_ignored(self):
+        """The server forwards every request header, so a normal
+        `Accept: */*` must not fail a tool that never renders it."""
+        tool = YAMLTool(name="t", description="t", command="echo ok")
+        result = tool._invoke(
+            {}, self._ctx({"headers": {"accept": "application/json, */*"}})
+        )
+        assert result.status == StructuredToolResultStatus.SUCCESS
+        assert result.data == "ok"
 
     def test_benign_header_still_renders_unchanged(self):
         """A normal token passes through untouched (no regression)."""

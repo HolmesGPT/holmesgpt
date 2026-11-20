@@ -1,0 +1,307 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: payments-src
+type: Opaque
+stringData:
+  telemetry.py: |
+    import logging
+    import os
+
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.trace import Status, StatusCode, get_current_span
+
+
+    def setup_telemetry(service_name):
+        resource = Resource.create(
+            {
+                "service.name": service_name,
+                "service.version": "1.0.0",
+                "deployment.environment": "dev",
+                "k8s.namespace.name": os.environ.get("K8S_NAMESPACE", "unknown"),
+                "k8s.deployment.name": service_name,
+                "k8s.pod.name": os.environ.get("K8S_POD_NAME", "unknown"),
+                "k8s.node.name": os.environ.get("K8S_NODE_NAME", "unknown"),
+                "k8s.container.name": "app",
+            }
+        )
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(
+            BatchSpanProcessor(
+                OTLPSpanExporter(endpoint=os.environ["OTLP_ENDPOINT"], insecure=True)
+            )
+        )
+        trace.set_tracer_provider(provider)
+        RequestsInstrumentor().instrument()
+
+        # Application logs are shipped to a separate log backend, not stdout, so
+        # the pod log stays empty and the latency has to be found in traces.
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        logger = logging.getLogger(service_name)
+        logger.addHandler(logging.NullHandler())
+        logger.propagate = False
+        return trace.get_tracer(service_name), logger
+
+
+    def record_exception_on_current_span(exc):
+        span = get_current_span()
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+
+  payment_processor.py: |
+    import time
+
+    import requests
+
+    from telemetry import record_exception_on_current_span, setup_telemetry
+
+    tracer, logger = setup_telemetry("payment-processor")
+    ORDER_URL = "http://order-management.app-300.svc.cluster.local:5000/orders"
+
+
+    def handle_transaction():
+        with tracer.start_as_current_span("payments_cycle"):
+            logger.info("Processing payment...")
+            time.sleep(1)
+            try:
+                resp = requests.post(ORDER_URL, json={"order_id": 123}, timeout=10)
+                logger.info(f"Order Management responded: {resp.status_code} {resp.text}")
+            except Exception as e:
+                record_exception_on_current_span(e)
+                logger.exception("Error sending request to Order Management", exc_info=e)
+
+
+    if __name__ == "__main__":
+        while True:
+            handle_transaction()
+            time.sleep(5)
+
+  order_management.py: |
+    import random
+    import time
+
+    import requests
+    from flask import Flask, jsonify, request
+    from opentelemetry import trace
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+
+    from telemetry import record_exception_on_current_span, setup_telemetry
+
+    tracer, logger = setup_telemetry("order-management")
+    app = Flask(__name__)
+    FlaskInstrumentor().instrument_app(app, excluded_urls="healthz")
+    TM_URL = "http://transaction-monitoring.app-300.svc.cluster.local:5000/monitor"
+
+
+    @app.get("/healthz")
+    def healthz():
+        return "ok"
+
+
+    @app.route("/orders", methods=["POST"])
+    def manage_order():
+        with tracer.start_as_current_span("order_business"):
+            try:
+                data = request.get_json(silent=True) or {}
+                order_id = data.get("order_id", "unknown")
+                trace.get_current_span().add_event("order_received", {"order_id": str(order_id)})
+
+                wait_time = random.uniform(1, 5)
+                trace.get_current_span().add_event("rate_limit", {"wait_ms": int(wait_time * 1000)})
+                logger.warning(
+                    f"API rate limit reached for MailChimp integration. Waiting {wait_time:.2f}s before retry."
+                )
+                time.sleep(wait_time)
+
+                resp = requests.post(TM_URL, json={"transaction_id": order_id}, timeout=5)
+                logger.info(f"Transaction Monitoring responded: {resp.status_code} {resp.text}")
+                return jsonify({"status": "success", "message": "Order processed"}), 200
+            except Exception as e:
+                record_exception_on_current_span(e)
+                logger.exception("Error processing order", exc_info=e)
+                return jsonify({"status": "error", "message": str(e)}), 500
+
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=5000, threaded=True)
+
+  transaction_monitoring.py: |
+    from flask import Flask, jsonify, request
+    from opentelemetry import trace
+    from opentelemetry.instrumentation.flask import FlaskInstrumentor
+
+    from telemetry import record_exception_on_current_span, setup_telemetry
+
+    tracer, logger = setup_telemetry("transaction-monitoring")
+    app = Flask(__name__)
+    FlaskInstrumentor().instrument_app(app, excluded_urls="healthz")
+
+
+    @app.get("/healthz")
+    def healthz():
+        return "ok"
+
+
+    @app.route("/monitor", methods=["POST"])
+    def monitor_transaction():
+        with tracer.start_as_current_span("tm_business"):
+            try:
+                payload = request.get_json(silent=True) or {}
+                trace.get_current_span().add_event(
+                    "monitoring_started", {k: str(v) for k, v in payload.items()}
+                )
+                logger.info(f"Monitoring transaction: {payload}")
+                return jsonify({"status": "success", "message": "Transaction monitored"}), 200
+            except Exception as e:
+                record_exception_on_current_span(e)
+                logger.exception("Error monitoring transaction", exc_info=e)
+                return jsonify({"status": "error", "message": str(e)}), 500
+
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=5000, threaded=True)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-monitoring
+  template:
+    metadata:
+      labels:
+        app: transaction-monitoring
+    spec:
+      containers:
+      - name: app
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/transaction_monitoring.py"]
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5000
+          periodSeconds: 5
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OTLP_ENDPOINT
+          value: tempo.app-300.svc.cluster.local:4317
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: src
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: src
+        secret:
+          secretName: payments-src
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-monitoring
+spec:
+  selector:
+    app: transaction-monitoring
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-management
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-management
+  template:
+    metadata:
+      labels:
+        app: order-management
+    spec:
+      containers:
+      - name: app
+        # see Dockerfile in tests/llm/fixtures/shared/python-flask-otel/Dockerfile
+        image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:3.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "/app/order_management.py"]
+        ports:
+        - containerPort: 5000
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 5000
+          periodSeconds: 5
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: OTLP_ENDPOINT
+          value: tempo.app-300.svc.cluster.local:4317
+        - name: K8S_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: K8S_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: K8S_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: src
+          mountPath: /app
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+      volumes:
+      - name: src
+        secret:
+          secretName: payments-src
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-management
+spec:
+  selector:
+    app: order-management
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
