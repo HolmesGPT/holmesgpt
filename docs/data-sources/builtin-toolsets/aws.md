@@ -17,7 +17,7 @@ Holmes connects to the hosted [AWS MCP Server](https://docs.aws.amazon.com/agent
 !!! tip "CLI users can skip this step"
     Holmes CLI uses your local AWS credentials directly. Skip to [Step 2](#step-2-deploy-aws-mcp).
 
-Holmes needs an IAM role with read-only permissions that its Kubernetes service account can assume. That service account is `YOUR_RELEASE-holmes-service-account`, where `YOUR_RELEASE` is the Helm release Holmes is installed as (`robusta` for the Robusta Helm chart installed as `robusta`); if you set `customServiceAccountName`, use that name instead. We provide a default IAM policy that works for most users; restrict it if needed. Read-only access is enforced by this policy - the MCP server itself exposes write operations too, so attach only read permissions.
+Holmes needs an IAM role with read-only permissions that its Kubernetes service account can assume. That service account is `YOUR_RELEASE-holmes-service-account`, where `YOUR_RELEASE` is the Helm release Holmes is installed as (`robusta` for the Robusta Helm chart installed as `robusta`); if you set `customServiceAccountName`, use that name instead. With `createServiceAccount: false` and no `customServiceAccountName`, Holmes runs as the namespace's `default` service account, which every pod in the namespace shares; set `customServiceAccountName` rather than trusting `default`. We provide a default IAM policy that works for most users; restrict it if needed. Read-only access is enforced by this policy - the MCP server itself exposes write operations too, so attach only read permissions.
 
 === "Helper Scripts (recommended)"
 
