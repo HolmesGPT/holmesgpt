@@ -341,6 +341,7 @@ The hosts Holmes connects to for each LLM provider, over HTTPS (port 443) unless
 | GitHub Models | `models.inference.ai.azure.com` |
 | GitHub Copilot | The API host GitHub returns with the Copilot token (under `*.githubcopilot.com`; see [GitHub's Copilot allowlist reference](https://docs.github.com/en/copilot/reference/allowlist-reference)), and `github.com` and `api.github.com` for the device login and token exchange |
 | Baseten | `inference.baseten.co` |
+| OpenLLM | `www.openllm.sh` for the cloud setup, or `127.0.0.1` for the local daemon |
 | Ollama | The host of `OLLAMA_API_BASE` |
 | Robusta AI | The host of [`ROBUSTA_API_ENDPOINT`](#robusta_api_endpoint), and the data store host (the store URL in your `ROBUSTA_UI_TOKEN`, the Robusta config file's token or `STORE_URL`) for the session token and realtime connection. See [the platform allowlist](troubleshooting.md#firewall-blocking-robusta-platform) |
 
