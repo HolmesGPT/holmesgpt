@@ -1,0 +1,15 @@
+# Only the internet toolset is enabled, on its default configuration, so the
+# model cannot reach the page through bash/curl or connectivity_check instead.
+toolsets:
+  internet:
+    enabled: true
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  helm/core:
+    enabled: false
+  bash:
+    enabled: false
+  connectivity_check:
+    enabled: false

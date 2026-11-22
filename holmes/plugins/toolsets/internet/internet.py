@@ -11,6 +11,7 @@ from markdownify import markdownify
 from requests import RequestException, Timeout  # type: ignore
 
 from holmes.core.tools import (
+    ApprovalRequirement,
     CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -21,6 +22,7 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 from holmes.plugins.toolsets.internet.ssrf import (
+    ALLOWED_SCHEMES,
     SSRFValidationError,
     build_pinned_adapter,
     validate_url,
@@ -250,7 +252,7 @@ class FetchWebpage(Tool):
     def __init__(self, toolset: "InternetToolset"):
         super().__init__(
             name="fetch_webpage",
-            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
+            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate). Internet access is off by default: a host outside the operator's allowlist needs the user's approval, and is refused where no approval is possible.",
             parameters={
                 "url": ToolParameter(
                     description="The URL to fetch",
@@ -261,8 +263,36 @@ class FetchWebpage(Tool):
             toolset=toolset,  # type: ignore
         )
 
+    def requires_approval(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        config = self.toolset.internet_config or InternetToolsetConfig()
+        # With an allowlist, scrape() refuses every other host; nothing to approve.
+        if not config.require_approval or config.allowed_hosts:
+            return None
+        try:
+            parsed = urlparse(str(params.get("url") or ""))
+            host = parsed.hostname
+        except ValueError:
+            return None
+        if parsed.scheme.lower() not in ALLOWED_SCHEMES or not host:
+            return None
+        return ApprovalRequirement(
+            needs_approval=True,
+            reason=(
+                f"Fetching a web page from '{host}' needs approval: internet access is off "
+                "by default and this host is not in the internet toolset's allowed_hosts."
+            ),
+        )
+
     def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        url: str = params["url"]
+        url = params.get("url")
+        if not url or not isinstance(url, str):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'url' parameter is required and was not provided.",
+                params=params,
+            )
 
         additional_headers = (
             self.toolset.internet_config.additional_headers if self.toolset.internet_config.additional_headers else {}
@@ -345,6 +375,21 @@ class InternetBaseToolsetConfig(ToolsetConfig):
             "protection). Only disable in trusted, isolated environments."
         ),
     )
+
+
+class InternetToolsetConfig(InternetBaseToolsetConfig):
+    require_approval: bool = Field(
+        default=True,
+        title="Require approval",
+        description=(
+            "When 'allowed_hosts' is empty, ask the user before each fetch and "
+            "refuse it where no approval is possible (alert investigations, "
+            "scheduled runs, API calls without tool approval). Set to false to "
+            "let Holmes fetch any public host without asking."
+        ),
+    )
+
+
 class InternetBaseToolset(Toolset):
     config_classes: ClassVar[list[Type[InternetBaseToolsetConfig]]] = [
         InternetBaseToolsetConfig
@@ -377,13 +422,19 @@ class InternetBaseToolset(Toolset):
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
-            self.internet_config = InternetBaseToolsetConfig(**(config or {}))
+            self.internet_config = self.config_classes[0](**(config or {}))
         except Exception as e:
             return False, f"Invalid {self.name} configuration: {e}"
         return True, ""
 
 
 class InternetToolset(InternetBaseToolset):
+    config_classes: ClassVar[list[Type[InternetBaseToolsetConfig]]] = [
+        InternetToolsetConfig
+    ]
+
+    internet_config: Optional[InternetToolsetConfig] = None
+
     def __init__(self):
         super().__init__(
             name="internet",

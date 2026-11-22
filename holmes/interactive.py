@@ -1867,25 +1867,28 @@ def handle_tool_approval(
 
     # Build command panel — passed as header to the menu so everything
     # lives inside a single transient Rich Live (auto-erased on exit).
+    is_bash = "command" in pending_approval.params
     panel = Panel(
         f"  {command or 'unknown'}",
-        title="[bold]Approve bash command?[/bold]",
+        title=f"[bold]Approve {'bash command' if is_bash else 'operation'}?[/bold]",
         title_align="left",
         border_style="bold yellow",
         padding=(1, 1),
     )
 
-    options = [
-        "Yes",
-        f"Yes, and automatically approve '{prefixes_display}' in the future",
-        "No, and tell Holmes what to do differently",
-    ]
+    # Only bash has an allow list to save to.
+    save_option = (
+        [f"Yes, and automatically approve '{prefixes_display}' in the future"]
+        if is_bash
+        else []
+    )
+    options = ["Yes", *save_option, "No, and tell Holmes what to do differently"]
 
     result = _run_inline_menu(options, console, header=panel)
 
     if result == 0:  # Yes
         return True, None
-    elif result == 1:  # Yes, save
+    elif save_option and result == 1:  # Yes, save
         if prefixes:
             _save_approved_prefixes(prefixes)
             console.print(f"[green]✓ Saved `{prefixes_display}` to allow list[/green]")
