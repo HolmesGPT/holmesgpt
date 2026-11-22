@@ -131,12 +131,10 @@ serviceAccount:
   imagePullSecrets: []
   annotations: {}
 
-# Ingress NetworkPolicy for the Holmes pod: only the Robusta runner and the Holmes
-# operator, in any namespace, can reach the Holmes API. Egress is not restricted.
+# Ingress NetworkPolicy: only the Robusta runner and the Holmes operator can reach the Holmes API.
 networkPolicy:
   enabled: true
-  # Extra NetworkPolicy peers (podSelector / namespaceSelector / ipBlock) for
-  # other clients of the API, e.g. your own app or an ingress controller.
+  # Extra NetworkPolicy peers allowed to reach the API.
   additionalIngressRules: []
 
 toolsets:

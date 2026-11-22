@@ -167,7 +167,7 @@ For detailed information about the required Kubernetes permissions, see [Kuberne
 
 ### Network Policy
 
-The chart creates an ingress NetworkPolicy for the Holmes pod. Egress is not restricted. The policy has no effect on clusters whose CNI doesn't enforce NetworkPolicies.
+The chart creates an ingress NetworkPolicy for the Holmes pod, which takes effect only when the cluster's CNI enforces NetworkPolicies.
 
 ```yaml
 networkPolicy:
@@ -177,23 +177,22 @@ networkPolicy:
 
 When Holmes is installed through the Robusta chart, put this block under `holmes:`.
 
-By default only the Robusta runner (pods labeled `robustaComponent: runner`) and the Holmes operator (pods labeled `app: holmes-operator`) can reach the Holmes API, from any namespace. `kubectl port-forward` keeps working.
+Only the Robusta runner (pods labeled `robustaComponent: runner`) and the Holmes operator (pods labeled `app: holmes-operator`) can reach the Holmes API, from any namespace. `kubectl port-forward` keeps working.
 
-Any other client of the [HTTP API](http-api.md) gets connection timeouts until you add it as a NetworkPolicy peer:
+Any other client of the [HTTP API](http-api.md) times out until you add it as a peer:
 
 ```yaml
 networkPolicy:
   additionalIngressRules:
-    # a client in the release namespace
+    # a pod in the release namespace
     - podSelector:
         matchLabels:
           app: my-holmes-client
-    # everything in another namespace, e.g. an ingress controller on the pod network
+    # every pod in another namespace
     - namespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: ingress-nginx
-    # hostNetwork ingress controllers and load balancers that target pod IPs
-    # are not pods on the pod network; match them by address
+    # an address range, for clients outside the pod network
     - ipBlock:
         cidr: 10.0.0.0/16
 ```

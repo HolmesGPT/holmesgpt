@@ -8,7 +8,6 @@ See https://holmesgpt.dev/data-sources/builtin-toolsets/aws/
 {{- $networkPolicy := .Values.networkPolicy | default dict }}
 {{- if $networkPolicy.enabled }}
 
-NOTE: a NetworkPolicy limits the Holmes API to the Robusta runner and the Holmes operator. To call it from
-another pod, add a peer to networkPolicy.additionalIngressRules.
+NOTE: a NetworkPolicy limits the Holmes API to the Robusta runner and the Holmes operator.
 See https://holmesgpt.dev/reference/helm-configuration/#network-policy
 {{- end }}

@@ -19,15 +19,12 @@ spec:
   policyTypes:
   - Ingress
   ingress:
-  # Only Holmes' known callers, in any namespace: either may run outside the
-  # release namespace.
+  # The Robusta runner and the Holmes operator, in any namespace.
   - from:
-    # Robusta runner (label set by the Robusta chart)
     - namespaceSelector: {}
       podSelector:
         matchLabels:
           robustaComponent: runner
-    # Holmes operator
     - namespaceSelector: {}
       podSelector:
         matchLabels:

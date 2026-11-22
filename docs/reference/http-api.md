@@ -3,7 +3,7 @@
 ## Overview
 The HolmesGPT API provides endpoints for conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
-When Holmes is installed with the Helm chart, a NetworkPolicy limits which pods can reach the API. If requests from your own pod or ingress controller time out, add it to `networkPolicy.additionalIngressRules`. See [Network Policy](helm-configuration.md#network-policy).
+When Holmes is installed with the Helm chart, a [NetworkPolicy](helm-configuration.md#network-policy) limits which pods can reach the API.
 
 ## Authentication
 

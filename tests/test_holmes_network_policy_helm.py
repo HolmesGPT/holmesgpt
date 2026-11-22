@@ -1,7 +1,4 @@
-"""Regression checks for the Holmes pod's ingress NetworkPolicy.
-
-Its selectors and port must stay in step with the Deployments they refer to.
-"""
+"""Regression checks for the Holmes pod's ingress NetworkPolicy."""
 
 import json
 import shutil
