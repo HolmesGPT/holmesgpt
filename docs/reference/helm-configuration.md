@@ -175,6 +175,8 @@ networkPolicy:
   additionalIngressRules: []
 ```
 
+When Holmes is installed through the Robusta chart, put this block under `holmes:`.
+
 By default only the Robusta runner (pods labeled `robustaComponent: runner`) and the Holmes operator (pods labeled `app: holmes-operator`) can reach the Holmes API, from any namespace. `kubectl port-forward` keeps working.
 
 Any other client of the [HTTP API](http-api.md) gets connection timeouts until you add it as a NetworkPolicy peer:
@@ -195,6 +197,8 @@ networkPolicy:
     - ipBlock:
         cidr: 10.0.0.0/16
 ```
+
+Cilium does not match node addresses against `ipBlock`. For a hostNetwork client on Cilium, use a CiliumNetworkPolicy or set `networkPolicy.enabled: false`.
 
 With Istio ambient mode, meshed traffic reaches the pod on port 15008 instead of 5050, so set `networkPolicy.enabled: false` and restrict access with a mesh AuthorizationPolicy.
 

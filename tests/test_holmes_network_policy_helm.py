@@ -54,7 +54,8 @@ def test_default_policy_selects_the_holmes_pod_on_its_api_port():
     assert all(pod["metadata"]["labels"].get(k) == v for k, v in selector.items())
 
     assert len(policy["spec"]["ingress"]) == 1
-    container_port = pod["spec"]["containers"][0]["ports"][0]["containerPort"]
+    holmes = next(c for c in pod["spec"]["containers"] if c["name"] == "holmes")
+    container_port = next(p["containerPort"] for p in holmes["ports"] if p["name"] == "http")
     assert policy["spec"]["ingress"][0]["ports"] == [{"protocol": "TCP", "port": container_port}]
 
 
