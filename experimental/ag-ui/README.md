@@ -45,8 +45,9 @@ export AWS_PROFILE=default
 export AWS_REGION=us-east-1
 export MODEL=bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0
 # The server requires an API key on every request. The demo frontend sends
-# none, so for a local demo turn authentication off, and listen on this
-# machine only so nothing else can reach the unauthenticated server:
+# none, so for a local demo turn authentication off. Binding to 127.0.0.1
+# blocks other machines only: web pages open in your browser can still
+# reach the server (its CORS policy allows any origin), so stop it when done:
 export HOLMES_AUTH_DISABLED=true
 export HOLMES_HOST=127.0.0.1
 poetry run python experimental/ag-ui/server-agui.py

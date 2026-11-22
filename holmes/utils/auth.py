@@ -275,8 +275,13 @@ def _authenticate_and_strip_key(scope: Scope, settings: ApiAuthSettings) -> Opti
     headers = Headers(scope=scope)
     presented = _api_key_from_headers(headers)
     if is_valid_api_key(presented, settings):
-        used = b"x-api-key" if headers.get("X-API-Key") else b"authorization"
-        kept = [(k, v) for k, v in scope["headers"] if k.lower() != used]
+        remove = {b"x-api-key"}
+        auth = headers.get("Authorization", "")
+        # Authorization goes too when it carries a Holmes key (the same one or
+        # another accepted key); any other Authorization value is kept.
+        if auth.lower().startswith("bearer ") and is_valid_api_key(auth[7:].strip(), settings):
+            remove.add(b"authorization")
+        kept = [(k, v) for k, v in scope["headers"] if k.lower() not in remove]
         if isinstance(scope["headers"], list):
             scope["headers"][:] = kept  # the server may hold the same list
         else:

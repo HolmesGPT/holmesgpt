@@ -395,7 +395,9 @@ def test_loader_keeps_user_key_while_the_file_changes(tmp_path):
 
 def _echo_headers_app() -> FastAPI:
     app = FastAPI()
-    app.add_middleware(ApiKeyAuthMiddleware, get_settings=lambda: _settings(user=USER_KEY))
+    app.add_middleware(
+        ApiKeyAuthMiddleware, get_settings=lambda: _settings(user=USER_KEY, default=DEFAULT_KEY)
+    )
 
     @app.get("/echo")
     async def echo(request: Request):
@@ -407,19 +409,23 @@ def _echo_headers_app() -> FastAPI:
 @pytest.mark.parametrize(
     "headers,removed,kept",
     [
-        ({"X-API-Key": USER_KEY}, "x-api-key", None),
-        ({"Authorization": f"Bearer {USER_KEY}"}, "authorization", None),
+        ({"X-API-Key": USER_KEY}, ["x-api-key"], None),
+        ({"Authorization": f"Bearer {USER_KEY}"}, ["authorization"], None),
         # A user token in Authorization (e.g. for header passthrough) is not
-        # the Holmes key and stays when the key came in X-API-Key.
-        ({"X-API-Key": USER_KEY, "Authorization": "Bearer user-token"}, "x-api-key", "authorization"),
+        # a Holmes key and stays when the key came in X-API-Key.
+        ({"X-API-Key": USER_KEY, "Authorization": "Bearer user-token"}, ["x-api-key"], "authorization"),
+        # The same key in both headers, or two different accepted keys: both go.
+        ({"X-API-Key": USER_KEY, "Authorization": f"Bearer {USER_KEY}"}, ["x-api-key", "authorization"], None),
+        ({"X-API-Key": USER_KEY, "Authorization": f"Bearer {DEFAULT_KEY}"}, ["x-api-key", "authorization"], None),
     ],
 )
-def test_the_header_carrying_the_key_is_removed_after_authentication(headers, removed, kept):
+def test_headers_carrying_a_key_are_removed_after_authentication(headers, removed, kept):
     """Holmes passes request headers through to toolsets, and Sentry records
-    request headers and every frame's scope: neither must see the key."""
+    request headers and every frame's scope: neither must see a key."""
     seen = TestClient(_echo_headers_app()).get("/echo", headers={**headers, "X-Other": "1"}).json()["headers"]
-    assert removed not in seen
-    assert USER_KEY not in str(seen)
+    for name in removed:
+        assert name not in seen
+    assert USER_KEY not in str(seen) and DEFAULT_KEY not in str(seen)
     assert seen["x-other"] == "1"
     if kept:
         assert seen[kept] == headers["Authorization"]
