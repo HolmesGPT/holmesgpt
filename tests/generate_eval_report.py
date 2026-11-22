@@ -670,7 +670,7 @@ def generate_infra_errors_section(results: Dict[str, Any]) -> str:
         return ""
 
     lines = [
-        "## Provider Errors and Timeouts",
+        "### Provider Errors and Timeouts",
         "",
         "These runs failed before the model produced an answer. They are counted "
         "under Skip/Error and left out of every success rate in this report.",
@@ -720,7 +720,7 @@ def generate_skill_check_section(results: Dict[str, Any]) -> str:
         return ""
 
     lines = [
-        "## Skill-Suggestion Check Failures",
+        "### Skill-Suggestion Check Failures",
         "",
         "These runs failed a deterministic skill-suggestion check, whatever the "
         "judge decided about the answer. They count as failures in the success "
@@ -1665,16 +1665,6 @@ def main():
     report_lines.append(generate_summary_table(results))
     report_lines.append("")
 
-    infra_errors_section = generate_infra_errors_section(results)
-    if infra_errors_section:
-        report_lines.append(infra_errors_section)
-        report_lines.append("")
-
-    skill_check_section = generate_skill_check_section(results)
-    if skill_check_section:
-        report_lines.append(skill_check_section)
-        report_lines.append("")
-
     # Model cost comparison table
     cost_table = generate_cost_comparison_table(results)
     if cost_table:
@@ -1698,6 +1688,19 @@ def main():
     if dashboard:
         report_lines.append(dashboard)
         report_lines.append("")
+
+    known_issues = [
+        section
+        for section in (
+            generate_infra_errors_section(results),
+            generate_skill_check_section(results),
+        )
+        if section
+    ]
+    if known_issues:
+        report_lines.extend(["## Known Issues", ""])
+        for section in known_issues:
+            report_lines.extend([section, ""])
 
     # Footer
     report_lines.append("---")
