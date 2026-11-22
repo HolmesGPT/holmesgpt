@@ -27,7 +27,7 @@ from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_
 import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from litellm.exceptions import AuthenticationError
 from holmes import get_version, is_official_release
@@ -78,7 +78,7 @@ from holmes.utils.holmes_status import (
 )
 from holmes.utils.holmes_sync_skills import holmes_sync_skills_status
 from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
-from holmes.utils.auth import AUTH_EXEMPT_PATHS, extract_api_key
+from holmes.utils.auth import ApiAuthSettingsLoader, ApiKeyAuthMiddleware
 from holmes.utils.log import (
     EndpointFilter,
     JSON_LOG_DATEFMT,
@@ -450,30 +450,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 _SERVER_START_TIME = time.time()
 
-HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
-
-if HOLMES_API_KEY:
-    logging.info("API key authentication enabled (HOLMES_API_KEY is set)")
-
-    @app.middleware("http")
-    async def api_key_auth(request: Request, call_next):
-        """Reject requests missing a valid API key (X-API-Key or Bearer token)."""
-        # Use the raw ASGI scope path, not request.url.path. The latter is
-        # reconstructed from the (attacker-controlled) Host header and can be
-        # spoofed via a malformed Host to bypass this exemption check
-        # (CVE-2026-48710 / GHSA-86qp-5c8j-p5mr).
-        if request.scope.get("path", "") in AUTH_EXEMPT_PATHS:
-            return await call_next(request)
-
-        key = extract_api_key(request)
-
-        if key != HOLMES_API_KEY:
-            logging.warning("Unauthorized request: %s %s", request.method, request.url.path)
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or missing API key"},
-            )
-        return await call_next(request)
+# Authentication is on by default: every endpoint except the health probes
+# needs HOLMES_API_KEY or the chart-generated default key (holmes/utils/auth.py).
+api_auth = ApiAuthSettingsLoader()
+logging.log(*api_auth.get().startup_message())
 
 if LOG_PERFORMANCE:
 
@@ -494,6 +474,11 @@ if LOG_PERFORMANCE:
                 f"Request completed {request.method} {request.url.path} status={status_code} latency={process_time}ms"
             )
 
+
+# Added last so it is the outermost middleware: it answers before any other
+# middleware, the router, and the sub-apps mounted below. The lambda reads the
+# module attribute on each request, so tests can swap `api_auth`.
+app.add_middleware(ApiKeyAuthMiddleware, get_settings=lambda: api_auth.get())
 
 init_checks_app(app, config)
 if os.environ.get("ENABLE_ADMIN_API", "false").lower() == "true":
@@ -912,7 +897,7 @@ def get_info(detail: Optional[str] = None) -> InfoResponse:
     resp = InfoResponse(
         version=get_version(),
         uptime_seconds=round(time.time() - _SERVER_START_TIME, 1),
-        auth_enabled=bool(os.environ.get("HOLMES_API_KEY", "")),
+        auth_enabled=api_auth.get().enforced,
         models=config.get_models_list(),
         toolsets_summary=ToolsetsSummary(
             total=total,

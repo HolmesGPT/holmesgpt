@@ -16,6 +16,11 @@ def load_bool(env_var, default: Optional[bool]) -> Optional[bool]:
 
 HOLMES_API_URL = os.getenv("HOLMES_API_URL", "http://holmes-api:80")
 HOLMES_API_TIMEOUT = int(os.getenv("HOLMES_API_TIMEOUT", "300"))
+# The key the operator sends to the Holmes API. The Helm chart mounts its
+# generated key as a file and sets HOLMES_API_KEY_FILE; the file is re-read on
+# every request, so a rotated Secret is picked up without a restart.
+# HOLMES_API_KEY (inline) takes precedence when set.
+HOLMES_API_KEY_FILE = os.getenv("HOLMES_API_KEY_FILE", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 MAX_HISTORY_ITEMS = int(os.getenv("MAX_HISTORY_ITEMS", "10"))
 CLEANUP_COMPLETED_CHECKS = load_bool("CLEANUP_COMPLETED_CHECKS", False)
@@ -39,12 +44,16 @@ class OperatorConfig:
     cleanup_completed_checks: bool
     completed_check_ttl_hours: int
 
+    # File holding the key to send to the Holmes API ("" = none)
+    holmes_api_key_file: str = ""
+
     @classmethod
     def load(cls) -> "OperatorConfig":
         """Load configuration from environment variables."""
         return cls(
             holmes_api_url=HOLMES_API_URL,
             holmes_api_timeout=HOLMES_API_TIMEOUT,
+            holmes_api_key_file=HOLMES_API_KEY_FILE,
             log_level=LOG_LEVEL,
             max_history_items=MAX_HISTORY_ITEMS,
             cleanup_completed_checks=CLEANUP_COMPLETED_CHECKS,

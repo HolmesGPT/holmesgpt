@@ -61,8 +61,17 @@ spec:
           value: {{ .Values.operator.cleanupCompletedChecks | default false | quote }}
         - name: COMPLETED_CHECK_TTL_HOURS
           value: {{ .Values.operator.completedCheckTTLHours | default 24 | quote }}
+        {{- if include "holmes.apiAuth.enabled" . }}
+        # The operator sends the chart's default API key to Holmes.
+        - name: HOLMES_API_KEY_FILE
+          value: {{ include "holmes.apiAuth.mountPath" . }}/token
+        {{- end }}
         {{- if .Values.operator.additionalEnvVars }}
         {{- toYaml .Values.operator.additionalEnvVars | nindent 8 }}
+        {{- end }}
+        {{- if include "holmes.apiAuth.enabled" . }}
+        volumeMounts:
+          {{- include "holmes.apiAuth.volumeMount" . | nindent 10 }}
         {{- end }}
         resources:
           requests:
@@ -88,5 +97,9 @@ spec:
       {{- if .Values.operator.affinity }}
       affinity:
         {{- toYaml .Values.operator.affinity | nindent 8 }}
+      {{- end }}
+      {{- if include "holmes.apiAuth.enabled" . }}
+      volumes:
+        {{- include "holmes.apiAuth.volume" . | nindent 8 }}
       {{- end }}
 {{- end }}

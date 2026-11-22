@@ -150,14 +150,14 @@ export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=180
 ## Server Security
 
 ### HOLMES_API_KEY
-**Default:** not set (authentication disabled)
+**Default:** not set
 
-When set, all API requests must include this key via either:
+An API key for your own clients. The server requires an API key on every endpoint except the health checks (`/healthz`, `/readyz`); with no key configured at all, those endpoints answer `401`. Requests send the key via either:
 
 - `X-API-Key: <key>` header, or
 - `Authorization: Bearer <key>` header
 
-Health check endpoints (`/healthz`, `/readyz`) are always exempt.
+On Kubernetes, the Helm chart also generates a default key (see `HOLMES_DEFAULT_API_KEY_FILE`), which keeps working alongside this one.
 
 **Generating a key:**
 ```bash
@@ -179,6 +179,16 @@ docker run -d \
   -e HOLMES_API_KEY=your-generated-key \
   ...
 ```
+
+### HOLMES_DEFAULT_API_KEY_FILE
+**Default:** set by the Helm chart to `/etc/holmes/api-key/token`
+
+A file holding a second accepted API key. The Helm chart generates this key once into the Secret `<release>-holmes-api-key` and mounts it into Holmes, the Holmes operator and the Robusta runner, so they authenticate with no setup. Holmes re-reads the file when it changes, so a rotated Secret takes effect without a restart. `HOLMES_DEFAULT_API_KEY` sets the same key inline.
+
+### HOLMES_AUTH_DISABLED
+**Default:** `false`
+
+Set to `true` to serve every endpoint without an API key. Only for local use: anyone who can reach the server can then run Holmes with its credentials. Any value other than `true` or `false` stops the server at startup.
 
 ### HOLMES_APPROVAL_SIGNING_KEY
 **Default:** not set (an ephemeral key is generated per process at startup)

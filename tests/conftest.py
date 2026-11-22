@@ -1,10 +1,17 @@
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Optional
 
 import pytest
 import yaml
+
+# The Holmes server requires an API key by default (holmes/utils/auth.py) and
+# reads its auth settings when server.py is imported. Tests that call server
+# endpoints for other reasons run with authentication off; tests/test_api_auth.py
+# sets the server's auth settings explicitly to test it.
+os.environ.setdefault("HOLMES_AUTH_DISABLED", "true")
 
 from holmes.config import Config
 from holmes.core import toolset_manager as toolset_manager_module

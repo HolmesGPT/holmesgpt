@@ -1,0 +1,142 @@
+{{- /*
+Creates the default API key Secret (see apiAuth in values.yaml) at deploy time
+instead of rendering it: a rendered random key differs on every clusterless
+render (ArgoCD, `helm template`) and would change the Secret on each sync
+(ROB-1365). ArgoCD runs this as a PreSync hook. It only creates a missing
+Secret: the readers mount it as a file and re-read it, so nothing is restarted.
+*/ -}}
+{{- define "holmes.apiAuth.bootstrapName" -}}
+{{- printf "%s-holmes-api-key-bootstrap" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- define "holmes.apiAuth.bootstrapMetadata" -}}
+name: {{ include "holmes.apiAuth.bootstrapName" .ctx }}
+namespace: {{ .ctx.Release.Namespace }}
+labels:
+  app.kubernetes.io/component: api-auth-bootstrap
+  app.kubernetes.io/part-of: holmes
+  {{- include "holmes.commonLabels" .ctx | nindent 2 }}
+annotations:
+  helm.sh/hook: pre-install,pre-upgrade,pre-rollback
+  helm.sh/hook-weight: {{ .weight | quote }}
+  helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- with (include "holmes.commonAnnotations" .ctx) }}
+  {{- . | nindent 2 }}
+  {{- end }}
+{{- end -}}
+{{- $apiAuth := .Values.apiAuth | default dict }}
+{{- if and $apiAuth.defaultKey (not $apiAuth.existingSecret) }}
+{{- $name := include "holmes.apiAuth.bootstrapName" . }}
+{{- $secretName := include "holmes.apiAuth.secretName" . }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  {{- include "holmes.apiAuth.bootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  {{- include "holmes.apiAuth.bootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
+rules:
+# create cannot be scoped by resourceNames.
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: [{{ $secretName | quote }}]
+  verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  {{- include "holmes.apiAuth.bootstrapMetadata" (dict "ctx" . "weight" "-10") | nindent 2 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  {{- include "holmes.apiAuth.bootstrapMetadata" (dict "ctx" . "weight" "-5") | nindent 2 }}
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  # Lets tools that apply hooks as plain manifests re-run it on a later apply.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api-auth-bootstrap
+        app.kubernetes.io/part-of: holmes
+        {{- include "holmes.commonLabels" . | nindent 8 }}
+      {{- with (include "holmes.commonAnnotations" .) }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: bootstrap
+        # The Holmes image ships kubectl and python, and is already on the node.
+        image: "{{ .Values.registry }}/{{ .Values.image }}"
+        imagePullPolicy: {{ .Values.imagePullPolicy | default "IfNotPresent" }}
+        env:
+        - name: HOME
+          value: /tmp
+        - name: NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: SECRET_NAME
+          value: {{ $secretName | quote }}
+        - name: SECRET_LABELS
+          value: {{ include "holmes.commonLabels" . | fromYaml | default dict | toJson | quote }}
+        - name: SECRET_ANNOTATIONS
+          value: {{ include "holmes.commonAnnotations" . | fromYaml | default dict | toJson | quote }}
+        command: ["python3", "-c"]
+        args:
+        - |
+          {{- .Files.Get "files/api_key_bootstrap.py" | trim | nindent 10 }}
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          medium: Memory
+{{- end }}

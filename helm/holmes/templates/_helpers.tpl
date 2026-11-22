@@ -12,6 +12,48 @@ default
 {{- end -}}
 
 {{/*
+API authentication: the default key shared by Holmes, the operator and the
+Robusta runner (see apiAuth in values.yaml). "true" when the chart wires it.
+The Robusta chart computes the same Secret name for the runner; keep the two
+in sync.
+*/}}
+{{- define "holmes.apiAuth.enabled" -}}
+{{- $apiAuth := .Values.apiAuth | default dict -}}
+{{- if or $apiAuth.defaultKey $apiAuth.existingSecret -}}true{{- end -}}
+{{- end -}}
+
+{{- define "holmes.apiAuth.secretName" -}}
+{{- $apiAuth := .Values.apiAuth | default dict -}}
+{{- if $apiAuth.existingSecret -}}
+{{- $apiAuth.existingSecret -}}
+{{- else -}}
+{{- printf "%s-holmes-api-key" .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "holmes.apiAuth.mountPath" -}}/etc/holmes/api-key{{- end -}}
+
+{{/*
+The Secret mounted as an optional file: a pod that starts before the hook
+created the Secret still starts, and kubelet fills the file in once it exists.
+*/}}
+{{- define "holmes.apiAuth.volume" -}}
+- name: holmes-api-key
+  secret:
+    secretName: {{ include "holmes.apiAuth.secretName" . }}
+    optional: true
+    items:
+      - key: token
+        path: token
+{{- end -}}
+
+{{- define "holmes.apiAuth.volumeMount" -}}
+- name: holmes-api-key
+  mountPath: {{ include "holmes.apiAuth.mountPath" . }}
+  readOnly: true
+{{- end -}}
+
+{{/*
 Determine if this is a Robusta (hosted) environment.
 Returns "true" if ROBUSTA_UI_DOMAIN is not set OR ends with "robusta.dev"
 */}}

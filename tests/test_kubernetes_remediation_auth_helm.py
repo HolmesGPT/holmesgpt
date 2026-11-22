@@ -205,8 +205,13 @@ def test_bootstrap_names_fit_kubernetes_limits_for_long_release_names():
         text=True,
     )
     docs = [d for d in yaml.safe_load_all(out) if d]
+    # Only this addon's hook: the chart has other hooks (the API key bootstrap).
     hooks = [
-        d for d in docs if "helm.sh/hook" in (d["metadata"].get("annotations") or {})
+        d
+        for d in docs
+        if "helm.sh/hook" in (d["metadata"].get("annotations") or {})
+        and d["metadata"].get("labels", {}).get("app.kubernetes.io/component")
+        == "mcp-server-auth-bootstrap"
     ]
     assert {d["kind"] for d in hooks} == {
         "ServiceAccount",

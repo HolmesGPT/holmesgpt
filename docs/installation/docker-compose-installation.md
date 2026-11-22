@@ -17,9 +17,10 @@ To deploy the HTTP server on Kubernetes, see the [Helm Chart](kubernetes-install
    cd holmesgpt
    ```
 
-2. **Set your API key:**
+2. **Set your LLM API key, and the key clients use to call Holmes:**
    ```bash
    export OPENAI_API_KEY="your-api-key"
+   export HOLMES_API_KEY="$(openssl rand -hex 32)"
    ```
 
 3. **Start the server:**
@@ -30,9 +31,10 @@ To deploy the HTTP server on Kubernetes, see the [Helm Chart](kubernetes-install
 4. **Verify it's running:**
    ```bash
    curl http://localhost:5050/healthz
+   curl -H "X-API-Key: $HOLMES_API_KEY" http://localhost:5050/api/model
    ```
 
-The API is available at `http://localhost:5050`.
+The API is available at `http://localhost:5050`. Every endpoint except `/healthz` and `/readyz` requires the `X-API-Key` header; see [Authentication](../reference/http-api.md#authentication).
 
 ## Configuration
 

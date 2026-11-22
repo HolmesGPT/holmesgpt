@@ -1,6 +1,7 @@
 """HTTP client for calling Holmes API servers."""
 
 import logging
+import os
 from typing import Optional
 
 import httpx
@@ -22,16 +23,20 @@ class HolmesAPIClient:
     - Error handling and logging
     """
 
-    def __init__(self, base_url: str, timeout: int = 300):
+    def __init__(self, base_url: str, timeout: int = 300, api_key_file: str = ""):
         """
         Initialize the Holmes API client.
 
         Args:
             base_url: Base URL of the Holmes API server (e.g., "http://holmes-api:80")
             timeout: Default timeout for requests in seconds
+            api_key_file: File holding the API key to send. Re-read on every
+                request so a rotated Secret is used without a restart.
+                The HOLMES_API_KEY env var takes precedence when set.
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.api_key_file = api_key_file
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout=timeout, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
@@ -98,7 +103,7 @@ class HolmesAPIClient:
         )
 
         try:
-            response = await self.client.post(url, json=payload)
+            response = await self.client.post(url, json=payload, headers=self._auth_headers())
             response.raise_for_status()
             result = response.json()
 
@@ -132,6 +137,22 @@ class HolmesAPIClient:
                 extra={"check_name": check_name, "error": str(e)},
             )
             raise
+
+    def _api_key(self) -> str:
+        key = os.environ.get("HOLMES_API_KEY", "").strip()
+        if key or not self.api_key_file:
+            return key
+        try:
+            with open(self.api_key_file) as f:
+                return f.read().strip()
+        except OSError:
+            # Not created yet (optional Secret volume) or unreadable: send no
+            # key and let Holmes answer 401, which the caller logs.
+            return ""
+
+    def _auth_headers(self) -> dict:
+        key = self._api_key()
+        return {"X-API-Key": key} if key else {}
 
     async def close(self):
         """Close the HTTP client and cleanup resources."""

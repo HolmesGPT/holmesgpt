@@ -25,6 +25,36 @@ tls:
   # enabled and the server requires & verifies client certificates.
   caCertsSecretKey: ""
 
+# API authentication. The Holmes API answers 401 to any request without a valid
+# key, except /healthz and /readyz.
+#
+# The chart generates a default key so the callers it deploys work with no
+# setup: Holmes, the Holmes operator and, when Holmes is installed by the
+# Robusta chart, the Robusta runner all read it from the same Secret. A Helm
+# hook Job (ArgoCD: PreSync) creates the Secret (<release>-holmes-api-key)
+# once; the key is never part of the rendered manifests, so `helm template`
+# and ArgoCD renders stay deterministic and never roll the pods (ROB-1365).
+# Each pod mounts it as an optional file and re-reads it when it changes, so:
+#   - a pod that starts before the Secret exists picks the key up once it does,
+#   - rotating needs no restart: `kubectl delete secret <release>-holmes-api-key`,
+#     then run the upgrade or sync again; the hook creates a new key and kubelet
+#     updates the mounted files (within about a minute).
+#
+# Your own clients: read the generated key with
+#   kubectl get secret <release>-holmes-api-key -o jsonpath='{.data.token}' | base64 -d
+# or set HOLMES_API_KEY (additionalEnvVars) to a key of your own. Holmes accepts
+# both; the chart never overrides HOLMES_API_KEY.
+apiAuth:
+  # Generate and wire the default key. When false, nothing is generated and
+  # the API is reachable only with a HOLMES_API_KEY you set.
+  defaultKey: true
+  # Name of a pre-existing Secret holding the default key under the key
+  # "token". When set, the chart creates no Secret and runs no hook Job; use
+  # it when your deploy tool does not run Helm hooks. Create it with, e.g.:
+  #   kubectl create secret generic my-holmes-api-key \
+  #     --from-literal=token="$(openssl rand -hex 32)"
+  existingSecret: ""
+
 additionalEnvVars: []
 additional_env_vars: []
 # Mirrors runner.additional_env_froms: a list of envFrom entries (secretRef /

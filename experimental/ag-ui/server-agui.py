@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.responses import PlainTextResponse
 
+from holmes.utils.auth import ApiAuthSettingsLoader, ApiKeyAuthMiddleware
 from holmes.utils.stream import StreamMessage, StreamEvents
 from holmes.core.usage_recorder import (
     UsageRecorderState,
@@ -82,6 +83,13 @@ config = Config.load_from_env()
 dal = config.dal
 
 app = FastAPI()
+
+# Same authentication as server.py: HOLMES_API_KEY or the default key, or
+# HOLMES_AUTH_DISABLED=true. Added before CORS so CORS is the outer layer and
+# answers browser preflight requests, which carry no key.
+api_auth = ApiAuthSettingsLoader()
+logging.log(*api_auth.get().startup_message())
+app.add_middleware(ApiKeyAuthMiddleware, get_settings=lambda: api_auth.get())
 
 # Add CORS middleware front-end access
 app.add_middleware(

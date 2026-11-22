@@ -148,16 +148,24 @@ kubectl port-forward svc/holmes-holmes 8080:80
 # If you used a different release name or namespace:
 # kubectl port-forward svc/{your-release-name}-holmes 8080:80 -n {your-namespace}
 
+# The API requires a key. Read the one the chart generated
+# (Secret {release-name}-holmes-api-key):
+export HOLMES_API_KEY=$(kubectl get secret holmes-holmes-api-key -o jsonpath='{.data.token}' | base64 -d)
+
 # Test with a basic question using a model name from your modelList
 curl -X POST http://localhost:8080/api/chat \
+  -H "X-API-Key: $HOLMES_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "gpt-4.1"}'
 
 # Using a different model from your modelList
 curl -X POST http://localhost:8080/api/chat \
+  -H "X-API-Key: $HOLMES_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "claude-sonnet"}'
 ```
+
+Every endpoint except `/healthz` and `/readyz` requires an API key. The chart generates one at install time and shares it with the Holmes operator and, in a Robusta install, the Robusta runner. You can also set your own `HOLMES_API_KEY` in `additionalEnvVars`; both keys are accepted. See [Authentication](../reference/http-api.md#authentication) and `apiAuth` in the chart's `values.yaml`.
 
 > **Note**: Responses may take some time when HolmesGPT needs to gather large amounts of data to answer your question. Streaming APIs are coming soon to stream results.
 
@@ -197,7 +205,7 @@ After enabling, port-forward and call the service over `https` (use `-k` for a s
 
 ```bash
 kubectl port-forward svc/holmes-holmes 8080:80
-curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
+curl -k https://localhost:8080/api/chat -H "X-API-Key: $HOLMES_API_KEY" -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "anthropic/claude-sonnet-4-5-20250929"}'
 ```
 

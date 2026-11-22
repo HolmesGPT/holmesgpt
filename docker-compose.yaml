@@ -6,6 +6,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # The key your clients send (X-API-Key) to call the Holmes API. Required:
+      # Holmes answers 401 to every request when no key is configured.
+      - HOLMES_API_KEY=${HOLMES_API_KEY:?Set HOLMES_API_KEY to the key clients must send, e.g. export HOLMES_API_KEY=$(openssl rand -hex 32)}
       # Uncomment the API key for your LLM provider:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

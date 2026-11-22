@@ -283,6 +283,11 @@ spec:
           - name: AWS_CONFIG_FILE
             value: /etc/holmes/aws/config
           {{- end }}
+          {{- if include "holmes.apiAuth.enabled" . }}
+          # The chart's default API key, accepted alongside HOLMES_API_KEY.
+          - name: HOLMES_DEFAULT_API_KEY_FILE
+            value: {{ include "holmes.apiAuth.mountPath" . }}/token
+          {{- end }}
           {{- if .Values.additionalEnvVars -}}
           {{ toYaml .Values.additionalEnvVars | nindent 10 }}
           {{- end }}
@@ -342,6 +347,9 @@ spec:
             mountPath: /etc/robusta/config
           - name: custom-toolsets-configmap
             mountPath: /etc/holmes/config
+          {{- if include "holmes.apiAuth.enabled" . }}
+          {{- include "holmes.apiAuth.volumeMount" . | nindent 10 }}
+          {{- end }}
           {{- if .Values.customSkills }}
           - name: holmes-skills
             mountPath: /etc/holmes/skills
@@ -408,6 +416,9 @@ spec:
           configMap:
             name: custom-toolsets-configmap
             optional: true
+        {{- if include "holmes.apiAuth.enabled" . }}
+        {{- include "holmes.apiAuth.volume" . | nindent 8 }}
+        {{- end }}
         {{- if .Values.customSkills }}
         - name: holmes-skills
           configMap:

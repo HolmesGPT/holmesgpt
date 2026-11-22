@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from holmes.utils.auth import ApiAuthSettings
 from server import app
 
 
@@ -160,13 +161,21 @@ class TestInfoFull:
         assert data["model_list_path"] == "/app/model_list.yaml"
 
 
+class _FixedAuth:
+    def __init__(self, settings: ApiAuthSettings):
+        self.settings = settings
+
+    def get(self) -> ApiAuthSettings:
+        return self.settings
+
+
 class TestInfoAuthEnabled:
-    """Verify auth_enabled reflects HOLMES_API_KEY env var."""
+    """auth_enabled reports whether the server enforces API authentication."""
 
     @patch("server.config")
     def test_auth_disabled(self, mock_config, client, monkeypatch):
-        """auth_enabled is false when HOLMES_API_KEY is unset."""
-        monkeypatch.delenv("HOLMES_API_KEY", raising=False)
+        """auth_enabled is false with HOLMES_AUTH_DISABLED=true."""
+        monkeypatch.setattr("server.api_auth", _FixedAuth(ApiAuthSettings(disabled=True)))
         executor = MagicMock()
         executor.toolsets = []
         mock_config.create_server_tool_executor.return_value = executor
@@ -177,12 +186,15 @@ class TestInfoAuthEnabled:
 
     @patch("server.config")
     def test_auth_enabled(self, mock_config, client, monkeypatch):
-        """auth_enabled is true when HOLMES_API_KEY is set."""
-        monkeypatch.setenv("HOLMES_API_KEY", "test-key-123")
+        """auth_enabled is true when a key is configured and sent."""
+        monkeypatch.setattr(
+            "server.api_auth",
+            _FixedAuth(ApiAuthSettings(keys={"HOLMES_API_KEY": "test-key-123"})),
+        )
         executor = MagicMock()
         executor.toolsets = []
         mock_config.create_server_tool_executor.return_value = executor
         mock_config.get_models_list.return_value = []
 
-        data = client.get("/api/info").json()
+        data = client.get("/api/info", headers={"X-API-Key": "test-key-123"}).json()
         assert data["auth_enabled"] is True
