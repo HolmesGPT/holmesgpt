@@ -112,7 +112,7 @@ spec:
       serviceAccountName: azure-replaceme-serviceaccount
       containers:
         - name: azure-mcp
-          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/azure-cli-mcp:1.0.2
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/azure-cli-mcp:1.0.8
           imagePullPolicy: IfNotPresent
           args:
             - "--transport"

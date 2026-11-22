@@ -143,7 +143,7 @@ def test_kubeconfig_runs_the_server_inside_the_holmes_pod(tmp_path):
 
     pod = _holmes_pod(docs)
     [init] = pod["initContainers"]
-    assert init["image"] == "us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-mcp-server:v0.0.61-oauth-cve1"
+    assert init["image"] == "us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-mcp-server:v0.0.61-oauth-cve2"
     assert init["command"] == ["cp", "/app/kubernetes-mcp-server", "/opt/k8s-mcp/kubernetes-mcp-server"]
     assert init["securityContext"] == {"readOnlyRootFilesystem": True}
     holmes = pod["containers"][0]
