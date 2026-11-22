@@ -17,12 +17,12 @@ Endpoints that run the agent or describe its setup are off by default and answer
 
 `/healthz`, `/readyz` and `/api/model` are always served.
 
-A disabled endpoint answers:
+A disabled endpoint answers with the flag to set (`/api/admin/*` answers a plain `{"detail": "Not Found"}`):
 ```json
 {"detail": "This API is disabled. Set ENABLE_CHAT_API=true on the Holmes server to enable it."}
 ```
 
-Enabling an endpoint does not authenticate it. Set `HOLMES_API_KEY` as well unless the port is reachable only by callers you trust.
+Enabling an endpoint does not authenticate it. Set `HOLMES_API_KEY` as well unless the port is reachable only by callers you trust. Authentication is checked first: with a key set, a request without it gets `401` whether or not the endpoint is enabled.
 
 ## Authentication
 

@@ -26,7 +26,7 @@ from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeE
 from holmes.core.oauth_server_callbacks import get_toolset_oauth_config, handle_oauth_callback
 import sentry_sdk
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from litellm.exceptions import AuthenticationError
@@ -82,8 +82,8 @@ from holmes.utils.holmes_sync_toolsets import holmes_sync_toolsets_status
 from holmes.utils.auth import (
     AUTH_EXEMPT_PATHS,
     OPT_IN_API_FLAGS,
+    disabled_api_flag,
     extract_api_key,
-    require_api_enabled,
 )
 from holmes.utils.log import (
     EndpointFilter,
@@ -456,6 +456,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 _SERVER_START_TIME = time.time()
 
+
+# Registered before the API-key middleware, so authentication still answers first.
+@app.middleware("http")
+async def opt_in_api_gate(request: Request, call_next):
+    """Answer 404 for an opt-in API that is off, before the body is read."""
+    flag = disabled_api_flag(request.scope.get("path", ""))
+    if flag:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": f"This API is disabled. Set {flag}=true on the Holmes server to enable it."},
+        )
+    return await call_next(request)
+
+
 HOLMES_API_KEY = os.environ.get("HOLMES_API_KEY", "").strip()
 
 if HOLMES_API_KEY:
@@ -521,7 +535,7 @@ else:
     logging.info("Admin API is disabled (set ENABLE_ADMIN_API=true to enable)")
 
 
-@app.post("/api/oauth/callback", dependencies=[Depends(require_api_enabled("ENABLE_OAUTH_API"))])
+@app.post("/api/oauth/callback")
 def oauth_callback(request: OAuthCallbackRequest) -> OAuthCallbackResponse:
     logging.info(
         "OAuth callback: toolset=%s client_id=%s client_secret_present=%s code_present=%s code_verifier_present=%s redirect_uri=%s",
@@ -593,7 +607,7 @@ def _stream_with_trace_cleanup(storage, stream_generator, req_info, trace_span):
         storage.__exit__(None, None, None)
 
 
-@app.post("/api/chat", dependencies=[Depends(require_api_enabled("ENABLE_CHAT_API"))])
+@app.post("/api/chat")
 def chat(chat_request: ChatRequest, http_request: Request):
     try:
         # Log incoming request details
@@ -911,12 +925,7 @@ class InfoResponse(BaseModel):
     mcp_servers: Optional[List[str]] = None
 
 
-@app.get(
-    "/api/info",
-    response_model=InfoResponse,
-    response_model_exclude_none=True,
-    dependencies=[Depends(require_api_enabled("ENABLE_INFO_API"))],
-)
+@app.get("/api/info", response_model=InfoResponse, response_model_exclude_none=True)
 def get_info(detail: Optional[str] = None) -> InfoResponse:
     """Return server info. Use ?detail=full for per-toolset breakdown."""
     executor = config.create_server_tool_executor(dal)

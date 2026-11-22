@@ -6,9 +6,10 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      # /api/chat is off by default. Set HOLMES_API_KEY too if you publish the port beyond localhost.
+      # /api/chat is off by default. Export HOLMES_API_KEY too if you publish the port
+      # beyond localhost; while it is empty the API takes no key.
       - ENABLE_CHAT_API=true
-      # - HOLMES_API_KEY=${HOLMES_API_KEY:-}
+      - HOLMES_API_KEY=${HOLMES_API_KEY:-}
       # Uncomment the API key for your LLM provider:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

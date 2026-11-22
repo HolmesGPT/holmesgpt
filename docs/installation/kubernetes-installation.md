@@ -138,7 +138,16 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 
 ## Usage
 
-`/api/chat` is [off by default](../reference/http-api.md#enabling-endpoints). Enable it in `values.yaml`, with an [API key](../reference/environment-variables.md#holmes_api_key) so that only your integration can call it, then run `helm upgrade`:
+`/api/chat` is [off by default](../reference/http-api.md#enabling-endpoints). Enable it with an [API key](../reference/environment-variables.md#holmes_api_key), so that only your integration can call it.
+
+Create the key as a secret in the namespace Holmes runs in:
+
+```bash
+export HOLMES_API_KEY=$(openssl rand -base64 32)
+kubectl create secret generic holmes-secrets --from-literal=holmes-api-key="$HOLMES_API_KEY"
+```
+
+Add this to `values.yaml` and run `helm upgrade holmes robusta/holmes -f values.yaml`:
 
 ```yaml
 additionalEnvVars:
@@ -151,7 +160,7 @@ additionalEnvVars:
       key: holmes-api-key
 ```
 
-Then test the service with a simple API call:
+Then test the service with a simple API call, from the shell where `HOLMES_API_KEY` is set:
 
 ```bash
 # Port forward to access the service locally

@@ -1,15 +1,17 @@
-from typing import Callable
+from typing import Optional
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 
 from holmes.common import env_vars
 
-OPT_IN_API_FLAGS = (
-    "ENABLE_CHAT_API",
-    "ENABLE_CHECKS_API",
-    "ENABLE_OAUTH_API",
-    "ENABLE_INFO_API",
-)
+# Path prefix of each opt-in API -> the env_vars flag that turns it on.
+OPT_IN_API_PATHS = {
+    "/api/chat": "ENABLE_CHAT_API",
+    "/api/checks": "ENABLE_CHECKS_API",
+    "/api/oauth/callback": "ENABLE_OAUTH_API",
+    "/api/info": "ENABLE_INFO_API",
+}
+OPT_IN_API_FLAGS = tuple(OPT_IN_API_PATHS.values())
 
 AUTH_EXEMPT_PATHS = {"/healthz", "/readyz"}
 
@@ -29,16 +31,9 @@ def extract_api_key(request: Request) -> str:
     return ""
 
 
-def require_api_enabled(flag: str) -> Callable[[], None]:
-    """FastAPI dependency answering 404 unless the opt-in API `flag` is on."""
-    if flag not in OPT_IN_API_FLAGS:
-        raise ValueError(f"Unknown API flag: {flag}")
-
-    def check() -> None:
-        if not getattr(env_vars, flag):
-            raise HTTPException(
-                status_code=404,
-                detail=f"This API is disabled. Set {flag}=true on the Holmes server to enable it.",
-            )
-
-    return check
+def disabled_api_flag(path: str) -> Optional[str]:
+    """The flag that would enable `path`, if it belongs to an opt-in API that is off."""
+    for prefix, flag in OPT_IN_API_PATHS.items():
+        if (path == prefix or path.startswith(prefix + "/")) and not getattr(env_vars, flag):
+            return flag
+    return None

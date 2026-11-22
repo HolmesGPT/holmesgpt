@@ -192,7 +192,7 @@ Each one turns on an HTTP endpoint that is otherwise answered with `404`:
 | `ENABLE_OAUTH_API` | `/api/oauth/callback` |
 | `ENABLE_INFO_API` | `/api/info` |
 
-HolmesGPT connected to the Robusta platform needs none of them. Enabling an endpoint does not authenticate it: set `HOLMES_API_KEY` too. Any value other than `true` or `false` stops the server at startup.
+HolmesGPT connected to the Robusta platform needs none of them. Enabling an endpoint does not authenticate it: set `HOLMES_API_KEY` too. Use `true` or `false`; a value such as `yes` stops the server at startup.
 
 **Example:**
 ```bash

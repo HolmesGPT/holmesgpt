@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from holmes.common import env_vars
 from holmes.core.models import OAuthCallbackResponse
 from holmes.core.tool_calling_llm import LLMResult
-from holmes.utils.auth import OPT_IN_API_FLAGS, require_api_enabled
+from holmes.utils.auth import OPT_IN_API_FLAGS, disabled_api_flag
 from server import app, log_opt_in_apis
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -92,10 +92,12 @@ def test_disabled_api_answers_404_and_runs_nothing(
     "method, path",
     [("post", "/api/chat"), ("post", "/api/checks/execute"), ("post", "/api/oauth/callback")],
 )
-def test_disabled_api_does_not_validate_the_body(client, all_disabled, method, path):
+def test_disabled_api_does_not_read_the_body(client, all_disabled, method, path):
     """A 422 would confirm the API is live and leak its schema."""
     assert _call(client, method, path, {"unexpected": 1}).status_code == 404
-    assert client.request(method, path, content=b"not json").status_code == 404
+    for headers in ({}, {"Content-Type": "application/json"}):
+        response = client.request(method, path, content=b"not json", headers=headers)
+        assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -140,9 +142,30 @@ def test_every_flag_gates_an_endpoint():
     assert {flag for flag, *_ in GATED} == set(OPT_IN_API_FLAGS)
 
 
-def test_unknown_flag_is_rejected():
-    with pytest.raises(ValueError):
-        require_api_enabled("ENABLE_TYPO_API")
+# Served without a flag on purpose; anything else must sit under an opt-in prefix.
+ALWAYS_OPEN = {
+    "/healthz",
+    "/readyz",
+    "/api/model",
+    "/openapi.json",
+    "/docs",
+    "/docs/oauth2-redirect",
+    "/redoc",
+}
+
+
+def test_every_route_is_either_opt_in_or_deliberately_open(all_disabled):
+    paths = {r.path for r in app.routes if not r.path.startswith("/__test")}
+
+    ungated = {p for p in paths if disabled_api_flag(p) is None}
+    assert ungated == ALWAYS_OPEN
+
+
+@pytest.mark.parametrize(
+    "path", ["/api/chatx", "/api/chat-other", "/api/information", "/api", "/"]
+)
+def test_a_path_that_only_shares_a_prefix_is_not_gated(all_disabled, path):
+    assert disabled_api_flag(path) is None
 
 
 @pytest.mark.parametrize(
