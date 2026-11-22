@@ -140,7 +140,7 @@ toolsets:
   robusta:
     enabled: true      # Robusta platform integration
   internet:
-    enabled: true      # Web page fetch; asks for approval per URL
+    enabled: true      # Web page fetch; unlisted hosts are refused unless a client enables tool approval
   prometheus/metrics:
     enabled: true      # Prometheus metrics access
 ```
@@ -192,7 +192,7 @@ toolsets:
   robusta:
     enabled: true      # Robusta platform integration
   internet:
-    enabled: true      # Web page fetch; asks for approval per URL
+    enabled: true      # Web page fetch; unlisted hosts are refused unless a client enables tool approval
   prometheus/metrics:
     enabled: true      # Prometheus metrics access
 ```

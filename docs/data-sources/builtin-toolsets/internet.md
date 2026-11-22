@@ -13,6 +13,8 @@ Holmes chooses which URL to fetch, and text it reads during an investigation can
 - **`allowed_hosts` is empty (the default):** Holmes asks you to approve the URL. Where nobody can approve (alert investigations, scheduled prompts, API calls without tool approval), the fetch is refused.
 - **`allowed_hosts` is set and the host is not in it:** the fetch is refused.
 
+An approval covers the host you saw. If the page redirects to a different host, Holmes stops and asks about the new URL.
+
 To let Holmes read your runbooks without asking, list their hosts in `allowed_hosts`. To let Holmes fetch any public host without asking, set `require_approval: false`.
 
 ## Configuration
@@ -76,4 +78,4 @@ cli: |
 
 | Tool Name | Description |
 |-----------|-------------|
-| fetch_webpage | Fetch a webpage. A host outside `allowed_hosts` needs your approval |
+| fetch_webpage | Fetch a webpage, subject to the approval rules above |

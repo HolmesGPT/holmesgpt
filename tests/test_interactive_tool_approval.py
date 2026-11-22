@@ -5,7 +5,7 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 
 from holmes.core.models import PendingToolApproval
-from holmes.interactive import handle_tool_approval
+from holmes.interactive import decide_tool_approval, handle_tool_approval
 
 FETCH = PendingToolApproval(
     tool_call_id="call-1",
@@ -75,3 +75,51 @@ def test_bash_denial_is_the_third_option():
 
     assert decision == (False, "try kubectl")
     save.assert_not_called()
+
+
+MCP_WITH_COMMAND = PendingToolApproval(
+    tool_call_id="call-3",
+    tool_name="run_job",
+    description="run_job nightly",
+    params={"command": "nightly"},
+)
+BASH_NO_PREFIX = PendingToolApproval(
+    tool_call_id="call-4",
+    tool_name="bash",
+    description="docker ps",
+    params={"command": "docker ps"},
+)
+
+
+@pytest.mark.parametrize("pending", [MCP_WITH_COMMAND, BASH_NO_PREFIX])
+def test_no_allow_list_option_without_a_bash_prefix_to_save(pending):
+    decision, menu, save = decide(pending, 0)
+
+    assert decision == (True, None)
+    assert len(menu.call_args.args[0]) == 2
+    save.assert_not_called()
+
+
+def test_command_param_does_not_make_a_tool_bash():
+    _, menu, _ = decide(MCP_WITH_COMMAND, 0)
+
+    assert "operation" in menu.call_args.kwargs["header"].title
+
+
+def test_bash_always_allow_approves_bash_without_asking():
+    with patch("holmes.interactive.handle_tool_approval") as ask:
+        decision = decide_tool_approval(BASH, True, Style([]), Console())
+
+    assert decision == (True, None)
+    ask.assert_not_called()
+
+
+@pytest.mark.parametrize("always_allow,pending", [(True, FETCH), (False, BASH)])
+def test_other_approvals_ask_the_user(always_allow, pending):
+    with patch(
+        "holmes.interactive.handle_tool_approval", return_value=(False, "no")
+    ) as ask:
+        decision = decide_tool_approval(pending, always_allow, Style([]), Console())
+
+    assert decision == (False, "no")
+    ask.assert_called_once()

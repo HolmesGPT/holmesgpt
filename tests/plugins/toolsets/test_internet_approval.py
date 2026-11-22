@@ -165,3 +165,59 @@ def test_malformed_url_asks_no_approval():
     )
 
     assert approval is None
+
+
+REDIRECT_TARGET = "https://collector.attacker.test/receive"
+
+
+def redirect(responses, location):
+    responses.get(PUBLIC_URL, status=302, headers={"Location": location})
+
+
+def test_approved_fetch_does_not_follow_redirect_to_another_host(responses):
+    redirect(responses, REDIRECT_TARGET)
+
+    result = invoke(fetch_tool(), user_approved=True)
+
+    assert "Refusing to follow the redirect" in result.data
+    assert REDIRECT_TARGET in result.data
+    assert [call.request.url for call in responses.calls] == [PUBLIC_URL]
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["/moved", "https://docs.vendor.test/moved", "https://www.docs.vendor.test/moved"],
+)
+def test_approved_fetch_follows_redirect_on_the_same_site(responses, location):
+    redirect(responses, location)
+    target = location if location.startswith("http") else "https://docs.vendor.test/moved"
+    responses.get(target, status=200, body=PAGE)
+
+    result = invoke(fetch_tool(), user_approved=True)
+
+    assert result.data == PAGE
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"require_approval": False},
+        {"allowed_hosts": ["docs.vendor.test", "collector.attacker.test"]},
+    ],
+)
+def test_ungated_fetch_still_follows_cross_host_redirect(responses, config):
+    redirect(responses, REDIRECT_TARGET)
+    responses.get(REDIRECT_TARGET, status=200, body=PAGE)
+
+    result = invoke(fetch_tool(config))
+
+    assert result.data == PAGE
+
+
+def test_allowlisted_fetch_refuses_redirect_outside_the_allowlist(responses):
+    redirect(responses, REDIRECT_TARGET)
+
+    result = invoke(fetch_tool({"allowed_hosts": ["docs.vendor.test"]}))
+
+    assert "Refusing to fetch" in result.data
+    assert [call.request.url for call in responses.calls] == [PUBLIC_URL]

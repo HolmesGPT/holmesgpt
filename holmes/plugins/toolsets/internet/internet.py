@@ -106,6 +106,7 @@ def scrape(
     headers: Dict[str, str],
     allowed_hosts: Optional[Sequence[str]] = None,
     block_internal_ips: bool = True,
+    follow_cross_host_redirects: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Fetch ``url`` with SSRF protection.
 
@@ -159,6 +160,16 @@ def scrape(
                 current_url = urljoin(current_url, location)
                 next_host = (urlparse(current_url).hostname or "").lower()
                 if next_host != current_host:
+                    # www.<host> is the same site the user approved.
+                    same_site = next_host.removeprefix("www.") == current_host.removeprefix("www.")
+                    if not follow_cross_host_redirects and not same_site:
+                        error_message = (
+                            f"Refusing to follow the redirect from {current_host} to "
+                            f"{current_url}: only {current_host} was approved. Fetch "
+                            "that URL directly to ask for approval of its host."
+                        )
+                        logging.warning(error_message)
+                        return error_message, None
                     current_headers = _strip_sensitive_headers(current_headers)
                     current_host = next_host
                 continue
@@ -315,6 +326,9 @@ class FetchWebpage(Tool):
             additional_headers,
             allowed_hosts=allowed_hosts,
             block_internal_ips=self.toolset.internet_config.block_internal_ips,
+            # An approval covers the host the user saw, not where it redirects.
+            follow_cross_host_redirects=bool(allowed_hosts)
+            or not self.toolset.internet_config.require_approval,
         )
 
         if not content:

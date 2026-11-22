@@ -91,6 +91,9 @@ def bash_result_to_structured(
     )
 
 
+BASH_TOOL_NAME = "bash"
+
+
 class RunBashCommand(Tool):
     """
     Tool for executing bash commands with prefix-based validation.
@@ -103,7 +106,7 @@ class RunBashCommand(Tool):
 
     def __init__(self, toolset: "BashExecutorToolset"):
         super().__init__(
-            name="bash",
+            name=BASH_TOOL_NAME,
             description=(
                 "Executes a bash command and returns its output. "
                 "Supports: single commands, pipes (|), &&, ||, ;, &. "
