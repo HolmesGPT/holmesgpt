@@ -222,6 +222,13 @@ HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
     "HOLMES_TOOL_RESULT_STORAGE_PATH", os.path.join(tempfile.gettempdir(), ".holmes")
 )
 
+# HTTP APIs that run the agent or expose its setup are opt-in: they are not
+# needed when Holmes is driven through the Robusta platform.
+ENABLE_CHAT_API = load_bool("ENABLE_CHAT_API", False)
+ENABLE_CHECKS_API = load_bool("ENABLE_CHECKS_API", False)
+ENABLE_OAUTH_API = load_bool("ENABLE_OAUTH_API", False)
+ENABLE_INFO_API = load_bool("ENABLE_INFO_API", False)
+
 # Conversation Worker (M2)
 ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
 # Size of a conversation executor whose name has no built-in default; 'manual'

@@ -34,6 +34,8 @@ To deploy the HTTP server on Kubernetes, see the [Helm Chart](kubernetes-install
 
 The API is available at `http://localhost:5050`.
 
+`docker-compose.yaml` sets `ENABLE_CHAT_API=true`, because `/api/chat` is [off by default](../reference/http-api.md#enabling-endpoints). Set [`HOLMES_API_KEY`](../reference/environment-variables.md#holmes_api_key) too if anyone else can reach the port.
+
 ## Configuration
 
 Edit `docker-compose.yaml` to configure your setup:

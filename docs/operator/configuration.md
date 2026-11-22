@@ -89,6 +89,7 @@ Base URL for the Holmes API service that executes health checks.
 - Default: `http://<release-name>-holmes:80` (internal service)
 - Use custom URL for external Holmes API or non-standard deployments
 - Must be accessible from the operator pod
+- That Holmes must run with `ENABLE_CHECKS_API=true`. The chart sets it on the Holmes it deploys when `operator.enabled` is true; set it yourself on an external one
 
 Example:
 

@@ -3,6 +3,27 @@
 ## Overview
 The HolmesGPT API provides endpoints for conversational troubleshooting. This document describes each endpoint, its purpose, request fields, and example usage.
 
+## Enabling Endpoints
+
+Endpoints that run the agent or describe its setup are off by default and answer `404` until their environment variable is set to `true` on the server. HolmesGPT connected to the Robusta platform does not need any of them: the platform reaches it over an outbound connection.
+
+| Endpoint | Environment variable |
+|----------|----------------------|
+| `/api/chat` | `ENABLE_CHAT_API` |
+| `/api/checks/execute` | `ENABLE_CHECKS_API` (the Helm chart sets it when `operator.enabled` is true) |
+| `/api/oauth/callback` | `ENABLE_OAUTH_API` |
+| `/api/info` | `ENABLE_INFO_API` |
+| `/api/admin/*` | `ENABLE_ADMIN_API` |
+
+`/healthz`, `/readyz` and `/api/model` are always served.
+
+A disabled endpoint answers:
+```json
+{"detail": "This API is disabled. Set ENABLE_CHAT_API=true on the Holmes server to enable it."}
+```
+
+Enabling an endpoint does not authenticate it. Set `HOLMES_API_KEY` as well unless the port is reachable only by callers you trust.
+
 ## Authentication
 
 API authentication is optional. When the `HOLMES_API_KEY` environment variable is set, all endpoints (except `/healthz` and `/readyz`) require authentication.
@@ -82,6 +103,8 @@ For complete setup instructions with `modelList` configuration, see the [Kuberne
 ## Endpoints
 
 ### `/api/chat` (POST)
+**Requires** `ENABLE_CHAT_API=true` ([Enabling Endpoints](#enabling-endpoints)).
+
 **Description:** General-purpose chat endpoint for interacting with the AI assistant. Supports open-ended questions and troubleshooting.
 
 #### Request Fields

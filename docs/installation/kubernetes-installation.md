@@ -138,7 +138,20 @@ Deploy HolmesGPT as a service in your Kubernetes cluster with an HTTP API.
 
 ## Usage
 
-After installation, test the service with a simple API call:
+`/api/chat` is [off by default](../reference/http-api.md#enabling-endpoints). Enable it in `values.yaml`, with an [API key](../reference/environment-variables.md#holmes_api_key) so that only your integration can call it, then run `helm upgrade`:
+
+```yaml
+additionalEnvVars:
+- name: ENABLE_CHAT_API
+  value: "true"
+- name: HOLMES_API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: holmes-secrets
+      key: holmes-api-key
+```
+
+Then test the service with a simple API call:
 
 ```bash
 # Port forward to access the service locally
@@ -150,11 +163,13 @@ kubectl port-forward svc/holmes-holmes 8080:80
 
 # Test with a basic question using a model name from your modelList
 curl -X POST http://localhost:8080/api/chat \
+  -H "X-API-Key: $HOLMES_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "gpt-4.1"}'
 
 # Using a different model from your modelList
 curl -X POST http://localhost:8080/api/chat \
+  -H "X-API-Key: $HOLMES_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "claude-sonnet"}'
 ```
@@ -197,7 +212,7 @@ After enabling, port-forward and call the service over `https` (use `-k` for a s
 
 ```bash
 kubectl port-forward svc/holmes-holmes 8080:80
-curl -k https://localhost:8080/api/chat -H "Content-Type: application/json" \
+curl -k https://localhost:8080/api/chat -H "X-API-Key: $HOLMES_API_KEY" -H "Content-Type: application/json" \
   -d '{"ask": "list pods in namespace default?", "model": "anthropic/claude-sonnet-4-5-20250929"}'
 ```
 

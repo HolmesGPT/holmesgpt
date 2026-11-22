@@ -180,6 +180,26 @@ docker run -d \
   ...
 ```
 
+### ENABLE_CHAT_API, ENABLE_CHECKS_API, ENABLE_OAUTH_API, ENABLE_INFO_API
+**Default:** `false`
+
+Each one turns on an HTTP endpoint that is otherwise answered with `404`:
+
+| Variable | Endpoint |
+|----------|----------|
+| `ENABLE_CHAT_API` | `/api/chat` |
+| `ENABLE_CHECKS_API` | `/api/checks/execute`. The Helm chart sets it when `operator.enabled` is true. |
+| `ENABLE_OAUTH_API` | `/api/oauth/callback` |
+| `ENABLE_INFO_API` | `/api/info` |
+
+HolmesGPT connected to the Robusta platform needs none of them. Enabling an endpoint does not authenticate it: set `HOLMES_API_KEY` too. Any value other than `true` or `false` stops the server at startup.
+
+**Example:**
+```bash
+export ENABLE_CHAT_API=true
+export HOLMES_API_KEY=my-secret-key-here
+```
+
 ### HOLMES_APPROVAL_SIGNING_KEY
 **Default:** not set (an ephemeral key is generated per process at startup)
 

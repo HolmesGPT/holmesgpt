@@ -177,6 +177,10 @@ spec:
             value: {{ .Values.global.enableJsonLogsFormat | default .Values.enableJsonLogsFormat | default false | quote }}
           - name: ENABLE_TELEMETRY
             value: {{ include "holmes.enableTelemetry" . | quote }}
+          {{- if .Values.operator.enabled }}
+          - name: ENABLE_CHECKS_API
+            value: "true"
+          {{- end }}
           {{- if .Values.namespaceScopedRBAC }}
           # tells Holmes its RBAC scope so it doesn't probe cluster-wide access first;
           # override via additionalEnvVars if the scope differs
