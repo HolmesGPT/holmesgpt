@@ -175,9 +175,7 @@ networkPolicy:
   additionalIngressRules: []
 ```
 
-The Holmes API has no authentication unless `HOLMES_API_KEY` is set, so by default only pods labeled as its known callers can reach it: the Robusta runner (`robustaComponent: runner`) and the Holmes operator (`app: holmes-operator`), in any namespace. `kubectl port-forward` keeps working.
-
-The policy narrows exposure but is not authentication, because a pod's labels are set by whoever creates it. If untrusted users can create pods in the cluster, also set [`HOLMES_API_KEY`](http-api.md#authentication).
+By default only the Robusta runner (pods labeled `robustaComponent: runner`) and the Holmes operator (pods labeled `app: holmes-operator`) can reach the Holmes API, from any namespace. `kubectl port-forward` keeps working.
 
 Any other client of the [HTTP API](http-api.md) gets connection timeouts until you add it as a NetworkPolicy peer:
 

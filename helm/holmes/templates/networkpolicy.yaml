@@ -19,22 +19,15 @@ spec:
   policyTypes:
   - Ingress
   ingress:
-  # The Holmes API has no authentication unless HOLMES_API_KEY is set, and
-  # answers with Holmes' own RBAC and credentials, so by default only pods
-  # labeled as its known callers may reach it. This narrows exposure; it is not
-  # authentication, since a pod's labels are set by whoever creates it.
-  # The callers are matched in any namespace (namespaceSelector + podSelector in
-  # one element are AND-ed): the runner finds Holmes cluster-wide or through
-  # globalConfig.holmes_url, and operator.holmesApiUrl can point an operator at
-  # a Holmes in another namespace.
+  # Only Holmes' known callers, in any namespace: either may run outside the
+  # release namespace.
   - from:
-    # Robusta runner. The label comes from the Robusta chart's runner Deployment.
+    # Robusta runner (label set by the Robusta chart)
     - namespaceSelector: {}
       podSelector:
         matchLabels:
           robustaComponent: runner
-    # Holmes operator. Allowed even when operator.enabled is false, for an
-    # operator installed by another release.
+    # Holmes operator
     - namespaceSelector: {}
       podSelector:
         matchLabels:

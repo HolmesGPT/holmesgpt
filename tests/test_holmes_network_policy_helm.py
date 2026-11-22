@@ -1,10 +1,6 @@
 """Regression checks for the Holmes pod's ingress NetworkPolicy.
 
-The Holmes API is unauthenticated unless HOLMES_API_KEY is set, so the chart
-limits who can reach it: the Robusta runner and the Holmes operator (matched by
-pod label, in any namespace) plus networkPolicy.additionalIngressRules. The
-selectors and port must stay in step with the Deployments they refer to, or the
-callers are silently cut off.
+Its selectors and port must stay in step with the Deployments they refer to.
 """
 
 import json
