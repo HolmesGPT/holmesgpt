@@ -88,7 +88,7 @@ Base URL for the Holmes API service that executes health checks.
 
 - Default: `http://<release-name>-holmes:80` (internal service)
 - Use custom URL for external Holmes API or non-standard deployments
-- Must be accessible from the operator pod
+- Must be accessible from the operator pod. The Holmes chart's [NetworkPolicy](../reference/helm-configuration.md#network-policy) admits pods labeled `app: holmes-operator` from any namespace
 
 Example:
 

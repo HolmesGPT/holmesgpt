@@ -210,6 +210,8 @@ helm repo update
 helm upgrade holmes robusta/holmes -f values.yaml
 ```
 
+> **Note**: The chart now creates a NetworkPolicy that limits the Holmes API to the Robusta runner and the Holmes operator. If your own pod or an ingress controller calls the API, add it to `networkPolicy.additionalIngressRules` before upgrading, or its requests will time out. See [Network Policy](../reference/helm-configuration.md#network-policy).
+
 ## Uninstalling
 
 ```bash
