@@ -165,6 +165,41 @@ customClusterRoleRules: []
 
 For detailed information about the required Kubernetes permissions, see [Kubernetes Permissions](kubernetes-permissions.md).
 
+### Network Policy
+
+The chart creates an ingress NetworkPolicy for the Holmes pod. Egress is not restricted. The policy has no effect on clusters whose CNI doesn't enforce NetworkPolicies.
+
+```yaml
+networkPolicy:
+  enabled: true
+  additionalIngressRules: []
+```
+
+The Holmes API has no authentication unless `HOLMES_API_KEY` is set, so by default only pods labeled as its known callers can reach it: the Robusta runner (`robustaComponent: runner`) and the Holmes operator (`app: holmes-operator`), in any namespace. `kubectl port-forward` keeps working.
+
+The policy narrows exposure but is not authentication, because a pod's labels are set by whoever creates it. If untrusted users can create pods in the cluster, also set [`HOLMES_API_KEY`](http-api.md#authentication).
+
+Any other client of the [HTTP API](http-api.md) gets connection timeouts until you add it as a NetworkPolicy peer:
+
+```yaml
+networkPolicy:
+  additionalIngressRules:
+    # a client in the release namespace
+    - podSelector:
+        matchLabels:
+          app: my-holmes-client
+    # everything in another namespace, e.g. an ingress controller on the pod network
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    # hostNetwork ingress controllers and load balancers that target pod IPs
+    # are not pods on the pod network; match them by address
+    - ipBlock:
+        cidr: 10.0.0.0/16
+```
+
+With Istio ambient mode, meshed traffic reaches the pod on port 15008 instead of 5050, so set `networkPolicy.enabled: false` and restrict access with a mesh AuthorizationPolicy.
+
 ### Resource Configuration
 
 ```yaml

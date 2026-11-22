@@ -5,3 +5,11 @@ system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.mcpAddons.aws.serviceA
 system:serviceaccount:{{ .Release.Namespace }}:{{ include "holmes.serviceAccountName" . }}.
 See https://holmesgpt.dev/data-sources/builtin-toolsets/aws/
 {{- end }}
+{{- $networkPolicy := .Values.networkPolicy | default dict }}
+{{- if $networkPolicy.enabled }}
+
+NOTE: a NetworkPolicy limits the Holmes API to the Robusta runner, the Holmes operator{{ if $networkPolicy.additionalIngressRules }} and the peers in
+networkPolicy.additionalIngressRules{{ end }}. To call it from any other pod (e.g. your own client or an ingress
+controller), add a peer to networkPolicy.additionalIngressRules. kubectl port-forward keeps working.
+See https://holmesgpt.dev/reference/helm-configuration/#network-policy
+{{- end }}

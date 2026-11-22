@@ -131,6 +131,32 @@ serviceAccount:
   imagePullSecrets: []
   annotations: {}
 
+# Ingress NetworkPolicy for the Holmes pod itself (the MCP add-ons have their own
+# under mcpAddons.*.networkPolicy). Egress is not restricted. Inert where the CNI
+# doesn't enforce NetworkPolicies.
+networkPolicy:
+  # The Holmes API has no authentication unless HOLMES_API_KEY is set, so by
+  # default only the Robusta runner (pods labeled robustaComponent: runner) and
+  # the Holmes operator (app: holmes-operator) may reach it, from any namespace.
+  # Kubelet probes and kubectl port-forward are not affected.
+  # This narrows exposure but is not authentication: labels are set by whoever
+  # creates a pod. Set HOLMES_API_KEY as well if untrusted users can create pods.
+  enabled: true
+  # Extra NetworkPolicy peers allowed to reach the Holmes API. Any other client
+  # that calls the HTTP API needs one, e.g. your own app or an ingress controller:
+  #   additionalIngressRules:
+  #     - podSelector:
+  #         matchLabels:
+  #           app: my-holmes-client
+  #     - namespaceSelector:
+  #         matchLabels:
+  #           kubernetes.io/metadata.name: ingress-nginx
+  #     # hostNetwork ingress controllers and load balancers that target pod IPs
+  #     # are not pods on the pod network; match them by address:
+  #     - ipBlock:
+  #         cidr: 10.0.0.0/16
+  additionalIngressRules: []
+
 toolsets:
   kubernetes/core:
     enabled: true

@@ -1,0 +1,48 @@
+{{- $networkPolicy := .Values.networkPolicy | default dict -}}
+{{- if $networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-holmes-network-policy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: holmes
+    {{- include "holmes.commonLabels" . | nindent 4 }}
+  {{- with (include "holmes.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      app: holmes
+  policyTypes:
+  - Ingress
+  ingress:
+  # The Holmes API has no authentication unless HOLMES_API_KEY is set, and
+  # answers with Holmes' own RBAC and credentials, so by default only pods
+  # labeled as its known callers may reach it. This narrows exposure; it is not
+  # authentication, since a pod's labels are set by whoever creates it.
+  # The callers are matched in any namespace (namespaceSelector + podSelector in
+  # one element are AND-ed): the runner finds Holmes cluster-wide or through
+  # globalConfig.holmes_url, and operator.holmesApiUrl can point an operator at
+  # a Holmes in another namespace.
+  - from:
+    # Robusta runner. The label comes from the Robusta chart's runner Deployment.
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          robustaComponent: runner
+    # Holmes operator. Allowed even when operator.enabled is false, for an
+    # operator installed by another release.
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          app: holmes-operator
+    {{- with $networkPolicy.additionalIngressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    ports:
+    - protocol: TCP
+      port: 5050
+{{- end }}

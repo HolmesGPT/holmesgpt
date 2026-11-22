@@ -7,6 +7,8 @@ The HolmesGPT API provides endpoints for conversational troubleshooting. This do
 
 API authentication is optional. When the `HOLMES_API_KEY` environment variable is set, all endpoints (except `/healthz` and `/readyz`) require authentication.
 
+When Holmes is installed with the Helm chart, a NetworkPolicy also limits which pods can reach the API. If requests from your own pod or ingress controller time out, add it to `networkPolicy.additionalIngressRules`. See [Network Policy](helm-configuration.md#network-policy).
+
 **Generating a key:**
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
