@@ -64,14 +64,14 @@ spec:
         {{- if include "holmes.apiAuth.enabled" . }}
         # The operator sends the chart's default API key to Holmes.
         - name: HOLMES_API_KEY_FILE
-          value: {{ include "holmes.apiAuth.mountPath" . }}/token
+          value: {{ include "holmes.apiAuth.clientMountPath" . }}/token
         {{- end }}
         {{- if .Values.operator.additionalEnvVars }}
         {{- toYaml .Values.operator.additionalEnvVars | nindent 8 }}
         {{- end }}
         {{- if include "holmes.apiAuth.enabled" . }}
         volumeMounts:
-          {{- include "holmes.apiAuth.volumeMount" . | nindent 10 }}
+          {{- include "holmes.apiAuth.clientVolumeMount" . | nindent 10 }}
         {{- end }}
         resources:
           requests:
@@ -100,6 +100,6 @@ spec:
       {{- end }}
       {{- if include "holmes.apiAuth.enabled" . }}
       volumes:
-        {{- include "holmes.apiAuth.volume" . | nindent 8 }}
+        {{- include "holmes.apiAuth.clientVolume" . | nindent 8 }}
       {{- end }}
 {{- end }}

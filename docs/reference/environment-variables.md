@@ -157,7 +157,7 @@ An API key for your own clients. The server requires an API key on every endpoin
 - `X-API-Key: <key>` header, or
 - `Authorization: Bearer <key>` header
 
-On Kubernetes, the Helm chart also generates a default key (see `HOLMES_DEFAULT_API_KEY_FILE`), which keeps working alongside this one.
+On Kubernetes, the Helm chart also generates a default key (see `HOLMES_DEFAULT_API_KEY_SHA256_FILE`), which keeps working alongside this one.
 
 **Generating a key:**
 ```bash
@@ -180,10 +180,10 @@ docker run -d \
   ...
 ```
 
-### HOLMES_DEFAULT_API_KEY_FILE
-**Default:** set by the Helm chart to `/etc/holmes/api-key/token`
+### HOLMES_DEFAULT_API_KEY_SHA256_FILE
+**Default:** set by the Helm chart to `/etc/holmes/api-key/token-sha256`
 
-A file holding a second accepted API key. The Helm chart generates this key once into the Secret `<release>-holmes-api-key` and mounts it into Holmes, the Holmes operator and the Robusta runner, so they authenticate with no setup. Holmes re-reads the file when it changes, so a rotated Secret takes effect without a restart. `HOLMES_DEFAULT_API_KEY` sets the same key inline.
+A file holding the SHA-256 (64 hex characters) of a second accepted API key. The Helm chart generates this key once into the Secret `<release>-holmes-api-key`, with the key under `token` and its hash under `token-sha256`. Holmes mounts only the hash, so tools that read files in the Holmes container cannot find the key. The Holmes operator and the Robusta runner mount the key and send it, so they authenticate with no setup. Holmes re-reads the file when it changes, so a rotated Secret takes effect without a restart. `HOLMES_DEFAULT_API_KEY` sets a default key inline.
 
 ### HOLMES_AUTH_DISABLED
 **Default:** `false`

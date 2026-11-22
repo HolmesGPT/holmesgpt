@@ -7,6 +7,7 @@ that starts before the Secret exists still starts. The hook's inline Python
 program is also run here against a stub `kubectl`.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -27,7 +28,8 @@ SECRET_NAME = f"{RELEASE}-holmes-api-key"
 BOOTSTRAP_NAME = f"{RELEASE}-holmes-api-key-bootstrap"
 HOLMES_DEPLOYMENT = f"{RELEASE}-holmes"
 OPERATOR_DEPLOYMENT = f"{RELEASE}-operator"
-MOUNT_FILE = "/etc/holmes/api-key/token"
+SERVER_MOUNT_DIR = "/etc/holmes/api-key"
+CLIENT_MOUNT_DIR = "/var/run/secrets/holmes-api-key"
 HOOKS = "pre-install,pre-upgrade,pre-rollback"
 
 pytestmark = pytest.mark.skipif(
@@ -110,29 +112,41 @@ def test_no_key_value_in_rendered_manifests():
 
 
 @pytest.mark.parametrize(
-    "deployment,container_name,env_name",
+    "deployment,container_name,env_name,mount_dir,item",
     [
-        (HOLMES_DEPLOYMENT, "holmes", "HOLMES_DEFAULT_API_KEY_FILE"),
-        (OPERATOR_DEPLOYMENT, "operator", "HOLMES_API_KEY_FILE"),
+        # Holmes only verifies keys: it gets the hash, never the key, so a
+        # tool reading files in the Holmes container cannot find the key.
+        (HOLMES_DEPLOYMENT, "holmes", "HOLMES_DEFAULT_API_KEY_SHA256_FILE", SERVER_MOUNT_DIR, "token-sha256"),
+        # Callers send the key; it sits under /var/run/secrets/, which the
+        # remediation MCP's file reader refuses.
+        (OPERATOR_DEPLOYMENT, "operator", "HOLMES_API_KEY_FILE", CLIENT_MOUNT_DIR, "token"),
     ],
 )
-def test_holmes_and_operator_mount_the_key_as_an_optional_file(
-    deployment, container_name, env_name
+def test_each_pod_mounts_only_the_item_it_needs_as_an_optional_file(
+    deployment, container_name, env_name, mount_dir, item
 ):
     d = find(render(), "Deployment", deployment)
     c = container(d, container_name)
-    assert env_value(c, env_name) == MOUNT_FILE
+    assert env_value(c, env_name) == f"{mount_dir}/{item}"
     assert api_key_mount(c) == {
         "name": "holmes-api-key",
-        "mountPath": "/etc/holmes/api-key",
+        "mountPath": mount_dir,
         "readOnly": True,
     }
     assert api_key_volume(d)["secret"] == {
         "secretName": SECRET_NAME,
         # A pod that starts before the hook created the Secret must still start.
         "optional": True,
-        "items": [{"key": "token", "path": "token"}],
+        "items": [{"key": item, "path": item}],
     }
+
+
+def test_holmes_pod_never_mounts_the_plaintext_key():
+    holmes = find(render(), "Deployment", HOLMES_DEPLOYMENT)
+    for v in pod_spec(holmes).get("volumes") or []:
+        secret = v.get("secret") or {}
+        if secret.get("secretName") == SECRET_NAME:
+            assert [i["key"] for i in secret["items"]] == ["token-sha256"]
 
 
 def test_holmes_api_key_is_never_set_by_the_chart():
@@ -155,7 +169,9 @@ def test_user_holmes_api_key_is_kept_alongside_the_default_key():
     )
     c = container(d, "holmes")
     assert env_value(c, "HOLMES_API_KEY") == "mine"
-    assert env_value(c, "HOLMES_DEFAULT_API_KEY_FILE") == MOUNT_FILE
+    assert env_value(c, "HOLMES_DEFAULT_API_KEY_SHA256_FILE") == (
+        f"{SERVER_MOUNT_DIR}/token-sha256"
+    )
 
 
 def test_bootstrap_resources_are_ordered_hooks():
@@ -184,7 +200,7 @@ def test_bootstrap_role_is_least_privilege():
             "apiGroups": [""],
             "resources": ["secrets"],
             "resourceNames": [SECRET_NAME],
-            "verbs": ["get", "delete"],
+            "verbs": ["get", "patch", "delete"],
         },
     ]
 
@@ -242,7 +258,7 @@ def test_default_key_off_renders_no_key_wiring():
     assert bootstrap_docs(docs) == []
     holmes = find(docs, "Deployment", HOLMES_DEPLOYMENT)
     assert api_key_volume(holmes) is None
-    assert env_value(container(holmes, "holmes"), "HOLMES_DEFAULT_API_KEY_FILE") is None
+    assert env_value(container(holmes, "holmes"), "HOLMES_DEFAULT_API_KEY_SHA256_FILE") is None
     operator = find(docs, "Deployment", OPERATOR_DEPLOYMENT)
     assert api_key_volume(operator) is None
 
@@ -254,7 +270,8 @@ def test_default_key_off_renders_no_key_wiring():
 FAKE_KUBECTL = textwrap.dedent(
     """\
     #!{python}
-    import base64, json, os, sys
+    import base64, hashlib, json, os, sys
+    sha = lambda k: hashlib.sha256(k.encode()).hexdigest()
     state_path = os.environ["FAKE_KUBECTL_STATE"]
     state = json.load(open(state_path))
     args = sys.argv[1:]
@@ -276,8 +293,13 @@ FAKE_KUBECTL = textwrap.dedent(
         s = state["secrets"].get(args[2])
         if s is None:
             done()
-        data = {{"token": base64.b64encode(s.encode()).decode()}} if s else {{}}
+        data = {{k: base64.b64encode(v.encode()).decode() for k, v in s.items()}}
         done(json.dumps({{"metadata": {{"name": args[2]}}, "data": data}}))
+    if verb == "patch" and kind == "secret":
+        fail("patch_error")
+        body = json.loads(args[args.index("-p") + 1])
+        state["secrets"][args[2]].update(body["stringData"])
+        done("secret/" + args[2] + " patched")
     if verb == "delete" and kind == "secret":
         fail("delete_error")
         state["secrets"].pop(args[2], None)
@@ -287,9 +309,9 @@ FAKE_KUBECTL = textwrap.dedent(
         state["created"].append(manifest)
         name = manifest["metadata"]["name"]
         if "AlreadyExists" in state.get("create_error", ""):
-            state["secrets"][name] = "winner"
+            state["secrets"][name] = {{"token": "winner", "token-sha256": sha("winner")}}
         fail("create_error")
-        state["secrets"][name] = manifest["stringData"]["token"]
+        state["secrets"][name] = dict(manifest["stringData"])
         done("secret/" + name + " created")
     done(err="unexpected kubectl call: %r" % args, code=99)
     """
@@ -326,16 +348,38 @@ def run_bootstrap(job: dict, tmp_path: Path, **state) -> tuple:
 
 
 def mutations(result: dict) -> List[str]:
-    return [c[0] for c in result["calls"] if c[0] in ("create", "delete")]
+    return [c[0] for c in result["calls"] if c[0] in ("create", "delete", "patch")]
+
+
+def sha256_hex(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def complete(key: str) -> dict:
+    return {"token": key, "token-sha256": sha256_hex(key)}
 
 
 def test_script_keeps_an_existing_key(bootstrap_job, tmp_path):
     """Every later upgrade and ArgoCD sync runs the hook: it must change nothing."""
-    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: "kept"})
+    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: complete("kept")})
     assert proc.returncode == 0, proc.stderr
     assert mutations(result) == []
-    assert result["secrets"][SECRET_NAME] == "kept"
+    assert result["secrets"][SECRET_NAME] == complete("kept")
     assert "kept" not in proc.stdout
+
+
+@pytest.mark.parametrize("stale_hash", [None, "", "0" * 64])
+def test_script_adds_a_missing_or_wrong_hash_and_keeps_the_key(bootstrap_job, tmp_path, stale_hash):
+    """A Secret from before the hash existed (or with a wrong hash) gets the
+    right token-sha256; the key itself, which callers already use, is kept."""
+    secret = {"token": "existing-key-7f3a"}
+    if stale_hash is not None:
+        secret["token-sha256"] = stale_hash
+    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: secret})
+    assert proc.returncode == 0, proc.stderr
+    assert mutations(result) == ["patch"]
+    assert result["secrets"][SECRET_NAME] == complete("existing-key-7f3a")
+    assert "existing-key-7f3a" not in proc.stdout + proc.stderr
 
 
 def test_script_creates_the_secret_on_fresh_install(bootstrap_job, tmp_path):
@@ -345,6 +389,7 @@ def test_script_creates_the_secret_on_fresh_install(bootstrap_job, tmp_path):
     created = result["created"][0]
     token = created["stringData"]["token"]
     assert len(token) >= 40
+    assert created["stringData"]["token-sha256"] == sha256_hex(token)
     assert token not in proc.stdout + proc.stderr
     meta = created["metadata"]
     assert meta["name"] == SECRET_NAME and meta["namespace"] == NAMESPACE
@@ -357,14 +402,15 @@ def test_script_creates_the_secret_on_fresh_install(bootstrap_job, tmp_path):
 def test_script_generates_a_new_key_each_time(bootstrap_job, tmp_path):
     _, first = run_bootstrap(bootstrap_job, tmp_path / "a")
     _, second = run_bootstrap(bootstrap_job, tmp_path / "b")
-    assert first["secrets"][SECRET_NAME] != second["secrets"][SECRET_NAME]
+    assert first["secrets"][SECRET_NAME]["token"] != second["secrets"][SECRET_NAME]["token"]
 
 
 def test_script_replaces_a_secret_without_a_key(bootstrap_job, tmp_path):
-    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: ""})
+    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: {}})
     assert proc.returncode == 0, proc.stderr
     assert mutations(result) == ["delete", "create"]
-    assert result["secrets"][SECRET_NAME]
+    new = result["secrets"][SECRET_NAME]
+    assert new == complete(new["token"])
 
 
 def test_script_tolerates_a_concurrent_create(bootstrap_job, tmp_path):
@@ -374,13 +420,18 @@ def test_script_tolerates_a_concurrent_create(bootstrap_job, tmp_path):
         create_error=f'Error from server (AlreadyExists): secrets "{SECRET_NAME}" already exists',
     )
     assert proc.returncode == 0, proc.stderr
-    assert result["secrets"][SECRET_NAME] == "winner"
+    assert result["secrets"][SECRET_NAME]["token"] == "winner"
     assert "created concurrently" in proc.stdout
 
 
-@pytest.mark.parametrize("error_key", ["get_secret_error", "create_error", "delete_error"])
+@pytest.mark.parametrize(
+    "error_key", ["get_secret_error", "create_error", "delete_error", "patch_error"]
+)
 def test_script_fails_loudly_on_api_errors(bootstrap_job, tmp_path, error_key):
-    secrets_state = {SECRET_NAME: ""} if error_key == "delete_error" else {}
+    secrets_state = {
+        "delete_error": {SECRET_NAME: {}},
+        "patch_error": {SECRET_NAME: {"token": "kept"}},
+    }.get(error_key, {})
     proc, _ = run_bootstrap(
         bootstrap_job,
         tmp_path,

@@ -189,7 +189,7 @@ class TestInfoAuthEnabled:
         """auth_enabled is true when a key is configured and sent."""
         monkeypatch.setattr(
             "server.api_auth",
-            _FixedAuth(ApiAuthSettings(keys={"HOLMES_API_KEY": "test-key-123"})),
+            _FixedAuth(ApiAuthSettings.from_keys({"HOLMES_API_KEY": "test-key-123"})),
         )
         executor = MagicMock()
         executor.toolsets = []

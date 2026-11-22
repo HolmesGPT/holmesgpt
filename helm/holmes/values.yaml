@@ -34,6 +34,9 @@ tls:
 # hook Job (ArgoCD: PreSync) creates the Secret (<release>-holmes-api-key)
 # once; the key is never part of the rendered manifests, so `helm template`
 # and ArgoCD renders stay deterministic and never roll the pods (ROB-1365).
+# The Secret holds the key ("token") and its SHA-256 ("token-sha256"). Holmes
+# mounts only the hash, so tools that read files in the Holmes container (the
+# bash toolset) cannot find the key; the callers mount only the key.
 # Each pod mounts it as an optional file and re-reads it when it changes, so:
 #   - a pod that starts before the Secret exists picks the key up once it does,
 #   - rotating needs no restart: `kubectl delete secret <release>-holmes-api-key`,
@@ -48,11 +51,13 @@ apiAuth:
   # Generate and wire the default key. When false, nothing is generated and
   # the API is reachable only with a HOLMES_API_KEY you set.
   defaultKey: true
-  # Name of a pre-existing Secret holding the default key under the key
-  # "token". When set, the chart creates no Secret and runs no hook Job; use
-  # it when your deploy tool does not run Helm hooks. Create it with, e.g.:
-  #   kubectl create secret generic my-holmes-api-key \
-  #     --from-literal=token="$(openssl rand -hex 32)"
+  # Name of a pre-existing Secret holding the default key under "token" and
+  # its SHA-256 (64 lowercase hex characters) under "token-sha256". When set,
+  # the chart creates no Secret and runs no hook Job; use it when your deploy
+  # tool does not run Helm hooks. Create it with, e.g.:
+  #   KEY="$(openssl rand -hex 32)"
+  #   kubectl create secret generic my-holmes-api-key --from-literal=token="$KEY" \
+  #     --from-literal=token-sha256="$(printf %s "$KEY" | sha256sum | cut -d' ' -f1)"
   existingSecret: ""
 
 additionalEnvVars: []

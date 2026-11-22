@@ -6,21 +6,26 @@ configured API keys, as ``X-API-Key: <key>`` or ``Authorization: Bearer <key>``:
 - ``HOLMES_API_KEY``: the key an operator sets for their own clients.
 - The default key: generated once by the Helm chart and shared with the
   in-cluster callers the chart deploys (the Robusta runner and the Holmes
-  operator). The chart mounts it as a file and sets
-  ``HOLMES_DEFAULT_API_KEY_FILE``; ``HOLMES_DEFAULT_API_KEY`` holds it inline
-  outside Kubernetes. It is separate from ``HOLMES_API_KEY`` so the chart
-  never overrides a user's own key, and both are accepted.
+  operator). Holmes only holds its SHA-256: the chart mounts the hash, never
+  the key, and sets ``HOLMES_DEFAULT_API_KEY_SHA256_FILE``. So a tool that can
+  read files in the Holmes container (the bash toolset, an exec) finds nothing
+  it can authenticate with. ``HOLMES_DEFAULT_API_KEY`` holds a default key
+  inline outside Kubernetes. Both are separate from ``HOLMES_API_KEY`` so the
+  chart never overrides a user's own key, and all are accepted.
 
-The key file is re-read when it changes, so a rotated Secret reaches a running
-server without a restart.
+Every key is kept and compared as a SHA-256 digest. The hash file is re-read
+when it changes, so a rotated Secret reaches a running server without a
+restart.
 
 With no key configured, every endpoint except the health probes answers 401.
 ``HOLMES_AUTH_DISABLED=true`` is the only way to serve the API without a key.
 """
 
+import hashlib
 import hmac
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Mapping, MutableMapping, Optional, Tuple
@@ -35,7 +40,7 @@ AUTH_EXEMPT_PATHS = frozenset({"/healthz", "/readyz"})
 
 USER_API_KEY_ENV_VAR = "HOLMES_API_KEY"
 DEFAULT_API_KEY_ENV_VAR = "HOLMES_DEFAULT_API_KEY"
-DEFAULT_API_KEY_FILE_ENV_VAR = "HOLMES_DEFAULT_API_KEY_FILE"
+DEFAULT_API_KEY_SHA256_FILE_ENV_VAR = "HOLMES_DEFAULT_API_KEY_SHA256_FILE"
 API_KEY_ENV_VARS = (USER_API_KEY_ENV_VAR, DEFAULT_API_KEY_ENV_VAR)
 AUTH_DISABLED_ENV_VAR = "HOLMES_AUTH_DISABLED"
 
@@ -44,6 +49,8 @@ UNAUTHORIZED_DETAIL = (
     "See https://holmesgpt.dev/reference/http-api/#authentication"
 )
 
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
@@ -51,18 +58,32 @@ Send = Callable[[Message], Awaitable[None]]
 ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 
+def api_key_digest(key: str) -> bytes:
+    """The SHA-256 digest Holmes stores and compares for an API key."""
+    return hashlib.sha256(key.encode()).digest()
+
+
 @dataclass(frozen=True)
 class ApiAuthSettings:
     """Resolved authentication settings of the server.
 
-    ``keys`` maps the env var a key came from to the key, so logs can name the
-    source without printing the value.
+    ``key_digests`` maps the source of each accepted key (an env var name) to
+    the key's SHA-256 digest, so logs can name the source and the server never
+    keeps a plaintext key it does not need.
     """
 
-    keys: Dict[str, str] = field(default_factory=dict)
+    key_digests: Dict[str, bytes] = field(default_factory=dict)
     disabled: bool = False
-    # HOLMES_DEFAULT_API_KEY_FILE as configured, even while the file is empty.
-    key_file: str = ""
+    # HOLMES_DEFAULT_API_KEY_SHA256_FILE as configured, even while it is empty.
+    hash_file: str = ""
+
+    @classmethod
+    def from_keys(cls, keys: Mapping[str, str], **kwargs: Any) -> "ApiAuthSettings":
+        """Settings accepting the given plaintext keys (source name -> key)."""
+        return cls(
+            key_digests={name: api_key_digest(key) for name, key in keys.items()},
+            **kwargs,
+        )
 
     @property
     def enforced(self) -> bool:
@@ -76,11 +97,11 @@ class ApiAuthSettings:
                 f"API authentication is disabled ({AUTH_DISABLED_ENV_VAR}=true): every "
                 "endpoint is open to anyone who can reach this server",
             )
-        if not self.keys:
+        if not self.key_digests:
             waiting = (
-                f" The default key file {self.key_file} is missing or empty; it is "
-                "picked up as soon as it appears."
-                if self.key_file
+                f" The default key hash file {self.hash_file} is missing or empty; it "
+                "is picked up as soon as it appears."
+                if self.hash_file
                 else ""
             )
             return (
@@ -93,43 +114,53 @@ class ApiAuthSettings:
         return (
             logging.INFO,
             "API key authentication enabled, accepting keys from: "
-            + ", ".join(self.keys),
+            + ", ".join(self.key_digests),
         )
 
 
-def _read_key_file(path: str) -> str:
-    """The key in *path*, or "" when the file is missing or unreadable.
+def _read_hash_file(path: str) -> Optional[bytes]:
+    """The digest in *path* (64 hex characters), or None.
 
     A missing file is normal: the chart mounts the Secret with optional: true,
     and the Secret appears once the bootstrap hook has created it.
     """
     try:
         with open(path) as f:
-            return f.read().strip()
+            content = f.read().strip().lower()
     except FileNotFoundError:
-        return ""
+        return None
     except OSError as e:
-        logging.warning("Cannot read the default API key file %s: %s", path, e)
-        return ""
+        logging.warning("Cannot read the default API key hash file %s: %s", path, e)
+        return None
+    if not content:
+        return None
+    if not _SHA256_HEX.fullmatch(content):
+        logging.warning(
+            "Ignoring the default API key hash file %s: it must hold the key's "
+            "SHA-256 as 64 hex characters (the Secret key token-sha256)",
+            path,
+        )
+        return None
+    return bytes.fromhex(content)
 
 
 def load_api_auth_settings(environ: Mapping[str, str] = os.environ) -> ApiAuthSettings:
-    """Read the authentication settings from the environment and the key file.
+    """Read the authentication settings from the environment and the hash file.
 
     Raises ValueError when HOLMES_AUTH_DISABLED is not "true" or "false", so a
     typo cannot silently open (or close) the API.
     """
-    keys = {}
+    digests = {}
     for name in API_KEY_ENV_VARS:
         value = environ.get(name, "").strip()
         if value:
-            keys[name] = value
+            digests[name] = api_key_digest(value)
 
-    key_file = environ.get(DEFAULT_API_KEY_FILE_ENV_VAR, "").strip()
-    if key_file:
-        value = _read_key_file(key_file)
-        if value:
-            keys[DEFAULT_API_KEY_FILE_ENV_VAR] = value
+    hash_file = environ.get(DEFAULT_API_KEY_SHA256_FILE_ENV_VAR, "").strip()
+    if hash_file:
+        digest = _read_hash_file(hash_file)
+        if digest:
+            digests[DEFAULT_API_KEY_SHA256_FILE_ENV_VAR] = digest
 
     raw_disabled = environ.get(AUTH_DISABLED_ENV_VAR, "").strip().lower()
     if raw_disabled not in ("", "true", "false"):
@@ -137,7 +168,7 @@ def load_api_auth_settings(environ: Mapping[str, str] = os.environ) -> ApiAuthSe
             f"{AUTH_DISABLED_ENV_VAR} must be 'true' or 'false', got {raw_disabled!r}"
         )
     return ApiAuthSettings(
-        keys=keys, disabled=raw_disabled == "true", key_file=key_file
+        key_digests=digests, disabled=raw_disabled == "true", hash_file=hash_file
     )
 
 
@@ -150,36 +181,37 @@ def _file_signature(path: str) -> Optional[Tuple[int, int, int]]:
 
 
 class ApiAuthSettingsLoader:
-    """The server's current ApiAuthSettings, refreshed when the key file changes.
+    """The server's current ApiAuthSettings, refreshed when the hash file changes.
 
     Kubelet updates a mounted Secret in place (an atomic symlink swap), so the
-    default key file can appear or change while the server runs: on a fresh
-    install where the pod started before the hook created the Secret, or after
-    the Secret is deleted and recreated to rotate the key. One stat() per
+    default key's hash file can appear or change while the server runs: on a
+    fresh install where the pod started before the hook created the Secret, or
+    after the Secret is deleted and recreated to rotate the key. One stat() per
     request detects that; the file is only read when its signature changes.
     """
 
     def __init__(self, environ: Mapping[str, str] = os.environ):
         self._environ = environ
-        self._key_file = environ.get(DEFAULT_API_KEY_FILE_ENV_VAR, "").strip()
+        self._hash_file = environ.get(DEFAULT_API_KEY_SHA256_FILE_ENV_VAR, "").strip()
         self._lock = threading.Lock()
-        self._signature = _file_signature(self._key_file) if self._key_file else None
+        self._signature = _file_signature(self._hash_file) if self._hash_file else None
         self._settings = load_api_auth_settings(environ)
 
     def get(self) -> ApiAuthSettings:
-        if not self._key_file:
+        if not self._hash_file:
             return self._settings
-        signature = _file_signature(self._key_file)
+        signature = _file_signature(self._hash_file)
         if signature != self._signature:
             with self._lock:
                 if signature != self._signature:
-                    had_key = DEFAULT_API_KEY_FILE_ENV_VAR in self._settings.keys
+                    name = DEFAULT_API_KEY_SHA256_FILE_ENV_VAR
+                    had_key = name in self._settings.key_digests
                     self._settings = load_api_auth_settings(self._environ)
                     self._signature = signature
-                    has_key = DEFAULT_API_KEY_FILE_ENV_VAR in self._settings.keys
+                    has_key = name in self._settings.key_digests
                     logging.info(
-                        "Default API key file %s changed: key %s",
-                        self._key_file,
+                        "Default API key hash file %s changed: key %s",
+                        self._hash_file,
                         "reloaded" if has_key else ("removed" if had_key else "still empty"),
                     )
         return self._settings
@@ -208,11 +240,11 @@ def is_valid_api_key(presented: str, settings: ApiAuthSettings) -> bool:
     """Constant-time check of a presented key against every configured key."""
     if not presented:
         return False
-    presented_bytes = presented.encode()
+    presented_digest = api_key_digest(presented)
     matched = False
     # No early return: the time taken does not reveal which key matched.
-    for key in settings.keys.values():
-        if hmac.compare_digest(presented_bytes, key.encode()):
+    for digest in settings.key_digests.values():
+        if hmac.compare_digest(presented_digest, digest):
             matched = True
     return matched
 
@@ -250,7 +282,7 @@ class ApiKeyAuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if not settings.keys:
+        if not settings.key_digests:
             reason = "no API key configured on the server"
         elif presented:
             reason = "invalid API key"

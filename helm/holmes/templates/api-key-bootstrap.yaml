@@ -45,7 +45,7 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   resourceNames: [{{ $secretName | quote }}]
-  verbs: ["get", "delete"]
+  verbs: ["get", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

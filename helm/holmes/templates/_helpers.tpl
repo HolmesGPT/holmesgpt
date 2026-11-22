@@ -31,13 +31,38 @@ in sync.
 {{- end -}}
 {{- end -}}
 
-{{- define "holmes.apiAuth.mountPath" -}}/etc/holmes/api-key{{- end -}}
-
 {{/*
-The Secret mounted as an optional file: a pod that starts before the hook
-created the Secret still starts, and kubelet fills the file in once it exists.
+The Secret holds the key ("token") and its SHA-256 ("token-sha256"). Each pod
+mounts only the item it needs, as an optional file: a pod that starts before
+the hook created the Secret still starts, and kubelet fills the file in once it
+exists.
+
+- The Holmes server only verifies keys, so it mounts only the hash: a tool
+  that reads files in the Holmes container (the bash toolset) finds nothing it
+  can authenticate with.
+- Callers (the operator; the Robusta runner does the same) mount only the key,
+  under /var/run/secrets/, which the remediation MCP's file reader refuses.
 */}}
-{{- define "holmes.apiAuth.volume" -}}
+{{- define "holmes.apiAuth.serverMountPath" -}}/etc/holmes/api-key{{- end -}}
+{{- define "holmes.apiAuth.clientMountPath" -}}/var/run/secrets/holmes-api-key{{- end -}}
+
+{{- define "holmes.apiAuth.serverVolume" -}}
+- name: holmes-api-key
+  secret:
+    secretName: {{ include "holmes.apiAuth.secretName" . }}
+    optional: true
+    items:
+      - key: token-sha256
+        path: token-sha256
+{{- end -}}
+
+{{- define "holmes.apiAuth.serverVolumeMount" -}}
+- name: holmes-api-key
+  mountPath: {{ include "holmes.apiAuth.serverMountPath" . }}
+  readOnly: true
+{{- end -}}
+
+{{- define "holmes.apiAuth.clientVolume" -}}
 - name: holmes-api-key
   secret:
     secretName: {{ include "holmes.apiAuth.secretName" . }}
@@ -47,9 +72,9 @@ created the Secret still starts, and kubelet fills the file in once it exists.
         path: token
 {{- end -}}
 
-{{- define "holmes.apiAuth.volumeMount" -}}
+{{- define "holmes.apiAuth.clientVolumeMount" -}}
 - name: holmes-api-key
-  mountPath: {{ include "holmes.apiAuth.mountPath" . }}
+  mountPath: {{ include "holmes.apiAuth.clientMountPath" . }}
   readOnly: true
 {{- end -}}
 

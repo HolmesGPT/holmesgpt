@@ -4,6 +4,7 @@ Most tests run against the real `server.app`, with the server's auth settings
 swapped per test, so a route added to server.py is covered automatically.
 """
 
+import hashlib
 import logging
 import os
 from typing import List, Tuple
@@ -47,8 +48,12 @@ def _settings(*, user: str = "", default: str = "", disabled: bool = False) -> A
     if user:
         keys["HOLMES_API_KEY"] = user
     if default:
-        keys["HOLMES_DEFAULT_API_KEY_FILE"] = default
-    return ApiAuthSettings(keys=keys, disabled=disabled)
+        keys["HOLMES_DEFAULT_API_KEY_SHA256_FILE"] = default
+    return ApiAuthSettings.from_keys(keys, disabled=disabled)
+
+
+def _sha256_hex(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 @pytest.fixture
@@ -266,29 +271,60 @@ def test_websocket_without_key_is_refused():
 # ---------------------------------------------------------------------------
 
 
-def test_settings_from_env_and_file(tmp_path):
-    key_file = tmp_path / "token"
-    key_file.write_text("  from-file \n")
+def test_settings_from_env_and_hash_file(tmp_path):
+    hash_file = tmp_path / "token-sha256"
+    hash_file.write_text(f"  {_sha256_hex('from-file').upper()} \n")
     settings = load_api_auth_settings(
         {
             "HOLMES_API_KEY": " user ",
             "HOLMES_DEFAULT_API_KEY": "inline-default",
-            "HOLMES_DEFAULT_API_KEY_FILE": str(key_file),
+            "HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file),
         }
     )
-    assert settings.keys == {
-        "HOLMES_API_KEY": "user",
-        "HOLMES_DEFAULT_API_KEY": "inline-default",
-        "HOLMES_DEFAULT_API_KEY_FILE": "from-file",
-    }
+    assert list(settings.key_digests) == [
+        "HOLMES_API_KEY",
+        "HOLMES_DEFAULT_API_KEY",
+        "HOLMES_DEFAULT_API_KEY_SHA256_FILE",
+    ]
+    for key in ("user", "inline-default", "from-file"):
+        assert is_valid_api_key(key, settings)
     assert settings.enforced
+
+
+def test_hash_file_key_is_not_accepted_as_its_own_hash(tmp_path):
+    """Holmes holds only the hash: presenting the hash file's content (what a
+    tool reading the Holmes container would find) must not authenticate."""
+    hash_file = tmp_path / "token-sha256"
+    hash_file.write_text(_sha256_hex(DEFAULT_KEY))
+    settings = load_api_auth_settings({"HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file)})
+    assert is_valid_api_key(DEFAULT_KEY, settings)
+    assert not is_valid_api_key(_sha256_hex(DEFAULT_KEY), settings)
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["not-a-hash", "chart-default-key-67890", "ab" * 31, "zz" * 32, "ab" * 33],
+)
+def test_malformed_hash_file_is_ignored(tmp_path, caplog, content):
+    """A plaintext key or a truncated hash in the hash file is not a key."""
+    hash_file = tmp_path / "token-sha256"
+    hash_file.write_text(content)
+    with caplog.at_level(logging.WARNING):
+        settings = load_api_auth_settings({"HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file)})
+    assert settings.key_digests == {}
+    assert not is_valid_api_key(content, settings)
+    assert "64 hex characters" in caplog.text
+    assert content not in caplog.text
 
 
 def test_whitespace_only_and_missing_keys_are_not_keys(tmp_path):
     settings = load_api_auth_settings(
-        {"HOLMES_API_KEY": "   ", "HOLMES_DEFAULT_API_KEY_FILE": str(tmp_path / "missing")}
+        {
+            "HOLMES_API_KEY": "   ",
+            "HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(tmp_path / "missing"),
+        }
     )
-    assert settings.keys == {}
+    assert settings.key_digests == {}
     assert settings.enforced
     assert not is_valid_api_key("", settings)
 
@@ -307,45 +343,46 @@ def test_auth_disabled_typo_fails_instead_of_guessing(value):
 def test_startup_messages():
     level, msg = _settings(user=USER_KEY, default=DEFAULT_KEY).startup_message()
     assert level == logging.INFO
-    assert "HOLMES_API_KEY, HOLMES_DEFAULT_API_KEY_FILE" in msg
+    assert "HOLMES_API_KEY, HOLMES_DEFAULT_API_KEY_SHA256_FILE" in msg
     assert USER_KEY not in msg and DEFAULT_KEY not in msg
 
     level, msg = _settings().startup_message()
     assert level == logging.WARNING and "answers 401" in msg
 
-    level, msg = ApiAuthSettings(key_file="/etc/holmes/api-key/token").startup_message()
-    assert "/etc/holmes/api-key/token is missing or empty" in msg
+    level, msg = ApiAuthSettings(hash_file="/etc/holmes/api-key/token-sha256").startup_message()
+    assert "/etc/holmes/api-key/token-sha256 is missing or empty" in msg
 
     level, msg = _settings(disabled=True).startup_message()
     assert level == logging.WARNING and "disabled" in msg
 
 
-def test_loader_picks_up_a_key_file_that_appears_and_changes(tmp_path):
+def test_loader_picks_up_a_hash_file_that_appears_and_changes(tmp_path):
     """Kubelet fills an optional Secret volume once the hook has created the
     Secret, and swaps it when the Secret is recreated: no restart needed."""
-    key_file = tmp_path / "token"
-    loader = ApiAuthSettingsLoader({"HOLMES_DEFAULT_API_KEY_FILE": str(key_file)})
-    assert loader.get().keys == {}
+    hash_file = tmp_path / "token-sha256"
+    loader = ApiAuthSettingsLoader({"HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file)})
+    assert loader.get().key_digests == {}
 
-    key_file.write_text("first")
-    assert loader.get().keys == {"HOLMES_DEFAULT_API_KEY_FILE": "first"}
+    hash_file.write_text(_sha256_hex("first"))
+    assert is_valid_api_key("first", loader.get())
 
     # Kubelet swaps a symlink; a rename gives the path a new inode the same way.
-    replacement = tmp_path / "token.new"
-    replacement.write_text("second-key")
-    os.replace(replacement, key_file)
-    assert loader.get().keys == {"HOLMES_DEFAULT_API_KEY_FILE": "second-key"}
+    replacement = tmp_path / "token-sha256.new"
+    replacement.write_text(_sha256_hex("second-key"))
+    os.replace(replacement, hash_file)
+    assert is_valid_api_key("second-key", loader.get())
+    assert not is_valid_api_key("first", loader.get())
 
-    key_file.unlink()
-    assert loader.get().keys == {}
+    hash_file.unlink()
+    assert loader.get().key_digests == {}
 
 
 def test_loader_keeps_user_key_while_the_file_changes(tmp_path):
-    key_file = tmp_path / "token"
+    hash_file = tmp_path / "token-sha256"
     loader = ApiAuthSettingsLoader(
-        {"HOLMES_API_KEY": "mine", "HOLMES_DEFAULT_API_KEY_FILE": str(key_file)}
+        {"HOLMES_API_KEY": "mine", "HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file)}
     )
-    key_file.write_text("chart")
+    hash_file.write_text(_sha256_hex("chart"))
     settings = loader.get()
     assert is_valid_api_key("mine", settings)
     assert is_valid_api_key("chart", settings)

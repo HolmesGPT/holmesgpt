@@ -1,8 +1,10 @@
 # Inlined into the api-key-bootstrap.yaml hook Job via .Files.Get.
-# Creates the Holmes default API key Secret once. Every reader mounts it as a
-# file and re-reads it, so this never restarts anything: a recreated Secret
-# reaches the running pods through kubelet.
-import json, os, secrets, subprocess, sys
+# Creates the Holmes default API key Secret once, with the key ("token") and
+# its SHA-256 ("token-sha256"): Holmes mounts only the hash, callers only the
+# key. Every reader mounts it as a file and re-reads it, so this never restarts
+# anything: a recreated or patched Secret reaches the running pods through
+# kubelet.
+import base64, hashlib, json, os, secrets, subprocess, sys
 
 NS, NAME = os.environ["NAMESPACE"], os.environ["SECRET_NAME"]
 
@@ -12,11 +14,24 @@ def kubectl(*args, stdin=None, ok_if=None):
         sys.exit(f"kubectl {args[0]} {args[1]} failed: {p.stderr.strip()}")
     return p
 
+def sha256_hex(key):
+    return hashlib.sha256(key.encode()).hexdigest()
+
 out = kubectl("get", "secret", NAME, "--ignore-not-found", "-o", "json").stdout
 secret = json.loads(out) if out.strip() else None
 if secret is not None:
-    if (secret.get("data") or {}).get("token"):
-        print(f"Secret {NAME} exists; keeping its key")
+    data = secret.get("data") or {}
+    key = base64.b64decode(data.get("token", "")).decode().strip()
+    if key:
+        want = sha256_hex(key)
+        have = base64.b64decode(data.get("token-sha256", "")).decode().strip()
+        if have == want:
+            print(f"Secret {NAME} exists; keeping its key")
+            sys.exit(0)
+        # Holmes verifies against the hash only: add (or repair) it, keeping the key.
+        patch = json.dumps({"stringData": {"token-sha256": want}})
+        kubectl("patch", "secret", NAME, "--type", "merge", "-p", patch)
+        print(f"Secret {NAME} exists; kept its key and set token-sha256")
         sys.exit(0)
     # A Secret without a key would leave every caller at 401: replace it.
     kubectl("delete", "secret", NAME, "--ignore-not-found")
@@ -26,11 +41,12 @@ if secret is not None:
 # Secret as part of the app and prune it, since it is not in the render.
 labels = json.loads(os.environ["SECRET_LABELS"])
 labels.update({"app.kubernetes.io/component": "api-auth", "app.kubernetes.io/part-of": "holmes"})
+key = secrets.token_urlsafe(36)
 manifest = json.dumps({
     "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
     "metadata": {"name": NAME, "namespace": NS, "labels": labels,
                  "annotations": json.loads(os.environ["SECRET_ANNOTATIONS"])},
-    "stringData": {"token": secrets.token_urlsafe(36)},
+    "stringData": {"token": key, "token-sha256": sha256_hex(key)},
 })
 created = kubectl("create", "-f", "-", stdin=manifest, ok_if="AlreadyExists").returncode == 0
 print(f"Created Secret {NAME} with a new key" if created else f"Secret {NAME} was created concurrently; keeping it")

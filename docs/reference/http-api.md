@@ -16,7 +16,7 @@ Holmes accepts either of two keys:
     kubectl get secret <release>-holmes-api-key -o jsonpath='{.data.token}' | base64 -d
     ```
 
-    Setting `HOLMES_API_KEY` does not replace the default key: both are accepted. See [`apiAuth` in the chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml) to rotate it, bring your own Secret, or turn it off.
+    The Holmes pod itself holds only the key's SHA-256, never the key. Setting `HOLMES_API_KEY` does not replace the default key: both are accepted. See [`apiAuth` in the chart values](https://github.com/HolmesGPT/holmesgpt/blob/master/helm/holmes/values.yaml) to rotate it, bring your own Secret, or turn it off.
 
 To serve the API without authentication (for example a local demo), set `HOLMES_AUTH_DISABLED=true`.
 
