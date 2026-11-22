@@ -144,7 +144,7 @@ Create the key as a secret in the namespace Holmes runs in:
 
 ```bash
 export HOLMES_API_KEY=$(openssl rand -base64 32)
-kubectl create secret generic holmes-secrets --from-literal=holmes-api-key="$HOLMES_API_KEY"
+kubectl create secret generic holmes-api-key --from-literal=api-key="$HOLMES_API_KEY"
 ```
 
 Add this to `values.yaml` and run `helm upgrade holmes robusta/holmes -f values.yaml`:
@@ -156,8 +156,8 @@ additionalEnvVars:
 - name: HOLMES_API_KEY
   valueFrom:
     secretKeyRef:
-      name: holmes-secrets
-      key: holmes-api-key
+      name: holmes-api-key
+      key: api-key
 ```
 
 Then test the service with a simple API call, from the shell where `HOLMES_API_KEY` is set:

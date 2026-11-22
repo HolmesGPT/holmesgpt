@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from holmes.common import env_vars
 from holmes.core.models import OAuthCallbackResponse
 from holmes.core.tool_calling_llm import LLMResult
-from holmes.utils.auth import OPT_IN_API_FLAGS, disabled_api_flag
+from holmes.utils.auth import OPT_IN_API_FLAGS, disabled_api_flag, require_api_enabled
 from server import app, log_opt_in_apis
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -154,10 +154,14 @@ ALWAYS_OPEN = {
 }
 
 
+def _scope(path, root_path=""):
+    return {"path": path, "root_path": root_path}
+
+
 def test_every_route_is_either_opt_in_or_deliberately_open(all_disabled):
     paths = {r.path for r in app.routes if not r.path.startswith("/__test")}
 
-    ungated = {p for p in paths if disabled_api_flag(p) is None}
+    ungated = {p for p in paths if disabled_api_flag(_scope(p)) is None}
     assert ungated == ALWAYS_OPEN
 
 
@@ -165,7 +169,40 @@ def test_every_route_is_either_opt_in_or_deliberately_open(all_disabled):
     "path", ["/api/chatx", "/api/chat-other", "/api/information", "/api", "/"]
 )
 def test_a_path_that_only_shares_a_prefix_is_not_gated(all_disabled, path):
-    assert disabled_api_flag(path) is None
+    assert disabled_api_flag(_scope(path)) is None
+
+
+@pytest.mark.parametrize("flag, method, path, body", GATED)
+def test_disabled_api_stays_closed_behind_a_root_path(
+    all_disabled, handlers, flag, method, path, body
+):
+    """A proxy prefix reaches the app as root_path, which the router strips."""
+    prefixed = TestClient(app, root_path="/holmes")
+
+    response = _call(prefixed, method, "/holmes" + path, body)
+
+    assert response.status_code == 404
+    assert flag in response.json()["detail"]
+    for mock in handlers.values():
+        mock.assert_not_called()
+
+
+@pytest.mark.parametrize("flag, method, path, body", GATED)
+def test_route_itself_refuses_when_the_path_gate_is_passed(
+    client, all_disabled, handlers, flag, method, path, body
+):
+    with patch("server.disabled_api_flag", return_value=None):
+        response = _call(client, method, path, body)
+
+    assert response.status_code == 404
+    assert flag in response.json()["detail"]
+    for mock in handlers.values():
+        mock.assert_not_called()
+
+
+def test_unknown_flag_is_rejected():
+    with pytest.raises(ValueError):
+        require_api_enabled("ENABLE_TYPO_API")
 
 
 @pytest.mark.parametrize(
@@ -215,7 +252,7 @@ def test_flag_is_read_from_the_environment(value, expected):
     assert flags["ENABLE_CHECKS_API"] is False
 
 
-@pytest.mark.parametrize("value", ["yes", "", "enabled"])
+@pytest.mark.parametrize("value", ["yes", "", "enabled", "1", "0", '"false"', '"true"', "null", "[]"])
 def test_invalid_flag_value_fails_startup_instead_of_guessing(value):
     assert _flags_in_fresh_process({"ENABLE_CHAT_API": value}).returncode != 0
 

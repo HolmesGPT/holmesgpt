@@ -224,10 +224,18 @@ HOLMES_TOOL_RESULT_STORAGE_PATH = os.environ.get(
 
 # HTTP APIs that run the agent or expose its setup are opt-in: they are not
 # needed when Holmes is driven through the Robusta platform.
-ENABLE_CHAT_API = load_bool("ENABLE_CHAT_API", False)
-ENABLE_CHECKS_API = load_bool("ENABLE_CHECKS_API", False)
-ENABLE_OAUTH_API = load_bool("ENABLE_OAUTH_API", False)
-ENABLE_INFO_API = load_bool("ENABLE_INFO_API", False)
+def load_opt_in_flag(env_var: str) -> bool:
+    # load_bool accepts any JSON value, and a truthy one such as "false" would open the API.
+    value = load_bool(env_var, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"{env_var} must be true or false, got {os.environ[env_var]!r}")
+    return value
+
+
+ENABLE_CHAT_API = load_opt_in_flag("ENABLE_CHAT_API")
+ENABLE_CHECKS_API = load_opt_in_flag("ENABLE_CHECKS_API")
+ENABLE_OAUTH_API = load_opt_in_flag("ENABLE_OAUTH_API")
+ENABLE_INFO_API = load_opt_in_flag("ENABLE_INFO_API")
 
 # Conversation Worker (M2)
 ENABLE_CONVERSATION_WORKER = load_bool("ENABLE_CONVERSATION_WORKER", True)
