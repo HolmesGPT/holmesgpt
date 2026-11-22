@@ -88,10 +88,6 @@ Base URL for the Holmes API service that executes health checks.
 
 - Default: `http://<release-name>-holmes:80` (internal service)
 - Use custom URL for external Holmes API or non-standard deployments
-
-**Authentication**
-
-The Holmes API requires an API key. The operator sends the chart's generated default key (see `apiAuth` in the chart values), so no setup is needed when the operator and Holmes come from the same release. For a Holmes API in another release, give the operator that server's key with `operator.additionalEnvVars` (`HOLMES_API_KEY`).
 - Must be accessible from the operator pod
 
 Example:
@@ -99,6 +95,10 @@ Example:
 ```yaml
 holmesApiUrl: "http://holmes-api.monitoring:80"
 ```
+
+**Authentication**
+
+The Holmes API requires an API key. The operator sends the chart's generated default key (see `apiAuth` in the chart values), so no setup is needed when the operator and Holmes come from the same release. For a Holmes API in another release, or with `apiAuth.defaultKey: false`, give the operator a key Holmes accepts with `operator.additionalEnvVars` (`HOLMES_API_KEY`).
 
 **holmesApiTimeout** (integer)
 

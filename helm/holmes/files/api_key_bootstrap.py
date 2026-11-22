@@ -2,7 +2,7 @@
 # Creates the Holmes default API key Secret once, with the key ("token") and
 # its SHA-256 ("token-sha256"): Holmes mounts only the hash, callers only the
 # key. Every reader mounts it as a file and re-reads it, so this never restarts
-# anything: a recreated or patched Secret reaches the running pods through
+# anything: a created or patched Secret reaches the running pods through
 # kubelet.
 import base64, hashlib, json, os, secrets, subprocess, sys
 
@@ -17,25 +17,34 @@ def kubectl(*args, stdin=None, ok_if=None):
 def sha256_hex(key):
     return hashlib.sha256(key.encode()).hexdigest()
 
+def patch(secret, string_data):
+    # resourceVersion makes the patch conditional: if another run changed the
+    # Secret since it was read, the API server answers Conflict and this run
+    # fails (the Job retries) instead of overwriting the other run's key.
+    body = {"metadata": {"resourceVersion": secret["metadata"]["resourceVersion"]},
+            "stringData": string_data}
+    kubectl("patch", "secret", NAME, "--type", "merge", "-p", json.dumps(body))
+
 out = kubectl("get", "secret", NAME, "--ignore-not-found", "-o", "json").stdout
 secret = json.loads(out) if out.strip() else None
 if secret is not None:
     data = secret.get("data") or {}
-    key = base64.b64decode(data.get("token", "")).decode().strip()
+    # Compared as bytes: a stored value that is not valid text cannot crash the hook.
+    key = base64.b64decode(data.get("token", "")).strip()
     if key:
-        want = sha256_hex(key)
-        have = base64.b64decode(data.get("token-sha256", "")).decode().strip()
-        if have == want:
+        want = hashlib.sha256(key).hexdigest().encode()
+        if base64.b64decode(data.get("token-sha256", "")).strip() == want:
             print(f"Secret {NAME} exists; keeping its key")
             sys.exit(0)
         # Holmes verifies against the hash only: add (or repair) it, keeping the key.
-        patch = json.dumps({"stringData": {"token-sha256": want}})
-        kubectl("patch", "secret", NAME, "--type", "merge", "-p", patch)
+        patch(secret, {"token-sha256": want.decode()})
         print(f"Secret {NAME} exists; kept its key and set token-sha256")
         sys.exit(0)
-    # A Secret without a key would leave every caller at 401: replace it.
-    kubectl("delete", "secret", NAME, "--ignore-not-found")
-    print(f"Secret {NAME} has no key; replacing it")
+    # A Secret without a key would leave every caller at 401: give it one.
+    new_key = secrets.token_urlsafe(36)
+    patch(secret, {"token": new_key, "token-sha256": sha256_hex(new_key)})
+    print(f"Secret {NAME} had no key; set a new key")
+    sys.exit(0)
 
 # No app.kubernetes.io/instance label: ArgoCD label tracking would treat the
 # Secret as part of the app and prune it, since it is not in the render.

@@ -152,7 +152,7 @@ export LLM_RATE_LIMIT_MAX_WAIT_SECONDS=180
 ### HOLMES_API_KEY
 **Default:** not set
 
-An API key for your own clients. The server requires an API key on every endpoint except the health checks (`/healthz`, `/readyz`); with no key configured at all, those endpoints answer `401`. Requests send the key via either:
+An API key for your own clients. The server requires an API key on every endpoint except the health checks (`/healthz`, `/readyz`), which stay open. With no key configured at all, every other endpoint answers `401`. Requests send the key via either:
 
 - `X-API-Key: <key>` header, or
 - `Authorization: Bearer <key>` header
@@ -183,7 +183,13 @@ docker run -d \
 ### HOLMES_DEFAULT_API_KEY_SHA256_FILE
 **Default:** set by the Helm chart to `/etc/holmes/api-key/token-sha256`
 
-A file holding the SHA-256 (64 hex characters) of a second accepted API key. The Helm chart generates this key once into the Secret `<release>-holmes-api-key`, with the key under `token` and its hash under `token-sha256`. Holmes mounts only the hash, so tools that read files in the Holmes container cannot find the key. The Holmes operator and the Robusta runner mount the key and send it, so they authenticate with no setup. Holmes re-reads the file when it changes, so a rotated Secret takes effect without a restart. `HOLMES_DEFAULT_API_KEY` sets a default key inline.
+A file holding the SHA-256 (64 hex characters) of a second accepted API key. The Helm chart generates this key once into the Secret `<release>-holmes-api-key`, with the key under `token` and its hash under `token-sha256`. Holmes mounts only the hash, so tools that read files in the Holmes container cannot find the key. The Holmes operator and the Robusta runner mount the key and send it, so they authenticate with no setup. Holmes re-reads the file when it changes, so a rotated Secret takes effect without a restart.
+
+With `apiAuth.existingSecret`, the chart uses that Secret instead of generating one; it must hold both `token` and `token-sha256`.
+
+The Robusta runner gets the key automatically only when Holmes is installed by the same Robusta release. If the runner talks to a Holmes installed separately, set `HOLMES_API_KEY` on the runner (`runner.additional_env_vars`) to a key that Holmes accepts; otherwise its calls to Holmes get `401`.
+
+`HOLMES_DEFAULT_API_KEY` sets a default key inline. Every configured key is accepted on its own: setting one does not revoke another.
 
 ### HOLMES_AUTH_DISABLED
 **Default:** `false`

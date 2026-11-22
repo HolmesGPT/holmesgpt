@@ -45,7 +45,7 @@ rules:
 - apiGroups: [""]
   resources: ["secrets"]
   resourceNames: [{{ $secretName | quote }}]
-  verbs: ["get", "patch", "delete"]
+  verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -75,13 +75,23 @@ spec:
         app.kubernetes.io/component: api-auth-bootstrap
         app.kubernetes.io/part-of: holmes
         {{- include "holmes.commonLabels" . | nindent 8 }}
-      {{- with (include "holmes.commonAnnotations" .) }}
+      {{- /* The Holmes pod's annotations, so policies keyed on them admit this
+      pod too, but never a mesh sidecar: an injected proxy keeps the pod
+      running after the script exits, the Job never completes and the
+      upgrade fails. */}}
+      {{- $podAnnotations := merge (dict "sidecar.istio.io/inject" "false" "linkerd.io/inject" "disabled") (include "holmes.commonAnnotations" . | fromYaml | default dict) (.Values.podAnnotations | default dict) }}
       annotations:
-        {{- . | nindent 8 }}
-      {{- end }}
+        {{- toYaml $podAnnotations | nindent 8 }}
     spec:
       serviceAccountName: {{ $name }}
       restartPolicy: Never
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- /* Admitted wherever the Holmes pod is: the same podSecurityContext,
+      plus a RuntimeDefault seccomp profile (Pod Security "restricted"). */}}
+      securityContext:
+        {{- toYaml (merge (deepCopy (.Values.podSecurityContext | default dict)) (dict "seccompProfile" (dict "type" "RuntimeDefault"))) | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -123,15 +133,24 @@ spec:
             cpu: 10m
             memory: 64Mi
           limits:
+            cpu: 100m
             memory: 256Mi
+        {{- /* The Holmes container's securityContext over hardened defaults. The
+        image runs as root, so a non-root UID is set unless the user set one or
+        the platform assigns it: OpenShift's restricted SCC rejects a fixed UID
+        outside the namespace's range, so none is set there. */}}
+        {{- $containerSecurityContext := dict "allowPrivilegeEscalation" false "capabilities" (dict "drop" (list "ALL")) }}
+        {{- $userPod := .Values.podSecurityContext | default dict }}
+        {{- $userContainer := .Values.containerSecurityContext | default dict }}
+        {{- $openshift := or .Values.openshift (.Capabilities.APIVersions.Has "security.openshift.io/v1") }}
+        {{- if not (or $openshift (hasKey $userPod "runAsUser") (hasKey $userContainer "runAsUser")) }}
+        {{- $_ := set $containerSecurityContext "runAsNonRoot" true }}
+        {{- $_ := set $containerSecurityContext "runAsUser" 1000 }}
+        {{- end }}
+        {{- $containerSecurityContext = merge (deepCopy $userContainer) $containerSecurityContext }}
+        {{- $_ := set $containerSecurityContext "readOnlyRootFilesystem" true }}
         securityContext:
-          readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          runAsUser: 1000
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml $containerSecurityContext | nindent 10 }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp

@@ -222,8 +222,8 @@ def test_rejections_are_logged_without_the_key(client_with, caplog):
         client.get("/api/model", headers={"X-API-Key": "a-wrong-key-value"})
         client.get("/api/info")
     text = caplog.text
-    assert "Unauthorized request: GET /api/model (invalid API key)" in text
-    assert "Unauthorized request: GET /api/info (missing API key)" in text
+    assert "Unauthorized request: GET '/api/model' (invalid API key)" in text
+    assert "Unauthorized request: GET '/api/info' (missing API key)" in text
     assert "a-wrong-key-value" not in text and USER_KEY not in text
 
 
@@ -350,7 +350,7 @@ def test_startup_messages():
     assert level == logging.WARNING and "answers 401" in msg
 
     level, msg = ApiAuthSettings(hash_file="/etc/holmes/api-key/token-sha256").startup_message()
-    assert "/etc/holmes/api-key/token-sha256 is missing or empty" in msg
+    assert "/etc/holmes/api-key/token-sha256 (Secret key token-sha256) is missing or empty" in msg
 
     level, msg = _settings(disabled=True).startup_message()
     assert level == logging.WARNING and "disabled" in msg
@@ -386,3 +386,81 @@ def test_loader_keeps_user_key_while_the_file_changes(tmp_path):
     settings = loader.get()
     assert is_valid_api_key("mine", settings)
     assert is_valid_api_key("chart", settings)
+
+
+# ---------------------------------------------------------------------------
+# The key stays out of the app
+# ---------------------------------------------------------------------------
+
+
+def _echo_headers_app() -> FastAPI:
+    app = FastAPI()
+    app.add_middleware(ApiKeyAuthMiddleware, get_settings=lambda: _settings(user=USER_KEY))
+
+    @app.get("/echo")
+    async def echo(request: Request):
+        return {"headers": {k.lower(): v for k, v in request.headers.items()}}
+
+    return app
+
+
+@pytest.mark.parametrize(
+    "headers,removed,kept",
+    [
+        ({"X-API-Key": USER_KEY}, "x-api-key", None),
+        ({"Authorization": f"Bearer {USER_KEY}"}, "authorization", None),
+        # A user token in Authorization (e.g. for header passthrough) is not
+        # the Holmes key and stays when the key came in X-API-Key.
+        ({"X-API-Key": USER_KEY, "Authorization": "Bearer user-token"}, "x-api-key", "authorization"),
+    ],
+)
+def test_the_header_carrying_the_key_is_removed_after_authentication(headers, removed, kept):
+    """Holmes passes request headers through to toolsets, and Sentry records
+    request headers and every frame's scope: neither must see the key."""
+    seen = TestClient(_echo_headers_app()).get("/echo", headers={**headers, "X-Other": "1"}).json()["headers"]
+    assert removed not in seen
+    assert USER_KEY not in str(seen)
+    assert seen["x-other"] == "1"
+    if kept:
+        assert seen[kept] == headers["Authorization"]
+
+
+def test_auth_is_the_outermost_middleware_of_the_server():
+    """Middleware added later would run before auth and see unauthenticated requests."""
+    assert server.app.user_middleware[0].cls is ApiKeyAuthMiddleware
+
+
+def test_rejected_paths_are_logged_on_one_line(client_with, caplog):
+    client = client_with(_settings(user=USER_KEY))
+    with caplog.at_level(logging.WARNING):
+        client.get("/api/x%0aFAKE LOG LINE")
+    assert "Unauthorized request: GET '/api/x\\nFAKE LOG LINE'" in caplog.text
+
+
+def test_hash_file_with_invalid_bytes_is_ignored_not_fatal(tmp_path, caplog):
+    """A non-text hash file must not stop the server (a valid HOLMES_API_KEY still works)."""
+    hash_file = tmp_path / "token-sha256"
+    hash_file.write_bytes(b"\xff\xfe" + b"a" * 62)
+    with caplog.at_level(logging.WARNING):
+        settings = load_api_auth_settings(
+            {"HOLMES_API_KEY": USER_KEY, "HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file)}
+        )
+    assert list(settings.key_digests) == ["HOLMES_API_KEY"]
+    assert "64 hex characters" in caplog.text
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads files regardless of mode")
+def test_loader_retries_a_hash_file_it_could_not_read(tmp_path):
+    """A read failure is not cached: once the file is readable again, with the
+    same inode, size and mtime, the next request picks the key up."""
+    hash_file = tmp_path / "token-sha256"
+    hash_file.write_text(_sha256_hex("chart"))
+    stat_before = hash_file.stat()
+    hash_file.chmod(0)
+    try:
+        loader = ApiAuthSettingsLoader({"HOLMES_DEFAULT_API_KEY_SHA256_FILE": str(hash_file)})
+        assert not is_valid_api_key("chart", loader.get())
+    finally:
+        hash_file.chmod(0o600)
+    os.utime(hash_file, ns=(stat_before.st_atime_ns, stat_before.st_mtime_ns))
+    assert is_valid_api_key("chart", loader.get())

@@ -7,6 +7,7 @@ that starts before the Secret exists still starts. The hook's inline Python
 program is also run here against a stub `kubectl`.
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -200,7 +201,7 @@ def test_bootstrap_role_is_least_privilege():
             "apiGroups": [""],
             "resources": ["secrets"],
             "resourceNames": [SECRET_NAME],
-            "verbs": ["get", "patch", "delete"],
+            "verbs": ["get", "patch"],
         },
     ]
 
@@ -227,6 +228,68 @@ def test_bootstrap_job_spec():
     assert spec["nodeSelector"] == {"pool": "system"}
     assert c["securityContext"]["readOnlyRootFilesystem"] is True
     assert c["securityContext"]["runAsNonRoot"] is True
+    assert c["securityContext"]["runAsUser"] == 1000
+    assert c["securityContext"]["allowPrivilegeEscalation"] is False
+    assert c["resources"]["limits"]["cpu"]
+    # Pod Security "restricted" requires a seccomp profile.
+    assert spec["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
+    # A mesh sidecar would keep the pod running and the hook would never finish.
+    annotations = job["spec"]["template"]["metadata"]["annotations"]
+    assert annotations["sidecar.istio.io/inject"] == "false"
+    assert annotations["linkerd.io/inject"] == "disabled"
+
+
+def render_job(*sets: str, api_versions: Optional[str] = None) -> dict:
+    cmd = ["helm", "template", RELEASE, str(HELM_DIR), "-n", NAMESPACE]
+    for v in sets:
+        cmd += ["--set", v]
+    if api_versions:
+        cmd += ["--api-versions", api_versions]
+    docs = [d for d in yaml.safe_load_all(subprocess.check_output(cmd, text=True)) if d]
+    return find(docs, "Job", BOOTSTRAP_NAME)
+
+
+@pytest.mark.parametrize(
+    "sets,api_versions",
+    [(("openshift=true",), None), ((), "security.openshift.io/v1")],
+)
+def test_bootstrap_sets_no_fixed_uid_on_openshift(sets, api_versions):
+    """OpenShift's restricted SCC rejects a fixed UID outside the namespace's
+    range, which would fail the hook and with it every install and upgrade."""
+    c = render_job(*sets, api_versions=api_versions)["spec"]["template"]["spec"]["containers"][0]
+    assert "runAsUser" not in c["securityContext"]
+    assert "runAsNonRoot" not in c["securityContext"]
+    assert c["securityContext"]["readOnlyRootFilesystem"] is True
+
+
+def test_bootstrap_pod_follows_the_holmes_pod_settings():
+    """Admitted wherever the Holmes pod is: same podSecurityContext,
+    containerSecurityContext, podAnnotations and priorityClassName; the
+    sidecar opt-out and the read-only root filesystem cannot be overridden."""
+    job = render_job(
+        "podSecurityContext.runAsUser=2000",
+        "podSecurityContext.runAsNonRoot=true",
+        "containerSecurityContext.readOnlyRootFilesystem=false",
+        "containerSecurityContext.runAsGroup=3000",
+        "podAnnotations.sidecar\\.istio\\.io/inject=true",
+        "podAnnotations.team=sre",
+        "priorityClassName=high",
+    )
+    tpl = job["spec"]["template"]
+    spec = tpl["spec"]
+    c = spec["containers"][0]
+    assert spec["securityContext"] == {
+        "runAsUser": 2000,
+        "runAsNonRoot": True,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
+    # The user's UID is used: no container-level UID overrides it.
+    assert "runAsUser" not in c["securityContext"]
+    assert c["securityContext"]["runAsGroup"] == 3000
+    assert c["securityContext"]["readOnlyRootFilesystem"] is True
+    assert spec["priorityClassName"] == "high"
+    assert tpl["metadata"]["annotations"]["team"] == "sre"
+    assert tpl["metadata"]["annotations"]["sidecar.istio.io/inject"] == "false"
 
 
 def test_bootstrap_names_fit_kubernetes_limits_for_long_release_names():
@@ -293,17 +356,21 @@ FAKE_KUBECTL = textwrap.dedent(
         s = state["secrets"].get(args[2])
         if s is None:
             done()
-        data = {{k: base64.b64encode(v.encode()).decode() for k, v in s.items()}}
-        done(json.dumps({{"metadata": {{"name": args[2]}}, "data": data}}))
+        data = {{k: v[4:] if v.startswith("b64:") else base64.b64encode(v.encode()).decode() for k, v in s.items()}}
+        rv = state.setdefault("rv", {{}}).setdefault(args[2], "1")
+        if state.get("change_after_get"):
+            # Another run changes the Secret between this run's get and its write.
+            state["rv"][args[2]] = str(int(rv) + 1)
+        done(json.dumps({{"metadata": {{"name": args[2], "resourceVersion": rv}}, "data": data}}))
     if verb == "patch" and kind == "secret":
         fail("patch_error")
         body = json.loads(args[args.index("-p") + 1])
+        current = state.setdefault("rv", {{}}).setdefault(args[2], "1")
+        if body["metadata"]["resourceVersion"] != current:
+            done(err="Error from server (Conflict): the object has been modified", code=1)
         state["secrets"][args[2]].update(body["stringData"])
+        state["rv"][args[2]] = str(int(current) + 1)
         done("secret/" + args[2] + " patched")
-    if verb == "delete" and kind == "secret":
-        fail("delete_error")
-        state["secrets"].pop(args[2], None)
-        done("secret " + args[2] + " deleted")
     if verb == "create":
         manifest = json.loads(sys.stdin.read())
         state["created"].append(manifest)
@@ -348,7 +415,7 @@ def run_bootstrap(job: dict, tmp_path: Path, **state) -> tuple:
 
 
 def mutations(result: dict) -> List[str]:
-    return [c[0] for c in result["calls"] if c[0] in ("create", "delete", "patch")]
+    return [c[0] for c in result["calls"] if c[0] in ("create", "delete", "patch", "replace")]
 
 
 def sha256_hex(key: str) -> str:
@@ -405,12 +472,36 @@ def test_script_generates_a_new_key_each_time(bootstrap_job, tmp_path):
     assert first["secrets"][SECRET_NAME]["token"] != second["secrets"][SECRET_NAME]["token"]
 
 
-def test_script_replaces_a_secret_without_a_key(bootstrap_job, tmp_path):
-    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: {}})
+@pytest.mark.parametrize("secret", [{}, {"token": "  \n"}])
+def test_script_gives_a_keyless_secret_a_key_in_one_conditional_patch(bootstrap_job, tmp_path, secret):
+    """No delete-then-create: a failed create could not leave the Secret gone."""
+    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: secret})
     assert proc.returncode == 0, proc.stderr
-    assert mutations(result) == ["delete", "create"]
+    assert mutations(result) == ["patch"]
     new = result["secrets"][SECRET_NAME]
     assert new == complete(new["token"])
+    assert new["token"].strip()
+
+
+@pytest.mark.parametrize("secret", [{}, {"token": "existing-key-7f3a"}])
+def test_script_does_not_overwrite_a_secret_changed_since_it_was_read(bootstrap_job, tmp_path, secret):
+    """The patch carries the resourceVersion that was read: if another run
+    changed the Secret in between, the write is refused (the Job retries)."""
+    proc, result = run_bootstrap(
+        bootstrap_job, tmp_path, secrets={SECRET_NAME: dict(secret)}, change_after_get=True
+    )
+    assert proc.returncode != 0
+    assert "Conflict" in proc.stderr
+    assert result["secrets"][SECRET_NAME] == secret
+
+
+def test_script_repairs_a_hash_that_is_not_text(bootstrap_job, tmp_path):
+    """Invalid bytes in token-sha256 are repaired, not a crash on every retry."""
+    secret = {"token": "existing-key-7f3a", "token-sha256": "b64:" + base64.b64encode(b"\xff\xfe").decode()}
+    proc, result = run_bootstrap(bootstrap_job, tmp_path, secrets={SECRET_NAME: secret})
+    assert proc.returncode == 0, proc.stderr
+    assert mutations(result) == ["patch"]
+    assert result["secrets"][SECRET_NAME] == complete("existing-key-7f3a")
 
 
 def test_script_tolerates_a_concurrent_create(bootstrap_job, tmp_path):
@@ -425,13 +516,10 @@ def test_script_tolerates_a_concurrent_create(bootstrap_job, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "error_key", ["get_secret_error", "create_error", "delete_error", "patch_error"]
+    "error_key", ["get_secret_error", "create_error", "patch_error"]
 )
 def test_script_fails_loudly_on_api_errors(bootstrap_job, tmp_path, error_key):
-    secrets_state = {
-        "delete_error": {SECRET_NAME: {}},
-        "patch_error": {SECRET_NAME: {"token": "kept"}},
-    }.get(error_key, {})
+    secrets_state = {"patch_error": {SECRET_NAME: {"token": "kept"}}}.get(error_key, {})
     proc, _ = run_bootstrap(
         bootstrap_job,
         tmp_path,
