@@ -199,7 +199,7 @@ networkPolicy:
 
 Cilium does not match node addresses against `ipBlock`. For a hostNetwork client on Cilium, use a CiliumNetworkPolicy or set `networkPolicy.enabled: false`.
 
-With Istio ambient mode, meshed traffic reaches the pod on port 15008 instead of 5050, so set `networkPolicy.enabled: false` and restrict access with a mesh AuthorizationPolicy.
+The policy also opens port 15008 to the same callers, because Istio ambient mode delivers meshed traffic on that port.
 
 ### Resource Configuration
 

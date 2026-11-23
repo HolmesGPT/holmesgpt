@@ -11,6 +11,8 @@ import yaml
 
 HELM_DIR = Path(__file__).resolve().parents[1] / "helm" / "holmes"
 POLICY_NAME = "test-release-holmes-network-policy"
+# Istio ambient mode delivers meshed traffic to the pod on this port.
+ISTIO_AMBIENT_PORT = 15008
 
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm binary not available")
 
@@ -53,7 +55,10 @@ def test_default_policy_selects_the_holmes_pod_on_its_api_port():
     assert len(policy["spec"]["ingress"]) == 1
     holmes = next(c for c in pod["spec"]["containers"] if c["name"] == "holmes")
     container_port = next(p["containerPort"] for p in holmes["ports"] if p["name"] == "http")
-    assert policy["spec"]["ingress"][0]["ports"] == [{"protocol": "TCP", "port": container_port}]
+    assert policy["spec"]["ingress"][0]["ports"] == [
+        {"protocol": "TCP", "port": container_port},
+        {"protocol": "TCP", "port": ISTIO_AMBIENT_PORT},
+    ]
 
 
 def test_policy_does_not_restrict_egress():
@@ -93,7 +98,7 @@ def test_additional_ingress_rules_join_the_same_port_limited_rule():
     assert len(ingress) == 1
     assert ingress[0]["from"][-2:] == extra
     assert len(ingress[0]["from"]) == 4
-    assert ingress[0]["ports"] == [{"protocol": "TCP", "port": 5050}]
+    assert [p["port"] for p in ingress[0]["ports"]] == [5050, ISTIO_AMBIENT_PORT]
 
 
 def test_disabled_renders_no_policy():
