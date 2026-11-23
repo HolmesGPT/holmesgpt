@@ -47,8 +47,15 @@ def render_chart(extra_args: List[str]) -> List[dict]:
     return [doc for doc in yaml.safe_load_all(output) if doc]
 
 
-def binds_service_account(binding: dict, sa_name: str) -> bool:
-    return any(s["kind"] == "ServiceAccount" and s["name"] == sa_name for s in binding.get("subjects") or [])
+def binds_service_account(binding: dict, sa_name: str, namespace: str) -> bool:
+    # A ServiceAccount is also its own User and a member of these two groups.
+    matches = {
+        ("ServiceAccount", sa_name),
+        ("User", f"system:serviceaccount:{namespace}:{sa_name}"),
+        ("Group", "system:serviceaccounts"),
+        ("Group", f"system:serviceaccounts:{namespace}"),
+    }
+    return any((s["kind"], s["name"]) in matches for s in binding.get("subjects") or [])
 
 
 @pytest.mark.parametrize("extra_args", [[], ["--set", "openshift=true"]], ids=["default", "openshift"])
@@ -56,10 +63,14 @@ def test_holmes_service_account_is_read_only(extra_args):
     docs = render_chart(extra_args)
     deployment = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == f"{RELEASE}-holmes")
     holmes_sa = deployment["spec"]["template"]["spec"]["serviceAccountName"]
+    sa_doc = next(d for d in docs if d["kind"] == "ServiceAccount" and d["metadata"]["name"] == holmes_sa)
+    namespace = sa_doc["metadata"]["namespace"]
 
     # Every binding in the chart that applies to Holmes, of either kind.
     bindings = [
-        d for d in docs if d["kind"] in ("ClusterRoleBinding", "RoleBinding") and binds_service_account(d, holmes_sa)
+        d
+        for d in docs
+        if d["kind"] in ("ClusterRoleBinding", "RoleBinding") and binds_service_account(d, holmes_sa, namespace)
     ]
     assert bindings, f"expected the chart to bind {holmes_sa}"
     for binding in bindings:
