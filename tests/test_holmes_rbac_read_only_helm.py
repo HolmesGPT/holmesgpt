@@ -48,12 +48,13 @@ def render_chart(extra_args: List[str]) -> List[dict]:
 
 
 def binds_service_account(binding: dict, sa_name: str, namespace: str) -> bool:
-    # A ServiceAccount is also its own User and a member of these two groups.
+    # Every identity a ServiceAccount token authenticates as: its User and its groups.
     matches = {
         ("ServiceAccount", sa_name),
         ("User", f"system:serviceaccount:{namespace}:{sa_name}"),
         ("Group", "system:serviceaccounts"),
         ("Group", f"system:serviceaccounts:{namespace}"),
+        ("Group", "system:authenticated"),
     }
     return any((s["kind"], s["name"]) in matches for s in binding.get("subjects") or [])
 
