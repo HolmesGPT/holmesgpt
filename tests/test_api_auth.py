@@ -27,6 +27,7 @@ from holmes.utils.auth import (
     ApiAuthSettings,
     ApiAuthSettingsLoader,
     ApiKeyAuthMiddleware,
+    _authenticate_and_strip_key,
     is_valid_api_key,
     load_api_auth_settings,
 )
@@ -429,6 +430,19 @@ def test_headers_carrying_a_key_are_removed_after_authentication(headers, remove
     assert seen["x-other"] == "1"
     if kept:
         assert seen[kept] == headers["Authorization"]
+
+
+def test_repeated_authorization_headers_are_judged_one_by_one():
+    """A Holmes key in one Authorization line and an unrelated credential in
+    another: only the Holmes key's line is removed."""
+    raw = [
+        (b"x-api-key", USER_KEY.encode()),
+        (b"authorization", f"Bearer {USER_KEY}".encode()),
+        (b"authorization", b"Bearer user-token"),
+    ]
+    scope = {"type": "http", "path": "/x", "headers": list(raw)}
+    assert _authenticate_and_strip_key(scope, _settings(user=USER_KEY)) is None
+    assert scope["headers"] == [(b"authorization", b"Bearer user-token")]
 
 
 def test_auth_is_the_outermost_middleware_of_the_server():

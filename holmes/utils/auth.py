@@ -263,6 +263,20 @@ def is_valid_api_key(presented: str, settings: ApiAuthSettings) -> bool:
     return matched
 
 
+def _carries_holmes_key(name: bytes, value: bytes, settings: ApiAuthSettings) -> bool:
+    """Whether one raw header line holds a Holmes key: any X-API-Key, or an
+    Authorization: Bearer whose value is an accepted key. Each line is judged
+    on its own, so an unrelated Authorization value (also a repeated one) is
+    kept for the app."""
+    name = name.lower()
+    if name == b"x-api-key":
+        return True
+    if name != b"authorization":
+        return False
+    auth = value.decode("latin-1")
+    return auth.lower().startswith("bearer ") and is_valid_api_key(auth[7:].strip(), settings)
+
+
 def _authenticate_and_strip_key(scope: Scope, settings: ApiAuthSettings) -> Optional[str]:
     """None when the request carries a valid key, else why it was rejected.
 
@@ -275,13 +289,7 @@ def _authenticate_and_strip_key(scope: Scope, settings: ApiAuthSettings) -> Opti
     headers = Headers(scope=scope)
     presented = _api_key_from_headers(headers)
     if is_valid_api_key(presented, settings):
-        remove = {b"x-api-key"}
-        auth = headers.get("Authorization", "")
-        # Authorization goes too when it carries a Holmes key (the same one or
-        # another accepted key); any other Authorization value is kept.
-        if auth.lower().startswith("bearer ") and is_valid_api_key(auth[7:].strip(), settings):
-            remove.add(b"authorization")
-        kept = [(k, v) for k, v in scope["headers"] if k.lower() not in remove]
+        kept = [(k, v) for k, v in scope["headers"] if not _carries_holmes_key(k, v, settings)]
         if isinstance(scope["headers"], list):
             scope["headers"][:] = kept  # the server may hold the same list
         else:
