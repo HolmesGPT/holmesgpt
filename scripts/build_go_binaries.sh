@@ -1,9 +1,10 @@
 #!/bin/bash
 # Build CVE-patched Go binaries for the holmes Docker image.
 #
-# All binaries built by this script are built with Go 1.26.9 to fix the stdlib
+# All binaries built by this script are built with Go 1.26.11 to fix the stdlib
 # batch CVE-2026-33818/56853/56858/56859/56860/56862 plus CVE-2026-39821/46600
-# (all High, fixed in Go 1.26.6), plus the Go 1.26.9 stdlib batch.
+# (all High, fixed in Go 1.26.6), plus the Go 1.26.9 stdlib batch, plus
+# CVE-2026-97033..97043 (97040 Critical, fixed in Go 1.26.11).
 #
 # Two x/* replaces are applied to every binary that pulls them in, because the
 # same advisories hit all of them:
@@ -38,6 +39,7 @@
 #   server panic fixed 1.83.2), oras-go -> v2.6.2 (CVE-2026-50151/50163),
 #   mongo-driver -> v1.17.7 (CVE-2026-2303, Medium, >60d), klauspost/compress
 #   -> v1.18.7 (CVE-2026-63209, High: integer overflow in dictionary processing).
+#   go-jose/v4 -> v4.1.6 (CVE-2026-116587; v3.3.15 ships v4.1.4).
 #   Revert to plain upstream binary when ArgoCD ships go-git >= 5.19.2 and
 #   go-billy >= 5.9.0 (blocked on go-git/go-git#1551 upstream).
 #
@@ -55,7 +57,7 @@
 #   Go >= 1.26.6, grpc >= 1.83.2, x/crypto >= 0.56.0 and oras-go >= 2.6.2.
 #
 # kubectl: rebuilt from source with x/net v0.60.0 / x/text v0.42.0 and Go
-#   1.26.9. The latest release (v1.37.1) ships Go 1.26.8 / x/net v0.57.0 /
+#   1.26.11. The latest release (v1.37.1) ships Go 1.26.8 / x/net v0.57.0 /
 #   x/text v0.40.0. Revert to the official binary once a release has them.
 #   golang.org/x/text -> v0.42.0 on every binary (High, fixed 0.41.0;
 #   x/net v0.60.0 requires 0.42.0).
@@ -76,9 +78,10 @@ set -euo pipefail
 # top of the earlier fixes in 1.26.3/1.26.5. Go auto-downloads it if the
 # locally installed go is older (requires local go >= 1.21).
 # Go 1.26.9: stdlib CVE fixes over 1.26.6/1.26.7.
-export GOTOOLCHAIN=go1.26.9
+# Go 1.26.11: CVE-2026-97033..97043 (97040 Critical).
+export GOTOOLCHAIN=go1.26.11
 
-MIN_GO_VERSION="1.26.9"
+MIN_GO_VERSION="1.26.11"
 # Minimum *local* Go that can bootstrap the GOTOOLCHAIN auto-download above
 # (the GOTOOLCHAIN mechanism landed in Go 1.21). Intentionally lower than
 # MIN_GO_VERSION: the pinned build toolchain is fetched automatically, so the
@@ -146,6 +149,7 @@ X_CRYPTO_PATCHED_VERSION=v0.56.0
 ORAS_GO_PATCHED_VERSION=v2.6.2
 MONGO_DRIVER_PATCHED_VERSION=v1.17.7
 KLAUSPOST_COMPRESS_PATCHED_VERSION=v1.18.7
+GO_JOSE_PATCHED_VERSION=v4.1.6
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTDIR="$REPO_ROOT/bin/go-cve-rebuild"
@@ -172,7 +176,10 @@ go mod edit -replace="oras.land/oras-go/v2=oras.land/oras-go/v2@$ORAS_GO_PATCHED
 go mod edit -replace="go.mongodb.org/mongo-driver=go.mongodb.org/mongo-driver@$MONGO_DRIVER_PATCHED_VERSION"
 # klauspost/compress v1.18.0 has CVE-2026-63209 (High); fixed in v1.18.7
 go mod edit -replace="github.com/klauspost/compress=github.com/klauspost/compress@$KLAUSPOST_COMPRESS_PATCHED_VERSION"
+# go-jose/v4 v4.1.4 has CVE-2026-116587; fixed in v4.1.6
+go mod edit -replace="github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@$GO_JOSE_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-git/v5" "$GO_GIT_PATCHED_VERSION"
+GOFLAGS=-mod=mod assert_module_version "github.com/go-jose/go-jose/v4" "$GO_JOSE_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/go-git/go-billy/v5" "$GO_BILLY_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_module_version "github.com/slack-go/slack" "$SLACK_GO_PATCHED_VERSION"
 GOFLAGS=-mod=mod assert_x_replaces
