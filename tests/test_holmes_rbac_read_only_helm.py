@@ -1,9 +1,10 @@
 """Holmes's own ServiceAccount must stay read-only (ROB-1926).
 
-Renders the chart's Holmes RBAC and fails if its role grants anything beyond
-get/list/watch, uses a wildcard, or reaches secrets, exec or proxy, or if
-Holmes gets bound to any other role. namespaceScopedRBAC renders the same
-rules as a Role, so the default render covers it. Opt-in write paths
+Renders the whole chart and fails if the Holmes ClusterRole grants anything
+beyond get/list/watch, uses a wildcard or an aggregationRule, or reaches
+secrets, exec or proxy, or if any binding in the chart gives the Holmes
+ServiceAccount another role. namespaceScopedRBAC renders the same rules as a
+Role, so the default render covers it. Opt-in write paths
 (customClusterRoleRules, customServiceAccountName, the kubernetesRemediation /
 kubernetes MCP addons, the operator) are out of scope.
 """
@@ -17,6 +18,8 @@ import pytest
 import yaml
 
 HELM_DIR = Path(__file__).resolve().parents[1] / "helm" / "holmes"
+RELEASE = "test-release"
+HOLMES_ROLE = f"{RELEASE}-holmes-cluster-role"
 
 READ_VERBS = {"get", "list", "watch"}
 
@@ -38,28 +41,36 @@ ALLOWED_EXTERNAL_ROLES = {"cluster-monitoring-view"}
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm binary not available")
 
 
-def render_rbac(extra_args: List[str]) -> List[dict]:
-    cmd = [
-        "helm",
-        "template",
-        "test-release",
-        str(HELM_DIR),
-        "-s",
-        "templates/holmesgpt-service-account.yaml",
-    ] + extra_args
+def render_chart(extra_args: List[str]) -> List[dict]:
+    cmd = ["helm", "template", RELEASE, str(HELM_DIR), *extra_args]
     output = subprocess.check_output(cmd, text=True)
     return [doc for doc in yaml.safe_load_all(output) if doc]
 
 
+def binds_service_account(binding: dict, sa_name: str) -> bool:
+    return any(s["kind"] == "ServiceAccount" and s["name"] == sa_name for s in binding.get("subjects") or [])
+
+
 @pytest.mark.parametrize("extra_args", [[], ["--set", "openshift=true"]], ids=["default", "openshift"])
 def test_holmes_service_account_is_read_only(extra_args):
-    docs = render_rbac(extra_args)
-    roles = [d for d in docs if d["kind"] == "ClusterRole"]
-    bindings = [d for d in docs if d["kind"] == "ClusterRoleBinding"]
-    assert len(roles) == 1, f"expected one Holmes ClusterRole, got {len(roles)}"
-    assert bindings, "expected the chart to bind the Holmes ClusterRole"
+    docs = render_chart(extra_args)
+    deployment = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == f"{RELEASE}-holmes")
+    holmes_sa = deployment["spec"]["template"]["spec"]["serviceAccountName"]
 
-    for rule in roles[0]["rules"]:
+    # Every binding in the chart that applies to Holmes, of either kind.
+    bindings = [
+        d for d in docs if d["kind"] in ("ClusterRoleBinding", "RoleBinding") and binds_service_account(d, holmes_sa)
+    ]
+    assert bindings, f"expected the chart to bind {holmes_sa}"
+    for binding in bindings:
+        role_ref = binding["roleRef"]
+        assert role_ref["kind"] == "ClusterRole", f"Holmes bound to an unexpected role: {role_ref}"
+        assert role_ref["name"] in {HOLMES_ROLE} | ALLOWED_EXTERNAL_ROLES, f"Holmes bound to another role: {role_ref}"
+
+    role = next(d for d in docs if d["kind"] == "ClusterRole" and d["metadata"]["name"] == HOLMES_ROLE)
+    # An aggregationRule lets the controller replace the rules below with other roles' permissions.
+    assert "aggregationRule" not in role, f"{HOLMES_ROLE} uses an aggregationRule: {role['aggregationRule']}"
+    for rule in role["rules"]:
         assert set(rule["verbs"]) <= READ_VERBS, f"non-read verbs: {rule}"
         assert "nonResourceURLs" not in rule, f"nonResourceURLs granted: {rule}"
         for field in ("apiGroups", "resources"):
@@ -68,7 +79,3 @@ def test_holmes_service_account_is_read_only(extra_args):
         if "" in rule["apiGroups"]:
             banned = FORBIDDEN_CORE_RESOURCES & set(rule["resources"])
             assert not banned, f"grants {sorted(banned)}: {rule}"
-
-    allowed_roles = {roles[0]["metadata"]["name"]} | ALLOWED_EXTERNAL_ROLES
-    for binding in bindings:
-        assert binding["roleRef"]["name"] in allowed_roles, f"Holmes bound to another role: {binding['roleRef']}"
