@@ -1,13 +1,4 @@
-"""Holmes's own ServiceAccount must stay read-only (ROB-1926).
-
-Renders the whole chart and fails if the Holmes ClusterRole grants anything
-beyond get/list/watch, uses a wildcard or an aggregationRule, or reaches
-secrets, exec or proxy, or if any binding in the chart gives the Holmes
-ServiceAccount another role. namespaceScopedRBAC renders the same rules as a
-Role, so the default render covers it. Opt-in write paths
-(customClusterRoleRules, customServiceAccountName, the kubernetesRemediation /
-kubernetes MCP addons, the operator) are out of scope.
-"""
+"""Fails if the rendered chart gives Holmes's own ServiceAccount anything beyond read-only RBAC."""
 
 import shutil
 import subprocess
