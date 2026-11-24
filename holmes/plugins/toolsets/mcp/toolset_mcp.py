@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import fnmatch
 import json
 import logging
 import os
@@ -120,6 +121,7 @@ class MCPMode(str, Enum):
     SSE = "sse"
     STREAMABLE_HTTP = "streamable-http"
     STDIO = "stdio"
+    AWS = "aws"
 
 
 # Well-known, read-only "who am I" tools used to verify MCP authentication when
@@ -289,14 +291,18 @@ async def get_initialized_mcp_session(
                 read_stream,
                 write_stream,
             ):
-                async with ClientSession(read_stream, write_stream) as session:
+                async with ClientSession(
+                    read_stream,
+                    write_stream,
+                    read_timeout_seconds=timedelta(seconds=MCP_TOOL_CALL_TIMEOUT_SEC),
+                ) as session:
                     _ = await session.initialize()
                     yield session
         finally:
             errlog.close()
     elif toolset._mcp_config.mode == MCPMode.SSE:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        httpx_factory = toolset._http_client_factory()
         rendered_headers = toolset._render_headers(request_context)
         async with sse_client(
             url,
@@ -316,7 +322,7 @@ async def get_initialized_mcp_session(
                 yield session
     else:
         url = str(toolset._mcp_config.url)
-        httpx_factory = create_mcp_http_client_factory(toolset._mcp_config.verify_ssl)
+        httpx_factory = toolset._http_client_factory()
         rendered_headers = toolset._render_headers(request_context)
         async with streamablehttp_client(
             url,
@@ -344,6 +350,9 @@ class RemoteMCPTool(Tool):
     # Whether this is a relay cross-cluster tool. Decided once at creation (see
     # REMOTE_TOOL_NAME_PREFIX) so call-time logic reads state instead of the name.
     is_remote: bool = Field(default=False, exclude=True)
+    # The server's own inputSchema. `parameters` keeps only what the LLM is
+    # shown; the server validates against all of it.
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, exclude=True)
 
     @property
     def collision_safe_name(self) -> str:
@@ -439,8 +448,8 @@ class RemoteMCPTool(Tool):
             if not self.toolset._mcp_config:
                 raise ValueError("MCP config not initialized")
 
-            lock = get_server_lock(str(self.toolset._mcp_config.get_lock_string()))
-            with lock:
+            lock_key = f"{self.toolset._mcp_config.get_lock_string()}#{params.get('account', '')}"
+            with get_server_lock(lock_key):
                 return asyncio.run(
                     self._invoke_async(
                         params,
@@ -474,7 +483,7 @@ class RemoteMCPTool(Tool):
                     self.toolset,
                     is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX),
                 )
-                for tool in tools_result.tools
+                for tool in self.toolset._filter_allowed_tools(tools_result.tools)
             ]
 
             if real_tools:
@@ -560,6 +569,56 @@ class RemoteMCPTool(Tool):
             return f"[resource_link {label}: {uri}]" if label else f"[resource_link: {uri}]"
         return ""
 
+    def _strip_omitted_optional_params(self, params: Dict) -> Dict:
+        """Drop optional params the model explicitly set to null.
+
+        The tool schema we hand the LLM declares every optional param as
+        anyOf[<type>, null] and (in strict mode) also lists it in "required",
+        so models signal "leave this out" by sending an explicit null.  MCP
+        servers validate against their own inputSchema, where those params are
+        usually plain non-nullable types, so forwarding the null fails
+        validation and the model falls back to guessing sentinels like the
+        string "null".  Omitting the key is what the model actually meant.
+        """
+        if not params:
+            return params
+        return {
+            key: value
+            for key, value in params.items()
+            if value is not None
+            or (key in self.parameters and self.parameters[key].required)
+        }
+
+    @staticmethod
+    def _merge_result_payload(merged_text: str, structured_content: Any) -> str:
+        """Combine content[] text with CallToolResult.structuredContent.
+
+        A server that declares an outputSchema returns the machine-readable
+        payload in structuredContent and is only *recommended* to also
+        serialize it into a text block.  Many servers (e.g. CircleCI's) put a
+        human summary such as "Found 5 run(s)" in content[] instead, so
+        reading content[] alone hides every id the LLM needs to drill down.
+        """
+        # Per the spec the field is a JSON object or absent; ignore anything else
+        # rather than stringifying it into the model's context.
+        if not isinstance(structured_content, dict) or not structured_content:
+            return merged_text
+        structured_text = json.dumps(structured_content, default=str)
+        if not merged_text or merged_text.strip() == structured_text.strip():
+            return structured_text
+        # The spec only *recommends* that a server also serialize the payload
+        # into a text block, but the servers that do (including the reference
+        # Python SDK, which uses indent=2) pick their own separators and key
+        # order, so an exact string compare misses the common well-behaved case
+        # and doubles the whole payload in the model's context.  Compare the
+        # parsed values instead and keep the compact serialization.
+        try:
+            if json.loads(merged_text) == structured_content:
+                return structured_text
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return f"{merged_text}\n{structured_text}"
+
     async def _invoke_async(
         self,
         params: Dict,
@@ -568,8 +627,8 @@ class RemoteMCPTool(Tool):
         session_approved_prefixes: Optional[List[str]] = None,
     ) -> StructuredToolResult:
         is_remote = self.is_remote
-        call_params = params
-        if user_approved:
+        call_params = self._strip_omitted_optional_params(params)
+        if is_remote and user_approved:
             call_params = {**call_params, REMOTE_TOOL_APPROVED_PARAM: True}
         if is_remote and session_approved_prefixes:
             call_params = {
@@ -626,7 +685,7 @@ class RemoteMCPTool(Tool):
                 if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
-            data=merged_text,
+            data=self._merge_result_payload(merged_text, tool_result.structuredContent),
             images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
@@ -647,6 +706,7 @@ class RemoteMCPTool(Tool):
             parameters=parameters,
             toolset=toolset,
             is_remote=is_remote,
+            input_schema=tool.inputSchema,
         )
 
     @classmethod
@@ -665,16 +725,30 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _resolve_schema(
-        cls, schema: dict[str, Any], root_schema: dict[str, Any]
+        cls,
+        schema: dict[str, Any],
+        root_schema: dict[str, Any],
+        followed_refs: Optional[set[str]] = None,
     ) -> dict[str, Any]:
-        """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf."""
+        """Resolves $ref and extracts the first non-null type from anyOf/oneOf/allOf.
+
+        Every $ref followed is added to ``followed_refs``; a $ref already in it
+        resolves to a plain object instead of being expanded again."""
         if not isinstance(schema, dict):
             return schema
+        if followed_refs is None:
+            followed_refs = set()
 
         # 1. Resolve $ref
         if "$ref" in schema:
             ref_path = str(schema["$ref"])
+            if ref_path in followed_refs:
+                resolved_schema = dict(schema)
+                resolved_schema.pop("$ref")
+                resolved_schema.setdefault("type", "object")
+                return resolved_schema
             if ref_path.startswith("#/"):
+                followed_refs.add(ref_path)
                 parts = ref_path[2:].split("/")
                 resolved = root_schema
                 for part in parts:
@@ -687,7 +761,9 @@ class RemoteMCPTool(Tool):
                 # Recursively resolve the matched definition in case it contains more refs/anyOf
                 resolved_schema = dict(schema)
                 resolved_schema.pop("$ref")
-                resolved_schema.update(cls._resolve_schema(resolved, root_schema))
+                resolved_schema.update(
+                    cls._resolve_schema(resolved, root_schema, followed_refs)
+                )
                 return resolved_schema
 
         # 2. Handle anyOf / oneOf / allOf for nullable or union types
@@ -698,7 +774,9 @@ class RemoteMCPTool(Tool):
                     merged.pop(compound_key)
                     for sub_schema in schema[compound_key]:
                         if isinstance(sub_schema, dict):
-                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            resolved_sub = cls._resolve_schema(
+                                sub_schema, root_schema, followed_refs
+                            )
                             if resolved_sub.get("type") != "null":
                                 for k, v in resolved_sub.items():
                                     if k == "properties" and isinstance(v, dict):
@@ -725,7 +803,9 @@ class RemoteMCPTool(Tool):
                     has_null = False
                     for sub_schema in schema[compound_key]:
                         if isinstance(sub_schema, dict):
-                            resolved_sub = cls._resolve_schema(sub_schema, root_schema)
+                            resolved_sub = cls._resolve_schema(
+                                sub_schema, root_schema, followed_refs
+                            )
                             if resolved_sub.get("type") == "null":
                                 has_null = True
                             else:
@@ -754,15 +834,25 @@ class RemoteMCPTool(Tool):
 
     @classmethod
     def _parse_tool_parameter(
-        cls, schema: dict[str, Any], root_schema: dict[str, Any], required: bool = True
+        cls,
+        schema: dict[str, Any],
+        root_schema: dict[str, Any],
+        required: bool = True,
+        expanding_refs: frozenset[str] = frozenset(),
     ) -> ToolParameter:
         """Recursively parse a JSON Schema property into a ToolParameter.
 
         This preserves nested items, properties, and enum from MCP tool schemas
         so that the OpenAI-formatted schema sent to the LLM accurately describes
         complex parameter types (arrays, objects).
+
+        ``expanding_refs`` holds the $refs being expanded above this property;
+        a recursive schema (a definition that contains itself) stops at its
+        first repeat as a free-form object.
         """
-        schema = cls._resolve_schema(schema, root_schema)
+        followed_refs: set[str] = set(expanding_refs)
+        schema = cls._resolve_schema(schema, root_schema, followed_refs)
+        expanding_refs = frozenset(followed_refs)
 
         # If _resolve_schema preserved a multi-branch anyOf, parse each branch
         # into a ToolParameter and store on the any_of field.
@@ -778,7 +868,9 @@ class RemoteMCPTool(Tool):
                     isinstance(b, dict) and b.get("type") == "null" for b in branches
                 )
                 any_of_params = [
-                    cls._parse_tool_parameter(branch, root_schema, required=True)
+                    cls._parse_tool_parameter(
+                        branch, root_schema, required=True, expanding_refs=expanding_refs
+                    )
                     for branch in non_null
                 ]
                 # Use a placeholder type; type_to_open_ai_schema will use any_of instead
@@ -798,7 +890,7 @@ class RemoteMCPTool(Tool):
         items = None
         if "items" in schema and isinstance(schema["items"], dict):
             items = cls._parse_tool_parameter(
-                schema["items"], root_schema, required=True
+                schema["items"], root_schema, required=True, expanding_refs=expanding_refs
             )
 
         properties = None
@@ -806,7 +898,10 @@ class RemoteMCPTool(Tool):
             nested_required = schema.get("required", [])
             properties = {
                 name: cls._parse_tool_parameter(
-                    prop, root_schema, required=name in nested_required
+                    prop,
+                    root_schema,
+                    required=name in nested_required,
+                    expanding_refs=expanding_refs,
                 )
                 for name, prop in schema["properties"].items()
             }
@@ -891,6 +986,9 @@ class RemoteMCPTool(Tool):
         if params and params.get("cli_command"):
             return f"{params.get('cli_command')}"
 
+        if (self.mcp_tool_name or self.name) == "aws___run_script" and params and isinstance(params.get("code"), str):
+            return f"aws run_script: {params['code'].strip().splitlines()[0][:120]}"
+
         # gcloud MCP run_gcloud_command
         if (self.mcp_tool_name or self.name) == "run_gcloud_command" and params and "args" in params:
             args = params.get("args", [])
@@ -912,7 +1010,19 @@ class RemoteMCPToolset(Toolset):
     ]
     description: str = "MCP server toolset"
     tools: List[RemoteMCPTool] = Field(default_factory=list)  # type: ignore
+    allowed_tools: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Tool names/patterns (fnmatch) to load from the MCP server. When set, "
+            "every other tool the server lists is dropped and never sent to the LLM. "
+            "Empty loads all tools."
+        ),
+    )
     _mcp_config: Optional[Union[MCPConfig, StdioMCPConfig]] = None
+    # Every tool name the server listed, before allowed_tools filtering. The auth
+    # health check picks from these, so filtering out an identity tool such as
+    # get_me does not silently skip it.
+    _listed_tool_names: Optional[List[str]] = None
 
     @property
     def is_oauth_enabled(self) -> bool:
@@ -939,8 +1049,26 @@ class RemoteMCPToolset(Toolset):
             RemoteMCPTool.create(
                 tool, self, is_remote=tool.name.startswith(REMOTE_TOOL_NAME_PREFIX)
             )
-            for tool in tools_result.tools
+            for tool in self._filter_allowed_tools(tools_result.tools)
         ]
+
+    def _filter_allowed_tools(self, tools: List[MCP_Tool]) -> List[MCP_Tool]:
+        """Keep only the tools matching `allowed_tools`; all of them when it is empty."""
+        self._listed_tool_names = [tool.name for tool in tools]
+        if not self.allowed_tools:
+            return list(tools)
+        kept = [
+            tool
+            for tool in tools
+            if any(fnmatch.fnmatch(tool.name, pattern) for pattern in self.allowed_tools)
+        ]
+        logging.info(
+            "MCP server %s: allowed_tools kept %d of %d tools",
+            self.name,
+            len(kept),
+            len(tools),
+        )
+        return kept
 
     def _render_headers(
         self, request_context: Optional[Dict[str, Any]] = None
@@ -1060,16 +1188,7 @@ class RemoteMCPToolset(Toolset):
                     f'Invalid mode "{mode_value}", allowed modes are {", ".join(allowed_modes)}',
                 )
 
-            if mode_value == MCPMode.STDIO.value:
-                self._mcp_config = StdioMCPConfig(**config)
-            else:
-                self._mcp_config = MCPConfig(**config)
-                clean_url_str = str(self._mcp_config.url).rstrip("/")
-
-                if self._mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith(
-                    "/sse"
-                ):
-                    self._mcp_config.url = AnyUrl(clean_url_str + "/sse")
+            self._mcp_config = self._build_mcp_config(config)
 
             # For OAuth-protected servers, skip full MCP session init (it will 401).
             # Just verify the server is reachable and register a placeholder tool
@@ -1105,6 +1224,24 @@ class RemoteMCPToolset(Toolset):
                 ". If the server is still starting up, Holmes will retry automatically",
             )
 
+    def _build_mcp_config(self, config: dict) -> Union[MCPConfig, StdioMCPConfig]:
+        if config.get("mode") == MCPMode.STDIO.value:
+            return StdioMCPConfig(**config)
+        mcp_config = MCPConfig(**config)
+        clean_url_str = str(mcp_config.url).rstrip("/")
+        if "aws-mcp-server" in clean_url_str:
+            logging.warning(
+                "MCP server %s uses the self-hosted AWS MCP server, which is deprecated and will be removed in an upcoming release. "
+                "Switch to the hosted AWS MCP Server: https://holmesgpt.dev/data-sources/builtin-toolsets/aws/",
+                self.name,
+            )
+        if mcp_config.mode == MCPMode.SSE and not clean_url_str.endswith("/sse"):
+            mcp_config.url = AnyUrl(clean_url_str + "/sse")
+        return mcp_config
+
+    def _http_client_factory(self):
+        return create_mcp_http_client_factory(self._mcp_config.verify_ssl)  # type: ignore[union-attr]
+
     def _auto_detect_health_check_tool(self) -> Optional[str]:
         """Pick a default health-check tool from a known allowlist of read-only
         identity tools when none is explicitly configured.
@@ -1112,7 +1249,7 @@ class RemoteMCPToolset(Toolset):
         Returns the name of the first allowlisted tool the server exposes, or
         None if it exposes none (in which case the auth health check is skipped).
         """
-        tool_names = {(t.mcp_tool_name or t.name) for t in self.tools}
+        tool_names = set(self._health_check_tool_names())
         for candidate in DEFAULT_HEALTH_CHECK_TOOLS:
             if candidate in tool_names:
                 logging.info(
@@ -1133,6 +1270,13 @@ class RemoteMCPToolset(Toolset):
         )
         return None
 
+    def _health_check_tool_names(self) -> List[str]:
+        """Raw names of the tools the health check may call: everything the server
+        listed, including tools `allowed_tools` keeps away from the LLM."""
+        if self._listed_tool_names is not None:
+            return self._listed_tool_names
+        return [t.mcp_tool_name or t.name for t in self.tools]
+
     def _run_health_check_tool(self, tool_name: str) -> Tuple[bool, str]:
         """Invoke a tool to verify authentication actually works.
 
@@ -1140,9 +1284,8 @@ class RemoteMCPToolset(Toolset):
         GitHub token). This method calls a specified read-only tool with empty
         arguments to verify the connection is fully functional.
         """
-        matching_tools = [t for t in self.tools if (t.mcp_tool_name or t.name) == tool_name]
-        if not matching_tools:
-            available = [t.name for t in self.tools]
+        available = self._health_check_tool_names()
+        if tool_name not in available:
             return (
                 False,
                 f"MCP server {self.name}: health_check_tool '{tool_name}' not found. "
@@ -1166,7 +1309,7 @@ class RemoteMCPToolset(Toolset):
                     f"MCP server {self.name}: health check tool '{tool_name}' with params {{}} "
                     f"failed - {error_text or 'unknown error'}",
                 )
-            logging.info("MCP server %s health check passed (tool: %s)", self.name, tool_name)
+            logging.debug("MCP server %s health check passed (tool: %s)", self.name, tool_name)
             return (True, "")
         except Exception as e:
             error_detail = _extract_root_error_message(e)

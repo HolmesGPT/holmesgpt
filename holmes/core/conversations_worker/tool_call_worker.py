@@ -10,7 +10,12 @@ writes tool_response + terminal status in one atomic UPDATE
 (post_remote_tool_call_result RPC).
 
 Tool calls run in their own thread pool (TOOL_CALLER_MAX_CONCURRENT) so they
-never compete with user chats for the conversation worker's pool.
+never compete with user chats for the conversation executors' slots.
+
+Rows whose metadata carries a ``kind`` are internal requests from the
+platform UI (``oauth_callback``, ``holmes_logs``), not tool calls: they skip
+the caller-version guard and tool lookup, since their payloads are stable
+request models rather than tool schemas, and are never offered to an LLM.
 
 Design: relay repo, docs/design/2026-06-10_remote-tool-execution.md.
 """
@@ -19,10 +24,13 @@ import base64
 import gzip
 import json
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from pydantic import ValidationError
 
 from holmes.common.env_vars import (
     CONVERSATION_WORKER_POLL_INTERVAL_SECONDS_WITH_REALTIME,
@@ -32,12 +40,15 @@ from holmes.common.env_vars import (
     TOOL_CALLER_MAX_CONCURRENT,
 )
 from holmes.core.conversations_worker.models import RemoteToolCallStatus
+from holmes.core.holmes_key import open_sealed
+from holmes.core.models import OAuthCallbackRequest
+from holmes.core.oauth_config import OAuthConfigLookupError, OAuthTokenExchangeError
+from holmes.core.oauth_server_callbacks import handle_oauth_callback
+from holmes.core.self_logs import HolmesLogsRequest, get_holmes_logs
 from holmes.core.tools import (
-    PrerequisiteCacheMode,
     StructuredToolResult,
     StructuredToolResultStatus,
     ToolInvokeContext,
-    ToolsetTag,
 )
 from holmes.version import get_version
 
@@ -52,6 +63,7 @@ def _error_response(error: str, invocation: Optional[str] = None) -> Dict[str, A
         "data": None,
         "compressed": False,
         "data_gz_b64": None,
+        "images": None,
         "error": error,
         "invocation": invocation,
         "executor_holmes_version": get_version(),
@@ -63,10 +75,15 @@ def serialize_tool_response(
     elapsed_seconds: float,
     max_bytes: int = REMOTE_TOOL_RESULT_MAX_BYTES,
     compress_threshold: int = REMOTE_TOOL_RESULT_COMPRESS_THRESHOLD_CHARS,
+    tool_call_id: str = "",
 ) -> Dict[str, Any]:
     """Serialize a StructuredToolResult into the tool_response payload.
 
-    - Images are dropped (text results only in v1).
+    - Images travel in ``images`` as the tool returned them (base64, never
+      gzipped: a PNG does not compress) and count against max_bytes; when
+      text and images together exceed it but the text alone fits, the
+      images are dropped, the text kept, and a note appended to the text so
+      the caller's LLM knows a picture was omitted and why.
     - Uncompressed data larger than max_bytes (1MB) is rejected with a
       narrow-the-query error.
     - Data over compress_threshold chars is stored gzip+base64 so the DB row,
@@ -76,6 +93,10 @@ def serialize_tool_response(
     """
     data, _is_json = result.stringify_data(compact=False)
     data = data or ""
+    images = _serializable_images(result.images)
+    not_whole = (
+        len(result.images) - len(images) if isinstance(result.images, list) else 0
+    )
 
     payload: Dict[str, Any] = {
         "status": result.status.value
@@ -84,6 +105,7 @@ def serialize_tool_response(
         "data": data,
         "compressed": False,
         "data_gz_b64": None,
+        "images": images or None,
         "error": result.error,
         "return_code": result.return_code,
         "invocation": result.invocation,
@@ -95,11 +117,52 @@ def serialize_tool_response(
     if size > max_bytes:
         payload["status"] = StructuredToolResultStatus.ERROR.value
         payload["data"] = None
+        payload["images"] = None
         payload["error"] = (
             f"result too large ({size} bytes > {max_bytes}); narrow the query "
             "(smaller time range, tighter filters, lower limit)"
         )
         return payload
+
+    if not_whole:
+        logging.warning(
+            "remote tool call %s: %d image entr%s not base64 of a %s image, "
+            "left out",
+            tool_call_id or "?",
+            not_whole,
+            "y is" if not_whole == 1 else "ies are",
+            _IMAGE_TYPES_NAMED,
+        )
+        data = _text_with_note(
+            data,
+            size,
+            f"{not_whole} image(s) of tool call {tool_call_id or '?'} omitted: not "
+            f"base64 of a {_IMAGE_TYPES_NAMED} image",
+            max_bytes,
+        )
+        payload["data"] = data
+        size = len(data.encode("utf-8", errors="replace"))
+
+    images_size = sum(len(image["data"]) for image in images)
+    if images and size + images_size > max_bytes:
+        logging.warning(
+            "remote tool call %s: dropping %d image(s) (%d bytes) that would "
+            "take the result over %d bytes; the text is kept",
+            tool_call_id or "?",
+            len(images),
+            images_size,
+            max_bytes,
+        )
+        payload["images"] = None
+        data = _text_with_note(
+            data,
+            size,
+            f"{len(images)} image(s) ({images_size} bytes) omitted from tool call "
+            f"{tool_call_id or '?'}: the result would exceed the {max_bytes}-byte "
+            "limit of a remote tool call; narrow the request for a smaller image",
+            max_bytes,
+        )
+        payload["data"] = data
 
     if len(data) > compress_threshold:
         gz_b64 = base64.b64encode(
@@ -113,6 +176,77 @@ def serialize_tool_response(
     return payload
 
 
+def _text_with_note(data: str, size: int, note: str, max_bytes: int) -> str:
+    """``data`` (``size`` bytes) plus a bracketed ``note`` for the caller's
+    LLM, within ``max_bytes``: text that leaves no room for the note loses
+    its tail instead, and the note says so."""
+    note = f"\n\n[{note}"
+    if size + len(note.encode("utf-8")) + 1 <= max_bytes:
+        return data + note + "]"
+    note += "; the end of the text was cut to make room for this note]"
+    room = max(0, max_bytes - len(note.encode("utf-8")))
+    cut = data.encode("utf-8", errors="replace")[:room].decode("utf-8", "ignore")
+    return cut + note
+
+
+# Whole quartets with padding, the shape an MCP client decodes.
+_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+# The raster types every consumer shows: MCP clients, and the vision APIs
+# the caller's Holmes may hand the image to. Relay applies the same rule.
+IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_IMAGE_TYPES_NAMED = "/".join(
+    sorted(t.removeprefix("image/") for t in IMAGE_MIME_TYPES)
+)
+
+
+def _serializable_image(image: Any) -> Optional[Dict[str, str]]:
+    """The ``{data, mimeType}`` of one image entry when it is whole: base64
+    (line breaks removed, as a wrapped encoding has them) of one of
+    IMAGE_MIME_TYPES."""
+    if not isinstance(image, dict) or not isinstance(image.get("data"), str):
+        return None
+    data = "".join(image["data"].split())
+    if not data or not _BASE64.fullmatch(data):
+        return None
+    mime_type = image.get("mimeType")
+    if not isinstance(mime_type, str) or mime_type not in IMAGE_MIME_TYPES:
+        return None
+    return {"data": data, "mimeType": image["mimeType"]}
+
+
+def _serializable_images(images: Any) -> List[Dict[str, str]]:
+    """The whole entries of a tool's untyped image list; this is where it
+    is validated, so the row holds only entries relay can forward as MCP
+    image content."""
+    if not isinstance(images, list):
+        return []
+    whole = (_serializable_image(image) for image in images)
+    return [image for image in whole if image is not None]
+
+
+INTERNAL_KIND_OAUTH_CALLBACK = "oauth_callback"
+INTERNAL_KIND_HOLMES_LOGS = "holmes_logs"
+
+
+def _validation_error_summary(e: ValidationError) -> str:
+    # Field locations and messages only: the inputs may be OAuth secrets.
+    parts = [
+        f"{'.'.join(str(p) for p in err.get('loc', ())) or '<payload>'}: {err.get('msg')}"
+        for err in e.errors(include_input=False, include_url=False)
+    ]
+    return "; ".join(parts)
+
+
+def _internal_success(data: Any, elapsed_seconds: float) -> Dict[str, Any]:
+    # Through serialize_tool_response so the size cap and gzip rules match
+    # tool results; relay's existing inflate logic then applies unchanged.
+    result = StructuredToolResult(
+        status=StructuredToolResultStatus.SUCCESS,
+        data=json.dumps(data, ensure_ascii=False),
+    )
+    return serialize_tool_response(result, elapsed_seconds)
+
+
 # Saturation must persist continuously this long before the INFO line fires
 # (mirrors worker.py's _SATURATION_LOG_AFTER_SECONDS; kept local to avoid a
 # circular import — worker.py imports this module).
@@ -122,7 +256,7 @@ _SATURATION_LOG_AFTER_SECONDS = 60.0
 class ToolCallWorker:
     """Claims and executes remote tool calls for this cluster.
 
-    Lifecycle mirrors the conversation worker's claim loop, with its own
+    Lifecycle mirrors a conversation executor's claim loop, with its own
     notify event (woken by the 'pending_tool_calls' broadcast via
     RealtimeManager) and its own thread pool.
     """
@@ -146,7 +280,7 @@ class ToolCallWorker:
         self._active_count = 0
         # Saturation-transition logging (ROB-759): claiming used to be
         # skipped silently at full capacity, which looks identical to a dead
-        # claim loop. Same debounced enter/exit scheme as ConversationWorker
+        # claim loop. Same debounced enter/exit scheme as ConversationExecutor
         # (see _note_saturation there): the INFO fires only after 60s of
         # CONTINUOUS saturation, so backlog churn (free→refill per completed
         # call) never flickers.
@@ -312,6 +446,9 @@ class ToolCallWorker:
     def _execute(self, row: Dict[str, Any]) -> Dict[str, Any]:
         tool_request = row.get("tool_request") or {}
         metadata = row.get("metadata") or {}
+        kind = metadata.get("kind")
+        if kind is not None:
+            return self._execute_internal(kind, row)
         tool_name = tool_request.get("tool_name")
         tool_params = dict(tool_request.get("tool_params") or {})
         instance = tool_request.get("instance")
@@ -400,6 +537,7 @@ class ToolCallWorker:
                 "data": None,
                 "compressed": False,
                 "data_gz_b64": None,
+                "images": None,
                 "error": result.error,
                 "return_code": result.return_code,
                 "invocation": result.invocation,
@@ -408,22 +546,112 @@ class ToolCallWorker:
                 "approval_params": tool_params,
             }
 
-        # 6. Inline result, <=1MB uncompressed, gzip over 100k, no images, no files.
-        result.images = None
-        return serialize_tool_response(result, elapsed)
+        # 6. Inline result, <=1MB uncompressed, gzip over 100k, images
+        # inline within the cap, no files.
+        return serialize_tool_response(result, elapsed, tool_call_id=tool_call_id)
+
+    # ---- internal request kinds ----
+
+    def _execute_internal(self, kind: Any, row: Dict[str, Any]) -> Dict[str, Any]:
+        tool_request = row.get("tool_request") or {}
+        payload = tool_request.get("payload")
+        if payload is None:
+            payload = {}
+        if not isinstance(payload, dict):
+            return _error_response(
+                f"internal request '{kind}': payload must be an object"
+            )
+        if kind == INTERNAL_KIND_OAUTH_CALLBACK:
+            return self._execute_oauth_callback(row, payload)
+        if kind == INTERNAL_KIND_HOLMES_LOGS:
+            return self._execute_holmes_logs(payload)
+        return _error_response(
+            f"unknown internal request kind '{kind}'; supported kinds: "
+            f"{INTERNAL_KIND_OAUTH_CALLBACK}, {INTERNAL_KIND_HOLMES_LOGS}"
+        )
+
+    def _execute_oauth_callback(
+        self, row: Dict[str, Any], payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        user_id = row.get("user_id")
+        if not user_id:
+            # Tokens are stored per user; without one they would land on the
+            # shared default user.
+            return _error_response("oauth_callback: row has no user_id")
+        fields = {k: v for k, v in payload.items() if k != "user_id"}
+        sealed = fields.pop("sealed", None)
+        if sealed is not None:
+            try:
+                fields.update(json.loads(open_sealed(sealed)))
+            except Exception as e:
+                return _error_response(
+                    f"oauth_callback: cannot decrypt the payload: {type(e).__name__}"
+                )
+        try:
+            request = OAuthCallbackRequest(**fields, user_id=user_id)
+        except ValidationError as e:
+            return _error_response(
+                f"oauth_callback: invalid payload: {_validation_error_summary(e)}"
+            )
+        except TypeError as e:
+            return _error_response(f"oauth_callback: invalid payload: {e}")
+
+        logging.info(
+            "ToolCallWorker: oauth_callback %s toolset=%s client_id=%s "
+            "client_secret_present=%s code_present=%s code_verifier_present=%s",
+            row.get("id"),
+            request.toolset_name,
+            request.client_id,
+            bool(request.client_secret),
+            bool(request.code),
+            bool(request.code_verifier),
+        )
+        started = time.monotonic()
+        try:
+            response = handle_oauth_callback(request, self.config, self.dal)
+        except OAuthConfigLookupError as e:
+            logging.error(
+                "oauth_callback config error for '%s': %s",
+                request.toolset_name,
+                e.detail,
+            )
+            return _error_response(f"OAuth config error: {e.detail}")
+        except OAuthTokenExchangeError as e:
+            logging.error(
+                "oauth_callback token exchange failed for '%s': %s",
+                request.toolset_name,
+                e,
+            )
+            return _error_response(str(e))
+        except Exception as e:
+            logging.error(
+                "oauth_callback failed for '%s'",
+                request.toolset_name,
+                exc_info=True,
+            )
+            return _error_response(f"OAuth callback failed: {e}")
+        return _internal_success(response.model_dump(), time.monotonic() - started)
+
+    def _execute_holmes_logs(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            request = HolmesLogsRequest(**payload)
+        except (ValidationError, ValueError, TypeError) as e:
+            detail = (
+                _validation_error_summary(e)
+                if isinstance(e, ValidationError)
+                else str(e)
+            )
+            return _error_response(f"holmes_logs: invalid payload: {detail}")
+        started = time.monotonic()
+        data = get_holmes_logs(request)
+        return _internal_success(data, time.monotonic() - started)
 
     # ---- helpers ----
 
     def _get_tool_executor(self):
-        # reuse_executor=True returns the same cached executor the toolset
-        # sync built at startup — no prerequisite re-checks per call.
-        return self.config.create_tool_executor(
-            self.dal,
-            toolset_tag_filter=[ToolsetTag.CORE, ToolsetTag.CLUSTER],
-            enable_all_toolsets_possible=False,
-            prerequisite_cache=PrerequisiteCacheMode.ENABLED,
-            reuse_executor=True,
-        )
+        # Returns the server's cached executor, usually built by the toolset
+        # sync at startup, so a call doesn't re-check prerequisites.
+        return self.config.create_server_tool_executor(self.dal)
 
     def _get_llm(self):
         # The executor's own configured LLM: used only for in-tool token

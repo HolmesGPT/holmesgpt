@@ -68,8 +68,10 @@ class OAuthTokenManager:
     def set_dal(self, dal: Any) -> None:
         """Switch to DB-backed storage. Called during server startup."""
         if dal and dal.enabled:
+            # Called on every executor build, so only log the first switch to the DB store.
+            if not isinstance(self._store, DalTokenStore):
+                logger.info("OAuthTokenManager: DAL initialized for cross-cluster token storage")
             self._store = DalTokenStore(dal)
-            logger.info("OAuthTokenManager: DAL initialized for cross-cluster token storage")
 
     # ── Preload ────────────────────────────────────────────────────────
 

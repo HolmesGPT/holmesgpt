@@ -137,164 +137,82 @@ gcloud iam service-accounts add-iam-policy-binding holmes-gcp-mcp@${PROJECT_ID}.
 
 **Step 5: Deploy with Helm**
 
-=== "Holmes Helm Chart"
-
-    Add to your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gcp:
-        enabled: true
-        serviceAccount:
-          name: gcp-mcp-sa
-          annotations:
-            iam.gke.io/gcp-service-account: "holmes-gcp-mcp@PROJECT_ID.iam.gserviceaccount.com"
-        # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
-        config:
-          project: "your-primary-project"
-          region: "us-central1"
-        gcloud:
-          enabled: true
-        observability:
-          enabled: true
-        storage:
-          enabled: true
-    ```
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gcp:
-          enabled: true
-          serviceAccount:
-            name: gcp-mcp-sa
-            annotations:
-              iam.gke.io/gcp-service-account: "holmes-gcp-mcp@PROJECT_ID.iam.gserviceaccount.com"
-          # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
-          config:
-            project: "your-primary-project"
-            region: "us-central1"
-          gcloud:
-            enabled: true
-          observability:
-            enabled: true
-          storage:
-            enabled: true
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
+```yaml-helm-values
+mcpAddons:
+  gcp:
+    enabled: true
+    serviceAccount:
+      name: gcp-mcp-sa
+      annotations:
+        iam.gke.io/gcp-service-account: "holmes-gcp-mcp@PROJECT_ID.iam.gserviceaccount.com"
+    # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
+    config:
+      project: "your-primary-project"
+      region: "us-central1"
+    gcloud:
+      enabled: true
+    observability:
+      enabled: true
+    storage:
+      enabled: true
+```
 
 ### Service Account Key
 
 If you're not using GKE, or prefer not to use Workload Identity, you can authenticate with a service account key instead.
 
-=== "Holmes Helm Chart"
+**Step 1: Create GCP Service Account**
 
-    **Step 1: Create GCP Service Account**
+Replace `<namespace>` with the Kubernetes namespace Holmes runs in:
 
-    ```bash
-    git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
-    cd holmes-mcp-integrations/servers/gcp
+```bash
+git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
+cd holmes-mcp-integrations/servers/gcp
 
-    ./setup-gcp-service-account.sh \
-      --project your-project-id \
-      --k8s-namespace holmes
-    ```
+./setup-gcp-service-account.sh \
+  --project your-project-id \
+  --k8s-namespace <namespace>
+```
 
-    The script creates a service account with ~50 read-only IAM roles, generates a key, and creates a Kubernetes secret (`gcp-sa-key`).
+The script creates a service account with ~50 read-only IAM roles, generates a key, and creates a Kubernetes secret (`gcp-sa-key`).
 
-    **Step 2: Configure and Deploy**
+**Step 2: Configure HolmesGPT**
 
-    Add to your `values.yaml`:
-
-    ```yaml
-    mcpAddons:
-      gcp:
-        enabled: true
-        serviceAccountKey:
-          secretName: "gcp-sa-key"
-        # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
-        config:
-          project: "your-primary-project"
-          region: "us-central1"
-        gcloud:
-          enabled: true
-        observability:
-          enabled: true
-        storage:
-          enabled: true
-    ```
-
-    ```bash
-    helm upgrade --install holmes robusta/holmes -f values.yaml
-    ```
-
-=== "Robusta Helm Chart"
-
-    **Step 1: Create GCP Service Account**
-
-    ```bash
-    git clone https://github.com/robusta-dev/holmes-mcp-integrations.git
-    cd holmes-mcp-integrations/servers/gcp
-
-    ./setup-gcp-service-account.sh \
-      --project your-project-id \
-      --k8s-namespace robusta
-    ```
-
-    The script creates a service account with ~50 read-only IAM roles, generates a key, and creates a Kubernetes secret (`gcp-sa-key`).
-
-    **Step 2: Configure and Deploy**
-
-    Add to your `generated_values.yaml`:
-
-    ```yaml
-    holmes:
-      mcpAddons:
-        gcp:
-          enabled: true
-          serviceAccountKey:
-            secretName: "gcp-sa-key"
-          # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
-          config:
-            project: "your-primary-project"
-            region: "us-central1"
-          gcloud:
-            enabled: true
-          observability:
-            enabled: true
-          storage:
-            enabled: true
-    ```
-
-    ```bash
-    helm upgrade --install robusta robusta/robusta -f generated_values.yaml --set clusterName=YOUR_CLUSTER_NAME
-    ```
+```yaml-helm-values
+mcpAddons:
+  gcp:
+    enabled: true
+    serviceAccountKey:
+      secretName: "gcp-sa-key"
+    # Optional: defaults when user doesn't specify. Holmes can query any project the SA has access to.
+    config:
+      project: "your-primary-project"
+      region: "us-central1"
+    gcloud:
+      enabled: true
+    observability:
+      enabled: true
+    storage:
+      enabled: true
+```
 
 ### Troubleshooting
 
 ```bash
+# Find the MCP server pod of your Holmes release
+POD=$(kubectl get pod -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server,app.kubernetes.io/instance=YOUR_RELEASE_NAME -o name | head -n 1)
+
 # Check if secret is mounted
-kubectl exec -n YOUR_NAMESPACE deployment/gcp-mcp-server -c gcloud-mcp -- ls -la /var/secrets/gcp/
+kubectl exec -n YOUR_NAMESPACE "$POD" -c gcloud-mcp -- ls -la /var/secrets/gcp/
 
 # Verify authentication
-kubectl exec -n YOUR_NAMESPACE deployment/gcp-mcp-server -c gcloud-mcp -- gcloud auth list
+kubectl exec -n YOUR_NAMESPACE "$POD" -c gcloud-mcp -- gcloud auth list
 
 # Check service account roles
 gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:holmes-gcp-mcp@"
 
 # Check pod logs
-kubectl logs -n YOUR_NAMESPACE deployment/gcp-mcp-server --all-containers
+kubectl logs -n YOUR_NAMESPACE -l app.kubernetes.io/name=gcp-mcp-server,app.kubernetes.io/instance=YOUR_RELEASE_NAME --all-containers --tail=-1
 ```
 
 ## Common Use Cases

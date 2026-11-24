@@ -9,36 +9,25 @@ By enabling this toolset, HolmesGPT will be able to use [Inspektor Gadget](https
 3. Set the `ENABLE_INSPEKTOR_GADGET` environment variable
 4. For tcpdump toolset: `tcpdump` CLI installed locally
 
+These toolsets run only in the Holmes CLI. They are tagged `cli`, so the Holmes server, which is what runs in Kubernetes, does not load them, even when they are enabled.
+
 ## Configuration
 
-=== "Holmes CLI"
+```yaml-toolset-config
+---
+cli: |
+  First, verify your environment is configured:
 
-    First, verify your environment is configured:
+  ```bash
+  # Verify kubectl is accessible
+  kubectl version --client
 
-    ```bash
-    # Verify kubectl is accessible
-    kubectl version --client
+  # Set the environment variable to enable Inspektor Gadget
+  export ENABLE_INSPEKTOR_GADGET=true
+  ```
 
-    # Set the environment variable to enable Inspektor Gadget
-    export ENABLE_INSPEKTOR_GADGET=true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    # values.yaml
-    customClusterRoleRules:
-      - apiGroups: [""]
-        resources: ["pods", "pods/attach"]
-        verbs: ["create"]
-    additionalEnvVars:
-      - name: ENABLE_INSPEKTOR_GADGET
-        value: "true"
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Capabilities
 

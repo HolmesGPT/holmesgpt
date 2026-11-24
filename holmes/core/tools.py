@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
 from typing import (
@@ -17,6 +18,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterator,
     List,
     Optional,
     OrderedDict,
@@ -26,9 +28,10 @@ from typing import (
 )
 
 from jinja2 import Template
+from jinja2.exceptions import SecurityError
+from jinja2.sandbox import SandboxedEnvironment
 
 from holmes.core.json_schema_coerce import coerce_params
-from requests.structures import CaseInsensitiveDict
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -161,6 +164,65 @@ def sanitize_params(params):
     return {k: sanitize(str(v)) for k, v in params.items()}
 
 
+class ShellInjectionError(ValueError):
+    """Raised when an untrusted value would inject shell syntax into a command."""
+
+
+# Characters that can start a subshell/command substitution, break out of a
+# quote, or trigger word-splitting/globbing once interpolated into a shell
+# command. request_context values are attacker controlled (arbitrary HTTP
+# headers, unauthenticated by default) and reach a /bin/bash sink, so we reject
+# any value containing these. Rejecting (rather than shlex.quote'ing) is what
+# makes the value inert regardless of how the tool template quotes it: the
+# documented `-H "X-Token: {{ ... }}"` pattern nests the value inside double
+# quotes, where `$(...)`/backticks still execute and shlex.quote's single-quote
+# wrapping would only be inserted as literal characters. Legitimate tokens
+# (JWTs, API keys, tenant ids, `Bearer <token>`) contain none of these, so
+# permitted values render exactly as they did before this fix. See ROB-1104.
+_SHELL_METACHARACTERS = frozenset("`$\\\"'();|&<>*?[]{}\n\r")
+
+
+def reject_shell_metacharacters(value: str, source: str) -> str:
+    found = sorted({c for c in value if c in _SHELL_METACHARACTERS})
+    if found:
+        raise ShellInjectionError(
+            f"{source} contains disallowed shell metacharacter(s) "
+            f"{''.join(found)!r}; refusing to run it in a shell command. "
+            f"Disallowed: {''.join(sorted(_SHELL_METACHARACTERS))!r}"
+        )
+    return value
+
+
+class _ShellSafeOnReadDict(Mapping[str, Any]):
+    """Checks values only when read, so unused headers (`Accept: */*`) pass."""
+
+    def __init__(self, data: Mapping[str, Any], label: str):
+        self._data = {k.lower(): (k, v) for k, v in data.items()}
+        self._label = label
+
+    def __getitem__(self, key: str) -> Any:
+        value = self._data[key.lower()][1]
+        if isinstance(value, str):
+            reject_shell_metacharacters(value, f"{self._label} {key!r}")
+        return value
+
+    def __contains__(self, key: object) -> bool:
+        return isinstance(key, str) and key.lower() in self._data
+
+    def __iter__(self) -> Iterator[str]:
+        return (k for k, _ in self._data.values())
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __repr__(self) -> str:
+        return repr(dict(self.items()))
+
+
+# Blocks `_`-prefixed attributes, so a template can't read `_data` unchecked.
+_TEMPLATE_SANDBOX = SandboxedEnvironment()
+
+
 class PrerequisiteCacheMode(str, Enum):
     """Controls how prerequisite check results are cached.
 
@@ -184,6 +246,11 @@ class ToolsetTag(str, Enum):
     CORE = "core"
     CLUSTER = "cluster"
     CLI = "cli"
+
+
+# The toolset tags of the Holmes server's cached tool executor. See
+# Config.create_server_tool_executor for how server callers must request it.
+SERVER_TOOLSET_TAGS = [ToolsetTag.CORE, ToolsetTag.CLUSTER]
 
 
 class ToolsetType(str, Enum):
@@ -227,6 +294,11 @@ class ToolParameter(BaseModel):
         """
         # If this parameter has additionalProperties with a schema or True, it's not strict-compatible
         if self.additional_properties is not None and self.additional_properties is not False:
+            return False
+        # A free-form object (no properties, additionalProperties unspecified) would be
+        # closed with additionalProperties: false, leaving `{}` as its only valid value.
+        types = self.type if isinstance(self.type, list) else [self.type]
+        if "object" in types and not self.properties and self.additional_properties is None:
             return False
         # Recursively check nested properties
         if self.properties:
@@ -393,7 +465,7 @@ class Tool(ABC, BaseModel):
         show_hint = f"/show {context.tool_number}" if context.tool_number else "/show"
         line_count = output_str.count("\n") + 1 if output_str else 0
         display_logger.info(
-            f"  [dim]Finished {tool_number_str}in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
+            f"  [dim]Finished {tool_number_str}with status {transformed_result.status.value} in {elapsed:.2f}s, output length: {len(output_str):,} characters ({line_count:,} lines) - {show_hint} to view contents[/dim]"
         )
         return transformed_result
 
@@ -541,7 +613,11 @@ class YAMLTool(Tool, BaseModel):
     def __infer_parameters(self):
         # Find parameters that appear inside self.command or self.script but weren't declared in parameters
         template = self.command or self.script
-        inferred_params = re.findall(r"\{\{\s*([\w]+)[\.\|]?.*?\s*\}\}", template)
+        # Shell comments may mention {{ placeholders }} in prose; those are not parameters
+        executable_template = re.sub(r"^\s*#.*$", "", template, flags=re.MULTILINE)
+        inferred_params = re.findall(
+            r"\{\{\s*([\w]+)[\.\|]?.*?\s*\}\}", executable_template
+        )
         # TODO: if filters were used in template, take only the variable name
         # Regular expression to match Jinja2 placeholders with or without filters
         # inferred_params = re.findall(r'\{\{\s*(\w+)(\s*\|\s*[^}]+)?\s*\}\}', self.command)
@@ -568,12 +644,21 @@ class YAMLTool(Tool, BaseModel):
         params = sanitize_params(params)
         context: Dict[str, Any] = {**params}
         context["env"] = os.environ
-        if request_context:
-            ctx_copy = dict(request_context)
-            ctx_copy["headers"] = CaseInsensitiveDict(ctx_copy.get("headers") or {})
-            context["request_context"] = ctx_copy
-        else:
-            context["request_context"] = {"headers": CaseInsensitiveDict()}
+        # request_context (propagated HTTP headers, user_id, ...) is attacker
+        # controlled and reaches the same /bin/bash sink as tool params, but
+        # unlike params it is never something the tool author designed for.
+        # A value with shell metacharacters is rejected when the template reads
+        # it; permitted values are passed through unchanged so legitimate tokens
+        # render exactly as before, in whatever quoting the template uses (ROB-1104).
+        request_context = request_context or {}
+        headers = _ShellSafeOnReadDict(
+            request_context.get("headers") or {}, "request header"
+        )
+        # Lookups are case-insensitive, so a "Headers" key would replace `headers`.
+        rest = {k: v for k, v in request_context.items() if k.lower() != "headers"}
+        context["request_context"] = _ShellSafeOnReadDict(
+            {**rest, "headers": headers}, "request_context"
+        )
         return context
 
     def _get_status(
@@ -590,13 +675,20 @@ class YAMLTool(Tool, BaseModel):
         params: dict,
         context: ToolInvokeContext,
     ) -> StructuredToolResult:
-        if self.command is not None:
-            raw_output, return_code, invocation = self.__invoke_command(
-                params, context.request_context
-            )
-        else:
-            raw_output, return_code, invocation = self.__invoke_script(
-                params, context.request_context
+        try:
+            if self.command is not None:
+                raw_output, return_code, invocation = self.__invoke_command(
+                    params, context.request_context
+                )
+            else:
+                raw_output, return_code, invocation = self.__invoke_script(
+                    params, context.request_context
+                )
+        except (ShellInjectionError, SecurityError) as e:
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error=str(e),
+                params=params,
             )
 
         error = (
@@ -622,7 +714,7 @@ class YAMLTool(Tool, BaseModel):
     ) -> Tuple[str, int, str]:
         context = self._build_context(params, request_context)
         command = os.path.expandvars(self.command)  # type: ignore
-        template = Template(command)  # type: ignore
+        template = _TEMPLATE_SANDBOX.from_string(command)
         rendered_command = template.render(context)
         output, return_code = self.__execute_subprocess(rendered_command)
         return output, return_code, rendered_command
@@ -634,7 +726,7 @@ class YAMLTool(Tool, BaseModel):
     ) -> Tuple[str, int, str]:
         context = self._build_context(params, request_context)
         script = os.path.expandvars(self.script)  # type: ignore
-        template = Template(script)  # type: ignore
+        template = _TEMPLATE_SANDBOX.from_string(script)
         rendered_script = template.render(context)
 
         with tempfile.NamedTemporaryFile(
@@ -757,6 +849,17 @@ class Toolset(BaseModel):
             "this cluster (kubectl, in-cluster prometheus, ...)."
         ),
     )
+    status_refresh_interval_seconds: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Re-check this toolset at most once per this many seconds during the "
+            "server's periodic status refresh, keeping its last status and tools in "
+            "between. Unset, it is re-checked on every refresh "
+            "(TOOLSET_STATUS_REFRESH_INTERVAL_SECONDS)."
+        ),
+    )
+
     def remote_exposure_default(
         self, instance_config: Optional[Dict[str, Any]] = None
     ) -> Optional[bool]:
@@ -1197,6 +1300,8 @@ class ToolsetDBModel(BaseModel):
     docs_url: Optional[str] = None
     installation_instructions: Optional[str] = None
     meta: Optional[Dict[str, Any]] = None
+    # The publishing Holmes version; the platform routes remote tools by it.
+    version: Optional[str] = None
     updated_at: str = Field(default_factory=datetime.now().isoformat)
 
 

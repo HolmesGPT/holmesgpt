@@ -15,6 +15,7 @@ from typing import ClassVar, Optional
 from pydantic import Field, PrivateAttr, StrictStr
 
 from ..llm import LLM, DefaultLLM
+from ..llm_rate_limit import rate_limit_retry_scope
 from .base import BaseTransformer, TransformerError
 
 logger = logging.getLogger(__name__)
@@ -153,9 +154,12 @@ class LLMSummarizeTransformer(BaseTransformer):
             # Perform the summarization
             logger.debug(f"Summarizing {len(input_text)} characters with fast model")
 
-            response = self._fast_llm.completion(
-                [{"role": "user", "content": full_prompt}]
-            )
+            # Callers fall back to the unsummarized output on failure, so
+            # waiting out a rate limit would only delay the investigation.
+            with rate_limit_retry_scope(max_wait_seconds=0):
+                response = self._fast_llm.completion(
+                    [{"role": "user", "content": full_prompt}]
+                )
             summarized_text = response.choices[0].message.content  # type: ignore
 
             if not summarized_text or not summarized_text.strip():

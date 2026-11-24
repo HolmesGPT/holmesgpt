@@ -19,7 +19,11 @@ from holmes.plugins.toolsets.coralogix.api import (
     execute_dataprime_query,
     health_check,
 )
-from holmes.plugins.toolsets.coralogix.utils import CoralogixConfig, normalize_datetime
+from holmes.plugins.toolsets.coralogix.utils import (
+    CoralogixConfig,
+    get_ui_base_url,
+    normalize_datetime,
+)
 from holmes.plugins.toolsets.utils import toolset_name_for_one_liner
 
 
@@ -32,10 +36,11 @@ def _build_coralogix_query_url(
 ) -> Optional[str]:
     """Build a clickable Coralogix UI permalink URL.
 
-    Returns None if team_slug is not configured (it's optional).
+    Returns None if neither team_slug nor ui_url is configured (both are optional).
     """
-    # team_slug is optional - without it we can't build UI URLs
-    if not config.team_slug:
+    # without team_slug or ui_url we can't build UI URLs
+    base_url = get_ui_base_url(config)
+    if not base_url:
         return None
 
     try:
@@ -51,7 +56,6 @@ def _build_coralogix_query_url(
 
         encoded_query = quote(query)
         encoded_time = quote(time_range)
-        base_url = f"https://{config.team_slug}.{config.domain}"
 
         url = (
             f"{base_url}/#/query-new/{data_pipeline}"

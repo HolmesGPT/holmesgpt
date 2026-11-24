@@ -18,61 +18,34 @@ All database connectors use `type: database` and share the same configuration pa
 
 ## Quick Start
 
-=== "Holmes CLI"
+```yaml-toolset-config
+toolsets:
+  prod-postgres:
+    type: database
+    config:
+      connection_url: "{{ env.POSTGRES_URL }}"
+    llm_instructions: "Production PostgreSQL database"
+---
+secret:
+  - --from-literal=POSTGRES_URL='postgresql://holmes:password@db.example.com:5432/mydb'
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **~/.holmes/config.yaml:**
+  ```yaml
+  toolsets:
+    prod-postgres:
+      type: database
+      config:
+        connection_url: "postgresql://holmes:password@db.example.com:5432/mydb"
+      llm_instructions: "Production PostgreSQL with customer and order data"
 
-    ```yaml
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "postgresql://holmes:password@db.example.com:5432/mydb"
-        llm_instructions: "Production PostgreSQL with customer and order data"
-
-      analytics-clickhouse:
-        type: database
-        config:
-          connection_url: "clickhouse://analyst:pass@clickhouse.internal:8123/analytics"
-        llm_instructions: "ClickHouse analytics warehouse"
-    ```
-
-=== "Holmes Helm Chart"
-
-    ```yaml
-    additionalEnvVars:
-      - name: POSTGRES_URL
-        valueFrom:
-          secretKeyRef:
-            name: postgres-credentials
-            key: url
-
-    toolsets:
-      prod-postgres:
-        type: database
-        config:
-          connection_url: "{{ env.POSTGRES_URL }}"
-        llm_instructions: "Production PostgreSQL database"
-    ```
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-      additionalEnvVars:
-        - name: POSTGRES_URL
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: url
-
-      toolsets:
-        prod-postgres:
-          type: database
-          config:
-            connection_url: "{{ env.POSTGRES_URL }}"
-          llm_instructions: "Production PostgreSQL database"
-    ```
+    analytics-clickhouse:
+      type: database
+      config:
+        connection_url: "clickhouse://analyst:pass@clickhouse.internal:8123/analytics"
+      llm_instructions: "ClickHouse analytics warehouse"
+  ```
+```
 
 ## Configuration Options
 

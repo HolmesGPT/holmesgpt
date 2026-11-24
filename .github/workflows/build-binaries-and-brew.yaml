@@ -15,7 +15,7 @@ jobs:
             platform: linux
             arch: amd64
           # macOS ARM64 (Apple Silicon) - macos-14+ runs on M1/M2
-          - os: macos-14
+          - os: macos-15
             platform: darwin
             arch: arm64
           # Windows AMD64

@@ -1,0 +1,7 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+  # The default eval toolsets include bash with kubectl; a scoped `kubectl get` there
+  # would answer correctly but skip the query tools this eval checks
+  bash:
+    enabled: false

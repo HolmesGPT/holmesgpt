@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, List, Literal, Optional, TypeVar, Union, cast
 
@@ -314,6 +315,18 @@ def load_frontend_tools(
     )
 
 
+ENV_REF_PATTERN = re.compile(r"\{\{\s*env\.(\w+)")
+
+
+def find_missing_env_vars(test_case_folder: Path) -> List[str]:
+    referenced = {
+        name
+        for yaml_file in test_case_folder.glob("*.yaml")
+        for name in ENV_REF_PATTERN.findall(yaml_file.read_text())
+    }
+    return sorted(name for name in referenced if not os.environ.get(name))
+
+
 def check_and_skip_test(
     test_case: HolmesTestCase, request=None, shared_test_infrastructure=None
 ) -> None:
@@ -465,6 +478,12 @@ class TestCaseLoader:
                 )
                 config_dict["id"] = test_case_id
                 config_dict["folder"] = str(test_case_folder)
+                missing_env_vars = find_missing_env_vars(test_case_folder)
+                if missing_env_vars and not config_dict.get("skip"):
+                    config_dict["skip"] = True
+                    config_dict["skip_reason"] = (
+                        f"Missing env vars: {', '.join(missing_env_vars)}"
+                    )
                 test_case: Optional[HolmesTestCase] = None
 
                 if config_dict.get("user_prompt"):

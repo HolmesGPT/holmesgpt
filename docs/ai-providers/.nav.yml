@@ -3,6 +3,7 @@ nav:
 - Anthropic: anthropic.md
 - AWS Bedrock: aws-bedrock.md
 - Azure AI Foundry: azure-ai-foundry.md
+- Baseten: baseten.md
 - Gemini: gemini.md
 - GitHub Copilot: github-copilot.md
 - GitHub Models: github.md
@@ -12,5 +13,6 @@ nav:
 - OpenAI: openai.md
 - OpenAI-Compatible: openai-compatible.md
 - Other: other.md
+- Models Missing from LiteLLM: model-limits.md
 - Robusta AI: robusta-ai.md
 - Using Multiple Providers: using-multiple-providers.md

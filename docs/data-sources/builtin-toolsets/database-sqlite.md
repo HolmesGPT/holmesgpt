@@ -22,154 +22,113 @@ chgrp holmes-group /path/to/database.db
 
 ## Configuration
 
-=== "Holmes CLI"
+**Connection URL format:**
 
-    **~/.holmes/config.yaml:**
+```
+sqlite:///[absolute_path_to_file]
+```
 
-    ```yaml
-    toolsets:
-      dev-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////absolute/path/to/database.db"
-        llm_instructions: "Local development database with test data"
+**Important:** Use four slashes (`////`) for absolute paths:
 
-      app-cache-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////var/lib/app/cache.db"
-        llm_instructions: "Application cache database"
-    ```
+- `sqlite:////home/user/app.db` - Absolute path on Linux/Mac
+- `sqlite:////var/lib/app/data.db` - Another Linux example
 
-    **Connection URL format:**
-    ```
-    sqlite:///[absolute_path_to_file]
-    ```
+In Kubernetes, the database file is read from a mounted volume. Each Kubernetes example on this page mounts it with a `hostPath` volume of `type: File`, which requires the file to exist at that path on the node the Holmes pod is scheduled on; where it does not, the volume fails to mount and the pod does not start.
 
-    **Important:** Use four slashes (`////`) for absolute paths:
-    - `sqlite:////home/user/app.db` - Absolute path on Linux/Mac
-    - `sqlite:////var/lib/app/data.db` - Another Linux example
+```yaml-toolset-config
+additionalVolumes:
+  - name: sqlite-db
+    hostPath:
+      path: /path/on/host/database.db
+      type: File
 
-    **In-memory database (testing only):**
-    ```yaml
-    connection_url: "sqlite:///:memory:"
-    ```
+additionalVolumeMounts:
+  - name: sqlite-db
+    mountPath: /data/database.db
+    readOnly: true
 
-=== "Holmes Helm Chart"
+toolsets:
+  app-sqlite:
+    type: database
+    config:
+      connection_url: "sqlite:////data/database.db"
+    llm_instructions: "Application database mounted from host"
+---
+cli: |
+  **~/.holmes/config.yaml:**
 
-    **Using mounted volume:**
+  ```yaml
+  toolsets:
+    dev-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/database.db"
+      llm_instructions: "Local development database with test data"
 
-    ```yaml
-    extraVolumes:
-      - name: sqlite-db
-        hostPath:
-          path: /path/on/host/database.db
-          type: File
+    app-cache-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////var/lib/app/cache.db"
+      llm_instructions: "Application cache database"
+  ```
 
-    extraVolumeMounts:
-      - name: sqlite-db
-        mountPath: /data/database.db
-        readOnly: true
+  **In-memory database (testing only):**
 
-    toolsets:
-      app-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////data/database.db"
-        llm_instructions: "Application database mounted from host"
-    ```
+  ```yaml
+  connection_url: "sqlite:///:memory:"
+  ```
+```
 
-    **Multiple instances:**
+### Multiple instances
 
-    ```yaml
-    extraVolumes:
-      - name: app-db
-        hostPath:
-          path: /data/app.db
-          type: File
-      - name: cache-db
-        hostPath:
-          path: /data/cache.db
-          type: File
+```yaml-toolset-config
+additionalVolumes:
+  - name: app-db
+    hostPath:
+      path: /data/app.db
+      type: File
+  - name: cache-db
+    hostPath:
+      path: /data/cache.db
+      type: File
 
-    extraVolumeMounts:
-      - name: app-db
-        mountPath: /data/app.db
-        readOnly: true
-      - name: cache-db
-        mountPath: /data/cache.db
-        readOnly: true
+additionalVolumeMounts:
+  - name: app-db
+    mountPath: /data/app.db
+    readOnly: true
+  - name: cache-db
+    mountPath: /data/cache.db
+    readOnly: true
 
-    toolsets:
-      app-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////data/app.db"
+toolsets:
+  app-sqlite:
+    type: database
+    config:
+      connection_url: "sqlite:////data/app.db"
 
-      cache-sqlite:
-        type: database
-        config:
-          connection_url: "sqlite:////data/cache.db"
-    ```
+  cache-sqlite:
+    type: database
+    config:
+      connection_url: "sqlite:////data/cache.db"
+---
+cli: |
+  Add the following to **~/.holmes/config.yaml**, with the paths of the database files on your machine. Create the file if it doesn't exist:
 
-=== "Robusta Helm Chart"
+  ```yaml
+  toolsets:
+    app-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/app.db"
 
-    **Using mounted volume:**
+    cache-sqlite:
+      type: database
+      config:
+        connection_url: "sqlite:////absolute/path/to/cache.db"
+  ```
 
-    ```yaml
-    holmes:
-      extraVolumes:
-        - name: sqlite-db
-          hostPath:
-            path: /path/on/host/database.db
-            type: File
-
-      extraVolumeMounts:
-        - name: sqlite-db
-          mountPath: /data/database.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/database.db"
-          llm_instructions: "Application database mounted from host"
-    ```
-
-    **Multiple instances:**
-
-    ```yaml
-    holmes:
-      extraVolumes:
-        - name: app-db
-          hostPath:
-            path: /data/app.db
-            type: File
-        - name: cache-db
-          hostPath:
-            path: /data/cache.db
-            type: File
-
-      extraVolumeMounts:
-        - name: app-db
-          mountPath: /data/app.db
-          readOnly: true
-        - name: cache-db
-          mountPath: /data/cache.db
-          readOnly: true
-
-      toolsets:
-        app-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/app.db"
-
-        cache-sqlite:
-          type: database
-          config:
-            connection_url: "sqlite:////data/cache.db"
-    ```
+  --8<-- "snippets/toolset_refresh_warning.md"
+```
 
 ## Configuration Options
 

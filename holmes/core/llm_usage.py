@@ -6,6 +6,8 @@ from typing import Optional
 from litellm.types.utils import ModelResponse
 from pydantic import BaseModel
 
+from holmes.core.llm_rate_limit import iter_exception_chain, retry_counts
+
 
 def _extract_detail_field(details: object, field: str) -> Optional[int]:
     """Extract an optional int field from a token-details object or dict.
@@ -100,15 +102,18 @@ class RequestStats(BaseModel):
     max_completion_tokens_per_call: int = 0
     max_prompt_tokens_per_call: int = 0
     num_compactions: int = 0
+    llm_rate_limit_retries: int = 0
+    llm_rate_limit_wait_ms: int = 0
 
     @classmethod
     def from_response(cls, response) -> "RequestStats":
         """Build a single-response RequestStats from a litellm ModelResponse."""
+        retries = retry_counts(response)
         try:
             raw = extract_usage_from_response(response)
         except (AttributeError, TypeError, KeyError) as e:
             logging.debug(f"Could not extract cost information: {e}")
-            return cls()
+            return cls(**retries)
 
         return cls(
             total_cost=raw["cost"],
@@ -120,9 +125,12 @@ class RequestStats(BaseModel):
             reasoning_tokens=raw["reasoning_tokens"],
             max_completion_tokens_per_call=raw["completion_tokens"],
             max_prompt_tokens_per_call=raw["prompt_tokens"],
+            **retries,
         )
 
     def __iadd__(self, other: "RequestStats") -> "RequestStats":
+        self.llm_rate_limit_retries += other.llm_rate_limit_retries
+        self.llm_rate_limit_wait_ms += other.llm_rate_limit_wait_ms
         if other.total_tokens == 0 and other.total_cost == 0:
             return self
         self.total_cost += other.total_cost
@@ -144,3 +152,42 @@ class RequestStats(BaseModel):
         )
         self.num_compactions += other.num_compactions
         return self
+
+
+_UNRECORDED_USAGE = "holmes_unrecorded_usage"
+_REQUEST_USAGE = "holmes_request_usage"
+
+
+def attach_unrecorded_usage(error: BaseException, usage: RequestStats) -> None:
+    """Billed usage of the failing step that the caller has not counted yet
+    (e.g. a failed compaction's requests)."""
+    setattr(error, _UNRECORDED_USAGE, usage)
+
+
+def unrecorded_usage(error: BaseException) -> Optional[RequestStats]:
+    return _find_on_chain(error, _UNRECORDED_USAGE)
+
+
+def failure_usage(error: BaseException) -> RequestStats:
+    """What a failed step spent that its caller has not counted: the usage it
+    attached, or else the failing LLM call's retry counters."""
+    pending = unrecorded_usage(error)
+    return pending if pending is not None else RequestStats(**retry_counts(error))
+
+
+def attach_request_usage(error: BaseException, usage: RequestStats) -> None:
+    """The whole request's usage up to the failure. The usage recorder only
+    sees the raised error, so this is how it learns what was spent."""
+    setattr(error, _REQUEST_USAGE, usage)
+
+
+def request_usage(error: BaseException) -> Optional[RequestStats]:
+    return _find_on_chain(error, _REQUEST_USAGE)
+
+
+def _find_on_chain(error: BaseException, attribute: str) -> Optional[RequestStats]:
+    for current in iter_exception_chain(error):
+        usage = getattr(current, attribute, None)
+        if isinstance(usage, RequestStats):
+            return usage
+    return None

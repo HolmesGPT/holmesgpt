@@ -1,0 +1,32 @@
+toolsets:
+  kubernetes/core:
+    enabled: false
+  kubernetes/logs:
+    enabled: false
+  loki-api:
+    type: http
+    enabled: true
+    config:
+      endpoints:
+        - hosts: ["localhost:3302"]
+          paths: ["/loki/api/v1/*"]
+          methods: ["GET"]
+          auth:
+            type: none
+      timeout_seconds: 30
+    llm_instructions: |
+      ### Loki HTTP API
+
+      Base URL: http://localhost:3302
+
+      Available endpoints (GET, parameters in the query string, URL-encoded):
+      - /loki/api/v1/query_range?query=<LogQL>&start=<time>&end=<time>&limit=<n>&direction=backward - Search logs
+      - /loki/api/v1/labels?start=<time>&end=<time> - List label names
+      - /loki/api/v1/label/<name>/values?start=<time>&end=<time> - List values of a label
+
+      `start` and `end` are RFC3339 timestamps (e.g. 2025-01-01T10:00:00Z) or
+      Unix epoch nanoseconds. Without them, Loki searches only the last hour.
+      LogQL examples:
+      - {namespace="prod", pod=~"web-.*"} - match pods by name prefix
+      - {app="checkout"} |= "timeout" - lines containing a string
+      - {namespace="prod"} |~ "(?i)error" - case-insensitive regex filter

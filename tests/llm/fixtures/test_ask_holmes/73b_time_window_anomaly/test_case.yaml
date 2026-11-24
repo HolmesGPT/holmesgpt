@@ -1,4 +1,4 @@
-user_prompt: "Were there issues with the cron-scheduler pod in app-73b?"
+user_prompt: "Were there issues with the cron-scheduler pod in app-73b? If so, when did they start and end relative to the pod's first log line?"
 tags:
   - logs
   - context_window
@@ -6,8 +6,8 @@ tags:
   - medium
   - benchmark
 expected_output:
-  - Cron scheduler pod experienced issues between 03:00-03:05 when it could not connect to an external API possibly due to a maintenance window
-  - Answer MUST include the time window of the issue (03:00-03:05)
+  - The cron-scheduler pod had a period of failed jobs caused by connection timeouts to an external API (api.external-service.com)
+  - The failures started about 15 seconds after the pod's first log line and ended about 20 seconds after it (each within 2 seconds)
 before_test: |
   # Create namespace first since the secret depends on it (|| true ignores if it already exists)
   kubectl create namespace app-73b || true
@@ -20,7 +20,7 @@ before_test: |
     if kubectl wait --for=condition=ready pod -l app=cron-scheduler -n app-73b --timeout=1s 2>/dev/null; then
       # Pod is ready, now get its name and check for all three required log lines
       POD_NAME=$(kubectl get pods -n app-73b -l app=cron-scheduler -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-      if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-73b 2>/dev/null | grep -q "Detected repeated failures during 03:00-03:05 window" && kubectl logs "$POD_NAME" -n app-73b 2>/dev/null | grep -q "System health check passed" && kubectl logs "$POD_NAME" -n app-73b 2>/dev/null | grep -q "Job executed successfully in 167ms\."; then
+      if [ -n "$POD_NAME" ] && kubectl logs "$POD_NAME" -n app-73b 2>/dev/null | grep -q "Scheduler started" && kubectl logs "$POD_NAME" -n app-73b 2>/dev/null | grep -q "System health check passed" && kubectl logs "$POD_NAME" -n app-73b 2>/dev/null | grep -q "Job executed successfully in 167ms\."; then
         echo "✅ All required log lines detected!"
         LOGS_READY=true
         break

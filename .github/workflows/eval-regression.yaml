@@ -46,6 +46,14 @@ permissions:
   contents: read
   issues: write
 
+env:
+  # Tool commands run under `ulimit -v`, which caps virtual address space,
+  # so Go binaries (kubectl, helm) can crash at startup before using any
+  # memory. Under parallel eval load the 800 MB default crashed ~20% of
+  # kubectl calls and 1200 MB crashed every one; 1536 MB crashed none in
+  # 1,600 runs. ROB-819 replaces the ulimit itself.
+  TOOL_MEMORY_LIMIT_MB: "1536"
+
 jobs:
   # Handle /list command - outputs available eval names
   list_evals:
@@ -56,10 +64,17 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // Check commenter has write access
-            const association = context.payload.comment.author_association;
-            if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
-              core.setFailed(`Permission denied: ${association} cannot use /list (requires OWNER, MEMBER, or COLLABORATOR)`);
+            // author_association is a relationship label, not permission:
+            // COLLABORATOR includes read/triage outside collaborators
+            // and MEMBER is public org membership. Query the real level.
+            const actor = context.payload.comment.user.login;
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: actor
+            });
+            if (!['admin', 'write'].includes(permission.permission)) {
+              core.setFailed(`Permission denied: ${actor} has ${permission.permission} access (requires write or admin)`);
               return;
             }
 
@@ -140,10 +155,17 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            // Check commenter has write access
-            const association = context.payload.comment.author_association;
-            if (!['OWNER', 'MEMBER', 'COLLABORATOR'].includes(association)) {
-              core.setFailed(`Permission denied: ${association} cannot trigger /eval (requires OWNER, MEMBER, or COLLABORATOR)`);
+            // author_association is a relationship label, not permission:
+            // COLLABORATOR includes read/triage outside collaborators
+            // and MEMBER is public org membership. Query the real level.
+            const actor = context.payload.comment.user.login;
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: actor
+            });
+            if (!['admin', 'write'].includes(permission.permission)) {
+              core.setFailed(`Permission denied: ${actor} has ${permission.permission} access (requires write or admin)`);
               return;
             }
 
@@ -175,6 +197,11 @@ jobs:
                         'Or use `workflow_dispatch` with `is_pr_trusted: true` from the Actions UI.'
                 });
                 core.setFailed('Fork PRs require trusted: true to run /eval or /rerun');
+                return;
+              }
+              // Whoever releases secrets to fork code must not be its author
+              if (actor === pr.data.user.login) {
+                core.setFailed('The PR author cannot mark their own fork PR trusted - another maintainer must run /eval');
                 return;
               }
               core.warning(`Running /eval on trusted fork PR #${context.issue.number} - fork code will have access to secrets`);
@@ -742,6 +769,12 @@ jobs:
             docker load -i "$CACHE_DIR/images/kind-node.tar"
           fi
 
+          # Same inotify limits as .github/actions/setup-kind-cluster: every
+          # pod on the KIND node shares them, and the runner default of 128
+          # instances runs out under a full eval set (promtail then exits).
+          sudo sysctl -w fs.inotify.max_user_instances=512
+          sudo sysctl -w fs.inotify.max_user_watches=524288
+
           # === Create KIND cluster ===
           cat > /tmp/kind-config.yaml << 'EOF'
           kind: Cluster
@@ -989,6 +1022,25 @@ jobs:
           ${{ secrets.MODEL_LIST_YAML }}
           EOF
 
+      - name: Verify models
+        if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.model != ''
+        uses: ./code/.github/actions/verify-models
+        with:
+          models: ${{ steps.eval-params.outputs.model }}
+          working-directory: code
+        env:
+          AZURE_API_BASE: ${{ secrets.AZURE_API_BASE }}
+          AZURE_API_KEY: ${{ secrets.AZURE_API_KEY }}
+          AZURE_API_VERSION: ${{ secrets.AZURE_API_VERSION }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          MODEL_LIST_FILE_LOCATION: /tmp/model_list.yaml
+
       - name: Collect evals to run
         if: steps.check-tests.outputs.should-run == 'true' && steps.eval-params.outputs.pr_number != ''
         id: test-preview
@@ -1207,7 +1259,7 @@ jobs:
           AWS_REGION_NAME: ${{ vars.AWS_REGION_NAME }}
           MODEL: ${{ steps.eval-params.outputs.model }}
           ITERATIONS: ${{ steps.eval-params.outputs.iterations }}
-          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-4.1' }}
+          CLASSIFIER_MODEL: ${{ vars.CLASSIFIER_MODEL || 'gpt-6.1-sol-medium' }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -1239,6 +1291,8 @@ jobs:
           EVAL_MARKER_EXPR: ${{ steps.eval-params.outputs.marker_expr }}
           EVAL_FILTER: ${{ steps.eval-params.outputs.filter }}
           EVAL_BRANCH: ${{ steps.eval-params.outputs.branch }}
+          # Keeps the log streaming live while stdout is a pipe into tee.
+          PYTHONUNBUFFERED: "1"
         run: |
           # Unset MODEL if empty so get_models() uses DEFAULT_MODEL
           [[ -z "$MODEL" ]] && unset MODEL
@@ -1265,8 +1319,8 @@ jobs:
           [[ -n "$EVAL_FILTER" ]] && PYTEST_ARGS+=(-k "$EVAL_FILTER")
           echo "  pytest args: ${PYTEST_ARGS[*]}"
           set +e
-          poetry run pytest "${PYTEST_ARGS[@]}"
-          PYTEST_EXIT=$?
+          poetry run pytest "${PYTEST_ARGS[@]}" 2>&1 | tee "$RUNNER_TEMP/eval-output.log"
+          PYTEST_EXIT=${PIPESTATUS[0]}
           set -e
           echo "pytest_exit=$PYTEST_EXIT" >> $GITHUB_OUTPUT
 
@@ -1340,6 +1394,23 @@ jobs:
             echo "duration=$((DURATION/60))m $((DURATION%60))s" >> $GITHUB_OUTPUT
           else
             echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
+          fi
+
+      # The Braintrust SDK drops a whole upload batch when the API rejects one
+      # record in it, so results vanish from the experiment while every test
+      # still reports normally. Warn rather than fail: the pytest output and
+      # report still hold every result.
+      - name: Check for dropped Braintrust uploads
+        if: always() && steps.check-tests.outputs.should-run == 'true'
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/eval-output.log"
+          [[ -f "$LOG" ]] || exit 0
+          DROPS=$(grep -c "Dropping batch" "$LOG" || true)
+          if [[ "$DROPS" -gt 0 ]]; then
+            echo "::warning title=Braintrust uploads dropped::Braintrust dropped $DROPS upload batches, so the experiment is missing results. Search the eval step's log for 'Dropping batch' to see the rejected records."
+            echo "> [!WARNING]" >> "$GITHUB_STEP_SUMMARY"
+            echo "> Braintrust dropped $DROPS upload batches; the experiment is missing results." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Post evaluation results

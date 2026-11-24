@@ -51,6 +51,7 @@ class HolmesAPIClient:
         mode: str,
         destinations: list,
         model: Optional[str] = None,
+        namespace: Optional[str] = None,
     ) -> CheckResponse:
         """
         Execute a health check via Holmes API.
@@ -64,6 +65,7 @@ class HolmesAPIClient:
             mode: "alert" or "monitor"
             destinations: List of destination configurations
             model: Optional model override
+            namespace: Namespace the check runs in (forwarded to alert payloads)
 
         Returns:
             CheckResponse
@@ -81,11 +83,14 @@ class HolmesAPIClient:
         }
         if model:
             payload["model"] = model
+        if namespace:
+            payload["namespace"] = namespace
 
         logger.info(
             f"Executing check '{check_name}' via Holmes API: {url}",
             extra={
                 "check_name": check_name,
+                "namespace": namespace,
                 "query": query[:100],
                 "mode": mode,
                 "timeout": timeout,

@@ -3,6 +3,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from holmes.core.conversation_links import sanitize_conversation_link
 from holmes.plugins.prompts import load_and_render_prompt
 from holmes.plugins.skills.skill_loader import SkillCatalog
 from holmes.utils.global_instructions import Instructions, generate_skills_args
@@ -23,11 +24,24 @@ class PromptComponent(str, Enum):
     GENERAL_INSTRUCTIONS = "general_instructions"
     STYLE_GUIDE = "style_guide"
     CLUSTER_NAME = "cluster_name"
+    SCOPED_NAMESPACES = "scoped_namespaces"
+    CONVERSATION_LINK = "conversation_link"
     SYSTEM_PROMPT_ADDITIONS = "system_prompt_additions"
 
 
-# Components that are disabled by default (can be explicitly enabled via overrides or env var)
-DISABLED_BY_DEFAULT: set = set()
+# Fast mode is the default (ROB-574): the TodoWrite planning phase is off unless a
+# caller opts in via behavior_controls / --extended-planning, or ENABLED_PROMPTS
+# lists the component explicitly.
+TODOWRITE_COMPONENTS: Tuple[PromptComponent, ...] = (
+    PromptComponent.TODOWRITE_INSTRUCTIONS,
+    PromptComponent.TODOWRITE_REMINDER,
+)
+DISABLED_BY_DEFAULT: set = set(TODOWRITE_COMPONENTS)
+
+
+def todowrite_overrides(enabled: bool) -> Dict[PromptComponent, bool]:
+    """Prompt component overrides that turn the TodoWrite planning phase on or off."""
+    return {component: enabled for component in TODOWRITE_COMPONENTS}
 
 
 class InvalidImageDictError(ValueError):
@@ -74,24 +88,37 @@ def build_vision_content(
     return content
 
 
+def get_scoped_namespaces() -> List[str]:
+    """
+    Namespaces this Holmes instance's RBAC is limited to (comma-separated in the
+    SCOPED_NAMESPACES env var; the helm chart sets it when namespaceScopedRBAC is on).
+    Empty means cluster-wide access - no scope instructions are added to the prompt.
+    """
+    scoped_namespaces = os.environ.get("SCOPED_NAMESPACES", "")
+    return [ns.strip() for ns in scoped_namespaces.split(",") if ns.strip()]
+
+
+def _env_enabled_prompts() -> Optional[set]:
+    """
+    Parse the ENABLED_PROMPTS environment variable.
+
+    - Unset or blank: None (no restriction; per-component defaults apply)
+    - "none": empty set (every component disabled)
+    - Comma-separated names (e.g., "files,time_skills"): the listed components
+    """
+    raw = os.environ.get("ENABLED_PROMPTS", "").strip()
+    if not raw:
+        return None
+    if raw.lower() == "none":
+        return set()
+    names = {x.strip().lower() for x in raw.split(",") if x.strip()}
+    return names or None
+
+
 def is_prompt_allowed_by_env(component: PromptComponent) -> bool:
-    """
-    Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable.
-
-    Environment variable: ENABLED_PROMPTS
-    - If not set: all prompts are ENABLED (production default)
-    - If set to "none": all prompts are disabled
-    - Comma-separated names (e.g., "files,time_skills")
-    """
-    enabled_prompts = os.environ.get("ENABLED_PROMPTS", "")
-
-    if not enabled_prompts:
-        return True  # Default: all enabled
-    if enabled_prompts.lower() == "none":
-        return False
-
-    enabled_names = [x.strip().lower() for x in enabled_prompts.split(",")]
-    return component.value in enabled_names
+    """Check if a prompt component is allowed by the ENABLED_PROMPTS environment variable."""
+    allowed = _env_enabled_prompts()
+    return allowed is None or component.value in allowed
 
 
 def is_component_enabled(
@@ -102,16 +129,19 @@ def is_component_enabled(
     Check if a prompt component is enabled, considering both env var and API overrides.
 
     Precedence: env var > API override > default
-    - If env var disables component: always disabled (API can't override)
-    - If env var allows component: API override decides, or use default
-    - Default is enabled for most components, except those in DISABLED_BY_DEFAULT
+    - ENABLED_PROMPTS set and component not listed: always disabled (API can't override)
+    - API override present: it decides
+    - ENABLED_PROMPTS lists the component: enabled
+    - Otherwise: enabled unless the component is in DISABLED_BY_DEFAULT
     """
-    env_allowed = is_prompt_allowed_by_env(component)
-    if not env_allowed:
-        return False  # env var wins, can't override to enabled
+    allowed = _env_enabled_prompts()
+    if allowed is not None and component.value not in allowed:
+        return False
     if overrides and component in overrides:
-        return overrides[component]  # env allows, API decides
-    return component not in DISABLED_BY_DEFAULT  # env allows, no override, use default
+        return overrides[component]
+    if allowed is not None:
+        return True
+    return component not in DISABLED_BY_DEFAULT
 
 
 def append_file_to_user_prompt(user_prompt: str, file_path: Path) -> str:
@@ -180,6 +210,7 @@ def build_system_prompt(
     cluster_name: Optional[str],
     ask_user_enabled: bool,
     prompt_component_overrides: Dict[PromptComponent, bool],
+    conversation_link: Optional[str] = None,
 ) -> Optional[str]:
     """
     Build the system prompt for both CLI and server modes.
@@ -206,6 +237,12 @@ def build_system_prompt(
         and is_enabled(PromptComponent.TIME_SKILLS),
         "cluster_name": cluster_name
         if is_enabled(PromptComponent.CLUSTER_NAME)
+        else None,
+        "scoped_namespaces": get_scoped_namespaces()
+        if is_enabled(PromptComponent.SCOPED_NAMESPACES)
+        else [],
+        "conversation_link": sanitize_conversation_link(conversation_link)
+        if is_enabled(PromptComponent.CONVERSATION_LINK)
         else None,
         "toolsets": toolsets if toolset_instructions_enabled else [],
         "system_prompt_additions": system_prompt_additions
@@ -268,6 +305,7 @@ def build_prompts(
     include_todowrite_reminder: bool,
     images: Optional[List[Union[str, Dict[str, Any]]]],
     prompt_component_overrides: Optional[Dict[PromptComponent, bool]] = None,
+    conversation_link: Optional[str] = None,
 ) -> Tuple[Optional[str], UserPromptContent]:
     """Build both system and user prompts."""
     if prompt_component_overrides is None:
@@ -280,6 +318,7 @@ def build_prompts(
         cluster_name=cluster_name,
         ask_user_enabled=ask_user_enabled,
         prompt_component_overrides=prompt_component_overrides,
+        conversation_link=conversation_link,
     )
     user_content = build_user_prompt(
         user_prompt=user_prompt,

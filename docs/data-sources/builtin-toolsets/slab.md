@@ -6,35 +6,14 @@ Retrieve your Slab [API token](https://help.slab.com/en/articles/6545629-develop
 
 ## Configuration
 
-=== "Holmes CLI"
-
-    First, set the environment variable:
-    ```bash
-    export SLAB_API_KEY="<your Slab API key>"
-    ```
-
-    Then add the following to **~/.holmes/config.yaml**. Create the file if it doesn't exist:
-    ```yaml
-    toolsets:
-        slab:
-            enabled: true
-    ```
-
-    --8<-- "snippets/toolset_refresh_warning.md"
-
-=== "Robusta Helm Chart"
-
-    ```yaml
-    holmes:
-        additionalEnvVars:
-            - name: SLAB_API_KEY
-              value: "<your Slab API key>"
-        toolsets:
-            slab:
-                enabled: true
-    ```
-
-    --8<-- "snippets/helm_upgrade_command.md"
+```yaml-toolset-config
+toolsets:
+  slab:
+    enabled: true
+---
+secret:
+  - --from-literal=SLAB_API_KEY="<your Slab API key>"
+```
 
 To test, run:
 

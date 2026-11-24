@@ -1,6 +1,7 @@
-# MCP Atlassian server (stdio mode via uvx) for Confluence image attachment tests
-# Uses personal API key credentials (user + token) directly against the Confluence instance.
-# We append /wiki because mcp-atlassian expects the Confluence wiki base path.
+# MCP Atlassian server (stdio mode via uvx) for Confluence image attachment tests.
+# The service-account token is scoped, so it only works through the api.atlassian.com
+# gateway (CONFLUENCE_SA_BASE_URL, derived in conftest.py). atlassian-python-api 5.x
+# breaks mcp-atlassian 0.21.0's get_page_by_title, so it is pinned to 4.0.7.
 toolsets:
   atlassian-mcp:
     type: mcp
@@ -8,11 +9,11 @@ toolsets:
     config:
       mode: stdio
       command: "uvx"
-      args: ["mcp-atlassian==0.21.0"]
+      args: ["--with", "atlassian-python-api==4.0.7", "mcp-atlassian==0.21.0"]
       env:
-        CONFLUENCE_URL: "{{ env.CONFLUENCE_BASE_URL }}/wiki"
-        CONFLUENCE_USERNAME: "{{ env.CONFLUENCE_USER }}"
-        CONFLUENCE_API_TOKEN: "{{ env.CONFLUENCE_API_KEY }}"
+        CONFLUENCE_URL: "{{ env.CONFLUENCE_SA_BASE_URL }}/wiki"
+        CONFLUENCE_USERNAME: "{{ env.CONFLUENCE_SA_USER }}"
+        CONFLUENCE_API_TOKEN: "{{ env.CONFLUENCE_SA_API_KEY }}"
         READ_ONLY_MODE: "true"
   confluence:
     enabled: false

@@ -119,6 +119,9 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      # Image is amd64-only
+      nodeSelector:
+        kubernetes.io/arch: amd64
       containers:
       - name: bidder
         image: me-west1-docker.pkg.dev/robusta-development/development/python-flask-otel:2.2
