@@ -171,7 +171,7 @@ class MCPConfig(ToolsetConfig):
     extra_headers: Optional[Dict[str, str]] = Field(
         default=None,
         title="Extra Headers",
-        description="Template headers that will be rendered with request context and environment variables.",
+        description="Template headers rendered for each connection with request context, environment variables and read_file('/path').",
         examples=[
             {
                 "X-Custom-Header": "{{ request_context.headers['X-Custom-Header'] }}",

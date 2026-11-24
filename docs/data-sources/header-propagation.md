@@ -25,6 +25,7 @@ Templates can reference:
 
 - **`{{ request_context.headers['Header-Name'] }}`** -- a header from the incoming HTTP request (case-insensitive lookup)
 - **`{{ env.ENV_VAR }}`** -- an environment variable
+- **`{{ read_file('/path/to/file') }}`** -- a file's contents without surrounding whitespace, read each time the headers are rendered, so a credential rotated in place, such as a projected Kubernetes service account token, is picked up without a restart. A missing file leaves the header out and logs a warning.
 - **Plain strings** -- static values that don't need rendering
 
 ## Toolset Examples

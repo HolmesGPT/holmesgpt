@@ -21,7 +21,8 @@ from holmes.core.tools import (
     ToolInvokeContext,
     YAMLTool,
 )
-from holmes.utils.header_rendering import render_header_templates
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPToolset
+from holmes.utils.header_rendering import render_env_template, render_header_templates
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +88,40 @@ class TestRenderTemplateHeaders:
         assert result["Authorization"] == "Bearer s3cr3t"
         assert result["X-Org-Id"] == "org-42"
         assert result["X-Version"] == "v1"
+
+    def test_read_file(self, tmp_path):
+        token = tmp_path / "token"
+        token.write_text("from-file\n")
+        result = render_header_templates(
+            {"Authorization": f"Bearer {{{{ read_file('{token}') }}}}"}
+        )
+        assert result == {"Authorization": "Bearer from-file"}
+
+    def test_read_file_is_read_on_every_render(self, tmp_path):
+        token = tmp_path / "token"
+        headers = {"Authorization": f"Bearer {{{{ read_file('{token}') }}}}"}
+        token.write_text("first")
+        assert render_header_templates(headers)["Authorization"] == "Bearer first"
+        token.write_text("rotated")
+        assert render_header_templates(headers)["Authorization"] == "Bearer rotated"
+
+    def test_read_file_missing_skips_header(self, tmp_path):
+        missing = tmp_path / "absent"
+        result = render_header_templates(
+            {
+                "Authorization": f"Bearer {{{{ read_file('{missing}') }}}}",
+                "X-Static": "kept",
+            }
+        )
+        assert result == {"X-Static": "kept"}
+
+    def test_read_file_not_available_at_load_time(self, tmp_path):
+        """Load-time env templates (render_env_template) stay env-only: a
+        read_file there fails to render and the value is returned unchanged."""
+        token = tmp_path / "token"
+        token.write_text("from-file")
+        value = f"Bearer {{{{ read_file('{token}') }}}}"
+        assert render_env_template(value) == value
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +408,32 @@ class TestMCPConfigExtraHeaders:
 
         assert rendered is not None
         assert rendered["X-Shared"] == "from-extra"
+
+    def test_extra_headers_read_file_follows_rotation(self, tmp_path):
+        """A token file rotated in place (such as a projected service account
+        token) is picked up on the next connection, without a restart."""
+        token = tmp_path / "token"
+        token.write_text("first\n")
+        mcp_toolset = RemoteMCPToolset(
+            name="test_mcp",
+            description="Test toolset",
+            config={
+                "url": "http://localhost:1234",
+                "extra_headers": {
+                    "Authorization": f"Bearer {{{{ read_file('{token}') }}}}"
+                },
+            },
+        )
+        mcp_toolset.prerequisites_callable(config=mcp_toolset.config)
+
+        rendered = mcp_toolset._render_headers(None)
+        assert rendered is not None
+        assert rendered["Authorization"] == "Bearer first"
+
+        token.write_text("rotated\n")
+        rendered = mcp_toolset._render_headers(None)
+        assert rendered is not None
+        assert rendered["Authorization"] == "Bearer rotated"
 
 
 # ---------------------------------------------------------------------------
