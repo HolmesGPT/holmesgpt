@@ -70,3 +70,66 @@ async def test_no_key_sends_no_header(tmp_path, configured):
     await _check(_client(seen, key_file))
 
     assert seen == [None]
+
+
+# ---------------------------------------------------------------------------
+# HTTPS: the key only travels to a server whose certificate the operator trusts
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def https_holmes(tmp_path):
+    """A local HTTPS server with a self-signed certificate for localhost,
+    recording the X-API-Key it receives."""
+    import json
+    import ssl
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from tests.plugins.toolsets.test_prometheus_ssl import generate_self_signed_cert
+
+    cert, key = tmp_path / "tls.crt", tmp_path / "tls.key"
+    generate_self_signed_cert(str(cert), str(key))
+    seen: List[Optional[str]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            seen.append(self.headers.get("X-API-Key"))
+            body = json.dumps(OK).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("localhost", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(str(cert), str(key))
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"https://localhost:{server.server_address[1]}", str(cert), seen
+    server.shutdown()
+
+
+async def test_https_with_the_holmes_ca_sends_the_key(https_holmes, monkeypatch):
+    url, ca_file, seen = https_holmes
+    monkeypatch.setenv("HOLMES_API_KEY", "op-key")
+    await _check(HolmesAPIClient(url, ca_file=ca_file))
+    assert seen == ["op-key"]
+
+
+@pytest.mark.parametrize("ca_file", ["", "/nonexistent/ca.crt"])
+async def test_https_with_an_untrusted_certificate_never_sends_the_key(https_holmes, monkeypatch, ca_file):
+    """Without the CA (none configured, or the optional mount empty), the
+    system trust store rejects the certificate before any request is sent."""
+    url, _, seen = https_holmes
+    monkeypatch.setenv("HOLMES_API_KEY", "op-key")
+    client = HolmesAPIClient(url, ca_file=ca_file)
+    # The client's own connection, without execute_check's retry/backoff.
+    with pytest.raises(httpx.ConnectError):
+        await client.client.post(f"{url}/api/checks/execute", json={}, headers=client._auth_headers())
+    assert seen == []

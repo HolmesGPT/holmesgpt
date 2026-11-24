@@ -2,7 +2,8 @@
 
 import logging
 import os
-from typing import Optional
+import ssl
+from typing import Optional, Union
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -23,7 +24,13 @@ class HolmesAPIClient:
     - Error handling and logging
     """
 
-    def __init__(self, base_url: str, timeout: int = 300, api_key_file: str = ""):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 300,
+        api_key_file: str = "",
+        ca_file: str = "",
+    ):
         """
         Initialize the Holmes API client.
 
@@ -33,6 +40,8 @@ class HolmesAPIClient:
             api_key_file: File holding the API key to send. Re-read on every
                 request so a rotated Secret is used without a restart.
                 The HOLMES_API_KEY env var takes precedence when set.
+            ca_file: CA bundle that signed the Holmes server certificate, for
+                an https:// base_url. Without it, the system trust store is used.
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -40,8 +49,30 @@ class HolmesAPIClient:
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(timeout=timeout, connect=10.0),
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20),
+            verify=self._tls_verify(ca_file),
         )
-        logger.info(f"Initialized Holmes API client for {self.base_url}")
+        if self.base_url.startswith("http://"):
+            logger.info(
+                f"Initialized Holmes API client for {self.base_url} (plain HTTP: the "
+                "API key travels unencrypted; enable tls in the chart to use HTTPS)"
+            )
+        else:
+            logger.info(f"Initialized Holmes API client for {self.base_url}")
+
+    @staticmethod
+    def _tls_verify(ca_file: str) -> Union[bool, ssl.SSLContext]:
+        """The certificate check for HTTPS: the given CA bundle, else the system
+        trust store. The chart mounts the CA as an optional file: when the
+        Secret has no such key, the file is missing and the system store is used."""
+        if ca_file and os.path.isfile(ca_file):
+            logger.info(f"Verifying the Holmes API certificate against {ca_file}")
+            return ssl.create_default_context(cafile=ca_file)
+        if ca_file:
+            logger.warning(
+                f"Holmes API CA file {ca_file} not found; verifying the Holmes API "
+                "certificate against the system trust store"
+            )
+        return True
 
     @retry(
         stop=stop_after_attempt(3),

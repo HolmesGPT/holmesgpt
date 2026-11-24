@@ -100,6 +100,8 @@ holmesApiUrl: "http://holmes-api.monitoring:80"
 
 The Holmes API requires an API key. The operator sends the chart's generated default key (see `apiAuth` in the chart values), so no setup is needed when the operator and Holmes come from the same release. For a Holmes API in another release, or with `apiAuth.defaultKey: false`, give the operator a key Holmes accepts with `operator.additionalEnvVars` (`HOLMES_API_KEY`).
 
+By default the operator calls Holmes over plain HTTP inside the cluster, so the key is sent unencrypted. Turn on TLS for Holmes (`tls.enabled` and `tls.secretName` in the chart values) to encrypt it: the operator then calls `https://<release-name>-holmes:80` and verifies the certificate against the `ca.crt` in Holmes' TLS Secret (the layout cert-manager writes). Use `operator.holmesApiCa` to point at another Secret or key, for example `key: tls.crt` for a self-signed certificate. With mutual TLS (`tls.caCertsSecretKey`), the operator would also need a client certificate, which the chart does not configure.
+
 **holmesApiTimeout** (integer)
 
 Maximum time in seconds to wait for Holmes API responses.

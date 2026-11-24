@@ -1088,6 +1088,17 @@ operator:
   # Holmes API connection
   holmesApiUrl: ""  # Defaults to "http://<release-name>-holmes:80"
   holmesApiTimeout: 300  # seconds
+  # The operator sends the Holmes API key on every call. Without tls (above),
+  # it goes over plain HTTP inside the cluster. With tls.enabled the operator
+  # calls https://<release>-holmes:80 and verifies the certificate against
+  # this CA (secretName defaults to tls.secretName, the key to "ca.crt" as
+  # cert-manager writes it; with no such key the system trust store is used).
+  # A self-signed certificate is its own CA: set key to tls.crt. With mTLS
+  # (tls.caCertsSecretKey) the operator would also need a client certificate,
+  # which the chart does not configure.
+  holmesApiCa:
+    secretName: ""
+    key: ""
 
   # Logging
   logLevel: INFO

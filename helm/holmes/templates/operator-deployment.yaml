@@ -1,4 +1,15 @@
 {{- if .Values.operator.enabled }}
+{{- /* With tls on, Holmes serves HTTPS on the same Service port: the operator
+calls it over https and trusts the CA in operator.holmesApiCa, by default the
+ca.crt of Holmes' own TLS Secret (cert-manager's layout). The CA volume is
+optional: without that key the system trust store is used. */}}
+{{- $tls := .Values.tls | default dict }}
+{{- $holmesApiCa := .Values.operator.holmesApiCa | default dict }}
+{{- $caSecret := $holmesApiCa.secretName }}
+{{- if and (not $caSecret) $tls.enabled }}{{- $caSecret = $tls.secretName }}{{- end }}
+{{- $caKey := $holmesApiCa.key | default "ca.crt" }}
+{{- $scheme := ternary "https" "http" (eq (toString $tls.enabled) "true") }}
+{{- $mounts := or (include "holmes.apiAuth.enabled" .) $caSecret }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,7 +59,7 @@ spec:
           - holmes_operator.operator
         env:
         - name: HOLMES_API_URL
-          value: {{ .Values.operator.holmesApiUrl | default (printf "http://%s-holmes:80" .Release.Name) }}
+          value: {{ .Values.operator.holmesApiUrl | default (printf "%s://%s-holmes:80" $scheme .Release.Name) }}
         - name: HOLMES_API_TIMEOUT
           value: {{ .Values.operator.holmesApiTimeout | default 300 | quote }}
         - name: LOG_LEVEL
@@ -66,12 +77,23 @@ spec:
         - name: HOLMES_API_KEY_FILE
           value: {{ include "holmes.apiAuth.clientMountPath" . }}/token
         {{- end }}
+        {{- if $caSecret }}
+        - name: HOLMES_API_CA_FILE
+          value: /etc/holmes-operator/holmes-ca/{{ $caKey }}
+        {{- end }}
         {{- if .Values.operator.additionalEnvVars }}
         {{- toYaml .Values.operator.additionalEnvVars | nindent 8 }}
         {{- end }}
-        {{- if include "holmes.apiAuth.enabled" . }}
+        {{- if $mounts }}
         volumeMounts:
+          {{- if include "holmes.apiAuth.enabled" . }}
           {{- include "holmes.apiAuth.clientVolumeMount" . | nindent 10 }}
+          {{- end }}
+          {{- if $caSecret }}
+          - name: holmes-api-ca
+            mountPath: /etc/holmes-operator/holmes-ca
+            readOnly: true
+          {{- end }}
         {{- end }}
         resources:
           requests:
@@ -98,8 +120,19 @@ spec:
       affinity:
         {{- toYaml .Values.operator.affinity | nindent 8 }}
       {{- end }}
-      {{- if include "holmes.apiAuth.enabled" . }}
+      {{- if $mounts }}
       volumes:
+        {{- if include "holmes.apiAuth.enabled" . }}
         {{- include "holmes.apiAuth.clientVolume" . | nindent 8 }}
+        {{- end }}
+        {{- if $caSecret }}
+        - name: holmes-api-ca
+          secret:
+            secretName: {{ $caSecret }}
+            optional: true
+            items:
+              - key: {{ $caKey }}
+                path: {{ $caKey }}
+        {{- end }}
       {{- end }}
 {{- end }}

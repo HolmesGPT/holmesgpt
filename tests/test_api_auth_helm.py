@@ -528,3 +528,50 @@ def test_script_fails_loudly_on_api_errors(bootstrap_job, tmp_path, error_key):
     )
     assert proc.returncode != 0
     assert "Forbidden" in proc.stderr
+
+
+# ---------------------------------------------------------------------------
+# The operator follows Holmes' tls setting
+# ---------------------------------------------------------------------------
+
+
+def operator_container(*sets: str) -> tuple:
+    d = find(render(*sets), "Deployment", OPERATOR_DEPLOYMENT)
+    return d, container(d, "operator")
+
+
+def test_operator_uses_http_when_holmes_has_no_tls():
+    d, c = operator_container()
+    assert env_value(c, "HOLMES_API_URL") == f"http://{RELEASE}-holmes:80"
+    assert env_value(c, "HOLMES_API_CA_FILE") is None
+    assert [v["name"] for v in pod_spec(d)["volumes"]] == ["holmes-api-key"]
+
+
+@pytest.mark.parametrize(
+    "extra,ca_key",
+    [((), "ca.crt"), (("operator.holmesApiCa.key=tls.crt",), "tls.crt")],
+)
+def test_operator_calls_holmes_over_https_and_trusts_its_ca(extra, ca_key):
+    """With tls on, Holmes serves HTTPS on the same Service port: the operator
+    must use https (plain http fails) and verify against Holmes' CA, so the
+    key never travels unencrypted."""
+    d, c = operator_container("tls.enabled=true", "tls.secretName=holmes-tls", *extra)
+    assert env_value(c, "HOLMES_API_URL") == f"https://{RELEASE}-holmes:80"
+    assert env_value(c, "HOLMES_API_CA_FILE") == f"/etc/holmes-operator/holmes-ca/{ca_key}"
+    ca = next(v for v in pod_spec(d)["volumes"] if v["name"] == "holmes-api-ca")
+    assert ca["secret"] == {
+        "secretName": "holmes-tls",
+        # Optional: without the key, the system trust store is used.
+        "optional": True,
+        "items": [{"key": ca_key, "path": ca_key}],
+    }
+
+
+def test_explicit_operator_url_and_ca_secret_are_kept():
+    _, c = operator_container(
+        "operator.holmesApiUrl=https://holmes.other:443",
+        "operator.holmesApiCa.secretName=my-ca",
+        "operator.holmesApiCa.key=bundle.pem",
+    )
+    assert env_value(c, "HOLMES_API_URL") == "https://holmes.other:443"
+    assert env_value(c, "HOLMES_API_CA_FILE") == "/etc/holmes-operator/holmes-ca/bundle.pem"
