@@ -53,6 +53,9 @@ class RobustaModelsResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     models: Dict[str, RobustaModel]
     robusta_ai_disabled: bool = False
+    # The account default as relay stores it. It can be a model only some
+    # agents define, so it is not always a key of `models`.
+    default_model: Optional[str] = None
 
 
 def _is_retryable_fetch_error(exc: BaseException) -> bool:

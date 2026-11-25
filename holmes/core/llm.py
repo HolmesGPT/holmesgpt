@@ -1049,6 +1049,7 @@ class LLMModelRegistry:
         # the registry then serves only what the cluster configured, and an
         # empty catalog must not be healed with the legacy fallback entry.
         self._robusta_ai_disabled: bool = False
+        self._account_default_model: Optional[str] = None
         self.dal = dal
         self._lock = threading.RLock()
         self._robusta_refresh_failures = 0
@@ -1068,6 +1069,13 @@ class LLMModelRegistry:
     @property
     def robusta_ai_disabled(self) -> bool:
         return self._robusta_ai_disabled
+
+    @property
+    def account_default_model(self) -> Optional[str]:
+        """The account default relay reports with its catalog, hosted or
+        agent-defined. None until a catalog is loaded, or when the account
+        opted out of Robusta-hosted models."""
+        return self._account_default_model
 
     def _init_models(self):
         # Precedence for the model list file:
@@ -1329,6 +1337,7 @@ class LLMModelRegistry:
                 if not entry.is_robusta_model
             }
             self._default_robusta_model = None
+            self._account_default_model = None
             self._robusta_ai_disabled = True
 
         if changed:
@@ -1350,6 +1359,7 @@ class LLMModelRegistry:
         the registry is shared.
         """
         self._robusta_ai_disabled = False
+        self._account_default_model = robusta_models.default_model
         incoming = set(robusta_models.models)
         current = {n for n, entry in self._llms.items() if entry.is_robusta_model}
 
