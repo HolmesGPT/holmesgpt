@@ -198,11 +198,11 @@ If you have a single Holmes agent that needs to query AWS resources across multi
 
 ```bash
 # Download the setup script
-curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/scripts/setup-multi-account-iam.sh
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws-multi-account/scripts/setup-multi-account-iam.sh
 chmod +x setup-multi-account-iam.sh
 
 # Download example configuration file and the read-only policy
-curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/scripts/multi-cluster-config-example.yaml
+curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws-multi-account/scripts/multi-cluster-config-example.yaml
 curl -O https://raw.githubusercontent.com/robusta-dev/holmes-mcp-integrations/master/servers/aws/aws-mcp-iam-policy.json
 ```
 
