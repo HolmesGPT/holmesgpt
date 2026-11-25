@@ -249,7 +249,6 @@ def test_compaction(
             test_case=test_case,
             model=model,
             result=None,
-            mock_generation_config=None,
         )
         raise
 
