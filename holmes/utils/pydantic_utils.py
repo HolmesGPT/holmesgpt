@@ -227,7 +227,7 @@ def load_model_from_file(
             f"Invalid config file at {file_path}. Check the fields {bad_fields}.\nSee detailed errors above.",
             fg="red",
         )
-        sys.exit()
+        sys.exit(1)
 
 def build_config_example(model: Type[BaseModel] | BaseModel) -> Dict[str, Any]:
     """
