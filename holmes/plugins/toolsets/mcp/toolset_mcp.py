@@ -61,6 +61,18 @@ REMOTE_TOOL_SESSION_PREFIXES_PARAM = "__robusta_session_approved_prefixes"
 # so we evaluate it once at tool-load time and store the result on the tool as
 # `is_remote` rather than re-sniffing the name on every invoke/one-liner call.
 REMOTE_TOOL_NAME_PREFIX = "remote_"
+# An MCP server that passes the user's OAuth token through to a backend (e.g. the
+# Kubernetes MCP server in passthrough mode) never answers 401 itself: the backend's
+# rejection comes back as ordinary tool output. These are the texts that mean "the
+# bearer token was not accepted": client-go's wording for a 401, an HTTP status
+# line, or "Unauthorized" as the whole error reason. A bare "unauthorized" or "401"
+# anywhere is not enough — it also appears in resource names.
+_TOKEN_REJECTED_RE = re.compile(
+    r"the server has asked for the client to provide credentials"
+    r"|\b401 unauthorized\b"
+    r"|(?:^|:\s*)unauthorized\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 display_logger = logging.getLogger("holmes.display.mcp_toolset")
 
 
@@ -514,6 +526,42 @@ class RemoteMCPTool(Tool):
                 invocation=f"OAuth connect to {self.toolset.name}",
             )
 
+    def _oauth_config(self) -> Optional[MCPOAuthConfig]:
+        """The toolset's OAuth config when per-user OAuth tokens are in use, else None."""
+        mcp_config = getattr(self.toolset, "_mcp_config", None)
+        if not isinstance(mcp_config, MCPConfig):
+            return None
+        oauth_config = mcp_config.oauth
+        if oauth_config and oauth_config.enabled and oauth_config.authorization_url:
+            return oauth_config
+        return None
+
+    def _drop_rejected_oauth_token(
+        self,
+        error_text: str,
+        request_context: Optional[Dict[str, Any]],
+        sent_token: Optional[str],
+    ) -> bool:
+        """Forget the OAuth token this call sent when a tool error says it was rejected.
+
+        Without this the dead token keeps being sent: requires_approval() still
+        finds it, so the user never gets the login prompt back. Returns True when
+        the token was removed.
+        """
+        oauth_config = self._oauth_config()
+        if not oauth_config or not sent_token:
+            return False
+        if not _TOKEN_REJECTED_RE.search(error_text):
+            return False
+        removed = _get_token_manager().invalidate_token(oauth_config, request_context, sent_token)
+        logger.warning(
+            "OAuth MCP %s: token rejected during tool %s (removed=%s)",
+            self.toolset.name,
+            self.name,
+            removed,
+        )
+        return removed
+
     @staticmethod
     def _is_content_error(content: str) -> bool:
         try:  # aws mcp sometimes returns an error in content - status code != 200
@@ -636,6 +684,15 @@ class RemoteMCPTool(Tool):
                 REMOTE_TOOL_SESSION_PREFIXES_PARAM: list(session_approved_prefixes),
             }
 
+        # The token the session below sends, so a rejection removes that token and
+        # not a newer one saved while the call is in flight.
+        oauth_config = self._oauth_config()
+        sent_token = (
+            _get_token_manager().get_access_token(oauth_config, request_context)
+            if oauth_config
+            else None
+        )
+
         async with get_initialized_mcp_session(
             self.toolset, request_context
         ) as session:
@@ -679,13 +736,20 @@ class RemoteMCPTool(Tool):
                 if c.type == "image"
             ] or None
 
+        data = self._merge_result_payload(merged_text, tool_result.structuredContent)
+        if is_error and self._drop_rejected_oauth_token(merged_text, request_context, sent_token):
+            data = (
+                f"{data}\n\nThe OAuth token for MCP server '{self.toolset.name}' was rejected "
+                "(expired or revoked) and has been removed. Call the tool again to sign in."
+            )
+
         return StructuredToolResult(
             status=(
                 StructuredToolResultStatus.ERROR
                 if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
-            data=self._merge_result_payload(merged_text, tool_result.structuredContent),
+            data=data,
             images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
