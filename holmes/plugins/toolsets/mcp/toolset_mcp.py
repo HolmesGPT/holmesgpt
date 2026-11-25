@@ -590,7 +590,39 @@ class RemoteMCPTool(Tool):
         }
 
     @staticmethod
-    def _merge_result_payload(merged_text: str, structured_content: Any) -> str:
+    def _drop_null_fields(value: Any) -> Any:
+        """Recursively remove null-valued object keys, including inside arrays."""
+        if isinstance(value, dict):
+            return {
+                key: RemoteMCPTool._drop_null_fields(item)
+                for key, item in value.items()
+                if item is not None
+            }
+        if isinstance(value, list):
+            return [RemoteMCPTool._drop_null_fields(item) for item in value]
+        return value
+
+    @staticmethod
+    def _text_holds_value(text: str, value: Any) -> bool:
+        """Whether text is value, either verbatim or serialized as JSON.
+
+        The comparison parses the JSON because servers pick their own separators
+        and key order (the reference Python SDK uses indent=2), and it ignores
+        null fields because a server may keep them in only one of the two copies
+        (e.g. "stderr": null from the managed AWS MCP Server's aws___run_script).
+        """
+        if isinstance(value, str) and text == value:
+            return True
+        try:
+            parsed_text = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return False
+        return RemoteMCPTool._drop_null_fields(
+            parsed_text
+        ) == RemoteMCPTool._drop_null_fields(value)
+
+    @staticmethod
+    def _merge_result_payload(text_blocks: List[str], structured_content: Any) -> str:
         """Combine content[] text with CallToolResult.structuredContent.
 
         A server that declares an outputSchema returns the machine-readable
@@ -598,25 +630,33 @@ class RemoteMCPTool(Tool):
         serialize it into a text block.  Many servers (e.g. CircleCI's) put a
         human summary such as "Found 5 run(s)" in content[] instead, so
         reading content[] alone hides every id the LLM needs to drill down.
+
+        When the text blocks already carry the payload, it is returned once
+        rather than doubling it in the model's context.
         """
+        merged_text = " ".join(text_blocks)
         # Per the spec the field is a JSON object or absent; ignore anything else
         # rather than stringifying it into the model's context.
         if not isinstance(structured_content, dict) or not structured_content:
             return merged_text
         structured_text = json.dumps(structured_content, default=str)
-        if not merged_text or merged_text.strip() == structured_text.strip():
+        if not merged_text or RemoteMCPTool._text_holds_value(
+            merged_text, structured_content
+        ):
             return structured_text
-        # The spec only *recommends* that a server also serialize the payload
-        # into a text block, but the servers that do (including the reference
-        # Python SDK, which uses indent=2) pick their own separators and key
-        # order, so an exact string compare misses the common well-behaved case
-        # and doubles the whole payload in the model's context.  Compare the
-        # parsed values instead and keep the compact serialization.
-        try:
-            if json.loads(merged_text) == structured_content:
-                return structured_text
-        except (json.JSONDecodeError, ValueError):
-            pass
+        # structuredContent must be an object, so FastMCP wraps any other return
+        # value as {"result": <value>}.  The text is the bare value, except that
+        # the reference Python SDK emits one text block per item of a list.
+        if structured_content.keys() == {"result"}:
+            wrapped = structured_content["result"]
+            if RemoteMCPTool._text_holds_value(merged_text, wrapped) or (
+                isinstance(wrapped, list)
+                and len(text_blocks) == len(wrapped)
+                and all(map(RemoteMCPTool._text_holds_value, text_blocks, wrapped))
+            ):
+                if isinstance(wrapped, str):
+                    return wrapped
+                return json.dumps(wrapped, default=str)
         return f"{merged_text}\n{structured_text}"
 
     async def _invoke_async(
@@ -643,10 +683,12 @@ class RemoteMCPTool(Tool):
                 self.mcp_tool_name or self.name, call_params
             )
 
-        text_chunks = [
-            self._extract_text_from_content_block(c) for c in tool_result.content
+        text_blocks = [
+            text
+            for text in map(self._extract_text_from_content_block, tool_result.content)
+            if text
         ]
-        merged_text = " ".join(t for t in text_chunks if t)
+        merged_text = " ".join(text_blocks)
 
         try:
             response_data = json.loads(merged_text) if merged_text else {}
@@ -685,7 +727,7 @@ class RemoteMCPTool(Tool):
                 if is_error
                 else StructuredToolResultStatus.SUCCESS
             ),
-            data=self._merge_result_payload(merged_text, tool_result.structuredContent),
+            data=self._merge_result_payload(text_blocks, tool_result.structuredContent),
             images=images,
             params=params,
             invocation=f"MCPtool {self.name} with params {params}",
