@@ -125,11 +125,11 @@ class Config(RobustaBaseConfig):
     jira_api_key: Optional[SecretStr] = None
     jira_query: Optional[str] = ""
 
-    github_url: Optional[str] = None
+    github_url: Optional[str] = "https://api.github.com"
     github_owner: Optional[str] = None
     github_pat: Optional[SecretStr] = None
     github_repository: Optional[str] = None
-    github_query: str = ""
+    github_query: str = "is:issue is:open"
 
     slack_token: Optional[SecretStr] = None
     slack_channel: Optional[str] = None
