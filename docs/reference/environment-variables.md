@@ -395,6 +395,17 @@ Absolute maximum tokens for a single tool response, regardless of context window
 export TOOL_MAX_ALLOCATED_CONTEXT_WINDOW_TOKENS=50000
 ```
 
+### SKILL_FILE_MAX_BYTES
+**Default:** `262144` (256 KiB)
+
+Largest file bundled with a [skill](skills.md#bundling-files-with-a-skill) that Holmes will list and read. Larger files are ignored.
+
+**Example:**
+```bash
+# Allow bundled skill files of up to 1 MiB
+export SKILL_FILE_MAX_BYTES=1048576
+```
+
 ## Tool Subprocess Memory Limit
 
 ### TOOL_MEMORY_LIMIT_MB
