@@ -992,10 +992,17 @@ class DefaultLLM(LLM):
         cache_kwargs: Dict[str, Any] = {}
         if not _is_gemini_route(litellm_model_name):
             cache_kwargs["cache_control_injection_points"] = [
+                # The system prompt (and the tool definitions before it) is the
+                # same for every request: a breakpoint here lets a new question
+                # read it from the cache instead of writing it again. With only
+                # the last-message breakpoint, the cache is reused within one
+                # investigation but never across requests, since each request's
+                # first user message (with its timestamp) differs.
+                {"location": "message", "role": "system"},
                 {
                     "location": "message",
                     "index": -1,  # -1 targets the last message.
-                }
+                },
             ]
 
         def call_provider() -> Any:

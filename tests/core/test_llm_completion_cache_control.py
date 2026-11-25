@@ -86,7 +86,8 @@ class TestCacheControlInjectionPoints:
         llm.completion(messages=[{"role": "user", "content": "hi"}])
         kwargs = mock_completion.call_args.kwargs
         assert kwargs.get("cache_control_injection_points") == [
-            {"location": "message", "index": -1}
+            {"location": "message", "role": "system"},
+            {"location": "message", "index": -1},
         ], f"cache_control_injection_points must be forwarded for {model}"
 
     def test_gemini_completion_still_forwards_messages_and_model(self, mock_completion):
