@@ -62,6 +62,36 @@ create_rate_limit_error_message = partial(
 )
 
 
+NO_STRUCTURED_OUTPUT_MSG = "The model returned no content for a structured output request"
+
+
+def reject_empty_structured_output(
+    call_stream: Generator[StreamMessage, None, None],
+) -> Generator[StreamMessage, None, None]:
+    """Turn a final answer without content into an error event.
+
+    An empty analysis isn't valid JSON, so a structured output request can't
+    succeed with one. Wrap the raw stream with this before usage recording,
+    so the request is recorded as an error, with the costs of the run.
+    """
+    for message in call_stream:
+        if message.event == StreamEvents.ANSWER_END and not message.data.get("content"):
+            logging.warning(f"{NO_STRUCTURED_OUTPUT_MSG} (stream)")
+            yield StreamMessage(
+                event=StreamEvents.ERROR,
+                data={
+                    "description": NO_STRUCTURED_OUTPUT_MSG,
+                    "error_code": 1,
+                    "msg": NO_STRUCTURED_OUTPUT_MSG,
+                    "success": False,
+                    "metadata": message.data.get("metadata") or {},
+                    "num_llm_calls": message.data.get("num_llm_calls"),
+                },
+            )
+            continue
+        yield message
+
+
 def stream_chat_formatter(
     call_stream: Generator[StreamMessage, None, None],
     model: Optional[str] = None,
@@ -77,8 +107,9 @@ def stream_chat_formatter(
                         f"cached={costs.get('cached_tokens')}, total={costs.get('total_tokens')}, "
                         f"cost=${costs.get('total_cost', 0):.4f}"
                     )
+                content = message.data.get("content")
                 response_data = {
-                    "analysis": message.data.get("content"),
+                    "analysis": content if content is not None else "",
                     "conversation_history": message.data.get("messages"),
                     "metadata": message.data.get("metadata") or {},
                 }

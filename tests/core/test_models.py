@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from holmes.core.models import ChatRequest, ChatRequestBaseModel
+from holmes.core.models import ChatRequest, ChatRequestBaseModel, ChatResponse
 
 
 class TestCheckFirstItemRole:
@@ -76,3 +76,15 @@ class TestCheckFirstItemRole:
         ).encode("utf-8")
         model = ChatRequest.model_validate(raw)
         assert model.ask == "why is my pod crashing?"
+
+
+class TestChatResponseAnalysis:
+    """The model can end a run with no final text, so the result is None."""
+
+    def test_none_analysis_becomes_empty_string(self):
+        response = ChatResponse(analysis=None, conversation_history=[])
+        assert response.analysis == ""
+
+    def test_analysis_text_is_kept(self):
+        response = ChatResponse(analysis="root cause: oom", conversation_history=[])
+        assert response.analysis == "root cause: oom"
