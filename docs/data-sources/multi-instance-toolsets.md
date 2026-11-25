@@ -35,7 +35,7 @@ A toolset that supports multiple instances accepts either a single flat config (
               api_key: <staging api key>
     ```
 
-The fields allowed inside each `instances:` entry are exactly the toolset's normal config fields — see the toolset's own page for the full list.
+The fields allowed inside each `instances:` entry are exactly the toolset's normal config fields — see the toolset's own page for the full list — plus `name` and an optional `description` (see [Describing instances](#describing-instances)).
 
 ## Shared defaults
 
@@ -72,6 +72,28 @@ With a **single** instance — whether configured flat or as a one-entry `instan
 ## Discovering instances
 
 When more than one instance is configured, HolmesGPT also exposes a `<toolset>_list_instances` tool (for example `grafana_dashboards_list_instances`) so the model can discover the configured instance names and their health before querying.
+
+## Describing instances
+
+Instance names alone often don't tell the model which instance holds the data it needs. Add an optional `description` to an instance to explain what it covers:
+
+```yaml
+toolsets:
+  grafana/dashboards:
+    enabled: true
+    config:
+      instances:
+        - name: prod
+          description: Production dashboards for the EU and US clusters
+          api_url: https://prod-grafana.example.com
+          api_key: <prod api key>
+        - name: staging
+          description: Staging environment, used for pre-release testing
+          api_url: https://staging-grafana.example.com
+          api_key: <staging api key>
+```
+
+The description is returned by the `<toolset>_list_instances` tool and shown next to the instance in the toolset's instructions, so the model can pick the right instance. It is not passed to the toolset's own config.
 
 ## Health reporting
 

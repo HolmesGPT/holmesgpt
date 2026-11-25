@@ -74,6 +74,10 @@ _ATOMIC_GROUPS: List[set] = [
 # Non-secret fields surfaced by the list-instances tool when present on an instance.
 _IDENTIFYING_FIELDS = ("api_url", "url", "prometheus_url", "connection_url", "domain")
 
+# Keys of an `instances:` entry that belong to the wrapper, never to the child config:
+# `name` is the routing key and `description` tells the LLM what the instance holds.
+_WRAPPER_INSTANCE_KEYS = ("name", "description")
+
 
 def _merge_instance_config(globals_: Dict[str, Any], entry: Dict[str, Any]) -> Dict[str, Any]:
     """Merge top-level globals into one instance entry (entry wins per key).
@@ -106,14 +110,32 @@ def _parse_instances(config: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]
     for idx, entry in enumerate(raw):
         if not isinstance(entry, dict):
             raise ValueError(f"`instances[{idx}]` must be a dict, got {type(entry).__name__}")
-        name = entry.get("name") or f"instance-{idx}"
+        name = _instance_name(entry, idx)
         if name in seen:
             raise ValueError(f"Duplicate instance name: '{name}'")
         seen.add(name)
-        # `name` is the wrapper's routing key, not part of the child config.
-        child_entry = {k: v for k, v in entry.items() if k != "name"}
+        child_entry = {k: v for k, v in entry.items() if k not in _WRAPPER_INSTANCE_KEYS}
         out.append((name, _merge_instance_config(globals_, child_entry)))
     return out
+
+
+def _instance_name(entry: Dict[str, Any], idx: int) -> str:
+    return entry.get("name") or f"instance-{idx}"
+
+
+def _parse_instance_descriptions(config: Dict[str, Any]) -> Dict[str, str]:
+    """Map instance name -> its optional `description` from an `instances:` config."""
+    raw = config.get("instances")
+    if not isinstance(raw, list):
+        return {}
+    descriptions: Dict[str, str] = {}
+    for idx, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            continue
+        description = entry.get("description")
+        if isinstance(description, str) and description.strip():
+            descriptions[_instance_name(entry, idx)] = description.strip()
+    return descriptions
 
 
 class _RoutingTool(Tool):
@@ -193,8 +215,9 @@ class ListInstancesTool(Tool):
             name=f"{scoped}_list_instances",
             description=(
                 f"List the instances configured for the `{wrapper.name}` toolset. "
-                f"Returns each instance's name so subsequent calls can target the "
-                f"right one via the `{INSTANCE_PARAM_NAME}` parameter."
+                f"Returns each instance's name, and its description when one is "
+                f"configured, so subsequent calls can target the right one via the "
+                f"`{INSTANCE_PARAM_NAME}` parameter."
             ),
             parameters={},
         )
@@ -248,6 +271,7 @@ class MultiInstanceToolset(Toolset):
         self._children: Dict[str, Toolset] = {}
         self._instance_configs: Dict[str, Dict[str, Any]] = {}
         self._offline_instances: Dict[str, str] = {}
+        self._instance_descriptions: Dict[str, str] = {}
 
     # Config schema/example come from the child's config classes (the wrapper's own
     # `config_classes` ClassVar stays empty). The `instances:` shape is documented;
@@ -273,6 +297,7 @@ class MultiInstanceToolset(Toolset):
         self._children = {}
         self._instance_configs = {}
         self._offline_instances = {}
+        self._instance_descriptions = _parse_instance_descriptions(config or {})
         failures: List[str] = []
         successes: List[str] = []
 
@@ -331,13 +356,16 @@ class MultiInstanceToolset(Toolset):
         instances_meta: List[Dict[str, Any]] = []
         for name, flat in self._instance_configs.items():
             entry: Dict[str, Any] = {"name": name, "healthy": True, "reason": None}
+            self._add_description(entry, name)
             for field in _IDENTIFYING_FIELDS:
                 if flat.get(field):
                     entry[field] = flat[field]
                     break
             instances_meta.append(entry)
         for name, reason in self._offline_instances.items():
-            instances_meta.append({"name": name, "healthy": False, "reason": reason})
+            offline_entry: Dict[str, Any] = {"name": name, "healthy": False, "reason": reason}
+            self._add_description(offline_entry, name)
+            instances_meta.append(offline_entry)
 
         meta = dict(self.meta or {})
         meta["instances"] = instances_meta
@@ -358,7 +386,10 @@ class MultiInstanceToolset(Toolset):
         for name, child in self._children.items():
             if child.llm_instructions:
                 if multi:
-                    sections.append(f"### Instance `{name}`\n\n{child.llm_instructions}")
+                    heading = f"### Instance `{name}`"
+                    if name in self._instance_descriptions:
+                        heading += f": {self._instance_descriptions[name]}"
+                    sections.append(f"{heading}\n\n{child.llm_instructions}")
                 else:
                     sections.append(child.llm_instructions)
         # Keep the template-derived instructions when no child built any, so
@@ -447,10 +478,15 @@ class MultiInstanceToolset(Toolset):
     def _child_tool(child: Toolset, name: str) -> Optional[Tool]:
         return next((t for t in child.tools if t.name == name), None)
 
+    def _add_description(self, entry: Dict[str, Any], name: str) -> None:
+        if name in self._instance_descriptions:
+            entry["description"] = self._instance_descriptions[name]
+
     def _instance_summaries(self) -> List[Dict[str, Any]]:
         summaries: List[Dict[str, Any]] = []
         for name, flat in self._instance_configs.items():
             summary: Dict[str, Any] = {"name": name}
+            self._add_description(summary, name)
             for field in _IDENTIFYING_FIELDS:
                 if flat.get(field):
                     summary[field] = flat[field]
@@ -460,10 +496,12 @@ class MultiInstanceToolset(Toolset):
 
     def _offline_summaries(self) -> List[Dict[str, Any]]:
         """Instances that failed their health check: name + why they're offline."""
-        return [
-            {"name": name, "reason": reason}
-            for name, reason in self._offline_instances.items()
-        ]
+        summaries: List[Dict[str, Any]] = []
+        for name, reason in self._offline_instances.items():
+            summary: Dict[str, Any] = {"name": name, "reason": reason}
+            self._add_description(summary, name)
+            summaries.append(summary)
+        return summaries
 
 
 def multi_instance(child_cls: Type[Toolset]) -> MultiInstanceToolset:
