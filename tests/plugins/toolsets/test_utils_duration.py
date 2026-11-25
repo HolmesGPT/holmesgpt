@@ -96,6 +96,11 @@ class TestDurationStringToSeconds:
             "30s1m"
         )
 
+    def test_milliseconds(self):
+        assert duration_string_to_seconds("30000ms") == 30
+        assert duration_string_to_seconds("1m500ms") == 61  # rounded up
+        assert duration_string_to_seconds("500ms") == 1  # never 0
+
     def test_empty_string_raises_error(self):
         with pytest.raises(ValueError, match="duration_string cannot be empty"):
             duration_string_to_seconds("")
