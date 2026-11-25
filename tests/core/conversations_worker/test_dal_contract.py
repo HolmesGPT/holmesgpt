@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
-from cachetools import TTLCache
 from postgrest.exceptions import APIError as PGAPIError
 
+from holmes.core.account_settings_cache import AccountSettingsCache
 from holmes.core.conversations_worker.models import ConversationReassignedError
 from holmes.core.supabase_dal import ExecutorRpcUnsupportedError, SupabaseDal
 
@@ -548,12 +548,22 @@ def test_list_pending_conversation_executors_swallows_transient_errors():
 # ---- get_conversation_executor_sizes (AccountSettings.settings.conversation_executors) ----
 
 
+class _Clock:
+    now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
 def _settings_dal(settings_rows):
     dal = SupabaseDal.__new__(SupabaseDal)
     dal.enabled = True
     dal.account_id = "acc-1"
     dal.cluster = "cluster-1"
-    dal.executor_sizes_cache = TTLCache(maxsize=1, ttl=60)
+    dal.clock = _Clock()
+    dal.account_settings = AccountSettingsCache(
+        dal._read_account_settings, ttl=60, timer=dal.clock
+    )
     dal.lock = threading.Lock()
     dal.client = MagicMock()
     execute = dal.client.table.return_value.select.return_value.eq.return_value.execute
@@ -593,11 +603,22 @@ def test_executor_sizes_read_failure_returns_empty_and_is_cached_for_the_ttl():
     assert dal.get_conversation_executor_sizes() == {}
     assert dal.get_conversation_executor_sizes() == {}
     assert execute.call_count == 1  # an outage is not re-queried every tick
-    dal.executor_sizes_cache.clear()  # TTL expiry
+    dal.clock.now += 60
     execute.side_effect = None
     execute.return_value = MagicMock(
         data=[{"settings": {"conversation_executors": {"manual": 2}}}]
     )
+    assert dal.get_conversation_executor_sizes() == {"manual": 2}
+
+
+def test_executor_sizes_keep_the_last_value_read_when_a_reread_fails():
+    """A database blip must not resize an account's executors to the defaults."""
+    dal, execute = _settings_dal(
+        [{"settings": {"conversation_executors": {"manual": 2}}}]
+    )
+    assert dal.get_conversation_executor_sizes() == {"manual": 2}
+    dal.clock.now += 60
+    execute.side_effect = Exception("502")
     assert dal.get_conversation_executor_sizes() == {"manual": 2}
 
 

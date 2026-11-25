@@ -783,6 +783,39 @@ class TestSkillHierarchyConfig:
 
         assert skills_dal.client.table.call_count == 1
 
+    def test_a_malformed_value_is_warned_about_once_per_read(self, skills_dal, caplog):
+        """Read on every chat request: re-parsing the same snapshot must not repeat
+        the warning each time."""
+        self._settings(
+            skills_dal,
+            {"skill_name_hierarchy_enabled": "false", "skill_name_hierarchy_order": "x"},
+        )
+
+        with caplog.at_level(logging.WARNING):
+            for _ in range(3):
+                skills_dal.get_skill_hierarchy_config()
+
+        assert caplog.text.count("non-boolean skill_name_hierarchy_enabled") == 1
+        assert caplog.text.count("malformed skill_name_hierarchy_order") == 1
+
+    def test_a_snapshot_and_its_policy_are_stored_together(self, skills_dal):
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": True})
+
+        config = skills_dal.get_skill_hierarchy_config()
+
+        snapshot, stored = skills_dal._hierarchy_record
+        assert snapshot is skills_dal.account_settings.get()
+        assert stored is config
+
+    def test_a_new_read_is_parsed_again(self, skills_dal):
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": False})
+        assert skills_dal.get_skill_hierarchy_config().enabled is False
+
+        self._settings(skills_dal, {"skill_name_hierarchy_enabled": True})
+        skills_dal.account_settings.clear()
+
+        assert skills_dal.get_skill_hierarchy_config().enabled is True
+
 
 class TestSyncSkills:
     """Tests for the HolmesCustomSkills mirror write."""
@@ -956,3 +989,22 @@ class TestGlobalSkillCatalog:
         skills_dal.get_skill_content("uuid-1")
 
         assert _eq_filters(q)["enabled"] is True
+
+
+def test_every_account_setting_shares_one_read(skills_dal):
+    """Executor sizes and the skill hierarchy come from one AccountSettings read."""
+    chain = skills_dal.client.table.return_value.select.return_value.eq.return_value
+    chain.execute.return_value = Mock(
+        data=[
+            {
+                "settings": {
+                    "conversation_executors": {"auto": 3},
+                    "skill_name_hierarchy_enabled": True,
+                }
+            }
+        ]
+    )
+
+    assert skills_dal.get_conversation_executor_sizes() == {"auto": 3}
+    assert skills_dal.get_skill_hierarchy_config().enabled is True
+    assert chain.execute.call_count == 1
