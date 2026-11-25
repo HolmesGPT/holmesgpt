@@ -20,8 +20,8 @@ class JiraSource(SourcePlugin):
         logging.info(f"Fetching issues from {self.url} with JQL='{self.jql_query}'")
         try:
             response = requests.get(
-                f"{self.url}/rest/api/3/search",
-                params={"jql": self.jql_query},
+                f"{self.url}/rest/api/3/search/jql",
+                params={"jql": self.jql_query, "fields": "*navigable"},
                 auth=HTTPBasicAuth(self.username, self.api_key),
                 headers={"Accept": "application/json"},
             )
