@@ -54,6 +54,7 @@ from holmes.plugins.prompts import load_and_render_prompt
 from holmes.utils.config_utils import merge_transformers
 from holmes.utils.memory_limit import check_oom_and_append_hint, get_ulimit_prefix
 from holmes.utils.pydantic_utils import build_config_example
+from holmes.utils.subprocess_env import external_program_env
 
 if TYPE_CHECKING:
     from holmes.core.transformers import BaseTransformer
@@ -734,7 +735,9 @@ class YAMLTool(Tool, BaseModel):
         ) as temp_script:
             temp_script.write(rendered_script)
             temp_script_path = temp_script.name
-        subprocess.run(["chmod", "+x", temp_script_path], check=True)
+        subprocess.run(
+            ["chmod", "+x", temp_script_path], check=True, env=external_program_env()
+        )
 
         try:
             output, return_code = self.__execute_subprocess(temp_script_path)
@@ -759,6 +762,7 @@ class YAMLTool(Tool, BaseModel):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                env=external_program_env(),
             )
 
             output = result.stdout.strip()
@@ -1086,6 +1090,7 @@ class Toolset(BaseModel):
                         text=True,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
+                        env=external_program_env(),
                     )
                     if (
                         prereq.expected_output
