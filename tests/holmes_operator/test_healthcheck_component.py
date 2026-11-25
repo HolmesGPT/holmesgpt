@@ -13,7 +13,10 @@ from httpx import Response
 from holmes_operator import context
 from holmes_operator.client.holmes_api_client import HolmesAPIClient
 from holmes_operator.config import OperatorConfig
-from holmes_operator.handlers.healthcheck import on_healthcheck_create
+from holmes_operator.handlers.healthcheck import (
+    on_healthcheck_create,
+    on_healthcheck_update,
+)
 from holmes_operator.models import CheckPhase, CheckStatus, ConditionStatus
 
 
@@ -258,3 +261,83 @@ class TestHealthCheckCreate:
         status = call_2[1]["body"]["status"]
         assert status["phase"] == CheckPhase.FAILED.value
         assert status["result"] == CheckStatus.ERROR.value
+
+
+class TestHealthCheckRerun:
+    """The holmesgpt.dev/rerun=true annotation path."""
+
+    @patch("holmes_operator.handlers.healthcheck.kopf.event")
+    async def test_rerun_annotation_reexecutes_check(
+        self, mock_event, setup_context, mock_k8s_api, mock_logger, respx_mock
+    ):
+        """Setting rerun=true re-executes the check.
+
+        The update handler forwards to the create handler, and kopf passes
+        spec/uid in kwargs as well as in the named arguments. Forwarding both
+        used to raise TypeError, so the check never re-ran and kopf retried
+        the handler indefinitely.
+        """
+        respx_mock.post("http://mock-holmes-api:80/api/checks/execute").mock(
+            return_value=Response(
+                200,
+                json={
+                    "status": "pass",
+                    "message": "All systems operational",
+                    "rationale": "Re-ran on request",
+                    "duration": 1.0,
+                    "model_used": "gpt-4.1",
+                    "notifications": None,
+                },
+            )
+        )
+
+        spec = {"query": "Is the namespace healthy?", "timeout": 30, "mode": "monitor"}
+        body = {
+            "metadata": {
+                "name": "test-check-rerun",
+                "namespace": "default",
+                "uid": "test-uid-rerun",
+                "annotations": {"holmesgpt.dev/rerun": "true"},
+            },
+            "spec": spec,
+        }
+
+        await on_healthcheck_update(
+            old={"metadata": {"annotations": {}}, "spec": spec},
+            new=body,
+            name="test-check-rerun",
+            namespace="default",
+            logger=mock_logger,
+            # kopf supplies these alongside the named arguments above
+            spec=spec,
+            uid="test-uid-rerun",
+            body=body,
+        )
+
+        assert mock_k8s_api.patch_namespaced_custom_object_status.called
+        statuses = [
+            call[1]["body"]["status"]
+            for call in mock_k8s_api.patch_namespaced_custom_object_status.call_args_list
+        ]
+        assert any(s.get("result") == CheckStatus.PASS.value for s in statuses)
+
+    @patch("holmes_operator.handlers.healthcheck.kopf.event")
+    async def test_rerun_annotation_unchanged_is_a_noop(
+        self, mock_event, setup_context, mock_k8s_api, mock_logger
+    ):
+        """An annotation that was already true does not re-execute."""
+        spec = {"query": "Is the namespace healthy?", "timeout": 30, "mode": "monitor"}
+        annotated = {"metadata": {"annotations": {"holmesgpt.dev/rerun": "true"}}, "spec": spec}
+
+        await on_healthcheck_update(
+            old=annotated,
+            new=annotated,
+            name="test-check-rerun",
+            namespace="default",
+            logger=mock_logger,
+            spec=spec,
+            uid="test-uid-rerun",
+            body=annotated,
+        )
+
+        assert not mock_k8s_api.patch_namespaced_custom_object_status.called
