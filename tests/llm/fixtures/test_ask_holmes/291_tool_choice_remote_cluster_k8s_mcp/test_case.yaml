@@ -1,0 +1,25 @@
+user_prompt: "Are there any crashlooping pods in the payments namespace on the eu-prod-1 cluster?"
+
+description: |
+  Tool-choice eval 2/3 (remote cluster -> kubernetes MCP).
+
+  Same three tool sources as 290. The question names ANOTHER cluster, which the
+  kubernetes MCP server reaches over kubeconfig contexts. Holmes must use those
+  tools (discovering the context first if needed) and must NOT run bash against
+  its own cluster, nor route through the platform's remote_* fleet tools.
+
+# Fails deterministically if Holmes answers a remote question from the local
+# cluster, or confuses the kubeconfig path with the platform fleet path.
+forbidden_tools:
+  - "bash"
+  - "remote_kubernetes_tabular_query"
+  - "list_available_clusters"
+
+expected_output:
+  - Reports checkout-api-7d9f-abc in the payments namespace as CrashLoopBackOff
+  - Queries the eu-prod-1 cluster explicitly rather than the local one
+
+include_tool_calls: true
+tags:
+  - kubernetes
+  - question-answer
