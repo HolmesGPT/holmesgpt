@@ -1,4 +1,3 @@
-import json
 import os
 import platform
 import tempfile
@@ -18,12 +17,27 @@ FALLBACK_CONTEXT_WINDOW_SIZE = (
 )
 
 
+_TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
+_FALSE_VALUES = frozenset({"false", "0", "no", "off"})
+
+
 def load_bool(env_var, default: Optional[bool]) -> Optional[bool]:
     env_value = os.environ.get(env_var)
     if env_value is None:
         return default
 
-    return json.loads(env_value.lower())
+    value = env_value.strip().lower()
+    if not value:
+        # A blank value (e.g. `value: ""` in a manifest) means "not configured".
+        return default
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ValueError(
+        f"Invalid value {env_value!r} for environment variable {env_var}: "
+        "expected one of true, false, 1, 0, yes, no, on, off"
+    )
 
 
 ENABLED_BY_DEFAULT_TOOLSETS = os.environ.get(
