@@ -1,0 +1,6 @@
+FireHydrant investigations and incidents are available through the firehydrant_* tools.
+* A FireHydrant "investigation" is a request, made from an incident, for an AI engine to find the root cause. Its `incident` field names the incident (id, number, name, severity, incident_url); use firehydrant_get_incident with that `incident.id` to read the incident's description, impacted services, milestones and latest update.
+* Investigation statuses: pending (waiting for an engine), in_progress (claimed), completed, failed, expired, canceled. Use the `status` filter of firehydrant_list_investigations instead of listing everything.
+* Completed investigations carry their result (`result.markdown` or ranked `result.hypotheses`); failed ones carry `error` and `failure_reason`.
+* Never invent investigation or incident ids. Take them from a previous tool result or from the user.
+* When the user asks about a FireHydrant incident, the incident's details are context for the investigation: continue with the other available tools (Kubernetes, logs, metrics...) to find the cause.
