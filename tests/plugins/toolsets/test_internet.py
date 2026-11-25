@@ -126,7 +126,7 @@ def test_fetch_webpage(responses):
     tool_executor = ToolExecutor(toolsets=[toolset])
     fetch_webpage_tool = tool_executor.get_tool_by_name("fetch_webpage")
     assert fetch_webpage_tool
-    context = create_mock_tool_invoke_context()
+    context = create_mock_tool_invoke_context(user_approved=True)
     actual_output = fetch_webpage_tool.invoke({"url": TEST_URL}, context)
     print(actual_output.data)
     assert actual_output.data

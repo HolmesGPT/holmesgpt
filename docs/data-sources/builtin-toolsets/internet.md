@@ -1,9 +1,21 @@
 # Internet ✓
 
-!!! info "Enabled by Default"
-    This toolset is enabled by default and should typically remain enabled.
+!!! info "Internet access is off by default"
+    The toolset is loaded by default, but Holmes does not fetch a webpage on its own. Each fetch needs your approval unless you list the host in `allowed_hosts`.
 
-By enabling this toolset, HolmesGPT will be able to fetch webpages. This tool is beneficial if you provide Holmes with publicly accessible web-based runbooks.
+This toolset lets HolmesGPT fetch webpages, for example web-based runbooks or a vendor's documentation.
+
+## Approval
+
+A fetch goes one of three ways:
+
+- **The host is in `allowed_hosts`:** Holmes fetches it without asking.
+- **`allowed_hosts` is empty (the default):** Holmes asks you to approve the URL. Where nobody can approve (alert investigations, scheduled prompts, API calls without tool approval), the fetch is refused.
+- **`allowed_hosts` is set and the host is not in it:** the fetch is refused.
+
+An approval covers the host you approved. If that page redirects to a different host, the fetch stops and returns the new URL; fetching that URL asks for approval again. Redirects between hosts in `allowed_hosts` are followed without asking.
+
+To let Holmes read your runbooks without asking, list their hosts in `allowed_hosts`. To let Holmes fetch any public host without asking, set `require_approval: false`.
 
 ## Configuration
 
@@ -14,8 +26,9 @@ toolsets:
         config: # optional
           additional_headers:
             Authorization: Bearer ...
-          allowed_hosts: # optional allowlist (see SSRF protection below)
+          allowed_hosts: # hosts Holmes may fetch without asking
             - docs.example.com
+          require_approval: true # default; with no allowed_hosts, ask before each fetch
           block_internal_ips: true # default; blocks internal/non-routable targets
 ```
 
@@ -65,4 +78,4 @@ cli: |
 
 | Tool Name | Description |
 |-----------|-------------|
-| fetch_webpage | Fetch a webpage. Use this to fetch runbooks if they are present before starting your investigation (if no other tool like Confluence is more appropriate) |
+| fetch_webpage | Fetch a webpage, subject to the approval rules above |

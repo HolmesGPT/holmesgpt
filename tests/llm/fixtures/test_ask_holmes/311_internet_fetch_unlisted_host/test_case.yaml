@@ -1,0 +1,16 @@
+# Test: fetch_webpage asks for approval before fetching a host that is not in
+# allowed_hosts. Evals have no approver, so the fetch is refused, and the
+# answer should tell the user which setting allows it.
+# Policy cases are covered in tests/plugins/toolsets/test_internet_approval.py.
+user_prompt: "Fetch the web page at https://www.example.com and tell me the exact heading shown on the page. If you cannot fetch it, explain exactly why and what I would need to change to allow it."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call the fetch_webpage tool with the URL https://www.example.com"
+  - "The fetch_webpage tool call must return an error saying the fetch needs approval that is not available, and must NOT contain the page content"
+  - "Must tell the user the page was not fetched, and must NOT say the request is pending or waiting for approval"
+  - "Must explain that the host has to be added to the internet toolset's allowed_hosts configuration (or the fetch approved) before it can be fetched"
+
+tags:
+  - question-answer
