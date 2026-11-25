@@ -91,9 +91,25 @@ filelock = [
     {version = ">=4.2.1", python = ">=3.11"},
     {version = ">=3.29.4", python = "<3.11"},
 ]
-# pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High).
+# pyasn1 >= 0.6.4 fixes CVE-2026-59885 and CVE-2026-59886 (both High); >= 0.6.5 fixes
+# CVE-2026-119194/119195/119196/119197.
 # Pulled in transitively via pyasn1-modules -> google-auth.
-pyasn1 = ">=0.6.4"
+pyasn1 = ">=0.6.5"
+# dnspython >= 2.9.2 fixes CVE-2026-114605 and CVE-2026-128089. Pulled in transitively via pymongo.
+# 2.9.x requires Python >= 3.11, so Python 3.10 keeps the latest 2.8.x (no fixed 2.8.x release).
+dnspython = [
+    {version = ">=2.9.2", python = ">=3.11"},
+    {version = ">=2.7.0", python = "<3.11"},
+]
+# oauthlib >= 4.0.1 fixes CVE-2026-118669 and CVE-2026-49272. Pulled in transitively via
+# requests-oauthlib -> kubernetes.
+oauthlib = ">=4.0.1"
+# soupsieve >= 4.0 fixes CVE-2026-126190 and CVE-2026-126191. Pulled in transitively via
+# beautifulsoup4 (bs4). 4.x requires Python >= 3.11.5, so older Pythons keep the latest 2.x/3.x.
+soupsieve = [
+    {version = ">=4.0", python = ">=3.11.5"},
+    {version = ">=1.6.1", python = "<3.11.5"},
+]
 urllib3 = "^2.6.3"
 sqlalchemy = "^2.0.46"
 pg8000 = "^1.31.5"
