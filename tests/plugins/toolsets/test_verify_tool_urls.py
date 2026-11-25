@@ -981,7 +981,7 @@ class TestDatadogGeneralURLs:
         (
             DatadogAPIGet,
             {
-                "endpoint": "/api/v1/monitor",
+                "endpoint_template": "/api/v1/monitor",
                 "description": "List monitors",
                 "query_params": {},
             },
@@ -990,7 +990,8 @@ class TestDatadogGeneralURLs:
         (
             DatadogAPIGet,
             {
-                "endpoint": "/api/v1/monitor/12345",
+                "endpoint_template": "/api/v1/monitor/{monitor_id}",
+                "resource_id": "12345",
                 "description": "Get monitor",
                 "query_params": {},
             },
@@ -999,7 +1000,7 @@ class TestDatadogGeneralURLs:
         (
             DatadogAPIGet,
             {
-                "endpoint": "/api/v1/events",
+                "endpoint_template": "/api/v1/events",
                 "description": "Get events",
                 "query_params": {"start": 1609459200, "end": 1609545600},
             },
@@ -1010,7 +1011,7 @@ class TestDatadogGeneralURLs:
         (
             DatadogAPIPostSearch,
             {
-                "endpoint": "/api/v2/monitor/search",
+                "endpoint_template": "/api/v1/monitor/search",
                 "description": "Search monitors",
                 "body": {"query": "env:production", "page": 0, "per_page": 20},
             },
@@ -1019,7 +1020,7 @@ class TestDatadogGeneralURLs:
         (
             DatadogAPIPostSearch,
             {
-                "endpoint": "/api/v2/logs/events/search",
+                "endpoint_template": "/api/v2/logs/events/search",
                 "description": "Search logs",
                 "body": {
                     "filter": {
