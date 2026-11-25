@@ -70,7 +70,7 @@ cli: |
       spec:
         containers:
         - name: sentry-mcp
-          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/sentry-mcp:1.0.1
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/sentry-mcp:1.0.8
           imagePullPolicy: IfNotPresent
           ports:
           - containerPort: 8000

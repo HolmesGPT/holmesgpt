@@ -139,7 +139,7 @@ cli: |
         serviceAccountName: k8s-remediation-mcp-sa
         containers:
         - name: k8s-remediation-mcp
-          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.5.0
+          image: us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-remediation-mcp:1.5.1
           imagePullPolicy: IfNotPresent
           ports:
           - containerPort: 8000

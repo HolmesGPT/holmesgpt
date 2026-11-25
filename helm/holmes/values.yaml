@@ -395,7 +395,7 @@ mcpAddons:
     # gcloud MCP - General GCP management via gcloud CLI
     gcloud:
       enabled: true
-      image: "gcloud-cli-mcp:1.0.9"
+      image: "gcloud-cli-mcp:1.0.18"
       port: 8000
       resources:
         requests:
@@ -407,7 +407,7 @@ mcpAddons:
     # Observability MCP - Cloud Logging, Monitoring, Trace, Error Reporting
     observability:
       enabled: true
-      image: "gcloud-observability-mcp:1.0.1"
+      image: "gcloud-observability-mcp:1.0.10"
       port: 8001
       resources:
         requests:
@@ -419,7 +419,7 @@ mcpAddons:
     # Storage MCP - Cloud Storage operations
     storage:
       enabled: true
-      image: "gcloud-storage-mcp:1.0.1"
+      image: "gcloud-storage-mcp:1.0.10"
       port: 8002
       resources:
         requests:
@@ -446,7 +446,7 @@ mcpAddons:
         # azure.workload.identity/client-id: "YOUR_CLIENT_ID"
         # azure.workload.identity/tenant-id: "YOUR_TENANT_ID"
 
-    image: "azure-cli-mcp:1.0.2"
+    image: "azure-cli-mcp:1.0.8"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: "IfNotPresent"
 
@@ -506,7 +506,7 @@ mcpAddons:
 
     # github-mcp:2.0.0 = native HTTP mode (github-mcp-server v1.4.0+). PAT auth only.
     # The github-app path uses auth.githubApp.image and is unchanged.
-    image: "github-mcp:2.0.0"
+    image: "github-mcp:2.0.1"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -527,7 +527,7 @@ mcpAddons:
       #     -n <NAMESPACE>
       githubApp:
         secretName: ""                                          # Name of K8s secret containing GitHub App credentials
-        image: "github-app-mcp:1.0.7"                          # Image with GitHub App token management
+        image: "github-app-mcp:2.0.1"                          # Image with GitHub App token management
         registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
         # ALPHA. Serve every organization the App is installed on, routing each
         # tool call to that organization's installation token. Runs multiOrgImage
@@ -668,7 +668,7 @@ mcpAddons:
   sentry:
     enabled: false
 
-    image: "sentry-mcp:1.0.1"
+    image: "sentry-mcp:1.0.8"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -706,7 +706,7 @@ mcpAddons:
   prefect:
     enabled: false
 
-    image: "prefect-mcp:1.0.0"
+    image: "prefect-mcp:1.0.6"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -743,7 +743,7 @@ mcpAddons:
   kubernetesRemediation:
     enabled: false          # opt-in; defaults work once enabled (plug-and-play)
 
-    image: "kubernetes-remediation-mcp:1.5.0"
+    image: "kubernetes-remediation-mcp:1.5.1"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -876,7 +876,7 @@ mcpAddons:
   kubernetes:
     enabled: false
 
-    image: "kubernetes-mcp-server:v0.0.61-oauth"
+    image: "kubernetes-mcp-server:v0.0.61-oauth-cve2"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
@@ -990,7 +990,7 @@ mcpAddons:
   confluenceMcp:
     enabled: false
 
-    image: "mcp-atlassian:v0.21.2"
+    image: "mcp-atlassian:v0.24.6"
     registry: "us-central1-docker.pkg.dev/genuine-flight-317411/mcp"
     imagePullPolicy: IfNotPresent
 
