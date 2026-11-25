@@ -1,0 +1,15 @@
+toolsets:
+  kubernetes/core:
+    enabled: true
+
+mcp_servers:
+  grafana:
+    description: "Grafana MCP server for dashboard queries"
+    config:
+      url: "http://localhost:11179/sse"
+      mode: sse
+    icon_url: "https://cdn.simpleicons.org/grafana/F46800"
+    llm_instructions: |
+      Use Grafana MCP tools (search_dashboards, get_dashboard_by_uid, get_dashboard_panel_queries) for all dashboard queries.
+      To search for a dashboard, use search_dashboards. To get full details including panels, use get_dashboard_by_uid.
+      To extract Prometheus queries from panels, use get_dashboard_panel_queries.
