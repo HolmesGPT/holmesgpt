@@ -5,8 +5,7 @@
 toolsets:
   internet:
     enabled: true
-    # Evals have no approver, so an unlisted host would be refused before the
-    # SSRF guard this eval exercises ever ran.
+    # Evals run with no approver, so fetch without asking.
     config:
       require_approval: false
   kubernetes/core:

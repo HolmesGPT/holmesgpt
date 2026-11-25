@@ -74,6 +74,7 @@ from holmes.utils.stream import StreamEvents, StreamMessage
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
 from holmes.plugins.toolsets.bash.bash_toolset import BASH_TOOL_NAME
+from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_NAME_PREFIX
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
     enable_cli_mode,
 )
@@ -1834,6 +1835,12 @@ def _run_inline_menu(
     return result[0]
 
 
+# Bash on this cluster, and bash run on another cluster through the platform.
+BASH_APPROVAL_TOOL_NAMES = frozenset(
+    {BASH_TOOL_NAME, REMOTE_TOOL_NAME_PREFIX + BASH_TOOL_NAME}
+)
+
+
 def handle_tool_approval(
     pending_approval: PendingToolApproval,
     style: Style,
@@ -1868,7 +1875,7 @@ def handle_tool_approval(
 
     # Build command panel — passed as header to the menu so everything
     # lives inside a single transient Rich Live (auto-erased on exit).
-    is_bash = pending_approval.tool_name == BASH_TOOL_NAME
+    is_bash = pending_approval.tool_name in BASH_APPROVAL_TOOL_NAMES
     panel = Panel(
         f"  {command or 'unknown'}",
         title=f"[bold]Approve {'bash command' if is_bash else 'operation'}?[/bold]",
@@ -1911,7 +1918,7 @@ def decide_tool_approval(
     console: Console,
 ) -> tuple[bool, Optional[str]]:
     """--bash-always-allow answers for bash only; every other tool asks the user."""
-    if bash_always_allow and pending_approval.tool_name == BASH_TOOL_NAME:
+    if bash_always_allow and pending_approval.tool_name in BASH_APPROVAL_TOOL_NAMES:
         return True, None
     return handle_tool_approval(pending_approval, style, console)
 

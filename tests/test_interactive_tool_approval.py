@@ -106,9 +106,27 @@ def test_command_param_does_not_make_a_tool_bash():
     assert "operation" in menu.call_args.kwargs["header"].title
 
 
-def test_bash_always_allow_approves_bash_without_asking():
+REMOTE_BASH = PendingToolApproval(
+    tool_call_id="call-5",
+    tool_name="remote_bash",
+    description="docker ps",
+    params={"command": "docker ps", "suggested_prefixes": ["docker ps"]},
+)
+
+
+def test_remote_bash_prompt_matches_bash():
+    decision, menu, save = decide(REMOTE_BASH, 1)
+
+    assert decision == (True, None)
+    assert len(menu.call_args.args[0]) == 3
+    assert "bash command" in menu.call_args.kwargs["header"].title
+    save.assert_called_once_with(["docker ps"])
+
+
+@pytest.mark.parametrize("pending", [BASH, REMOTE_BASH])
+def test_bash_always_allow_approves_bash_without_asking(pending):
     with patch("holmes.interactive.handle_tool_approval") as ask:
-        decision = decide_tool_approval(BASH, True, Style([]), Console())
+        decision = decide_tool_approval(pending, True, Style([]), Console())
 
     assert decision == (True, None)
     ask.assert_not_called()

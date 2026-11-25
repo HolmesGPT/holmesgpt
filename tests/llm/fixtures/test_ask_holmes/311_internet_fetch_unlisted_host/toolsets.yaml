@@ -1,5 +1,5 @@
-# Only the internet toolset is enabled, on its default configuration, so the
-# model cannot reach the page through bash/curl or connectivity_check instead.
+# Only the internet toolset is enabled, on its default configuration, so
+# fetch_webpage is the only tool that can retrieve the page. No cluster needed.
 toolsets:
   internet:
     enabled: true

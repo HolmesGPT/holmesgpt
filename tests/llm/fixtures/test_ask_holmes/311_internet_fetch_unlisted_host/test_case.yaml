@@ -1,0 +1,24 @@
+# Test: with the default internet toolset configuration, fetch_webpage asks for
+# approval before fetching a host that is not in allowed_hosts. Evals run with
+# no approver, so the tool returns an error instead of the page.
+#
+# The policy matrix is covered by
+# tests/plugins/toolsets/test_internet_approval.py. This eval checks the agent
+# loop: the user gets an explanation that names the setting to change, and is
+# not told that the request is waiting for approval.
+#
+# include_tool_calls surfaces the tool result to the judge, and the expected
+# answer keys off `allowed_hosts`, which the model can only learn from the tool
+# result.
+user_prompt: "Fetch the web page at https://www.example.com and tell me the exact heading shown on the page. If you cannot fetch it, explain exactly why and what I would need to change to allow it."
+
+include_tool_calls: true
+
+expected_output:
+  - "Must call the fetch_webpage tool with the URL https://www.example.com"
+  - "The fetch_webpage tool call must return an error saying the fetch needs approval that is not available, and must NOT contain the page content"
+  - "Must tell the user the page was not fetched, and must NOT say the request is pending or waiting for approval"
+  - "Must explain that the host has to be added to the internet toolset's allowed_hosts configuration (or the fetch approved) before it can be fetched"
+
+tags:
+  - question-answer

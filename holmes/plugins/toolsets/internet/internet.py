@@ -4,7 +4,7 @@ import re
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Type
 from urllib.parse import urljoin, urlparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 import requests  # type: ignore
 from bs4 import BeautifulSoup
 from markdownify import markdownify
@@ -123,7 +123,10 @@ def scrape(
     headers["User-Agent"] = INTERNET_TOOLSET_USER_AGENT
 
     current_url = url
-    current_host = (urlparse(url).hostname or "").lower()
+    try:
+        current_host = (urlparse(url).hostname or "").lower()
+    except ValueError as e:
+        return f"Refusing to fetch {url}: invalid URL: {e}", None
     current_headers = headers
 
     try:
@@ -263,7 +266,7 @@ class FetchWebpage(Tool):
     def __init__(self, toolset: "InternetToolset"):
         super().__init__(
             name="fetch_webpage",
-            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate). Internet access is off by default: a host outside the operator's allowlist needs the user's approval, and is refused where no approval is possible.",
+            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate). Depending on configuration, a fetch may need the user's approval or be refused.",
             parameters={
                 "url": ToolParameter(
                     description="The URL to fetch",
@@ -305,10 +308,9 @@ class FetchWebpage(Tool):
                 params=params,
             )
 
-        additional_headers = (
-            self.toolset.internet_config.additional_headers if self.toolset.internet_config.additional_headers else {}
-        )
-        allowed_hosts = self.toolset.internet_config.allowed_hosts
+        config = self.toolset.internet_config or InternetToolsetConfig()
+        additional_headers = config.additional_headers or {}
+        allowed_hosts = config.allowed_hosts
         # Only forward operator-configured auth headers to explicitly
         # allowlisted hosts. Without an allowlist the model can point the tool
         # at an arbitrary host, so the headers (which may carry credentials)
@@ -325,10 +327,10 @@ class FetchWebpage(Tool):
             url,
             additional_headers,
             allowed_hosts=allowed_hosts,
-            block_internal_ips=self.toolset.internet_config.block_internal_ips,
+            block_internal_ips=config.block_internal_ips,
             # An approval covers the host the user saw, not where it redirects.
             follow_cross_host_redirects=bool(allowed_hosts)
-            or not self.toolset.internet_config.require_approval,
+            or not config.require_approval,
         )
 
         if not content:
@@ -380,6 +382,12 @@ class InternetBaseToolsetConfig(ToolsetConfig):
         ),
         examples=[[], ["docs.example.com"], ["wiki.internal.corp"]],
     )
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def drop_blank_hosts(cls, hosts: List[str]) -> List[str]:
+        # A list of only blank entries must read as "no allowlist" everywhere.
+        return [host.strip() for host in hosts if host and host.strip()]
     block_internal_ips: bool = Field(
         default=True,
         title="Block internal IPs",
