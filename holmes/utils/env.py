@@ -28,7 +28,7 @@ def get_env_replacement(value: str) -> Optional[str]:
             msg = f"ENV var replacement {env_var_key} does not exist"
             logging.error(msg)
             raise ValueError(msg)
-        result = re.sub(pattern_regex, replacement, result)
+        result = re.sub(pattern_regex, lambda _: replacement, result)
 
     return result
 
