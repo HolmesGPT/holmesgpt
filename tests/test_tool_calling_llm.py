@@ -33,6 +33,7 @@ from holmes.core.llm_usage import (
     request_usage,
 )
 from holmes.core.relay_refusal import RelayRefusal
+from holmes.core.tracing import DummySpan
 from holmes.core.tool_calling_llm import (
     LLMInterruptedError,
     ToolCallingLLM,
@@ -95,7 +96,15 @@ def _make_mock_tool_call(tool_call_id="tc_1", tool_name="kubectl_get", arguments
     return tc
 
 
-def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_tokens=50, completion_tokens=20):
+def _make_llm_response(
+    content="done",
+    tool_calls=None,
+    cost=0.001,
+    prompt_tokens=50,
+    completion_tokens=20,
+    cached_tokens=None,
+    cache_creation_tokens=None,
+):
     """Create a mock LLM response matching litellm ModelResponse shape."""
     resp = MagicMock()
     resp.choices = [MagicMock()]
@@ -130,8 +139,11 @@ def _make_llm_response(content="done", tool_calls=None, cost=0.001, prompt_token
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
-        "prompt_tokens_details": None,
+        "prompt_tokens_details": (
+            {"cached_tokens": cached_tokens} if cached_tokens is not None else None
+        ),
         "completion_tokens_details": None,
+        "cache_creation_input_tokens": cache_creation_tokens,
     }.get(key, default)
     resp.usage = usage
 
@@ -479,6 +491,80 @@ class TestCostAccumulation:
         assert result.total_tokens == 830
         assert result.max_prompt_tokens_per_call == 300
         assert result.max_completion_tokens_per_call == 100
+
+
+class _RecordingSpan(DummySpan):
+    """Span that records the metadata logged on each child span."""
+
+    def __init__(self, name=None, spans=None):
+        self.name = name
+        self.metadata: Dict[str, Any] = {}
+        self.spans = spans if spans is not None else []
+
+    def start_span(self, name=None, span_type=None, **kwargs):
+        child = _RecordingSpan(name, self.spans)
+        self.spans.append(child)
+        return child
+
+    def log(self, *args, **kwargs):
+        self.metadata.update(kwargs.get("metadata") or {})
+
+
+class TestGenAiChatSpanUsage:
+    """Each gen_ai.chat span carries the usage of its own LLM call."""
+
+    def _run(self, make_ai, mock_llm, responses):
+        mock_llm.completion.side_effect = responses
+        ai = make_ai()
+        ai._invoke_llm_tool_call = MagicMock(
+            side_effect=[
+                _make_tool_call_result(tool_call_id=f"tc_{i}")
+                for i in range(len(responses) - 1)
+            ]
+        )
+        root = _RecordingSpan()
+        result = ai.call([{"role": "user", "content": "analyze"}], trace_span=root)
+        chats = [s.metadata for s in root.spans if s.name == "gen_ai.chat"]
+        return result, chats
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_spans_carry_per_call_usage_and_cache_tokens(self, _mock_limit, make_ai, mock_llm):
+        responses = [
+            _make_llm_response(content="step 1", tool_calls=[_make_mock_tool_call(tool_call_id="tc_0")],
+                               prompt_tokens=1000, completion_tokens=50,
+                               cached_tokens=0, cache_creation_tokens=900),
+            _make_llm_response(content="step 2", tool_calls=[_make_mock_tool_call(tool_call_id="tc_1")],
+                               prompt_tokens=1500, completion_tokens=60,
+                               cached_tokens=900, cache_creation_tokens=500),
+            _make_llm_response(content="final", tool_calls=None,
+                               prompt_tokens=2000, completion_tokens=70,
+                               cached_tokens=1400, cache_creation_tokens=500),
+        ]
+        result, chats = self._run(make_ai, mock_llm, responses)
+
+        assert [c["gen_ai.usage.input_tokens"] for c in chats] == [1000, 1500, 2000]
+        assert [c["gen_ai.usage.output_tokens"] for c in chats] == [50, 60, 70]
+        assert [c["gen_ai.usage.total_tokens"] for c in chats] == [1050, 1560, 2070]
+        assert [c["gen_ai.usage.cache_read.input_tokens"] for c in chats] == [0, 900, 1400]
+        assert [c["gen_ai.usage.cache_creation.input_tokens"] for c in chats] == [900, 500, 500]
+        # The request totals are unchanged.
+        assert result.prompt_tokens == 4500
+        assert result.completion_tokens == 180
+
+    @patch(LIMIT_PATCH, side_effect=_make_context_limiter_passthrough)
+    def test_cache_attributes_omitted_when_provider_reports_none(self, _mock_limit, make_ai, mock_llm):
+        responses = [
+            _make_llm_response(content="step 1", tool_calls=[_make_mock_tool_call(tool_call_id="tc_0")],
+                               prompt_tokens=100, completion_tokens=10),
+            _make_llm_response(content="final", tool_calls=None,
+                               prompt_tokens=150, completion_tokens=20),
+        ]
+        _, chats = self._run(make_ai, mock_llm, responses)
+
+        assert [c["gen_ai.usage.input_tokens"] for c in chats] == [100, 150]
+        for chat in chats:
+            assert "gen_ai.usage.cache_read.input_tokens" not in chat
+            assert "gen_ai.usage.cache_creation.input_tokens" not in chat
 
 
 # ---------------------------------------------------------------------------
