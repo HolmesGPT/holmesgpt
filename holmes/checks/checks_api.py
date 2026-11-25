@@ -3,7 +3,7 @@ import os
 import time
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from holmes.plugins.destinations.webhook.utils import resolve_webhook_headers
 from litellm.exceptions import AuthenticationError
 from pydantic import BaseModel, Field
@@ -17,8 +17,9 @@ from holmes.core.tools import SERVER_TOOLSET_TAGS, PrerequisiteCacheMode
 from holmes.core.usage_recorder import UsageRecorderState, resolve_provider
 from holmes.plugins.destinations.slack.plugin import SlackDestination
 from holmes.plugins.destinations.webhook.plugin import WebhookDestination
+from holmes.utils.auth import require_api_enabled
 
-checks_app = FastAPI()
+checks_app = FastAPI(dependencies=[Depends(require_api_enabled("ENABLE_CHECKS_API"))])
 
 _CONFIG: Config
 

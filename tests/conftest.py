@@ -6,10 +6,12 @@ from typing import Any, Optional
 import pytest
 import yaml
 
+from holmes.common import env_vars
 from holmes.config import Config
 from holmes.core import toolset_manager as toolset_manager_module
 from holmes.core.llm import LLM, ContextWindowUsage
 from holmes.core.tools import ToolInvokeContext
+from holmes.utils.auth import OPT_IN_API_FLAGS
 
 DEFAULT_ROBUSTA_MODEL = "Robusta/gpt-5-mini preview (minimal reasoning)"
 ROBUSTA_SONNET_4_MODEL = "Robusta/sonnet-4 preview"
@@ -55,6 +57,14 @@ def clear_all_caches():
         rc.fetch_holmes_info.cache_clear()
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def opt_in_apis_enabled(monkeypatch):
+    """The opt-in HTTP APIs are off by default; tests exercise them enabled.
+    tests/test_opt_in_apis.py covers the disabled default."""
+    for flag in OPT_IN_API_FLAGS:
+        monkeypatch.setattr(env_vars, flag, True)
 
 
 @pytest.fixture(autouse=False)
