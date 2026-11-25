@@ -12,6 +12,7 @@ import pytest
 import realtime._async.client as rt_client
 from realtime._async.channel import ChannelStates
 
+from holmes.core.conversations_worker import realtime_manager
 from holmes.core.conversations_worker.realtime_manager import (
     extract_executor,
     RealtimeWorker,
@@ -666,3 +667,14 @@ def test_broadcast_without_executor_passes_none():
     callbacks = _broadcast_callbacks(rw)
     callbacks["pending_conversations"]({"event": "pending_conversations", "payload": {}})
     assert calls == [None, None]
+
+
+def test_connect_uses_the_key_the_dal_logged_in_with(monkeypatch):
+    m = _manager_with_session(_token(3600))
+    m.dal.api_key = "disabled-anon-key"
+    m.dal.client.supabase_key = "sb_publishable_x"
+    m._subscribe_via_broadcast = AsyncMock()  # type: ignore[method-assign]
+    realtime_client = MagicMock(return_value=AsyncMock())
+    monkeypatch.setattr(realtime_manager, "AsyncRealtimeClient", realtime_client)
+    asyncio.run(m._connect_and_subscribe())
+    assert realtime_client.call_args.kwargs["token"] == "sb_publishable_x"

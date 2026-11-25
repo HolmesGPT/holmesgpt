@@ -555,7 +555,7 @@ class RealtimeWorker:
             ws_url = store_url
         ws_url = f"{ws_url}/realtime/v1"
 
-        apikey = self.dal.api_key
+        apikey = self.dal.client.supabase_key
         session = self.dal.client.auth.get_session()  # type: ignore[attr-defined]
         user_jwt = session.access_token if session else None
         if not user_jwt:
