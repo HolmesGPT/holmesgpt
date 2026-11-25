@@ -26,6 +26,7 @@ def render_header_templates(
             Templates can reference:
             - {{ request_context.headers['Header-Name'] }} for pass-through headers
             - {{ env.ENV_VAR_NAME }} for environment variables
+            - {{ read_file('/path/to/file') }} for a file's contents, read on every render
             - Plain strings for static values
         request_context: Optional dict with structure {"headers": {"Name": "Value", ...}}.
             Passed through from the incoming HTTP request.
@@ -39,7 +40,7 @@ def render_header_templates(
     for header_name, header_template in extra_headers.items():
         try:
             rendered[header_name] = _render_single_template(
-                header_template, request_context
+                header_template, request_context, allow_read_file=True
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
@@ -49,15 +50,31 @@ def render_header_templates(
     return rendered
 
 
+def _read_file(path: str) -> str:
+    """Return a file's contents without surrounding whitespace.
+
+    Token files usually end with a newline, which is not valid inside a header
+    value. A missing or unreadable file raises, so the header is skipped with a
+    warning rather than sent empty.
+    """
+    with open(path, encoding="utf-8") as f:
+        return f.read().strip()
+
+
 def _render_single_template(
     template_str: str,
     request_context: Optional[Dict[str, Any]] = None,
+    allow_read_file: bool = False,
 ) -> str:
     """Render a single Jinja2 template string.
 
     Supports:
     - {{ request_context.headers['Header-Name'] }} - case-insensitive header lookup
     - {{ env.ENV_VAR }} - environment variables
+    - {{ read_file('/path') }} - only with ``allow_read_file`` (header templates):
+      a file's contents, read on every render, so a credential the platform
+      rotates in place (such as a projected Kubernetes service account token)
+      is current on each request
     - Plain strings (no template syntax) - returned as-is
 
     Raises on failure so the caller can decide whether to skip or propagate.
@@ -65,6 +82,8 @@ def _render_single_template(
     context: Dict[str, Any] = {
         "env": os.environ,
     }
+    if allow_read_file:
+        context["read_file"] = _read_file
 
     if request_context:
         request_context_copy = request_context.copy()

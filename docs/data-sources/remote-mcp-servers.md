@@ -201,6 +201,38 @@ mcp_servers:
 
 For full details on template syntax, blocked headers, precedence rules, and examples for other toolset types, see [HTTP Header Propagation](header-propagation.md).
 
+**Authenticating with a Kubernetes Service Account Token**
+
+If the MCP server accepts Kubernetes service account tokens, Holmes can authenticate with a projected token instead of a static API key. The kubelet rotates the token before it expires, and `read_file` reads it again for every connection, so there is no key to store or rotate. `audience` must be the audience the MCP server expects.
+
+```yaml-helm-values
+additionalVolumes:
+  - name: mcp-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            path: token
+            audience: mcp.example.com
+            expirationSeconds: 3600
+
+additionalVolumeMounts:
+  - name: mcp-token
+    mountPath: /var/run/secrets/mcp
+    readOnly: true
+
+mcp_servers:
+  internal_mcp:
+    description: "Internal MCP server"
+    config:
+      url: "https://mcp.example.com/mcp"
+      mode: streamable-http
+      extra_headers:
+        Authorization: "Bearer {{ read_file('/var/run/secrets/mcp/token') }}"
+    llm_instructions: "..."
+```
+
+Use `extra_headers` rather than `headers` here: `headers` are fixed when Holmes loads its configuration, while `extra_headers` are rendered for each connection.
+
 **Validating Authentication at Startup (Health Check)**
 
 Many MCP servers return their full tool list even when the configured credential is invalid (a bad token, expired key, etc.). Because of this, simply connecting and listing tools does not prove that authentication works — the toolset can appear "connected" while every real call would fail.
