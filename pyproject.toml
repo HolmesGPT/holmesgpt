@@ -43,7 +43,7 @@ backoff = "^2.2.1"
 litellm = "1.103.10"
 sentry-sdk = {extras = ["fastapi"], version = "^2.20.0"}
 confluent-kafka = "^2.6.1"
-kubernetes = "^32.0.1"
+kubernetes = "^36.0.3"
 # mcp >= 1.27.2 fixes CVE-2026-52869 and CVE-2026-52870 (both High); >= 1.28.1
 # additionally fixes CVE-2026-59950 (High).
 mcp = "1.30.0"
