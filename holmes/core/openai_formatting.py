@@ -201,10 +201,14 @@ def format_tool_to_open_ai_standard(
     if strict_mode:
         result = apply_strict_mode(result)
 
-    # gemini doesnt have parameters object if it is without params
+    # Gemini and similar models tolerate omitting the parameters object when there
+    # are no parameters.  Strict OpenAI-style models need an empty parameters
+    # object with additionalProperties: false (handled by apply_strict_mode),
+    # so do not strip it.
     if TOOL_SCHEMA_NO_PARAM_OBJECT_IF_NO_PARAMS and (
         tool_properties is None or tool_properties == {}
     ):
-        result["function"].pop("parameters")  # type: ignore
+        if not strict_mode:
+            result["function"].pop("parameters")  # type: ignore
 
     return result
