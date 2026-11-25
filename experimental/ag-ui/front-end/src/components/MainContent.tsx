@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import GraphVisualization from './GraphVisualization';
 import LogsVisualization from './LogsVisualization';
 type ObservabilityPage = 'metrics' | 'logs' | 'traces';
@@ -74,6 +74,10 @@ const MainContent: React.FC<MainContentProps> = ({
   const [showExplorer, setShowExplorer] = useState(false);
   const [showIndicesExplorer, setShowIndicesExplorer] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+
+  // Ref for query textarea (used by example chip flash effect)
+  const queryInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Helper function to create OpenSearch auth headers
   const getOpensearchHeaders = React.useCallback(() => {
@@ -787,6 +791,21 @@ const MainContent: React.FC<MainContentProps> = ({
     }));
   };
 
+  // Shared handler for example-chip clicks
+  const handleExampleChipClick = useCallback((value: string) => {
+    setQuery(value);
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+    }
+    if (queryInputRef.current) {
+      queryInputRef.current.classList.add('flash');
+      flashTimerRef.current = setTimeout(() => {
+        queryInputRef.current?.classList.remove('flash');
+        flashTimerRef.current = null;
+      }, 500);
+    }
+  }, []);
+
   // Track processed trigger queries to prevent infinite loops
   const processedTriggerQuery = React.useRef<string | null>(null);
 
@@ -882,20 +901,20 @@ const MainContent: React.FC<MainContentProps> = ({
   return (
     <div className="observability-platform">
       <div className="platform-header">
+        <div className="header-breadcrumb">
+          <span>ExampleOps</span>
+          <span className="breadcrumb-separator">/</span>
+          <span>{selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)}</span>
+        </div>
         <div className="header-content">
-          <h1>ExampleOps Platform - {selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)}</h1>
-          <p>
-            {selectedPage === 'metrics' && 'Query and visualize your application metrics and performance data'}
-            {selectedPage === 'logs' && 'Search and analyze your application logs and events'}
-            {selectedPage === 'traces' && 'Explore distributed traces and request flows'}
-          </p>
+          <h1>{selectedPage.charAt(0).toUpperCase() + selectedPage.slice(1)}</h1>
         </div>
       </div>
 
       {selectedPage === 'metrics' && (
-        <div className="connection-status-bar">
+        <div className={`connection-status-bar ${prometheusStatus === 'disconnected' ? 'disconnected-bar' : ''}`}>
           <div className="connection-info">
-            <span className="connection-label">Prometheus:</span>
+            <span className="connection-label">Prometheus</span>
             <span className="connection-url">{prometheusUrl}</span>
             <div className={`connection-indicator ${prometheusStatus}`}>
               <span className="status-dot"></span>
@@ -910,17 +929,19 @@ const MainContent: React.FC<MainContentProps> = ({
             <button
               className="retry-connection-btn"
               onClick={() => checkPrometheusConnection(true)}
+              title="Retry connection"
+              aria-label="Retry connection"
             >
-              Retry
+              ↺
             </button>
           )}
         </div>
       )}
 
       {selectedPage === 'logs' && (
-        <div className="connection-status-bar">
+        <div className={`connection-status-bar ${opensearchStatus === 'disconnected' ? 'disconnected-bar' : ''}`}>
           <div className="connection-info">
-            <span className="connection-label">OpenSearch:</span>
+            <span className="connection-label">OpenSearch</span>
             <span className="connection-url">{opensearchUrl}</span>
             <div className={`connection-indicator ${opensearchStatus}`}>
               <span className="status-dot"></span>
@@ -935,27 +956,33 @@ const MainContent: React.FC<MainContentProps> = ({
             <button
               className="retry-connection-btn"
               onClick={() => checkOpensearchConnection(true)}
+              title="Retry connection"
+              aria-label="Retry connection"
             >
-              Retry
+              ↺
             </button>
           )}
         </div>
       )}
 
+      <div className="page-content" key={selectedPage}>
       {/* Prometheus Series Explorer - Three-box interface */}
       {selectedPage === 'metrics' && prometheusStatus === 'connected' && (
         <div className="prometheus-explorer">
           <div className="explorer-header">
-            <div className="explorer-title" onClick={() => setShowExplorer(!showExplorer)}>
+            <div className="explorer-title-text">
               <h4>
                 Prometheus Series Explorer
                 {availableMetrics.length > 0 && (
                   <span className="series-count-pill">({availableMetrics.length})</span>
                 )}
-                <span className="toggle-icon">{showExplorer ? '▼' : '▶'}</span>
               </h4>
               <p>Browse series, labels, and values to build your query</p>
             </div>
+            <button type="button" className="explorer-toggle-btn" onClick={() => setShowExplorer(!showExplorer)} aria-expanded={showExplorer} aria-label={showExplorer ? 'Collapse series explorer' : 'Expand series explorer'}>
+              <span className="toggle-icon">{showExplorer ? '▼' : '▶'}</span>
+              <span className="series-count">{availableMetrics.length} series</span>
+            </button>
           </div>
 
           {showExplorer && (
@@ -1054,16 +1081,19 @@ const MainContent: React.FC<MainContentProps> = ({
       {selectedPage === 'logs' && opensearchStatus === 'connected' && (
         <div className="prometheus-explorer">
           <div className="explorer-header">
-            <div className="explorer-title" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)}>
+            <div className="explorer-title-text">
               <h4>
                 OpenSearch Indices Explorer
                 {availableIndices.length > 0 && (
                   <span className="series-count-pill">({availableIndices.length})</span>
                 )}
-                <span className="toggle-icon">{showIndicesExplorer ? '▼' : '▶'}</span>
               </h4>
               <p>Browse available indices to build your PPL query</p>
             </div>
+            <button type="button" className="explorer-toggle-btn" onClick={() => setShowIndicesExplorer(!showIndicesExplorer)} aria-expanded={showIndicesExplorer} aria-label={showIndicesExplorer ? 'Collapse indices explorer' : 'Expand indices explorer'}>
+              <span className="toggle-icon">{showIndicesExplorer ? '▼' : '▶'}</span>
+              <span className="series-count">{availableIndices.length} indices</span>
+            </button>
           </div>
 
           {showIndicesExplorer && (
@@ -1103,59 +1133,87 @@ const MainContent: React.FC<MainContentProps> = ({
 
       <div className="query-section">
         <div className="query-input-container">
-          <div className="query-label-row">
-            <label htmlFor="query-input" className="query-label">
-              {selectedPage === 'metrics' && 'Metrics Query'}
-              {selectedPage === 'logs' && 'Log Query'}
-              {selectedPage === 'traces' && 'Trace Query'}
-            </label>
-            <span className="query-hint-inline">
-              Press Cmd/Ctrl + Enter to execute
-            </span>
-          </div>
-          <div className="query-input-wrapper">
-            <textarea
-              id="query-input"
-              className="query-input"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                selectedPage === 'metrics'
-                  ? "Enter PromQL query (e.g., cpu_usage, memory_usage, http_requests_total)...\n\nOr use Prometheus Series Explorer above to build your query"
-                  : selectedPage === 'logs'
-                  ? "Enter PPL query (e.g., source=logs-* | head 10)...\n\nOr use OpenSearch Indices Explorer above to build your query\n\nNote: PPL plugin may not be available on all AWS clusters"
-                  : "Enter trace query (e.g., service:checkout, operation:payment, duration:>1s)..."
-              }
-              rows={3}
-            />
-            <div className="query-actions">
-              <button
-                className="execute-button"
-                onClick={handleExecuteQuery}
-                disabled={!query.trim() || isExecuting}
-              >
-                {isExecuting ? 'Executing...' : 'Execute'}
-              </button>
-              {currentResult && (
-                <button
-                  className="clear-button"
-                  onClick={clearResults}
-                >
-                  Clear Results
-                </button>
-              )}
+          <div className="query-editor-row">
+            <div className="query-editor-container">
+              <div className="editor-toolbar">
+                <span className="editor-lang-label">
+                  {selectedPage === 'metrics' ? 'PromQL' : selectedPage === 'logs' ? 'PPL' : 'Query'}
+                </span>
+                <div className="editor-actions">
+                  <button
+                    className="editor-action-btn"
+                    title="Copy query"
+                    onClick={() => { if (query.trim()) navigator.clipboard.writeText(query); }}
+                  >
+                    <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                  </button>
+                  <button
+                    className="editor-action-btn"
+                    title="Clear query"
+                    onClick={() => setQuery('')}
+                  >
+                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </button>
+                </div>
+              </div>
+              <textarea
+                ref={queryInputRef}
+                id="query-input"
+                className="query-input"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  selectedPage === 'metrics'
+                    ? 'Enter PromQL query (e.g., up, rate(http_requests_total[5m]))...'
+                    : selectedPage === 'logs'
+                    ? 'Enter PPL query (e.g., source=logs-* | head 10)...'
+                    : 'Enter trace query...'
+                }
+                rows={3}
+              />
             </div>
+            <button
+              className="run-button"
+              onClick={handleExecuteQuery}
+              disabled={!query.trim() || isExecuting}
+            >
+              {isExecuting ? <span className="btn-spinner"></span> : 'Run'}
+            </button>
           </div>
+          {currentResult && (
+            <div className="query-actions-row">
+              <button
+                className="clear-button"
+                onClick={clearResults}
+              >
+                Clear Results
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="results-section">
         {!currentResult ? (
           <div className="empty-state">
-            <div className="empty-icon">📊</div>
-            <h3>No queries executed yet</h3>
-            <p>Enter a query above and click Execute to see visualizations</p>
+            <h3>No results</h3>
+            <p>Run a query to see output here</p>
+            <div className="example-chips">
+              {selectedPage === 'metrics' && (
+                <>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('up')}>up<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('rate(http_requests_total[5m])')}>rate(http_requests_total[5m])<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('process_cpu_seconds_total')}>process_cpu_seconds_total<span className="chip-arrow">→</span></button>
+                </>
+              )}
+              {selectedPage === 'logs' && (
+                <>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('source=logs-* | head 10')}>source=logs-* | head 10<span className="chip-arrow">→</span></button>
+                  <button className="example-chip" onClick={() => handleExampleChipClick('source=logs-* | where severity="ERROR"')}>source=logs-* | where severity="ERROR"<span className="chip-arrow">→</span></button>
+                </>
+              )}
+            </div>
           </div>
         ) : (
           <div className="result-item">
@@ -1255,6 +1313,8 @@ const MainContent: React.FC<MainContentProps> = ({
           </div>
         )}
       </div>
+
+      </div>{/* end page-content */}
 
       {/* Maximized Graph Modal */}
       {isMaximized && currentResult?.data && (

@@ -30,6 +30,7 @@ interface ChatAssistantProps {
   pageContext?: ContextItem[];
   onExecutePromQLQuery?: (query: string) => void;
   onExecutePPLQuery?: (query: string) => void;
+  onCollapse?: () => void;
 }
 
 const TOOL_DEFINITIONS = [
@@ -89,7 +90,7 @@ const TOOL_DEFINITIONS = [
   }
 ];
 
-const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecutePromQLQuery, onExecutePPLQuery }) => {
+const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecutePromQLQuery, onExecutePPLQuery, onCollapse }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -899,59 +900,87 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
               {connectionStatus === 'error' && 'Connection Error'}
             </span>
           </div>
+          {onCollapse && (
+            <button
+              className="chat-collapse-btn"
+              onClick={onCollapse}
+              title="Close chat panel"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          )}
         </div>
         {connectionStatus === 'connected' && currentModel && (
           <div className="model-info">
-            Model: {currentModel}
+            {currentModel}
           </div>
         )}
       </div>
 
-      <div className="chat-messages">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`message ${message.sender === 'user' ? 'user-message' : 'assistant-message'}`}
-          >
-            {message.type === 'graph' && message.graphData ? (
-              <GraphVisualization data={message.graphData} />
-            ) : message.type === 'error' && message.error ? (
-              <div className="error-message">
-                <div className="error-title">{message.error.title}</div>
-                <div className="error-description">{message.error.description}</div>
-                {message.error.retryable && (
-                  <button
-                    className="retry-message-button"
-                    onClick={retryLastMessage}
-                    disabled={isLoading}
-                  >
-                    Retry Last Message
-                  </button>
+      <div className="chat-messages-container">
+        <div className="chat-messages">
+          <div className="date-divider"><span>Today</span></div>
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`message-wrapper ${message.sender}`}
+            >
+              <div className={`message-avatar ${message.sender === 'user' ? 'user-avatar' : 'ai-avatar'}`}>
+                {message.sender === 'user' ? (
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                ) : (
+                  <img src="/holmesgpt-logo.png" alt="AI" />
                 )}
               </div>
-            ) : (
-              <div className="message-text">
-                <ReactMarkdown>{message.text || ''}</ReactMarkdown>
+              <div className={`message ${message.sender === 'user' ? 'user-message' : 'assistant-message'}`}>
+                {message.type === 'graph' && message.graphData ? (
+                  <GraphVisualization data={message.graphData} />
+                ) : message.type === 'error' && message.error ? (
+                  <div className="error-message">
+                    <div className="error-title">{message.error.title}</div>
+                    <div className="error-description">{message.error.description}</div>
+                    {message.error.retryable && (
+                      <button
+                        className="retry-message-button"
+                        onClick={retryLastMessage}
+                        disabled={isLoading}
+                      >
+                        Retry Last Message
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="message-text">
+                    <ReactMarkdown>{message.text || ''}</ReactMarkdown>
+                  </div>
+                )}
+                <div className="message-time">
+                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
-            )}
-            <div className="message-time">
-              {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </div>
-          </div>
-        ))}
-        {isThinking && (
-          <div className="thinking-indicator">
-            <div className="thinking-message">
-              <div className="thinking-dots">
-                <span></span>
-                <span></span>
-                <span></span>
+          ))}
+          {isThinking && (
+            <div className="message-wrapper assistant">
+              <div className="message-avatar ai-avatar">
+                <img src="/holmesgpt-logo.png" alt="AI" />
               </div>
-              <div className="thinking-text">Holmes is thinking...</div>
+              <div className="thinking-indicator">
+                <div className="thinking-message">
+                  <div className="thinking-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <div className="thinking-text">Holmes is thinking...</div>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+          )}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       <div className="chat-controls">
@@ -966,25 +995,37 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({ pageContext = [], onExecu
       </div>
 
       <div className="chat-input">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => {
-            setInputValue(e.target.value);
-            // Reset history navigation when user starts typing
-            if (historyIndex !== -1) {
-              setHistoryIndex(-1);
-            }
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder={isThinking ? "Holmes is thinking..." : "Type your message..."}
-          disabled={isLoading || isThinking}
-        />
+        <div className="chat-input-wrapper">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => {
+              setInputValue(e.target.value);
+              // Reset history navigation when user starts typing
+              if (historyIndex !== -1) {
+                setHistoryIndex(-1);
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={isThinking ? "Holmes is thinking..." : "Ask Holmes anything..."}
+            disabled={isLoading || isThinking}
+          />
+          {inputValue.length === 0 && (
+            <span className="input-hint">↵</span>
+          )}
+          {inputValue.length > 0 && (
+            <span className="char-count">{inputValue.length}</span>
+          )}
+        </div>
         <button
           onClick={() => handleSendMessage()}
           disabled={isLoading || isThinking || !inputValue.trim() || connectionStatus === 'disconnected'}
+          title={connectionStatus === 'disconnected' ? 'Disconnected' : 'Send message'}
         >
-          {isThinking ? 'Thinking...' : isLoading ? 'Sending...' : connectionStatus === 'disconnected' ? 'Disconnected' : 'Send'}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
         </button>
       </div>
     </div>
