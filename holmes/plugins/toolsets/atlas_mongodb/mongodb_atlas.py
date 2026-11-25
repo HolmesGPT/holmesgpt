@@ -178,7 +178,7 @@ class ReturnProjectSlowQueries(MongoDBAtlasBaseTool):
     url: str = "https://cloud.mongodb.com/api/atlas/v2/groups/{project_id}/processes/{process_id}/performanceAdvisor/slowQueryLogs?includeMetrics=true"
     parameters: Dict[str, ToolParameter] = {
         "process_id": ToolParameter(
-            description="Combination of host and port that serves the MongoDB process. call tool atlas_return_project_processes tool to get host+port of project procecess.",
+            description="Combination of host and port that serves the MongoDB process. call tool atlas_return_project_processes tool to get host+port of project processes.",
             type="string",
             required=True,
         ),
