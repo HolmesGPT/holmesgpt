@@ -330,7 +330,12 @@ class TabFenceError(Exception):
 
 class FenceBodyError(Exception):
     """A fence body that cannot be rendered, with the reason; the preprocessor
-    adds the page and line."""
+    adds the page and line: the fence's opening line, or the line of the body
+    (1 is the line below the opening) that `body_line` gives."""
+
+    def __init__(self, message: str, body_line: int = 0):
+        super().__init__(message)
+        self.body_line = body_line
 
 
 def _code_block(language: str, text: str) -> str:
@@ -351,17 +356,51 @@ def _secret_placeholder(key: str) -> str:
     return "your-" + key.lower().replace("_", "-")
 
 
-def _load(text: str):
+def _load(text: str, first_line: int = 1):
+    """What `text` loads as; `first_line` is the line of the fence body where it starts."""
     try:
         return yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise FenceBodyError(f"the fence body is not valid YAML: {e}") from e
+        mark = getattr(e, "problem_mark", None)
+        reason = getattr(e, "problem", None) or str(e)
+        raise FenceBodyError(
+            f"the fence body is not valid YAML: {reason}", first_line + mark.line if mark else 0
+        ) from e
 
 
-def _block_mapping(body: str):
-    """The mapping `body` loads as, if it is a block mapping whose first key starts at
-    the first column, below any comment lines, else None."""
-    data = _load(body)
+def key_lines(text: str, path: tuple = (), node=None) -> Dict[tuple, int]:
+    """{key path: line of that key, 0 is the first line of `text`} of every mapping key and
+    list entry of `text`, a YAML document."""
+    if node is None:
+        node = yaml.compose(text)
+    lines: Dict[tuple, int] = {}
+    if isinstance(node, yaml.MappingNode):
+        merged: Dict[tuple, int] = {}
+        for key, value in node.value:
+            if key.tag == "tag:yaml.org,2002:merge":
+                # `<<:` adds the keys of the mappings it names, written where they are anchored;
+                # the first mapping named and this mapping's own keys win, as in `safe_load`.
+                for source in reversed(value.value if isinstance(value, yaml.SequenceNode) else [value]):
+                    merged.update(key_lines(text, path, source))
+                continue
+            # The key as `yaml.safe_load` loads it, `42:` an int, not the scalar's text.
+            here = path + (yaml.SafeLoader("").construct_object(key, deep=True),)
+            lines[here] = key.start_mark.line
+            lines.update(key_lines(text, here, value))
+        lines = {**merged, **lines}
+    elif isinstance(node, yaml.SequenceNode):
+        for index, item in enumerate(node.value):
+            here = path + (index,)
+            lines[here] = item.start_mark.line
+            lines.update(key_lines(text, here, item))
+    return lines
+
+
+def _block_mapping(body: str, first_line: int = 1):
+    """The mapping `body`, which starts at line `first_line` of the fence body, loads as, if
+    it is a block mapping whose first key starts at the first column, below any comment
+    lines, else None."""
+    data = _load(body, first_line)
     first = next(
         (line for line in body.split("\n") if line.strip() and not line.startswith("#")), ""
     )
@@ -456,14 +495,6 @@ class Form(BaseModel):
     value of its type."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-
-    @model_validator(mode="before")
-    @classmethod
-    def every_field_has_a_value(cls, data):
-        # `None` stands for an absent field, so a field written with no value is refused here.
-        if isinstance(data, dict) and None in data.values():
-            raise ValueError("a field with no value")
-        return data
 
 
 class NamedSecret(Form):
@@ -569,6 +600,8 @@ class DeploymentBody(NamedTuple):
     keys: dict
     # The variables the group gives Holmes: its secret's keys and its `additionalEnvVars`.
     environment: Dict[str, str]
+    # The line of the fence body, 1 being the line below the opening, where `values_text` starts.
+    values_line: int
 
     @property
     def chart_values_text(self) -> str:
@@ -578,32 +611,49 @@ class DeploymentBody(NamedTuple):
         return f"extraEnvVarsSecrets:\n  - {self.secret}\n\n{self.values_text}"
 
 
+def _stripped(lines: List[str], first_line: int) -> Tuple[str, int]:
+    """`lines`, which start at line `first_line` of the fence body, as text without the blank
+    lines around it, and the line of the body where that text starts."""
+    text = "\n".join(lines)
+    return text.strip("\n"), first_line + len(text) - len(text.lstrip("\n"))
+
+
 def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
     """A deployment fence body parsed and checked, or None if it is not a supported form."""
     lines = body.split("\n")
     split = lines.index(FIELDS_SEPARATOR) if FIELDS_SEPARATOR in lines else len(lines)
-    values_text = "\n".join(lines[:split]).strip("\n")
-    fields_text = "\n".join(lines[split + 1 :]).strip("\n")
-    values = _block_mapping(values_text) if values_text else {}
-    fields_data = _block_mapping(fields_text) if split < len(lines) else {}
+    values_text, values_line = _stripped(lines[:split], 1)
+    fields_text, fields_line = _stripped(lines[split + 1 :], split + 2)
+    values = _block_mapping(values_text, values_line) if values_text else {}
+    fields_data = _block_mapping(fields_text, fields_line) if split < len(lines) else {}
     if values is None or fields_data is None:
         return None
+    # `None` stands for an absent field, so a key written with no value is refused before
+    # the fields are validated.
+    for text, part, first_line in ((values_text, values, values_line), (fields_text, fields_data, fields_line)):
+        empty = empty_value(part)
+        if empty:
+            raise FenceBodyError(f"`{key_path(empty)}` has no value", first_line + key_lines(text).get(empty, 0))
     toolset_config = opening["deployment"] == TOOLSET_CONFIG_FENCE
     try:
         fields = (ToolsetConfigFields if toolset_config else HelmValuesFields).model_validate(fields_data)
-    except ValidationError:
-        return None
+    except ValidationError as e:
+        # A field written but refused names its own line; a refusal of the fields together
+        # (`test` beside `cli`) names the fields' first line.
+        error = e.errors()[0]
+        written = key_lines(fields_text)
+        path = tuple(error["loc"])
+        while path and path not in written:
+            path = path[:-1]
+        where = f"`{key_path(tuple(error['loc']))}`: " if error["loc"] else ""
+        raise FenceBodyError(f"{where}{error['msg']}", fields_line + written.get(path, 0)) from e
     if opening["option"] == "reuse" and fields.model_fields_set - {"cli"}:
         return None
-    empty = empty_value(values)
-    if empty:
-        raise FenceBodyError(f"`{key_path(empty)}` has no value")
-
     if not values_text:
         # A setting with no Kubernetes counterpart: the Holmes CLI tab alone.
         if not isinstance(fields, ToolsetConfigFields) or opening["option"] or fields.model_fields_set != {"cli"}:
             return None
-        return DeploymentBody(values_text, values, fields, "", {}, {})
+        return DeploymentBody(values_text, values, fields, "", {}, {}, values_line)
 
     keys = _environment_keys(values_text, values, fields.secret or {})
     secret = ""
@@ -617,7 +667,7 @@ def _deployment_body(opening, body: str, page: str) -> Optional[DeploymentBody]:
         return None
     environment = {key: "value" for key in keys}
     environment.update({entry["name"]: entry.get("value", "") for entry in _env_vars(values)})
-    return DeploymentBody(values_text, values, fields, secret, keys, environment)
+    return DeploymentBody(values_text, values, fields, secret, keys, environment, values_line)
 
 
 def _deployment_section(opening, body: str, page: str):
@@ -626,7 +676,7 @@ def _deployment_section(opening, body: str, page: str):
     parsed = _deployment_body(opening, body, page)
     if parsed is None:
         return None
-    _, _, fields, secret, keys, _ = parsed
+    _, _, fields, secret, keys, _, _ = parsed
     toolset_config = isinstance(fields, ToolsetConfigFields)
     cli = fields.cli if isinstance(fields, ToolsetConfigFields) else None
     test = fields.test if isinstance(fields, ToolsetConfigFields) else None
@@ -701,7 +751,7 @@ def _custom_fences(lines: List[str], page: str, offset: int) -> Iterator[Tuple[i
         end = next((j for j in range(i + 1, len(lines)) if lines[j] == CLOSING_LINE), None)
         if not end:
             raise _unsupported(page, offset + i + 1, lines[i])
-        yield i, end, opening, "\n".join(lines[i + 1 : end]).strip("\n")
+        yield i, end, opening, "\n".join(lines[i + 1 : end])
         i = end + 1
 
 
@@ -789,7 +839,7 @@ def _checked(parse, page: str, line: int, text: str):
     try:
         result = parse()
     except FenceBodyError as e:
-        raise TabFenceError(f"{page}:{line}: {e}") from e
+        raise TabFenceError(f"{page}:{line + e.body_line}: {e}") from e
     if result is None:
         raise _unsupported(page, line, text)
     return result
@@ -811,6 +861,15 @@ class DeploymentFence:
     values: dict
     # The variables the group gives Holmes: its secret's keys and its `additionalEnvVars`.
     environment: Dict[str, str]
+    # The page's line of each key path of the values as the fence writes them.
+    key_lines: Dict[tuple, int]
+
+    def line_of(self, path: tuple) -> int:
+        """The page's line of the key at `path`, or of its nearest ancestor the fence writes;
+        the fence's opening line for a path none of whose keys the fence writes."""
+        while path and path not in self.key_lines:
+            path = path[:-1]
+        return self.key_lines.get(path, self.line)
 
 
 def deployment_fences(markdown: str, page: str, offset: int = 0) -> Iterator[DeploymentFence]:
@@ -821,7 +880,9 @@ def deployment_fences(markdown: str, page: str, offset: int = 0) -> Iterator[Dep
         if opening["deployment"]:
             line = offset + i + 1
             parsed = _checked(lambda: _deployment_body(opening, body, page), page, line, lines[i])
-            yield DeploymentFence(line, _load(parsed.chart_values_text) or {}, parsed.environment)
+            values_line = line + parsed.values_line
+            written = {path: values_line + at for path, at in key_lines(parsed.values_text).items()}
+            yield DeploymentFence(line, _load(parsed.chart_values_text) or {}, parsed.environment, written)
 
 
 class TabFencePreprocessor(Preprocessor):
