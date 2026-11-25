@@ -4,13 +4,14 @@ import re
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Type
 from urllib.parse import urljoin, urlparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 import requests  # type: ignore
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 from requests import RequestException, Timeout  # type: ignore
 
 from holmes.core.tools import (
+    ApprovalRequirement,
     CallablePrerequisite,
     StructuredToolResult,
     StructuredToolResultStatus,
@@ -21,6 +22,7 @@ from holmes.core.tools import (
     ToolsetTag,
 )
 from holmes.plugins.toolsets.internet.ssrf import (
+    ALLOWED_SCHEMES,
     SSRFValidationError,
     build_pinned_adapter,
     validate_url,
@@ -104,6 +106,7 @@ def scrape(
     headers: Dict[str, str],
     allowed_hosts: Optional[Sequence[str]] = None,
     block_internal_ips: bool = True,
+    follow_cross_host_redirects: bool = True,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Fetch ``url`` with SSRF protection.
 
@@ -120,7 +123,10 @@ def scrape(
     headers["User-Agent"] = INTERNET_TOOLSET_USER_AGENT
 
     current_url = url
-    current_host = (urlparse(url).hostname or "").lower()
+    try:
+        current_host = (urlparse(url).hostname or "").lower()
+    except ValueError as e:
+        return f"Refusing to fetch {url}: invalid URL: {e}", None
     current_headers = headers
 
     try:
@@ -157,6 +163,16 @@ def scrape(
                 current_url = urljoin(current_url, location)
                 next_host = (urlparse(current_url).hostname or "").lower()
                 if next_host != current_host:
+                    # www.<host> is the same site the user approved.
+                    same_site = next_host.removeprefix("www.") == current_host.removeprefix("www.")
+                    if not follow_cross_host_redirects and not same_site:
+                        error_message = (
+                            f"Refusing to follow the redirect from {current_host} to "
+                            f"{current_url}: only {current_host} was approved. Fetch "
+                            "that URL directly to ask for approval of its host."
+                        )
+                        logging.warning(error_message)
+                        return error_message, None
                     current_headers = _strip_sensitive_headers(current_headers)
                     current_host = next_host
                 continue
@@ -250,7 +266,7 @@ class FetchWebpage(Tool):
     def __init__(self, toolset: "InternetToolset"):
         super().__init__(
             name="fetch_webpage",
-            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate)",
+            description="Fetch a webpage. Use this to fetch skills if they are present before starting your investigation (if no other tool like confluence is more appropriate). Depending on configuration, a fetch may need the user's approval or be refused.",
             parameters={
                 "url": ToolParameter(
                     description="The URL to fetch",
@@ -261,13 +277,40 @@ class FetchWebpage(Tool):
             toolset=toolset,  # type: ignore
         )
 
-    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
-        url: str = params["url"]
-
-        additional_headers = (
-            self.toolset.internet_config.additional_headers if self.toolset.internet_config.additional_headers else {}
+    def requires_approval(
+        self, params: Dict, context: ToolInvokeContext
+    ) -> Optional[ApprovalRequirement]:
+        config = self.toolset.internet_config or InternetToolsetConfig()
+        # With an allowlist, scrape() refuses every other host; nothing to approve.
+        if not config.require_approval or config.allowed_hosts:
+            return None
+        try:
+            parsed = urlparse(str(params.get("url") or ""))
+            host = parsed.hostname
+        except ValueError:
+            return None
+        if parsed.scheme.lower() not in ALLOWED_SCHEMES or not host:
+            return None
+        return ApprovalRequirement(
+            needs_approval=True,
+            reason=(
+                f"Fetching a web page from '{host}' needs approval: internet access is off "
+                "by default and this host is not in the internet toolset's allowed_hosts."
+            ),
         )
-        allowed_hosts = self.toolset.internet_config.allowed_hosts
+
+    def _invoke(self, params: dict, context: ToolInvokeContext) -> StructuredToolResult:
+        url = params.get("url")
+        if not url or not isinstance(url, str):
+            return StructuredToolResult(
+                status=StructuredToolResultStatus.ERROR,
+                error="The 'url' parameter is required and was not provided.",
+                params=params,
+            )
+
+        config = self.toolset.internet_config or InternetToolsetConfig()
+        additional_headers = config.additional_headers or {}
+        allowed_hosts = config.allowed_hosts
         # Only forward operator-configured auth headers to explicitly
         # allowlisted hosts. Without an allowlist the model can point the tool
         # at an arbitrary host, so the headers (which may carry credentials)
@@ -284,7 +327,10 @@ class FetchWebpage(Tool):
             url,
             additional_headers,
             allowed_hosts=allowed_hosts,
-            block_internal_ips=self.toolset.internet_config.block_internal_ips,
+            block_internal_ips=config.block_internal_ips,
+            # An approval covers the host the user saw, not where it redirects.
+            follow_cross_host_redirects=bool(allowed_hosts)
+            or not config.require_approval,
         )
 
         if not content:
@@ -336,6 +382,12 @@ class InternetBaseToolsetConfig(ToolsetConfig):
         ),
         examples=[[], ["docs.example.com"], ["wiki.internal.corp"]],
     )
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def drop_blank_hosts(cls, hosts: List[str]) -> List[str]:
+        # A list of only blank entries must read as "no allowlist" everywhere.
+        return [host.strip() for host in hosts if host and host.strip()]
     block_internal_ips: bool = Field(
         default=True,
         title="Block internal IPs",
@@ -345,6 +397,21 @@ class InternetBaseToolsetConfig(ToolsetConfig):
             "protection). Only disable in trusted, isolated environments."
         ),
     )
+
+
+class InternetToolsetConfig(InternetBaseToolsetConfig):
+    require_approval: bool = Field(
+        default=True,
+        title="Require approval",
+        description=(
+            "When 'allowed_hosts' is empty, ask the user before each fetch and "
+            "refuse it where no approval is possible (alert investigations, "
+            "scheduled runs, API calls without tool approval). Set to false to "
+            "let Holmes fetch any public host without asking."
+        ),
+    )
+
+
 class InternetBaseToolset(Toolset):
     config_classes: ClassVar[list[Type[InternetBaseToolsetConfig]]] = [
         InternetBaseToolsetConfig
@@ -377,13 +444,19 @@ class InternetBaseToolset(Toolset):
 
     def prerequisites_callable(self, config: Dict[str, Any]) -> Tuple[bool, str]:
         try:
-            self.internet_config = InternetBaseToolsetConfig(**(config or {}))
+            self.internet_config = self.config_classes[0](**(config or {}))
         except Exception as e:
             return False, f"Invalid {self.name} configuration: {e}"
         return True, ""
 
 
 class InternetToolset(InternetBaseToolset):
+    config_classes: ClassVar[list[Type[InternetBaseToolsetConfig]]] = [
+        InternetToolsetConfig
+    ]
+
+    internet_config: Optional[InternetToolsetConfig] = None
+
     def __init__(self):
         super().__init__(
             name="internet",

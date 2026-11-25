@@ -73,6 +73,8 @@ from holmes.core.models import ToolApprovalDecision
 from holmes.utils.stream import StreamEvents, StreamMessage
 from holmes.core.tools import pretty_print_toolset_status
 from holmes.core.tracing import DummyTracer
+from holmes.plugins.toolsets.bash.bash_toolset import BASH_TOOL_NAME
+from holmes.plugins.toolsets.mcp.toolset_mcp import REMOTE_TOOL_NAME_PREFIX
 from holmes.plugins.toolsets.bash.common.cli_prefixes import (
     enable_cli_mode,
 )
@@ -1833,6 +1835,12 @@ def _run_inline_menu(
     return result[0]
 
 
+# Bash on this cluster, and bash run on another cluster through the platform.
+BASH_APPROVAL_TOOL_NAMES = frozenset(
+    {BASH_TOOL_NAME, REMOTE_TOOL_NAME_PREFIX + BASH_TOOL_NAME}
+)
+
+
 def handle_tool_approval(
     pending_approval: PendingToolApproval,
     style: Style,
@@ -1867,25 +1875,28 @@ def handle_tool_approval(
 
     # Build command panel — passed as header to the menu so everything
     # lives inside a single transient Rich Live (auto-erased on exit).
+    is_bash = pending_approval.tool_name in BASH_APPROVAL_TOOL_NAMES
     panel = Panel(
         f"  {command or 'unknown'}",
-        title="[bold]Approve bash command?[/bold]",
+        title=f"[bold]Approve {'bash command' if is_bash else 'operation'}?[/bold]",
         title_align="left",
         border_style="bold yellow",
         padding=(1, 1),
     )
 
-    options = [
-        "Yes",
-        f"Yes, and automatically approve '{prefixes_display}' in the future",
-        "No, and tell Holmes what to do differently",
-    ]
+    # Only bash has an allow list to save to.
+    save_option = (
+        [f"Yes, and automatically approve '{prefixes_display}' in the future"]
+        if is_bash and prefixes
+        else []
+    )
+    options = ["Yes", *save_option, "No, and tell Holmes what to do differently"]
 
     result = _run_inline_menu(options, console, header=panel)
 
     if result == 0:  # Yes
         return True, None
-    elif result == 1:  # Yes, save
+    elif save_option and result == 1:  # Yes, save
         if prefixes:
             _save_approved_prefixes(prefixes)
             console.print(f"[green]✓ Saved `{prefixes_display}` to allow list[/green]")
@@ -1898,6 +1909,18 @@ def handle_tool_approval(
         )
         feedback = feedback_prompt.strip() if feedback_prompt.strip() else None
         return False, feedback
+
+
+def decide_tool_approval(
+    pending_approval: PendingToolApproval,
+    bash_always_allow: bool,
+    style: Style,
+    console: Console,
+) -> tuple[bool, Optional[str]]:
+    """--bash-always-allow answers for bash only; every other tool asks the user."""
+    if bash_always_allow and pending_approval.tool_name in BASH_APPROVAL_TOOL_NAMES:
+        return True, None
+    return handle_tool_approval(pending_approval, style, console)
 
 
 def handle_run_command(
@@ -2309,19 +2332,15 @@ def run_interactive_loop(
 
     # Set up approval callback based on CLI flags
     # --bash-always-deny: None (default behavior denies)
-    # --bash-always-allow: callback that always approves
+    # --bash-always-allow: approves bash without asking; other tools still ask
     # default: interactive approval handler
     approval_callback: Optional[ApprovalCallback] = None
-    if bash_always_allow:
-        approval_callback = lambda _: (True, None)
-    elif not bash_always_deny:
+    if not bash_always_deny:
         def approval_handler(
             pending_approval: PendingToolApproval,
         ) -> tuple[bool, Optional[str]]:
-            return handle_tool_approval(
-                pending_approval=pending_approval,
-                style=style,
-                console=console,
+            return decide_tool_approval(
+                pending_approval, bash_always_allow, style, console
             )
 
         approval_callback = approval_handler

@@ -222,7 +222,7 @@ def test_fetch_webpage_tool_rejects_metadata_endpoint(responses):
     tool = _build_tool()
     result = tool.invoke(
         {"url": "http://169.254.169.254/latest/meta-data/"},
-        create_mock_tool_invoke_context(),
+        create_mock_tool_invoke_context(user_approved=True),
     )
     assert len(responses.calls) == 0
     text = f"{result.data or ''}{result.error or ''}"
@@ -245,7 +245,8 @@ def test_fetch_webpage_tool_does_not_send_auth_without_allowlist(
         {"additional_headers": {"Authorization": "Bearer super-secret"}}
     )
     result = tool.invoke(
-        {"url": "https://attacker.example/"}, create_mock_tool_invoke_context()
+        {"url": "https://attacker.example/"},
+        create_mock_tool_invoke_context(user_approved=True),
     )
     assert result.data == "ok"
     assert len(responses.calls) == 1

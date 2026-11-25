@@ -5,6 +5,9 @@
 toolsets:
   internet:
     enabled: true
+    # Evals run with no approver, so fetch without asking.
+    config:
+      require_approval: false
   kubernetes/core:
     enabled: false
   kubernetes/logs:
