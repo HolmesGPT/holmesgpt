@@ -1,0 +1,120 @@
+# Test: Findable root cause buried in a noisy microservice environment
+#
+# Reproduces a customer-reported failure mode: in a busy environment with many
+# unrelated problems firing at once, Holmes gets distracted by the loudest/most
+# recent signal (a fresh deploy, a crashing pod, scary DB log lines) and blames
+# the wrong thing, instead of tracing the actual failure to its real cause.
+#
+# Scenario: orders-api fails ~22% of order writes with connection-pool acquire
+# timeouts (ORD_POOL_7k3m9x). The OBVIOUS answer — "the pool is too small, raise
+# connection-pool-max" — is WRONG: the pool max (50) is reasonable. It saturates
+# only because every order transaction is abnormally slow (~2s), which the
+# successful-save logs show as "commit_ms=~2000 (audit_sync=on)". The real root
+# cause is audit-sync-writes=true in orders-config forcing a synchronous fsync per
+# audit row inside each transaction. The fix is to make audit writes async, not to
+# grow the pool. This is a cascade where the proximate symptom (pool saturation)
+# masks the true cause, and is exactly the kind of trap that leads to a confident
+# but wrong/band-aid root cause. The database itself is healthy.
+#
+# Surrounding noise (all unrelated to the order failures):
+#   - recommendations-api was just deployed (rollout) AND is OOMKilled/restarting.
+#   - orders-db logs benign "connection reset by peer" lines + routine checkpoints
+#     (tempting to blame the database).
+#   - payments-api logs frequent transient retry WARNs that succeed.
+#   - cache-exporter is in CrashLoopBackOff (can't reach a cache that isn't there).
+#
+# Correct behavior: trace the order failures to the slow synchronous audit writes
+# (audit-sync-writes=true) that make each transaction ~2s and saturate an
+# otherwise-reasonable pool (max=50); recommend making audit writes async rather
+# than growing the pool, and explicitly do NOT blame the pool size itself, the
+# database, the recommendations-api deploy/OOM, or the crashlooping cache-exporter.
+#
+# Anti-hallucination: the unique error code ORD_POOL_7k3m9x and the ~2000ms
+# commit_ms (audit_sync=on) values only exist in the logs/ConfigMap and cannot be
+# guessed. Holmes must surface them to prove it actually investigated rather than
+# pattern-matched on the noise.
+#
+# Measured: opus-4.6, sonnet-4.6 and sonnet-4.5 all PASS this (clean sequential
+# runs) — it is a fair, solvable eval rather than a model discriminator.
+
+user_prompt: |
+  Orders are intermittently failing to save in the app-261 namespace and customers are complaining.
+  There's a lot going on in this namespace right now. Can you find the actual root cause of the failing
+  orders and tell me specifically what to fix?
+
+include_tool_calls: true
+
+expected_output:
+  - "Identifies the REAL (root) cause as a cascade: orders fail to save because the DB connection pool is saturated, and the pool saturates only because every order transaction is abnormally slow (~2 seconds) due to synchronous per-row audit writes (audit-sync-writes=true in the orders-config ConfigMap) holding connections open. The connection pool max (50) is itself reasonable, not the root problem"
+  - "Cites the concrete evidence connecting the cascade: the ORD_POOL_7k3m9x connection-acquire-timeout errors AND the ~2000ms commit times logged with audit_sync=on, AND the audit-sync-writes=true setting in orders-config (proves the logs and ConfigMap were actually read)"
+  - "Gives a fix that addresses the slow transactions: disable/relax synchronous audit writes (set audit-sync-writes=false) or make the audit writes asynchronous/batched so connections are released quickly"
+  - "Its PRIMARY recommended fix is to make the audit writes asynchronous / disable audit-sync-writes so transactions are fast and connections release quickly. Mentioning a larger pool or longer acquire timeout as a secondary mitigation is acceptable, but presenting 'increase the connection pool' as the root cause or the main fix (without identifying the slow synchronous audit writes) is a failure"
+  - "Does NOT pin the root cause on a red herring: the recent orders-api deploy / new pgx driver, the kafka publish failures (the order was already saved), the orders-db database (it is healthy), or any other unrelated noisy service (session-store, recommendations-api, inventory-api, cache-exporter, notification-worker, billing-api, search-api, api-gateway, payments-api)"
+
+tags:
+  - kubernetes
+  - logs
+  - chain-of-causation
+  - hard
+
+setup_timeout: 480
+
+before_test: |
+  set -e
+  kubectl apply -f manifest.yaml
+
+  # PRIMARY TRAP: roll out orders-api itself with a change-cause that strongly
+  # implies the recent change touched DB connection handling. This is temporally
+  # correlated with the incident and is exactly the kind of "it broke right after
+  # the deploy" signal that lures a root-causer away from the standing misconfig.
+  # The rollout does NOT change the audit setting, so the deploy is a red herring
+  # — the slow transactions / pool saturation are independent of it.
+  kubectl annotate deployment/orders-api -n app-261 \
+    kubernetes.io/change-cause="bump orders-api v2.6.0 -> v2.7.0: migrate to pgx db driver v5 (connection pooling rewrite)" --overwrite >/dev/null
+  kubectl set env deployment/orders-api -n app-261 APP_VERSION=2.7.0 >/dev/null
+
+  # Additional unrelated recent deploy for noise.
+  kubectl set env deployment/recommendations-api -n app-261 APP_VERSION=3.4.1 >/dev/null
+
+  # Verify BOTH needles in one loop (avoids a race where the failure lines appear
+  # before the slow-commit success lines): the pool-acquire-timeout error
+  # (ORD_POOL_7k3m9x) AND the ~2s slow-commit evidence (audit_sync=on) that points
+  # to the real root cause.
+  NEEDLES_SEEN=false
+  for i in $(seq 1 90); do
+    LOGS=$(kubectl logs -l app=orders-api -n app-261 --tail=300 2>/dev/null || true)
+    if echo "$LOGS" | grep -q "ORD_POOL_7k3m9x" && echo "$LOGS" | grep -q "audit_sync=on"; then
+      echo "Setup verified - pool-acquire timeouts AND slow-commit (audit_sync) evidence present"
+      NEEDLES_SEEN=true
+      break
+    fi
+    sleep 2
+  done
+  if [ "$NEEDLES_SEEN" = false ]; then
+    echo "ERROR: expected both ORD_POOL_7k3m9x and audit_sync=on in orders-api logs after 180s"
+    kubectl get pods -n app-261
+    kubectl logs -l app=orders-api -n app-261 --tail=50 || true
+    exit 1
+  fi
+
+  # Confirm the real culprit flag and the (reasonable) pool size are readable in
+  # the ConfigMap — the audit flag is the fix target, the pool=50 is NOT the trap.
+  AUDIT=$(kubectl get configmap orders-config -n app-261 -o jsonpath='{.data.audit-sync-writes}' 2>/dev/null || true)
+  POOL_MAX=$(kubectl get configmap orders-config -n app-261 -o jsonpath='{.data.connection-pool-max}' 2>/dev/null || true)
+  if [ "$AUDIT" != "true" ] || [ "$POOL_MAX" != "50" ]; then
+    echo "ERROR: expected orders-config audit-sync-writes=true and connection-pool-max=50 but got audit='$AUDIT' pool='$POOL_MAX'"
+    exit 1
+  fi
+
+  # Best-effort: let the noisy red-herring pods reach their alarming states.
+  for i in $(seq 1 30); do
+    if kubectl get pods -n app-261 2>/dev/null | grep -Eq "OOMKilled|CrashLoopBackOff|Error"; then
+      echo "Red-herring pods reached an alarming state"
+      break
+    fi
+    sleep 2
+  done
+  kubectl get pods -n app-261 || true
+
+after_test: |
+  kubectl delete namespace app-261 --ignore-not-found
