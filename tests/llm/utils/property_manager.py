@@ -114,6 +114,7 @@ def update_test_results(
     eval_span: Any = None,
     caplog: Any = None,
     suggested_memories: Optional[List[Dict[str, Any]]] = None,
+    visualizations: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Update test result properties after test execution and optionally calculate scores.
 
@@ -207,6 +208,11 @@ def update_test_results(
                 )
 
             evaluation_output += memory_block
+
+        # Surface OpenUI visualizations (program and what the renderer draws)
+        # to the judge in readable form; the raw tool-call repr escapes the code.
+        if visualizations is not None:
+            evaluation_output += "\n\n# Visualizations\n\n" + visualizations
 
         # Also include tool calls if requested
         if (

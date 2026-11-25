@@ -1,0 +1,20 @@
+# No cluster: the OpenUI evals only need deterministic pods and CPU data,
+# served by the shared stub (tests/llm/fixtures/shared/openui/mock_cluster_mcp.py).
+toolsets:
+  kubernetes/core: { enabled: false }
+  kubernetes/logs: { enabled: false }
+  helm/core: { enabled: false }
+  core_investigation: { enabled: false }
+  internet: { enabled: false }
+  skills: { enabled: false }
+  robusta: { enabled: false }
+  connectivity_check: { enabled: false }
+  bash: { enabled: false }
+
+mcp_servers:
+  cluster_tools:
+    enabled: true
+    config:
+      mode: stdio
+      command: python
+      args: ["tests/llm/fixtures/shared/openui/mock_cluster_mcp.py"]
