@@ -63,6 +63,15 @@ Delegated permissions require an admin to complete a one-time OAuth flow. These 
     - Files are created in the team's SharePoint Documents library for easy sharing and collaboration
     - The bot does not read, modify, or delete existing SharePoint content
 
+- **`Team.ReadBasic.All`** - List the teams the authenticated user belongs to
+    - **Read-only.** Used to resolve a team's display **name** to its ID so the Platform MCP `lookup_teams_channel` tool can find the right team before posting a message
+    - Returns only basic team properties (ID and display name); does not read team content, members, or settings
+
+- **`Channel.ReadBasic.All`** - List channels within those teams
+    - **Read-only.** Used together with `Team.ReadBasic.All` to resolve a channel's display **name** to its `conversation_id` (e.g. `19:...@thread.tacv2`)
+    - This is what lets you reference a Teams channel by name in alert-triage workflows instead of pasting a raw conversation ID — the resolved `conversation_id` is then passed to the message-sending tool
+    - Returns only basic channel properties (ID, display name, web URL); does not read channel messages
+
 - **`offline_access`** - Maintain authentication session
     - Allows the bot to save investigation outputs without requiring re-authentication for each request
 
@@ -77,6 +86,7 @@ Delegated permissions require an admin to complete a one-time OAuth flow. These 
 | Send and update bot's own response messages | Only when replying to user | Bot Framework Connector API |
 | Discover SharePoint document library location | Only when saving investigation results | `Sites.ReadWrite.All` (read portion) |
 | Create investigation log file | Only when saving investigation results | `Sites.ReadWrite.All` (write portion) |
+| Resolve a team/channel name to its conversation ID | Only when a workflow/user posts to a channel by name | `Team.ReadBasic.All` + `Channel.ReadBasic.All` (read-only) |
 
 ### What the Bot Does NOT Do
 
