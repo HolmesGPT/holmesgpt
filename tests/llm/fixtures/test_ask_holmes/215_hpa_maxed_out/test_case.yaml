@@ -1,0 +1,118 @@
+user_prompt:
+- "The notification-service in namespace app-215 is responding very slowly. Average response time has jumped from 200ms to over 10 seconds. What is happening?"
+
+expected_output:
+  - Must identify that the HPA has reached its maximum replica count and cannot scale further
+  - Must note the current replica count equals maxReplicas (e.g., 3 out of 3)
+  - Should mention that the CPU utilization is above the HPA target but no more pods can be added
+  - Should suggest increasing maxReplicas or adding more resources as a remediation
+
+tags:
+  - kubernetes
+  - medium
+  - chain-of-causation
+  - regression
+
+setup_timeout: 300
+
+port_forwards:
+  - namespace: app-215
+    service: prometheus
+    local_port: 10215
+    remote_port: 9090
+
+before_test: |
+  set -e
+
+  echo "📁 Creating namespace..."
+  kubectl create namespace app-215 --dry-run=client -o yaml | kubectl apply -f -
+
+  echo "⚙️ Setting up monitoring..."
+  kubectl apply -f prometheus-config.yaml -n app-215
+  kubectl apply -f ../../shared/prometheus.yaml -n app-215
+
+  echo "🚀 Deploying notification-service..."
+  kubectl apply -f notification-service.yaml -n app-215
+
+  echo "⏳ Waiting for pods to be ready..."
+  PODS_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=notification-service -n app-215 --timeout=5s 2>/dev/null; then
+      echo "✅ Pods are ready!"
+      PODS_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PODS_READY" = false ]; then
+    echo "❌ Pods failed to become ready"
+    kubectl get pods -n app-215
+    exit 1
+  fi
+
+  echo "⏳ Waiting for Prometheus to be ready..."
+  PROM_READY=false
+  for i in {1..60}; do
+    if kubectl wait --for=condition=ready pod -l app=prometheus -n app-215 --timeout=5s 2>/dev/null; then
+      echo "✅ Prometheus is ready!"
+      PROM_READY=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$PROM_READY" = false ]; then
+    echo "❌ Prometheus failed to become ready"
+    kubectl get pods -n app-215
+    exit 1
+  fi
+
+  echo "📊 Applying HPA with low maxReplicas..."
+  kubectl apply -f hpa.yaml -n app-215
+
+  echo "📈 Generating CPU load on all pods to saturate HPA..."
+  kubectl apply -f analytics-worker.yaml -n app-215
+
+  echo "⏳ Waiting for stress job pods to start..."
+  STRESS_READY=false
+  for i in {1..60}; do
+    RUNNING=$(kubectl get pods -n app-215 -l app=analytics-worker --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+    if [ "$RUNNING" -gt "0" ]; then
+      echo "✅ Stress generators running!"
+      STRESS_READY=true
+      break
+    fi
+    sleep 1
+  done
+
+  echo "⏳ Waiting for HPA to hit maxReplicas and stabilize..."
+  HPA_MAXED=false
+  for i in {1..90}; do
+    CURRENT=$(kubectl get hpa notification-service-hpa -n app-215 -o jsonpath='{.status.currentReplicas}' 2>/dev/null || echo "0")
+    MAX=$(kubectl get hpa notification-service-hpa -n app-215 -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "0")
+    if [ "$CURRENT" = "$MAX" ] && [ "$MAX" != "0" ]; then
+      echo "✅ HPA is at maxReplicas ($CURRENT/$MAX)!"
+      HPA_MAXED=true
+      break
+    fi
+    echo "⏳ HPA: $CURRENT/$MAX replicas (attempt $i/90)"
+    sleep 2
+  done
+  if [ "$HPA_MAXED" = false ]; then
+    echo "⚠️ HPA did not reach maxReplicas within timeout"
+    kubectl get hpa -n app-215
+  fi
+
+  echo "⏳ Waiting for metrics to be scraped by Prometheus (30s)..."
+  sleep 30
+
+  echo "🧹 Cleaning up stress generators..."
+  kubectl delete -f analytics-worker.yaml -n app-215 --ignore-not-found=true
+
+  echo "📋 Final state:"
+  kubectl get pods -n app-215
+  kubectl get hpa -n app-215
+
+  echo "✅ Test setup completed"
+
+after_test: |
+  kubectl delete namespace app-215 || true

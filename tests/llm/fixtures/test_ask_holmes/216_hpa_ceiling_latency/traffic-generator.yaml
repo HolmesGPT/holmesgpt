@@ -1,0 +1,36 @@
+# Traffic generator that hammers dispatch-service to drive CPU up
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-gen
+  namespace: app-216
+  labels:
+    app: traffic-gen
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: traffic-gen
+  template:
+    metadata:
+      labels:
+        app: traffic-gen
+    spec:
+      containers:
+      - name: traffic-gen
+        image: busybox:1.36
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          while true; do
+            wget -q -O /dev/null --post-data='{"route":"warehouse-7","priority":"high"}' \
+              --header='Content-Type: application/json' \
+              http://dispatch-service.app-216.svc.cluster.local/dispatch 2>/dev/null || true
+          done
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "10m"
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
