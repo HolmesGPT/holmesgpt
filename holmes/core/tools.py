@@ -1,10 +1,14 @@
+import ctypes
 import fnmatch
+import functools
 import json
 import logging
 import os
 import re
 import shlex
+import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -31,6 +35,7 @@ from jinja2 import Template
 from jinja2.exceptions import SecurityError
 from jinja2.sandbox import SandboxedEnvironment
 
+from holmes.common.env_vars import get_prereq_timeout_seconds
 from holmes.core.json_schema_coerce import coerce_params
 from pydantic import (
     BaseModel,
@@ -773,6 +778,115 @@ class YAMLTool(Tool, BaseModel):
             return output, 1
 
 
+PREREQ_KILL_GRACE_SECONDS = 5.0
+_PROCESS_TERMINATE = 0x0001
+_PROCESS_SET_QUOTA = 0x0100
+
+
+@functools.lru_cache(maxsize=None)
+def _windows_kernel32() -> Any:
+    if sys.platform != "win32":
+        raise OSError("kernel32 is only available on Windows")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+    kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.TerminateJobObject.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    return kernel32
+
+
+def _create_windows_job(pid: int) -> Optional[int]:
+    """Put the process in a new Job Object; processes it starts later join the job too."""
+    kernel32 = _windows_kernel32()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    process_handle = kernel32.OpenProcess(
+        _PROCESS_SET_QUOTA | _PROCESS_TERMINATE, False, pid
+    )
+    assigned = bool(process_handle) and bool(
+        kernel32.AssignProcessToJobObject(job, process_handle)
+    )
+    if process_handle:
+        kernel32.CloseHandle(process_handle)
+    if not assigned:
+        kernel32.CloseHandle(job)
+        return None
+    return job
+
+
+def _kill_process_tree(process: subprocess.Popen, job: Optional[int]) -> None:
+    if sys.platform == "win32":
+        if job is None or not _windows_kernel32().TerminateJobObject(job, 1):
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def run_prerequisite_command(
+    command: str, timeout: float
+) -> subprocess.CompletedProcess:
+    """Run a shell command, killing it and all of its child processes on timeout.
+
+    On POSIX the command runs in its own session, so a timeout kills its whole
+    process group. On Windows it runs in a Job Object, so a timeout terminates
+    every process in the job, even after the shell itself has exited (taskkill
+    is the fallback if the job can't be created). Either way every process the
+    shell started is killed, not only the shell itself.
+    The same cleanup runs if the wait is interrupted (e.g. KeyboardInterrupt),
+    because the command is in its own session and doesn't receive Ctrl+C.
+    Output is decoded as UTF-8 with errors="replace", independent of the
+    system locale, so undecodable bytes can't raise and replace the
+    TimeoutExpired being handled.
+    Raises subprocess.TimeoutExpired on timeout and
+    subprocess.CalledProcessError on a non-zero exit code.
+    """
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    job = _create_windows_job(process.pid) if sys.platform == "win32" else None
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except BaseException:
+        _kill_process_tree(process, job)
+        try:
+            process.communicate(timeout=PREREQ_KILL_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "A timed-out prerequisite command left a process holding its output pipes"
+            )
+        raise
+    finally:
+        if job is not None:
+            _windows_kernel32().CloseHandle(job)
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(
+            process.returncode, command, output=stdout, stderr=stderr
+        )
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
 class StaticPrerequisite(BaseModel):
     enabled: bool
     disabled_reason: str
@@ -1079,13 +1193,8 @@ class Toolset(BaseModel):
             if isinstance(prereq, ToolsetCommandPrerequisite):
                 try:
                     command = self.interpolate_command(prereq.command)
-                    result = subprocess.run(
-                        command,
-                        shell=True,
-                        check=True,
-                        text=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
+                    result = run_prerequisite_command(
+                        command, timeout=get_prereq_timeout_seconds()
                     )
                     if (
                         prereq.expected_output
@@ -1099,6 +1208,11 @@ class Toolset(BaseModel):
                     detail = f": {stderr}" if stderr else ""
                     local_error = (
                         f"`{prereq.command}` failed with exit code {e.returncode}{detail}"
+                    )
+                except subprocess.TimeoutExpired as e:
+                    local_status = ToolsetStatusEnum.FAILED
+                    local_error = (
+                        f"`{prereq.command}` timed out after {e.timeout:g} seconds"
                     )
 
             elif isinstance(prereq, ToolsetEnvironmentPrerequisite):
