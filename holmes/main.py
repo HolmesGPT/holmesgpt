@@ -164,6 +164,7 @@ def _investigate_issue(
     ai: ToolCallingLLM,
     issue: Issue,
     config: Config,
+    documents: Optional[List[ResourceInstructionDocument]] = None,
 ) -> LLMResult:
     """Investigate an issue using the standard ask system prompt with investigation additions."""
     # Enable disk-based OAuth token storage so MCP tokens previously
@@ -178,8 +179,11 @@ def _investigate_issue(
         ask_user_enabled=False,
         prompt_component_overrides={},
     )
+    issue_context = f"\n #This is context from the issue:\n{issue.raw}"
+    for document in documents or []:
+        issue_context += f"\n* fetch information from this URL: {document.url}"
     user_prompt = generate_user_prompt(
-        f"\n #This is context from the issue:\n{issue.raw}",
+        issue_context,
         context={},
     )
     messages = [
@@ -997,6 +1001,7 @@ def opsgenie(
     Investigate an OpsGenie alert
     """
     console = init_logging(verbose)  # type: ignore
+    resource_documents = parse_documents(documents)
 
     config = Config.load_from_file(
         config_file,
@@ -1029,7 +1034,7 @@ def opsgenie(
             console.print(
                 f"[bold yellow]Analyzing OpsGenie alert {i+1}/{len(issues)}: {issue.name}...[/bold yellow]"
             )
-            result = _investigate_issue(ai, issue, config)
+            result = _investigate_issue(ai, issue, config, resource_documents)
 
             console.print(Rule())
             console.print(f"[bold green]AI analysis of {issue.url}[/bold green]")
