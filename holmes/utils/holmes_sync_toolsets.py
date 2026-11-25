@@ -189,22 +189,24 @@ def build_remote_tools_meta(toolset: Toolset, tool_executor: Any = None) -> Any:
     Excluded tools: tools that as a whole match approval_required_tools
     patterns (bash is NOT excluded — its approval decision is per command
     and enforced at execution time)."""
-    if not toolset.expose_remotely or toolset.is_core:
-        return None
-    if toolset.status != ToolsetStatusEnum.ENABLED:
+    if toolset.is_core or toolset.status != ToolsetStatusEnum.ENABLED:
         return None
 
     exposed_instances = None
     get_instances = getattr(toolset, "remote_exposed_instances", None)
     if callable(get_instances):
         exposed_instances = get_instances()
-        if exposed_instances is not None and not exposed_instances:
-            return None  # multi-instance toolset with zero exposed instances
+    if exposed_instances is None:
+        if not toolset.expose_remotely:
+            return None
+    elif not exposed_instances:
+        return None
 
     tools = [
         {**tool.get_openai_format(), "contract_hash": remote_tool_contract_hash(tool)}
         for tool in _exposed_tools(toolset, tool_executor)
-        if not _tool_requires_approval(
+        if tool.remotely_callable
+        and not _tool_requires_approval(
             _mcp_tool_name(tool) or tool.name, toolset.approval_required_tools
         )
     ]

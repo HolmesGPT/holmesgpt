@@ -181,6 +181,10 @@ For MCP servers that require OAuth authentication (e.g. Atlassian, Notion), see 
 
 ## Advanced Configuration
 
+**Calling an MCP server from other clusters**
+
+Set `expose_remotely: true` on an `mcp_servers` entry to let Holmes in other clusters, and external MCP clients, call its tools through the Robusta platform. See [Cross-Cluster Tools](cross-cluster-tools.md).
+
 **Dynamic Headers with Request Context**
 
 MCP servers can forward HTTP headers from the incoming request to the MCP backend. Use `extra_headers` with Jinja2 templates referencing `request_context.headers`. Header lookups are case-insensitive. You can also use environment variables (`{{ env.MY_VAR }}`) or combine them (`Bearer {{ request_context.headers['token'] }}`).
