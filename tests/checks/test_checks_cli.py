@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -67,8 +68,9 @@ def test_checks_cli_monitor_mode(mock_create_toolcalling_llm):
         mock_ai.call.assert_called_once()
 
 
+@patch("holmes.checks.checks.CheckRunner._send_alerts")
 @patch("holmes.config.Config.create_toolcalling_llm")
-def test_checks_cli_inline_check(mock_create_toolcalling_llm):
+def test_checks_cli_inline_check(mock_create_toolcalling_llm, mock_send_alerts):
     """Test running an inline check via CLI with -c option."""
     # Create mock AI
     mock_ai = MagicMock()
@@ -95,8 +97,8 @@ def test_checks_cli_inline_check(mock_create_toolcalling_llm):
             "run",
             "-c",
             "Are all pods healthy in the cluster?",
-            "--mode",
-            "monitor",
+            "--webhook-url",
+            "https://example.invalid/alerts",
         ],
     )
 
@@ -111,3 +113,62 @@ def test_checks_cli_inline_check(mock_create_toolcalling_llm):
 
     # Verify LLM was called
     mock_ai.call.assert_called_once()
+    mock_send_alerts.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("check_mode", "cli_mode", "should_alert"),
+    [
+        ("alert", None, True),
+        (None, None, False),
+        ("alert", "monitor", False),
+        ("monitor", "alert", True),
+    ],
+)
+@patch("holmes.checks.checks.CheckRunner._send_alerts")
+@patch("holmes.config.Config.create_toolcalling_llm")
+def test_checks_cli_notification_mode(
+    mock_create_toolcalling_llm,
+    mock_send_alerts,
+    tmp_path,
+    check_mode,
+    cli_mode,
+    should_alert,
+):
+    mock_ai = mock_create_toolcalling_llm.return_value
+    mock_ai.llm.model = "gpt-4"
+    mock_ai.call.return_value = LLMResult(
+        result=json.dumps({"passed": False, "rationale": "Pods are unhealthy."}),
+        tool_calls=[],
+    )
+    check = {
+        "name": "pod-health",
+        "query": "Are the pods healthy?",
+        "destinations": ["webhook"],
+    }
+    if check_mode is not None:
+        check["mode"] = check_mode
+    checks_file = tmp_path / "checks.yaml"
+    checks_file.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "checks": [check],
+                "destinations": {
+                    "webhook": {"webhook_url": "https://example.invalid/alerts"}
+                },
+            }
+        )
+    )
+    args = ["checks", "run", "--checks-file", str(checks_file)]
+    if cli_mode is not None:
+        args.extend(["--mode", cli_mode])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    assert "FAIL" in result.output
+    if should_alert:
+        mock_send_alerts.assert_called_once()
+    else:
+        mock_send_alerts.assert_not_called()

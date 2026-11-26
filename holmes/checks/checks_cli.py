@@ -83,10 +83,10 @@ def check(
         help="JSON object of extra HTTP headers for the generic webhook.",
         envvar="WEBHOOK_HEADERS",
     ),
-    mode: CheckMode = typer.Option(
-        CheckMode.MONITOR,
+    mode: Optional[CheckMode] = typer.Option(
+        None,
         "--mode",
-        help="Mode for running checks: 'alert' (send notifications) or 'monitor' (only log)",
+        help="Override check mode: 'alert' (send notifications) or 'monitor' (only log). Defaults to the configured mode or monitor.",
     ),
     name: Optional[str] = typer.Option(
         None,
@@ -215,8 +215,9 @@ def check(
         webhook_headers=parsed_webhook_headers,
     )
 
-    for check in checks_config.checks:
-        check.mode = mode
+    if mode is not None:
+        for check in checks_config.checks:
+            check.mode = mode
 
     # Run checks
     exit_code = run_check_command(
