@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
@@ -8,7 +8,6 @@ from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
 class TestKubernetesLogsNoData:
     """Test that kubernetes logs returns NO_DATA status when appropriate"""
 
-    @patch("subprocess.run")
     def test_no_logs_returns_no_data_status(self, mock_run):
         """Test that NO_DATA status is returned when pod has no logs"""
         # Mock kubectl returning empty output (no logs)
@@ -27,7 +26,6 @@ class TestKubernetesLogsNoData:
         assert result.status == StructuredToolResultStatus.NO_DATA
         # May include metadata about the query even when no logs found
 
-    @patch("subprocess.run")
     def test_logs_with_filter_no_matches_returns_no_data(self, mock_run):
         """Test that NO_DATA status is returned when logs exist but filter matches nothing"""
         # Mock kubectl returning logs that won't match our filter
@@ -50,7 +48,6 @@ class TestKubernetesLogsNoData:
         # Should return NO_DATA when filter matches no logs
         assert result.status == StructuredToolResultStatus.NO_DATA
 
-    @patch("subprocess.run")
     def test_logs_with_time_range_no_matches_returns_no_data(self, mock_run):
         """Test that NO_DATA status is returned when logs exist but outside time range"""
         # Mock kubectl returning logs from 2024
@@ -73,7 +70,6 @@ class TestKubernetesLogsNoData:
         # Should return NO_DATA when no logs in time range
         assert result.status == StructuredToolResultStatus.NO_DATA
 
-    @patch("subprocess.run")
     def test_logs_exist_returns_success_with_metadata(self, mock_run):
         """Test that SUCCESS status is returned when logs exist, even with metadata"""
         # Mock kubectl returning actual logs
