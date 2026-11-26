@@ -1,7 +1,9 @@
 import pytest
+from litellm import VertexGeminiConfig
 
 from holmes.core.openai_formatting import type_to_open_ai_schema, format_tool_to_open_ai_standard
 from holmes.core.tools import ToolParameter
+from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool
 
 from tests.mocks.toolset_mocks import DummyTool
 
@@ -127,8 +129,6 @@ def test_format_tool_leaves_a_free_form_object_open(monkeypatch):
 
 
 def test_format_mcp_tool_with_free_form_object_is_not_strict(monkeypatch):
-    from holmes.plugins.toolsets.mcp.toolset_mcp import RemoteMCPTool
-
     monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", True)
     params = RemoteMCPTool.parse_input_schema(
         {
@@ -177,6 +177,124 @@ def test_format_tool_disabled_via_env(monkeypatch):
     }
     result = format_tool_to_open_ai_standard("search", "Search things", params)
     assert "strict" not in result["function"]
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_format_mcp_tool_preserves_nested_parameter_metadata(monkeypatch, strict):
+    monkeypatch.setattr("holmes.core.openai_formatting.STRICT_TOOL_CALLS_ENABLED", strict)
+    params = RemoteMCPTool.parse_input_schema(
+        {
+            "type": "object",
+            "properties": {
+                "filter": {
+                    "type": "object",
+                    "description": "Search filter",
+                    "properties": {
+                        "operator": {
+                            "type": "string",
+                            "description": "Match operator",
+                            "enum": ["in", "not_in"],
+                            "default": "in",
+                        },
+                        "values": {
+                            "type": "array",
+                            "items": {
+                                "type": ["string", "null"],
+                                "description": "Filter value",
+                                "enum": ["all", None],
+                            },
+                        },
+                        "order": {
+                            "description": "Sort order",
+                            "enum": ["asc", 1],
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "description": "Named order",
+                                    "enum": ["asc", "desc"],
+                                },
+                                {
+                                    "type": "integer",
+                                    "description": "Numeric order",
+                                    "enum": [0, 1],
+                                },
+                            ],
+                        },
+                    },
+                    "required": ["values", "order"],
+                },
+            },
+            "required": ["filter"],
+        }
+    )
+
+    tool = format_tool_to_open_ai_standard("search", "Search", params)
+    function = tool["function"]
+    assert function.get("strict", False) is strict
+    filter_schema = function["parameters"]["properties"]["filter"]
+    assert filter_schema["description"] == "Search filter"
+    properties = filter_schema["properties"]
+    operator = {"type": "string", "enum": ["in", "not_in"], "default": "in"}
+    operator_schema = (
+        {"anyOf": [operator, {"type": "null"}]} if strict else operator
+    )
+    assert properties["operator"] == {
+        **operator_schema,
+        "description": "Match operator",
+    }
+    assert params["filter"].properties["operator"].enum == ["in", "not_in"]
+    assert properties["values"]["items"] == {
+        "anyOf": [{"type": "string", "enum": ["all"]}, {"type": "null"}],
+        "description": "Filter value",
+    }
+    assert properties["order"] == {
+        "description": "Sort order",
+        "enum": ["asc", 1],
+        "anyOf": [
+            {"type": "string", "description": "Named order", "enum": ["asc", "desc"]},
+            {"type": "integer", "description": "Numeric order", "enum": [0, 1]},
+        ],
+    }
+    if strict:
+        assert filter_schema["additionalProperties"] is False
+        assert filter_schema["required"] == list(properties)
+
+    mapped = VertexGeminiConfig()._map_function([tool], {})
+    declaration = mapped[0]["function_declarations"][0]
+    vertex_properties = declaration["parameters"]["properties"]["filter"]["properties"]
+    vertex_operator = vertex_properties["operator"]
+    if strict:
+        vertex_operator = vertex_operator["anyOf"][0]
+    assert vertex_operator["enum"] == ["in", "not_in"]
+    assert vertex_operator["description"] == "Match operator"
+    assert vertex_operator["default"] == "in"
+    assert vertex_operator.get("nullable", False) is strict
+    vertex_item = vertex_properties["values"]["items"]["anyOf"][0]
+    assert vertex_item["enum"] == ["all"]
+    assert vertex_item["nullable"] is True
+
+
+@pytest.mark.parametrize("strict", [True, False])
+def test_explicitly_nullable_type_still_respects_enum(strict):
+    params = RemoteMCPTool.parse_input_schema(
+        {
+            "type": "object",
+            "properties": {
+                "operator": {"type": ["string", "null"], "enum": ["in"]},
+                "disabled": {"type": ["string", "null"], "enum": [None], "default": None},
+            },
+            "required": ["operator", "disabled"],
+        }
+    )
+
+    assert type_to_open_ai_schema(params["operator"], strict) == {
+        "type": "string",
+        "enum": ["in"],
+    }
+    assert type_to_open_ai_schema(params["disabled"], strict) == {
+        "type": "null",
+        "default": None,
+    }
 
 
 class TestParameterCoercion:

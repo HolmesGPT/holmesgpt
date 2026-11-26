@@ -879,6 +879,7 @@ class RemoteMCPTool(Tool):
                     type="anyOf",
                     required=required if not has_null else False,
                     any_of=any_of_params,
+                    enum=schema.get("enum"),
                     json_schema_extra={
                         k: v for k, v in schema.items() if k in {"default"}
                     }
