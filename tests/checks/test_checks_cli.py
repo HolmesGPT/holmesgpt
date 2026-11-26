@@ -120,6 +120,12 @@ def test_checks_cli_inline_check(mock_create_toolcalling_llm):
     [
         (None, "https://global.example.test", None, "https://global.example.test"),
         (
+            None,
+            "https://global.example.test",
+            "https://env.example.test",
+            "https://global.example.test",
+        ),
+        (
             "https://check.example.test",
             "https://global.example.test",
             "https://env.example.test",
