@@ -307,6 +307,13 @@ class CheckRunner:
             else:
                 self._destinations_config = destinations_config
 
+    def _resolve_webhook_url(self, destination: Optional[DestinationConfig]) -> Optional[str]:
+        return (
+            (destination.webhook_url if destination else None)
+            or self.config.webhook_url
+            or os.environ.get("WEBHOOK_URL")
+        )
+
     # TODO: refactor this, why we suppose the name will be slack or pagerduty?
     def validate_destinations(
         self, destinations: Dict[str, DestinationConfig]
@@ -350,10 +357,10 @@ class CheckRunner:
 
             elif name == "webhook":
                 # Check Webhook configuration
-                webhook_url = dest_config.webhook_url or os.environ.get("WEBHOOK_URL")
+                webhook_url = self._resolve_webhook_url(dest_config)
                 if not webhook_url:
                     errors.append(
-                        f"Webhook destination '{name}': Missing webhook_url in destination config or WEBHOOK_URL env var"
+                        f"Webhook destination '{name}': Missing webhook_url in destination or global config or WEBHOOK_URL env var"
                     )
 
             else:
@@ -622,10 +629,7 @@ class CheckRunner:
                 webhook_config: Optional[DestinationConfig] = (
                     self._destinations_config.get(dest_name)
                 )
-                webhook_url = (
-                    (webhook_config.webhook_url if webhook_config else None)
-                    or os.environ.get("WEBHOOK_URL")
-                )
+                webhook_url = self._resolve_webhook_url(webhook_config)
                 if not webhook_url:
                     self.console.print(
                         "  [yellow]Webhook not configured (missing webhook_url)[/yellow]"

@@ -3,6 +3,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -111,3 +112,72 @@ def test_checks_cli_inline_check(mock_create_toolcalling_llm):
 
     # Verify LLM was called
     mock_ai.call.assert_called_once()
+
+
+
+@pytest.mark.parametrize(
+    ("destination_url", "cli_url", "env_url", "expected_url"),
+    [
+        (None, "https://global.example.test", None, "https://global.example.test"),
+        (
+            None,
+            "https://global.example.test",
+            "https://env.example.test",
+            "https://global.example.test",
+        ),
+        (
+            "https://check.example.test",
+            "https://global.example.test",
+            "https://env.example.test",
+            "https://check.example.test",
+        ),
+        (None, None, "https://env.example.test", "https://env.example.test"),
+    ],
+)
+def test_checks_cli_resolves_webhook_url(
+    tmp_path, monkeypatch, destination_url, cli_url, env_url, expected_url
+):
+    if env_url:
+        monkeypatch.setenv("WEBHOOK_URL", env_url)
+    else:
+        monkeypatch.delenv("WEBHOOK_URL", raising=False)
+
+    checks_file = tmp_path / "checks.yaml"
+    checks_file.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "destinations": {
+                    "webhook": {"webhook_url": destination_url} if destination_url else {}
+                },
+                "checks": [
+                    {
+                        "name": "pods-healthy",
+                        "query": "Are all pods healthy?",
+                        "destinations": ["webhook"],
+                    }
+                ],
+            }
+        )
+    )
+    args = ["checks", "run", "--checks-file", str(checks_file), "--mode", "alert"]
+    if cli_url:
+        args.extend(["--webhook-url", cli_url])
+
+    mock_ai = MagicMock()
+    mock_ai.llm.model = "gpt-4"
+    mock_ai.call.return_value = LLMResult(
+        result=json.dumps({"passed": False, "rationale": "Some pods failed"}),
+        tool_calls=[],
+    )
+    with (
+        patch("holmes.config.Config.create_toolcalling_llm", return_value=mock_ai),
+        patch("holmes.checks.checks.WebhookDestination") as webhook,
+    ):
+        result = runner.invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    assert "FAIL" in result.output
+    webhook.assert_called_once()
+    assert webhook.call_args.kwargs["webhook_url"] == expected_url
+    webhook.return_value.send_issue.assert_called_once()
