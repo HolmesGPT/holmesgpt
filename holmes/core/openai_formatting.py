@@ -1,6 +1,6 @@
 import copy
 import re
-from typing import Any, Optional
+from typing import Any
 
 from holmes.common.env_vars import (
     STRICT_TOOL_CALLS_ENABLED,
@@ -69,12 +69,33 @@ def _is_tool_strict_compatible(tool_parameters: dict) -> bool:
 
 
 def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
+    schema = _build_parameter_schema(param_attributes, strict_mode)
+    description = getattr(param_attributes, "description", None)
+    if description is not None:
+        schema["description"] = description
+
+    return schema
+
+
+def _build_parameter_schema(param_attributes: Any, strict_mode: bool) -> dict[str, Any]:
+    enum = getattr(param_attributes, "enum", None)
+    strict_optional = strict_mode and not param_attributes.required
+
     # Handle union types (anyOf with multiple non-null branches) first.
     if hasattr(param_attributes, "any_of") and param_attributes.any_of:
-        branches = [type_to_open_ai_schema(branch, strict_mode) for branch in param_attributes.any_of]
+        branches = [
+            type_to_open_ai_schema(branch, strict_mode)
+            for branch in param_attributes.any_of
+        ]
         if not param_attributes.required:
             branches.append({"type": "null"})
-        return {"anyOf": branches}
+        schema: dict[str, Any] = {"anyOf": branches}
+        if enum:
+            enum_values = list(enum)
+            if strict_optional and None not in enum_values:
+                enum_values.append(None)
+            schema["enum"] = enum_values
+        return schema
 
     # Normalize schema types: MCP servers may emit nullable lists (e.g., ["string", "null"])
     # per JSON Schema spec, while OpenAI expects a primary type with explicit nullability via anyOf.
@@ -88,7 +109,7 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
     else:
         param_type = raw_type.strip()
 
-    type_obj: Optional[dict[str, Any]] = None
+    type_obj: dict[str, Any]
 
     if param_type == "object":
         type_obj = {"type": "object"}
@@ -138,16 +159,29 @@ def type_to_open_ai_schema(param_attributes: Any, strict_mode: bool) -> dict[str
 
     # Merge passthrough JSON Schema keywords (minItems, maxItems, minimum, etc.)
     # so the LLM sees validation constraints from the source schema.
-    if type_obj and hasattr(param_attributes, "json_schema_extra") and param_attributes.json_schema_extra:
-        type_obj.update(param_attributes.json_schema_extra)
+    extra = getattr(param_attributes, "json_schema_extra", None)
+    if extra:
+        type_obj.update(extra)
 
-    # Add nullability using anyOf per the OpenAI Structured Outputs spec when strict mode
-    # requires optional params to accept null, or when the source schema explicitly marks
-    # the field as nullable (e.g., MCP ["string", "null"]).
-    if type_obj and (is_nullable_from_schema or (strict_mode and not param_attributes.required)):
-        type_obj = {"anyOf": [type_obj, {"type": "null"}]}
+    if not (is_nullable_from_schema or strict_optional):
+        if enum:
+            type_obj["enum"] = list(enum)
+        return type_obj
 
-    return type_obj
+    null_schema: dict[str, Any] = {"type": "null"}
+    if enum:
+        # Vertex's nullable conversion reads the enum from the typed branch.
+        non_null_enum = [value for value in enum if value is not None]
+        if not non_null_enum:
+            if "default" in type_obj:
+                null_schema["default"] = type_obj["default"]
+            return null_schema
+        type_obj["enum"] = non_null_enum
+        # A source enum can disallow null even when its type includes null.
+        if not strict_optional and None not in enum:
+            return type_obj
+
+    return {"anyOf": [type_obj, null_schema]}
 
 
 def format_tool_to_open_ai_standard(
@@ -159,27 +193,10 @@ def format_tool_to_open_ai_standard(
     # additionalProperties: false on all objects in strict mode.
     strict_mode = STRICT_TOOL_CALLS_ENABLED and _is_tool_strict_compatible(tool_parameters)
 
-    tool_properties = {}
-
-    for param_name, param_attributes in tool_parameters.items():
-        tool_properties[param_name] = type_to_open_ai_schema(
-            param_attributes=param_attributes, strict_mode=strict_mode
-        )
-        if param_attributes.description is not None:
-            tool_properties[param_name]["description"] = param_attributes.description
-        # Add enum constraint if specified
-        if hasattr(param_attributes, "enum") and param_attributes.enum:
-            enum_values = list(
-                param_attributes.enum
-            )  # Create a copy to avoid modifying original
-            # In strict mode, optional parameters need None in their enum to match the type allowing null
-            if (
-                strict_mode
-                and not param_attributes.required
-                and None not in enum_values
-            ):
-                enum_values.append(None)
-            tool_properties[param_name]["enum"] = enum_values
+    tool_properties = {
+        param_name: type_to_open_ai_schema(param_attributes, strict_mode)
+        for param_name, param_attributes in tool_parameters.items()
+    }
 
     result: dict[str, Any] = {
         "type": "function",
