@@ -1,10 +1,13 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timezone, tzinfo
 from typing import Dict
 
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.base import BaseTrigger
+from apscheduler.triggers.combining import OrTrigger
 from apscheduler.triggers.cron import CronTrigger
 from kubernetes import client
 
@@ -12,6 +15,63 @@ from holmes_operator.models import ScheduledHealthCheckSpec
 from holmes_operator.scheduler.job_executor import execute_scheduled_check
 
 logger = logging.getLogger(__name__)
+
+_CRON_WEEKDAYS = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")
+_NUMERIC_WEEKDAY = re.compile(r"(\*|\d+(?:-\d+)?)(?:/(\d+))?")
+
+
+def _normalize_cron_weekdays(weekday_field: str) -> str:
+    weekdays = []
+    last_weekday = len(_CRON_WEEKDAYS) - 1
+    for selector in weekday_field.split(","):
+        match = _NUMERIC_WEEKDAY.fullmatch(selector)
+        if match is None or selector == "*":
+            weekdays.append(selector)
+            continue
+
+        bounds, step_text = match.groups()
+        if bounds == "*":
+            first, last = 0, last_weekday
+        else:
+            start, _, end = bounds.partition("-")
+            first = int(start)
+            last = int(end) if end else (last_weekday if step_text else first)
+
+        if not 0 <= first <= last <= last_weekday:
+            raise ValueError(f"Invalid weekday range '{bounds}' (expected 0–6)")
+        step = int(step_text) if step_text else 1
+        if step_text and not 0 < step <= last - first:
+            raise ValueError(f"Invalid weekday step in '{selector}'")
+
+        # Apply steps in Sunday-first order before translating to APScheduler's weekdays.
+        weekdays.extend(_CRON_WEEKDAYS[day] for day in range(first, last + 1, step))
+
+    return ",".join(weekdays)
+
+
+def _build_cron_trigger(cron_expr: str, tz: tzinfo) -> BaseTrigger:
+    fields = cron_expr.split()
+    if len(fields) != 5:
+        raise ValueError(f"Wrong number of fields; got {len(fields)}, expected 5")
+
+    minute, hour, day, month, weekday = fields
+    normalized_weekday = _normalize_cron_weekdays(weekday)
+    trigger = CronTrigger.from_crontab(
+        f"{minute} {hour} {day} {month} {normalized_weekday}", timezone=tz
+    )
+    # Standard crontab requires both day fields when either starts with *,
+    # including stepped wildcards. Check the raw weekday before normalization.
+    if day.startswith("*") or weekday.startswith("*"):
+        return trigger
+
+    return OrTrigger(
+        [
+            CronTrigger.from_crontab(f"{minute} {hour} {day} {month} *", timezone=tz),
+            CronTrigger.from_crontab(
+                f"{minute} {hour} * {month} {normalized_weekday}", timezone=tz
+            ),
+        ]
+    )
 
 
 class SchedulerManager:
@@ -86,7 +146,7 @@ class SchedulerManager:
         key = f"{namespace}/{name}"
 
         try:
-            trigger = CronTrigger.from_crontab(cron_expr)
+            trigger = _build_cron_trigger(cron_expr, self.scheduler.timezone)
         except Exception as e:
             logger.error(f"Invalid cron expression for {key}: {e}")
             raise ValueError(f"Invalid cron expression '{cron_expr}': {e}") from e
