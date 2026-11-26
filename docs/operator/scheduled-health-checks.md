@@ -88,6 +88,12 @@ Cron expressions use five fields:
 * * * * *
 ```
 
+When both day fields start with a number or name, a date matches if either field
+matches. For example, `0 9 1 * 1` runs at 09:00 UTC on the first day of each month
+and every Monday. If both fields match the same date, the check runs once. When
+either day field starts with `*`, including a step such as `*/2`, both fields
+must match.
+
 !!! tip "Testing Schedules"
 
     Use [crontab.guru](https://crontab.guru) to validate and understand cron expressions.
