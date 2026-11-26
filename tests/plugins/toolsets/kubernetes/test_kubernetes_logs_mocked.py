@@ -1,9 +1,31 @@
+import json
 import unittest
+from subprocess import CompletedProcess
 from unittest.mock import MagicMock, patch
 
 from holmes.core.tools import StructuredToolResultStatus
 from holmes.plugins.toolsets.kubernetes_logs import KubernetesLogsToolset
 from holmes.plugins.toolsets.logging_utils.logging_api import FetchPodLogsParams
+
+
+def pod_spec(cmd, containers, *, init=(), ephemeral=()):
+    return CompletedProcess(
+        cmd,
+        0,
+        json.dumps(
+            {
+                "spec": {
+                    field: [{"name": name} for name in names]
+                    for field, names in (
+                        ("containers", containers),
+                        ("initContainers", init),
+                        ("ephemeralContainers", ephemeral),
+                    )
+                }
+            }
+        ),
+        "",
+    )
 
 
 def mock_subprocess_run(cmd, **kwargs):
@@ -17,6 +39,16 @@ def mock_subprocess_run(cmd, **kwargs):
         result.stdout = "Client Version: v1.27.0"
         result.stderr = ""
         return result
+
+    if cmd[:3] == ["kubectl", "get", "pod"]:
+        if cmd[3] == "nonexistent-pod":
+            return CompletedProcess(cmd, 1, "", 'pods "nonexistent-pod" not found')
+        containers = (
+            ["container1", "container2"]
+            if cmd[3] == "multi-container-pod"
+            else ["my-container"]
+        )
+        return pod_spec(cmd, containers)
 
     if cmd[0] == "kubectl" and cmd[1] == "logs":
         pod_name = cmd[2]
@@ -68,15 +100,22 @@ def mock_subprocess_run(cmd, **kwargs):
                 )
         elif namespace == "default" and pod_name == "nonexistent-pod":
             result.returncode = 1
-            result.stdout = (
+            result.stdout = ""
+            result.stderr = (
                 'Error from server (NotFound): pods "nonexistent-pod" not found'
             )
-            result.stderr = None
         else:
             raise Exception(
                 f"Unexpected mock call: pod={pod_name}, namespace={namespace}"
             )
 
+        if previous:
+            container = cmd[cmd.index("-c") + 1]
+            result.stdout = "".join(
+                line
+                for line in result.stdout.splitlines(keepends=True)
+                if line.startswith(f"[{pod_name}/{container}]")
+            )
         return result
 
     raise Exception(f"Unexpected command: {' '.join(cmd)}")
@@ -161,6 +200,123 @@ class TestKubernetesLogsToolset(unittest.TestCase):
         assert "LOG QUERY METADATA" in result.data
         assert "Total logs found before filtering: 12" in result.data
         assert "Container(s): Multiple containers" in result.data
+
+    def test_previous_logs_survive_a_container_without_previous_logs(self):
+        missing_previous = (
+            'previous terminated container "sidecar" in pod "test-pod" not found'
+        )
+        previous_log = "[test-pod/app] 2023-05-01T12:00:01Z startup failed\n"
+        current_logs = (
+            "[test-pod/app] 2023-05-01T12:00:02Z restarted\n"
+            "[test-pod/sidecar] 2023-05-01T12:00:03Z running\n"
+        )
+
+        def kubectl(cmd, **kwargs):
+            if cmd[:3] == ["kubectl", "get", "pod"]:
+                return pod_spec(cmd, ["app", "sidecar"])
+            if "--previous" not in cmd:
+                return CompletedProcess(cmd, 0, current_logs, "")
+            if cmd[cmd.index("-c") + 1] == "app":
+                return CompletedProcess(cmd, 0, previous_log, "")
+            return CompletedProcess(
+                cmd, 1, "", f"Error from server (BadRequest): {missing_previous}\n"
+            )
+
+        self.mock_subprocess.side_effect = kubectl
+        result = self.toolset.fetch_pod_logs(
+            FetchPodLogsParams(namespace="default", pod_name="test-pod")
+        )
+
+        self.assertEqual(result.status, StructuredToolResultStatus.SUCCESS)
+        self.assertEqual(result.return_code, 0)
+        self.assertIsNone(result.error)
+        self.assertIn("app: startup failed", result.data)
+        self.assertIn("app: restarted", result.data)
+        self.assertIn("sidecar: running", result.data)
+        self.assertIn("Total logs found before filtering: 3", result.data)
+        self.assertNotIn(missing_previous, result.data)
+
+    def test_unterminated_previous_logs_and_fetch_errors_stay_separate(self):
+        previous_log = "[pod/test-pod/app] 2023-05-01T12:00:01Z startup failed"
+        sidecar_error = "node did not return the sidecar log"
+        current_log = "[pod/test-pod/app] 2023-05-01T12:00:02Z restarted\n"
+
+        def kubectl(cmd, **kwargs):
+            if cmd[:3] == ["kubectl", "get", "pod"]:
+                return pod_spec(
+                    cmd, ["app", "sidecar"], init=["setup"], ephemeral=["debug"]
+                )
+            if "--previous" not in cmd:
+                return CompletedProcess(cmd, 0, current_log, "")
+            if "--all-containers=true" in cmd:
+                return CompletedProcess(
+                    cmd, 0, f"{previous_log}error: {sidecar_error}\n", ""
+                )
+            container = cmd[cmd.index("-c") + 1]
+            if container == "app":
+                return CompletedProcess(cmd, 0, previous_log, "")
+            if container == "sidecar":
+                return CompletedProcess(cmd, 1, "", sidecar_error)
+            if container == "setup":
+                return CompletedProcess(
+                    cmd, 0, "[pod/test-pod/setup] 2023-05-01T12:00:00Z prepared", ""
+                )
+            self.assertEqual(container, "debug")
+            return CompletedProcess(
+                cmd,
+                1,
+                "[pod/test-pod/debug] 2023-05-01T12:00:01Z partial debug logs",
+                "connection closed",
+            )
+
+        self.mock_subprocess.side_effect = kubectl
+        result = self.toolset.fetch_pod_logs(
+            FetchPodLogsParams(namespace="default", pod_name="test-pod")
+        )
+
+        self.assertEqual(result.status, StructuredToolResultStatus.SUCCESS)
+        self.assertIn("app: startup failed\n", result.data)
+        self.assertIn("app: restarted", result.data)
+        self.assertIn("setup: prepared", result.data)
+        self.assertIn("debug: partial debug logs", result.data)
+        self.assertIn(f"sidecar: {sidecar_error}", result.data)
+        self.assertIn("debug: connection closed", result.data)
+        self.assertIn("Total logs found before filtering: 4", result.data)
+
+    def test_empty_logs_distinguish_expected_and_unexpected_errors(self):
+        missing_previous = (
+            'Error from server (BadRequest): previous terminated container "app" '
+            'in pod "test-pod" not found'
+        )
+        warning = "Warning: test API warning\n"
+        denied = "Error from server (Forbidden): access denied"
+        cases = [
+            (missing_previous, StructuredToolResultStatus.NO_DATA),
+            (warning + missing_previous, StructuredToolResultStatus.NO_DATA),
+            (warning + denied, StructuredToolResultStatus.ERROR),
+            (missing_previous + "\n" + denied, StructuredToolResultStatus.ERROR),
+        ]
+        for error, expected_status in cases:
+            with self.subTest(error=error):
+
+                def kubectl(cmd, **kwargs):
+                    if cmd[:3] == ["kubectl", "get", "pod"]:
+                        return pod_spec(cmd, ["app"])
+                    if "--previous" in cmd:
+                        return CompletedProcess(cmd, 1, "", error)
+                    return CompletedProcess(cmd, 0, "", "")
+
+                self.mock_subprocess.side_effect = kubectl
+                result = self.toolset.fetch_pod_logs(
+                    FetchPodLogsParams(namespace="default", pod_name="test-pod")
+                )
+
+                self.assertEqual(result.status, expected_status)
+                if expected_status == StructuredToolResultStatus.ERROR:
+                    self.assertIn(f"Previous logs: app: {error}", result.error)
+                else:
+                    self.assertIsNone(result.error)
+                    self.assertNotIn(error, result.data)
 
     def test_pod_not_found(self):
         """Test error handling when pod is not found"""

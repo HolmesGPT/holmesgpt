@@ -27,7 +27,6 @@ class TestKubernetesLogsMetadata:
             logs.append(f"{timestamp} {content_pattern} {i}")
         return "\n".join(logs)
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_logs_found_and_filtered(self, mock_datetime_module, mock_run):
         """Test: When logs are found and filtered"""
@@ -69,7 +68,6 @@ class TestKubernetesLogsMetadata:
             in result.data
         )
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_hitting_display_limit(self, mock_datetime_module, mock_run):
         """Test: When hitting the display limit"""
@@ -106,7 +104,6 @@ class TestKubernetesLogsMetadata:
         assert "exclude_filter='<pattern1>|<pattern2>|<pattern3>'" in result.data
         assert "filter='<term1>.*<term2>|<exact-phrase>'" in result.data
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_no_logs_match_filter(self, mock_datetime_module, mock_run):
         """Test: When no logs match the filters but logs exist"""
@@ -139,7 +136,6 @@ class TestKubernetesLogsMetadata:
         assert "Remove the filter to see all 1,000 available logs" in result.data
         assert "Your filter may be too specific for the log format used" in result.data
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_no_logs_exist_with_time_range(self, mock_datetime_module, mock_run):
         """Test: When no logs exist at all WITH time range specified"""
@@ -173,7 +169,6 @@ class TestKubernetesLogsMetadata:
         )
         assert "Or expand time range (e.g., last 24 hours)" in result.data
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_no_logs_exist_without_time_range(self, mock_datetime_module, mock_run):
         """Test: When no logs exist at all WITHOUT time range"""
@@ -202,7 +197,6 @@ class TestKubernetesLogsMetadata:
         # Should NOT suggest removing time range
         assert "Remove time range" not in result.data
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_regex_fallback_warnings(self, mock_datetime_module, mock_run):
         """Test: When regex patterns fall back to substring matching"""
@@ -234,7 +228,6 @@ class TestKubernetesLogsMetadata:
             in result.data
         )
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_multi_container_logs(self, mock_datetime_module, mock_run):
         """Test: When pod has multiple containers"""
@@ -266,7 +259,6 @@ class TestKubernetesLogsMetadata:
         assert "Container(s): Multiple containers" in result.data
         assert "Display: Showing all 200 logs" in result.data
 
-    @patch("subprocess.run")
     @patch("holmes.plugins.toolsets.kubernetes_logs.datetime")
     def test_exclude_filter_effectiveness(self, mock_datetime_module, mock_run):
         """Test: When exclude filter removes most logs"""

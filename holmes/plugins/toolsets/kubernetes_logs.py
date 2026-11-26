@@ -1,8 +1,10 @@
+import json
 import logging
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from time import monotonic
 from typing import List, Optional, Tuple
 
 from pydantic import BaseModel
@@ -25,6 +27,12 @@ from holmes.plugins.toolsets.utils import process_timestamps_to_int, to_unix_ms
 # match ISO 8601 format (YYYY-MM-DDTHH:MM:SS[.fffffffff]Z) or (YYYY-MM-DDTHH:MM:SS[.fffffffff]+/-XX:XX)
 timestamp_pattern = re.compile(
     r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))"
+)
+
+# API warnings can precede the expected BadRequest on kubectl's stderr.
+missing_previous_log_pattern = re.compile(
+    r"(?:Warning: [^\n]*\n)*"
+    r'Error from server \(BadRequest\): previous terminated container "[^"]+" in pod "[^"]+" not found'
 )
 
 
@@ -94,10 +102,10 @@ class KubernetesLogsToolset(Toolset):
             # Fetch previous and current logs in parallel
             with ThreadPoolExecutor(max_workers=2) as executor:
                 future_previous = executor.submit(
-                    self._fetch_kubectl_logs, params, previous=True
+                    self._fetch_previous_kubectl_logs, params
                 )
                 future_current = executor.submit(
-                    self._fetch_kubectl_logs, params, previous=False
+                    self._fetch_kubectl_logs, params
                 )
 
                 futures = {future_previous: "previous", future_current: "current"}
@@ -143,17 +151,22 @@ class KubernetesLogsToolset(Toolset):
                 all_logs.extend(current_logs_result.logs)
                 return_code = current_logs_result.return_code
 
-            if (
-                not all_logs
-                and previous_logs_result.error
-                and current_logs_result.error
-            ):
-                # Both commands failed - return error from current logs
+            fetch_errors = []
+            if current_logs_result.error:
+                fetch_errors.append(f"Current logs: {current_logs_result.error}")
+            if previous_logs_result.error:
+                fetch_errors.append(f"Previous logs: {previous_logs_result.error}")
+
+            if not all_logs and fetch_errors:
                 return StructuredToolResult(
                     status=StructuredToolResultStatus.ERROR,
-                    error=current_logs_result.error,
+                    error="\n".join(fetch_errors),
                     params=params.model_dump(),
-                    return_code=return_code,
+                    return_code=(
+                        current_logs_result.return_code
+                        if current_logs_result.error
+                        else previous_logs_result.return_code
+                    ),
                 )
 
             # Track counts for metadata
@@ -190,6 +203,9 @@ class KubernetesLogsToolset(Toolset):
                 has_multiple_containers=has_multiple_containers,
             )
 
+            if fetch_errors:
+                metadata_lines[-1:-1] = ["", "Log retrieval errors:", *fetch_errors]
+
             # Check if we have any logs to return
             if len(filtered_logs) == 0:
                 # Return NO_DATA status when there are no logs
@@ -219,82 +235,126 @@ class KubernetesLogsToolset(Toolset):
                 params=params.model_dump(),
             )
 
+    @staticmethod
+    def _run_kubectl(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            cmd,
+            text=True,
+            timeout=timeout,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def _fetch_previous_kubectl_logs(self, params: FetchPodLogsParams) -> LogResult:
+        deadline = monotonic() + KUBERNETES_LOGS_TIMEOUT_SECONDS
+        cmd = [
+            "kubectl", "get", "pod", params.pod_name, "-n", params.namespace, "-o", "json"
+        ]
+        try:
+            pod = self._run_kubectl(cmd, KUBERNETES_LOGS_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            return LogResult(
+                logs=[],
+                has_multiple_containers=False,
+                return_code=None,
+                error=f"kubectl get pod timed out after {KUBERNETES_LOGS_TIMEOUT_SECONDS} seconds",
+            )
+
+        if pod.returncode:
+            return LogResult(
+                logs=[],
+                has_multiple_containers=False,
+                return_code=pod.returncode,
+                error=pod.stderr.strip()
+                or f"kubectl get pod exited with code {pod.returncode}",
+            )
+
+        spec = json.loads(pod.stdout)["spec"]
+        containers = [
+            container["name"]
+            for field in ("initContainers", "containers", "ephemeralContainers")
+            for container in spec.get(field, [])
+        ]
+
+        # Use separate stdout/stderr for each container. kubectl's all-container
+        # --ignore-errors mode can append a diagnostic to an unterminated log line.
+        def fetch_container(container: str) -> LogResult:
+            return self._fetch_kubectl_logs(
+                params, container=container, deadline=deadline
+            )
+
+        result = LogResult(
+            logs=[], error=None, return_code=0, has_multiple_containers=len(containers) > 1
+        )
+        errors = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            results = executor.map(fetch_container, containers)
+            for container, logs in zip(containers, results):
+                result.logs.extend(logs.logs)
+                if logs.error:
+                    if not errors:
+                        result.return_code = logs.return_code
+                    errors.append(f"{container}: {logs.error}")
+        if errors:
+            result.error = "\n".join(errors)
+        return result
+
     def _fetch_kubectl_logs(
         self,
         params: FetchPodLogsParams,
-        previous: bool = False,
+        container: Optional[str] = None,
+        deadline: Optional[float] = None,
     ) -> LogResult:
-        """Fetch logs using kubectl command"""
         cmd = [
             "kubectl",
             "logs",
             params.pod_name,
             "-n",
             params.namespace,
-            "--all-containers=true",
             "--timestamps=true",
             "--prefix=true",
         ]
+        if container is None:
+            cmd.append("--all-containers=true")
+        else:
+            cmd.extend(["--previous", "-c", container])
 
-        if previous:
-            cmd.append("--previous")
-
+        timeout = (
+            KUBERNETES_LOGS_TIMEOUT_SECONDS if deadline is None else deadline - monotonic()
+        )
         try:
-            result = subprocess.run(
-                cmd,
-                text=True,
-                timeout=KUBERNETES_LOGS_TIMEOUT_SECONDS,
-                check=False,  # do not throw error, we just return the error code
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-            )
-
-            if result.returncode == 0:
-                # Parse the logs - kubectl with --all-containers prefixes lines with container name
-                log_result = self._parse_kubectl_logs(logs=result.stdout)
-                log_result.return_code = result.returncode
-                return log_result
-            else:
-                error_msg = (
-                    result.stdout.strip()
-                    or f"kubectl logs command failed with return code {result.returncode}"
-                )
-                logging.debug(
-                    f"kubectl logs command failed for pod {params.pod_name} "
-                    f"(previous={previous}): {error_msg}"
-                )
-                return LogResult(
-                    logs=[],
-                    error=error_msg,
-                    return_code=result.returncode,
-                    has_multiple_containers=False,
-                )
-
-        except subprocess.TimeoutExpired:
-            error_msg = f"kubectl logs command timed out after {KUBERNETES_LOGS_TIMEOUT_SECONDS} seconds"
-            logging.warning(
-                f"kubectl logs command timed out for pod {params.pod_name} "
-                f"(previous={previous})"
-            )
-            return LogResult(
-                logs=[],
-                error=error_msg,
-                return_code=None,
-                has_multiple_containers=False,
-            )
+            if timeout <= 0:
+                raise subprocess.TimeoutExpired(cmd, timeout)
+            result = self._run_kubectl(cmd, timeout)
+        except subprocess.TimeoutExpired as e:
+            # TimeoutExpired carries bytes even with text=True.
+            stdout = (e.stdout or b"").decode(errors="replace") if container else ""
+            logs = self._parse_kubectl_logs(stdout)
+            logs.error = f"kubectl logs command timed out after {KUBERNETES_LOGS_TIMEOUT_SECONDS} seconds"
+            return logs
         except Exception as e:
-            error_msg = f"Error executing kubectl: {str(e)}"
-            logging.error(
-                f"Error executing kubectl logs for pod {params.pod_name} "
-                f"(previous={previous}): {str(e)}"
-            )
             return LogResult(
                 logs=[],
-                error=error_msg,
+                error=f"Error executing kubectl: {e}",
                 return_code=None,
                 has_multiple_containers=False,
             )
+
+        logs = self._parse_kubectl_logs(
+            result.stdout if container is not None or result.returncode == 0 else ""
+        )
+        logs.return_code = result.returncode
+        if result.returncode:
+            error = result.stderr.strip()
+            if container is not None and missing_previous_log_pattern.fullmatch(error):
+                logs.return_code = 0
+            else:
+                logs.error = error or (
+                    f"kubectl logs command failed with return code {result.returncode}"
+                )
+        return logs
 
     def _parse_kubectl_logs(self, logs: str) -> LogResult:
         """Parse kubectl logs output with container prefixes"""
