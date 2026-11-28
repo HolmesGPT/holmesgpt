@@ -119,13 +119,17 @@ podSecurityContext: {}
   #   type: RuntimeDefault
 
 # Container-level security context for the Holmes container
-# Applied to containers[].securityContext in the Deployment
+# Applied to containers[].securityContext in the Deployment, and to the
+# k8s-mcp-binary init container when the Kubernetes MCP add-on runs in the Holmes pod.
 # Note: readOnlyRootFilesystem is always true (required for Holmes operation)
-containerSecurityContext: {}
-  # allowPrivilegeEscalation: false
-  # capabilities:
-  #   drop:
-  #     - ALL
+# Your values are merged into these defaults; set a field to null to remove it.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 serviceAccount:
   imagePullSecrets: []

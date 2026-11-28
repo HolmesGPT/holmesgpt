@@ -145,7 +145,12 @@ def test_kubeconfig_runs_the_server_inside_the_holmes_pod(tmp_path):
     [init] = pod["initContainers"]
     assert init["image"] == "us-central1-docker.pkg.dev/genuine-flight-317411/mcp/kubernetes-mcp-server:v0.0.61-oauth-cve2"
     assert init["command"] == ["cp", "/app/kubernetes-mcp-server", "/opt/k8s-mcp/kubernetes-mcp-server"]
-    assert init["securityContext"] == {"readOnlyRootFilesystem": True}
+    assert init["securityContext"] == {
+        "readOnlyRootFilesystem": True,
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
     holmes = pod["containers"][0]
     mounts = {m["mountPath"]: m["name"] for m in holmes["volumeMounts"]}
     volumes = {v["name"]: v for v in pod["volumes"]}
@@ -259,7 +264,14 @@ def test_kubeconfig_init_container_keeps_a_read_only_root_filesystem():
         "--set-json", 'containerSecurityContext={"runAsNonRoot":true,"runAsUser":1000,"readOnlyRootFilesystem":false}',
     )
     [init] = _holmes_pod(docs)["initContainers"]
-    assert init["securityContext"] == {"runAsNonRoot": True, "runAsUser": 1000, "readOnlyRootFilesystem": True}
+    assert init["securityContext"] == {
+        "runAsNonRoot": True,
+        "runAsUser": 1000,
+        "readOnlyRootFilesystem": True,
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
 
 
 def test_without_kubeconfig_holmes_keeps_its_config_dir():
